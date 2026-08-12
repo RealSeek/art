@@ -7,3 +7,4 @@ dist-ssr
 
 # Auto-generated type declarations are committed because they are required by
 # strict type-checking in clean clones and CI.
+.auto-import.json
