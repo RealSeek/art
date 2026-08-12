@@ -159,7 +159,7 @@
           <div class="creation-prompt-row">
             <textarea ref="generationInput" v-model="generationPrompt" rows="2" :placeholder="activeMode === 'images' ? '描述你想要的图片' : activeMode === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'" @input="resizeGenerationInput" />
           </div>
-          <div v-if="activeMode !== 'videos' && (creationAttachments.length || maskAttachment)" class="creation-attachments" aria-label="参考图片">
+          <div v-if="creationAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
             <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
               <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
               <div v-else class="attachment-file-copy">
@@ -176,7 +176,7 @@
           </div>
           <div class="creation-controls">
             <div class="creation-control-track">
-              <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考文件" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
+              <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
                 <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>
@@ -901,7 +901,7 @@ async function submitMessage() {
     resizeComposer()
   }
 }
-function openFilePicker(purpose: FilePurpose) { if (!requireAuth(activeMode.value === 'assets' ? '/files' : activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'images' ? '/image' : '/chat')) return; filePurpose.value = purpose; attachmentOpen.value = false; newMenuOpen.value = false; if (fileInput.value) { fileInput.value.value = ''; fileInput.value.click() } }
+function openFilePicker(purpose: FilePurpose) { if (!requireAuth(activeMode.value === 'assets' ? '/files' : activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'images' ? '/image' : activeMode.value === 'videos' ? '/video' : '/chat')) return; filePurpose.value = purpose; attachmentOpen.value = false; newMenuOpen.value = false; if (fileInput.value) { fileInput.value.value = ''; fileInput.value.click() } }
 async function handleFiles(event: Event) {
   const files = Array.from((event.target as HTMLInputElement).files || [])
   if (!files.length) return
