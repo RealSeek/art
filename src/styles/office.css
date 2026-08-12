@@ -115,6 +115,12 @@
 .office-agent-events li > div { display: grid; }
 .office-agent-events strong { font-size: 11px; font-weight: 570; }
 .office-agent-events small { color: var(--studio-muted); font-size: 10px; line-height: 1.5; margin-top: 2px; }
+.office-agent-sources { margin: 0 0 22px; max-width: 680px; }
+.office-agent-sources > header { align-items: center; color: var(--studio-muted); display: flex; gap: 7px; margin-bottom: 7px; }
+.office-agent-sources header strong { color: var(--studio-text); font-size: 11px; } .office-agent-sources header small { font-size: 10px; }
+.office-agent-sources > div { display: grid; gap: 2px; }
+.office-agent-sources a { align-items: center; border-radius: 6px; color: var(--studio-muted); display: grid; font-size: 11px; gap: 8px; grid-template-columns: 22px minmax(0, 1fr) 16px; min-height: 34px; padding: 3px 7px; text-decoration: none; }
+.office-agent-sources a:hover { background: var(--studio-control); color: var(--studio-text); } .office-agent-sources a > span { align-items: center; background: var(--studio-control); border-radius: 50%; display: flex; font-size: 9px; height: 20px; justify-content: center; width: 20px; } .office-agent-sources a strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-deliverable { align-items: center; background: var(--studio-panel-soft); border: 1px solid var(--studio-border); border-radius: 8px; display: grid; gap: 11px; grid-template-columns: 36px minmax(0, 1fr) auto; margin-top: 22px; max-width: 520px; min-height: 62px; padding: 9px 10px; }
 .office-deliverable > span { align-items: center; background: var(--studio-control); border-radius: 6px; color: var(--office-blue); display: flex; height: 36px; justify-content: center; width: 36px; }
 .office-deliverable > div { display: grid; min-width: 0; }
@@ -136,6 +142,7 @@
 .office-composer > footer button:disabled { cursor: not-allowed; }
 .office-composer .office-mode-button, .office-composer .office-model-button, .office-composer .office-skill-button { color: var(--studio-muted); font-size: 12px; max-width: 180px; }
 .office-composer .office-skill-button.active { background: var(--studio-control); color: var(--studio-text); }
+.office-composer .office-web-button { color: var(--studio-muted); font-size: 12px; } .office-composer .office-web-button.active { background: rgba(79, 140, 255, .12); color: var(--office-blue); }
 .office-composer .office-submit { background: var(--studio-inverse-bg); border-radius: 50%; color: var(--studio-inverse-text); height: 34px; padding: 0; width: 34px; }
 .office-composer .office-submit:hover { background: #fff; }
 .office-composer .office-submit:disabled { opacity: .35; }

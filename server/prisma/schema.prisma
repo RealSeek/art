@@ -203,6 +203,14 @@ enum PluginCapability {
   OFFICE
 }
 
+enum WebSearchProviderType {
+  TAVILY
+  SERPER
+  BRAVE
+  EXA
+  CUSTOM
+}
+
 model User {
   id                  String                 @id @default(cuid())
   email               String?                @unique
@@ -728,6 +736,34 @@ model ToolDefinition {
   calls            ToolCallAudit[]
   approvalRequests ToolApprovalRequest[]
   agentToolCalls    AgentToolCall[]
+}
+
+model WebSearchChannel {
+  id                  String                @id @default(cuid())
+  name                String
+  type                WebSearchProviderType
+  endpoint            String
+  encryptedApiKey     String                @default("") @db.Text
+  apiKeyHint          String                @default("")
+  enabled             Boolean               @default(false)
+  priority            Int                   @default(0)
+  timeoutMs           Int                   @default(30000)
+  maxResults          Int                   @default(8)
+  config              Json?
+  lastHealthStatus    String?
+  lastHealthMessage   String                @default("")
+  lastHealthAt        DateTime?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  consecutiveFailures Int                   @default(0)
+  cooldownUntil       DateTime?
+  totalRequests       Int                   @default(0)
+  totalFailures       Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([enabled, priority, createdAt])
+  @@index([enabled, cooldownUntil])
 }
 
 model AssistantTool {
@@ -1336,6 +1372,7 @@ model AgentTask {
   skillId         String          @default("daily")
   pluginId        String?
   attachmentIds   Json?
+  webSearchEnabled Boolean        @default(true)
   sourceTaskId    String?
   scheduleId      String?
   scheduledFor    DateTime?
@@ -1378,6 +1415,7 @@ model AgentSchedule {
   projectId       String?
   pluginId        String?
   attachmentIds   Json?
+  webSearchEnabled Boolean   @default(true)
   cronExpression  String
   timezone        String    @default("Asia/Shanghai")
   enabled         Boolean   @default(true)

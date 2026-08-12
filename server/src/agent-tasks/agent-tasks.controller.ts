@@ -16,6 +16,7 @@ class CreateAgentTaskDto {
   @IsOptional() @IsString() @MaxLength(100) projectId?: string
   @IsOptional() @IsString() @MaxLength(100) pluginId?: string
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) attachmentIds?: string[]
+  @IsOptional() @IsBoolean() webSearchEnabled?: boolean
 }
 
 class ReviewAgentToolCallDto { @IsIn(['APPROVED', 'REJECTED']) decision!: 'APPROVED' | 'REJECTED' }
@@ -29,6 +30,7 @@ class UpdateAgentTaskDto {
   @IsOptional() @IsString() @MaxLength(100) projectId?: string
   @IsOptional() @IsString() @MaxLength(100) pluginId?: string
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) attachmentIds?: string[]
+  @IsOptional() @IsBoolean() webSearchEnabled?: boolean
 }
 class AgentScheduleDto extends CreateAgentTaskDto {
   @IsString() @Matches(/^\s*\S+(\s+\S+){4,6}\s*$/) @MaxLength(100) cronExpression!: string

@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
+import { WebSearchService } from './web-search.service'
 
 export type AgentToolDescriptor = {
   id?: string
@@ -13,11 +13,11 @@ export type AgentToolDescriptor = {
   kind: 'builtin' | 'external'
 }
 
-type ToolExecutionTask = { id: string; userId: string; assistantId: string | null; projectId: string | null }
+type ToolExecutionTask = { id: string; userId: string; assistantId: string | null; projectId: string | null; webSearchEnabled: boolean }
 
 @Injectable()
 export class AgentToolsService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly web: WebSearchService) {}
 
   async available(task: ToolExecutionTask): Promise<AgentToolDescriptor[]> {
     const tools: AgentToolDescriptor[] = [
@@ -27,11 +27,7 @@ export class AgentToolsService {
       { key: 'data_summary', name: '数据汇总', description: '对输入的数字数组或表格行执行计数、合计、均值、最小值和最大值计算', requiresApproval: false, kind: 'builtin' },
       { key: 'current_time', name: '日期与时间', description: '获取当前服务器日期、时间和时区', requiresApproval: false, kind: 'builtin' },
     ]
-    const searchEndpoint = this.config.get<string>('WEB_SEARCH_ENDPOINT') || ''
-    const searchApiKey = this.config.get<string>('WEB_SEARCH_API_KEY') || ''
-    if (searchApiKey || searchEndpoint && !searchEndpoint.includes('api.tavily.com')) {
-      tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回标题、链接和摘要，适合需要最新外部资料的任务', requiresApproval: false, kind: 'builtin' })
-    }
+    if (task.webSearchEnabled && await this.web.isAvailable()) tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回可引用的标题、链接、摘要和来源，适合最新信息、事实核验与调研任务', requiresApproval: false, kind: 'builtin' })
     if (!task.assistantId) return tools
     const bindings = await this.prisma.assistantTool.findMany({
       where: { assistantId: task.assistantId, tool: { enabled: true } },
@@ -42,7 +38,7 @@ export class AgentToolsService {
 
   async execute(task: ToolExecutionTask, tool: AgentToolDescriptor, input: Record<string, unknown>, executionKey?: string) {
     if (tool.key === 'knowledge_search') return this.knowledgeSearch(task, String(input.query || input.q || ''))
-    if (tool.key === 'web_search') return this.webSearch(String(input.query || input.q || ''))
+    if (tool.key === 'web_search') return this.web.search({ query: String(input.query || input.q || ''), maxResults: Number(input.maxResults || input.max_results) || undefined, topic: String(input.topic || ''), includeDomains: this.stringArray(input.includeDomains || input.include_domains), excludeDomains: this.stringArray(input.excludeDomains || input.exclude_domains) })
     if (tool.key === 'project_context') return this.projectContext(task)
     if (tool.key === 'file_catalog') return this.fileCatalog(task, input)
     if (tool.key === 'data_summary') return this.dataSummary(input)
@@ -165,29 +161,6 @@ export class AgentToolsService {
     return { count: values.length, sum, average: sum / values.length, median, min: sorted[0], max: sorted[sorted.length - 1] }
   }
 
-  private async webSearch(query: string) {
-    if (!query.trim()) return { results: [], message: '搜索词为空' }
-    const endpoint = this.config.get<string>('WEB_SEARCH_ENDPOINT') || 'https://api.tavily.com/search'
-    const apiKey = this.config.get<string>('WEB_SEARCH_API_KEY') || ''
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-      body: JSON.stringify({ query, max_results: 8, search_depth: 'advanced', include_answer: true, ...(apiKey ? { api_key: apiKey } : {}) }),
-      signal: AbortSignal.timeout(30_000),
-    })
-    if (!response.ok) throw new Error(`网页搜索服务返回 ${response.status}`)
-    const payload = await response.json() as Record<string, unknown>
-    const raw = Array.isArray(payload.results) ? payload.results : Array.isArray(payload.data) ? payload.data : []
-    return {
-      query,
-      answer: typeof payload.answer === 'string' ? payload.answer : undefined,
-      results: raw.slice(0, 8).map((item) => {
-        const row = item && typeof item === 'object' ? item as Record<string, unknown> : {}
-        return { title: String(row.title || ''), url: String(row.url || row.link || ''), content: String(row.content || row.snippet || row.description || '').slice(0, 3000) }
-      }),
-    }
-  }
-
   json(value: unknown): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
   }
@@ -196,6 +169,8 @@ export class AgentToolsService {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
     return Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string')) as Record<string, string>
   }
+
+  private stringArray(value: unknown): string[] | undefined { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 20) : undefined }
 
   private validateInput(input: Record<string, unknown>, schema: Prisma.JsonValue | null) {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return

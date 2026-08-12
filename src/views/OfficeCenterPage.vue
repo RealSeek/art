@@ -83,6 +83,7 @@
             <summary>执行记录 · {{ agentEvents.length }}</summary>
             <ol><li v-for="event in agentEvents" :key="event.id"><span /><div><strong>{{ event.title }}</strong><small v-if="event.detail">{{ event.detail }}</small></div></li></ol>
           </details>
+          <section v-if="agentSources.length" class="office-agent-sources"><header><Globe2 :size="15" /><strong>参考来源</strong><small>{{ agentSources.length }}</small></header><div><a v-for="(source, index) in agentSources" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer"><span>{{ index + 1 }}</span><strong>{{ source.title || source.url }}</strong><ExternalLink :size="13" /></a></div></section>
           <ChatMessageContent v-if="answer" :content="answer" />
           <div v-else class="office-thinking"><LoaderCircle :size="18" /><span>{{ taskMode === 'agent' ? '正在自主规划并执行任务' : '正在整理任务并生成结果' }}</span></div>
           <div v-if="answer && (exporting || deliverable)" class="office-deliverable">
@@ -134,6 +135,7 @@
               <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
             </div>
             <button class="office-skill-button" :class="{ active: skillPanelOpen }" type="button" :aria-expanded="skillPanelOpen" @click="toggleSkillPanel"><Layers3 :size="16" />{{ selectedSkill.name }}<ChevronDown :size="13" /></button>
+            <button v-if="taskMode === 'agent'" class="office-web-button" :class="{ active: webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" title="联网搜索" @click="webSearchEnabled = !webSearchEnabled"><Globe2 :size="16" />联网</button>
             <PluginSelector v-if="auth.isAuthenticated" v-model="pluginId" capability="OFFICE" compact />
           </div>
           <button class="office-submit" :type="generating ? 'button' : 'submit'" :disabled="canceling || (!generating && (!prompt.trim() || (auth.isAuthenticated && !model)))" :aria-label="generating ? '停止生成' : '提交任务'" @click="generating && cancelTask()"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><ArrowUp v-else :size="19" /></button>
@@ -152,7 +154,7 @@ import {
   ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
   PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
-  Archive, ArchiveRestore, CalendarClock, CalendarPlus, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
+  Archive, ArchiveRestore, CalendarClock, CalendarPlus, ExternalLink, Globe2, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
   type LucideIcon,
 } from 'lucide-vue-next'
 import ChatMessageContent from '../components/ChatMessageContent.vue'
@@ -174,9 +176,10 @@ type OfficeDeliverable = { id: string; name: string; mimeType: string; size: num
 type AgentTaskStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 type AgentTaskStep = { id: string; position: number; title: string; detail: string; status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' }
 type AgentToolCall = { id: string; key: string; name: string; input: Record<string, unknown>; status: string; approvalStatus: string; requiresApproval: boolean; iteration: number }
-type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string }
+type AgentSource = { title: string; url: string }
+type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string; payload?: { sources?: AgentSource[] } | null }
 type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
-type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
+type AgentTask = { id: string; title: string; goal: string; skillId: string; webSearchEnabled: boolean; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
 type AgentSchedule = { id: string; title: string; goal: string; cronExpression: string; timezone: string; enabled: boolean; nextRunAt?: string | null }
 
 const builtInSkills: OfficeSkill[] = [
@@ -226,6 +229,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const taskInput = ref<HTMLTextAreaElement | null>(null)
 const resultThread = ref<HTMLElement | null>(null)
 const taskMode = ref<TaskMode>('fast')
+const webSearchEnabled = ref(true)
 const selectedSkill = ref<OfficeSkill>(builtInSkills[0])
 const skillPanelOpen = ref(false)
 const modeMenuOpen = ref(false)
@@ -252,6 +256,13 @@ const deliverableFormat = computed(() => deliverable.value?.name.split('.').pop(
 const deliverableIcon = computed(() => deliverable.value?.name.toLowerCase().endsWith('.pptx') ? Presentation : deliverable.value?.name.toLowerCase().endsWith('.xlsx') ? FileSpreadsheet : FileText)
 const pendingToolCalls = computed(() => activeAgentTask.value?.agentRun?.toolCalls.filter((call) => call.requiresApproval && call.approvalStatus === 'PENDING') || [])
 const agentEvents = computed(() => [...(activeAgentTask.value?.agentRun?.events || [])].reverse())
+const agentSources = computed(() => {
+  const sources = (activeAgentTask.value?.agentRun?.events || []).flatMap((event) => Array.isArray(event.payload?.sources) ? event.payload.sources : [])
+  const safeSources = sources.filter((source) => {
+    try { return ['http:', 'https:'].includes(new URL(source?.url || '').protocol) } catch { return false }
+  })
+  return [...new Map(safeSources.map((source) => [source.url, source])).values()].slice(0, 20)
+})
 
 function selectSkill(skill: OfficeSkill) {
   const wasGeneratedPrefix = allSkills.value.some((item) => prompt.value.trim() === `${item.name}：` || prompt.value.trim() === `${item.name}:`)
@@ -333,6 +344,7 @@ async function submitTask() {
           assistantId: selectedSkill.value.assistantId,
           pluginId: pluginId.value || undefined,
           attachmentIds: attachments.value.map((asset) => asset.id),
+          webSearchEnabled: webSearchEnabled.value,
         }),
       })
       activeAgentTaskId.value = created.id
@@ -386,7 +398,7 @@ async function toggleArchivedTasks() { archivedTasksVisible.value = !archivedTas
 function toggleTaskMenu(id: string) { taskMenuId.value = taskMenuId.value === id ? '' : id }
 async function duplicateTask(task: AgentTask) {
   taskMenuId.value = ''
-  try { const copy = await api<AgentTask>(`/agent-tasks/${task.id}/duplicate`, { method: 'POST' }); startNewTask(); activeAgentTaskId.value = copy.id; activeAgentTask.value = copy; taskMode.value = 'agent'; prompt.value = copy.goal; const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId); if (matchingSkill) selectedSkill.value = matchingSkill; historyOpen.value = false; await loadAgentTasks() }
+  try { const copy = await api<AgentTask>(`/agent-tasks/${task.id}/duplicate`, { method: 'POST' }); startNewTask(); activeAgentTaskId.value = copy.id; activeAgentTask.value = copy; taskMode.value = 'agent'; webSearchEnabled.value = copy.webSearchEnabled; prompt.value = copy.goal; const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId); if (matchingSkill) selectedSkill.value = matchingSkill; historyOpen.value = false; await loadAgentTasks() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '创建副本失败' }
 }
 async function retryTask(task: AgentTask) {
@@ -412,7 +424,7 @@ function applySchedulePreset() { const values: Record<string, string> = { daily:
 async function saveSchedule() {
   if (!scheduleForm.title.trim() || !scheduleForm.goal.trim() || !model.value) return
   scheduleSaving.value = true; error.value = ''
-  try { await api('/agent-tasks/schedules/create', { method: 'POST', body: JSON.stringify({ title: scheduleForm.title, goal: scheduleForm.goal, model: model.value, skillId: selectedSkill.value.id, assistantId: selectedSkill.value.assistantId, pluginId: pluginId.value || undefined, attachmentIds: attachments.value.map((asset) => asset.id), cronExpression: scheduleForm.cronExpression, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', enabled: true }) }); scheduleForm.title = ''; scheduleForm.goal = ''; await loadSchedules() }
+  try { await api('/agent-tasks/schedules/create', { method: 'POST', body: JSON.stringify({ title: scheduleForm.title, goal: scheduleForm.goal, model: model.value, skillId: selectedSkill.value.id, assistantId: selectedSkill.value.assistantId, pluginId: pluginId.value || undefined, attachmentIds: attachments.value.map((asset) => asset.id), webSearchEnabled: webSearchEnabled.value, cronExpression: scheduleForm.cronExpression, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', enabled: true }) }); scheduleForm.title = ''; scheduleForm.goal = ''; await loadSchedules() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '创建定时任务失败' }
   finally { scheduleSaving.value = false }
 }
@@ -424,6 +436,7 @@ async function openAgentTask(id: string) {
   activeAgentTaskId.value = task.id
   activeAgentTask.value = task
   taskMode.value = 'agent'
+  webSearchEnabled.value = task.webSearchEnabled
   if (task.status === 'DRAFT') {
     conversationId.value = ''; submittedPrompt.value = ''; answer.value = ''; prompt.value = task.goal; deliverable.value = null; historyOpen.value = false
     const draftSkill = allSkills.value.find((skill) => skill.id === task.skillId); if (draftSkill) selectedSkill.value = draftSkill

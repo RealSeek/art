@@ -60,6 +60,7 @@ export class AgentSchedulesService implements OnModuleInit {
       model: input.model ?? current.model, skillId: input.skillId ?? current.skillId, assistantId: input.assistantId === undefined ? current.assistantId || undefined : input.assistantId,
       projectId: input.projectId === undefined ? current.projectId || undefined : input.projectId, pluginId: input.pluginId === undefined ? current.pluginId || undefined : input.pluginId,
       attachmentIds: input.attachmentIds ?? this.stringArray(current.attachmentIds), cronExpression: input.cronExpression ?? current.cronExpression,
+      webSearchEnabled: input.webSearchEnabled ?? current.webSearchEnabled,
       timezone: input.timezone ?? current.timezone, enabled: input.enabled ?? current.enabled,
     }
     this.validate(merged)
@@ -110,6 +111,7 @@ export class AgentSchedulesService implements OnModuleInit {
       title: schedule.title, goal: schedule.goal, instructions: schedule.instructions, model: schedule.model, skillId: schedule.skillId,
       assistantId: schedule.assistantId || undefined, projectId: schedule.projectId || undefined, pluginId: schedule.pluginId || undefined,
       attachmentIds: this.stringArray(schedule.attachmentIds), scheduleId: schedule.id, scheduledFor,
+      webSearchEnabled: schedule.webSearchEnabled,
     })
     await this.prisma.agentSchedule.update({ where: { id: schedule.id }, data: { lastTaskId: task.id, lastRunAt: new Date(), consecutiveFailures: 0, lastError: '' } })
     return this.tasks.run(schedule.userId, task.id)
@@ -138,6 +140,7 @@ export class AgentSchedulesService implements OnModuleInit {
       userId, title: input.title.trim(), goal: input.goal.trim(), instructions: input.instructions?.trim() || '', model: input.model.trim(), skillId: input.skillId?.trim() || 'daily',
       assistantId: input.assistantId || null, projectId: input.projectId || null, pluginId: input.pluginId || null,
       attachmentIds: (input.attachmentIds || []) as Prisma.InputJsonValue, cronExpression: input.cronExpression.trim(), timezone: input.timezone || 'Asia/Shanghai', enabled: input.enabled ?? true,
+      webSearchEnabled: input.webSearchEnabled ?? true,
     }
   }
 

@@ -16,6 +16,7 @@ const englishGlossary: Record<string, string> = {
   模型与定价: 'Models & Pricing',
   生成任务: 'Generation Jobs',
   'Agent 运营中心': 'Agent Operations',
+  联网搜索: 'Web Search',
   文件与资产: 'Files & Assets',
   项目与工作流: 'Projects & Workflows',
   灵感内容: 'Inspiration',

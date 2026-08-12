@@ -121,6 +121,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         meta: resource('工具与审批', 'ri:tools-line', 'tools')
       },
       {
+        path: 'web-search',
+        name: 'WebSearchChannels',
+        component: '/xinyue/web-search',
+        meta: resource('联网搜索', 'ri:global-line', 'webSearch')
+      },
+      {
         path: 'tool-approvals',
         name: 'ToolApprovalManagement',
         component: '/xinyue/operations',

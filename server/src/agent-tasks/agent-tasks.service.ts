@@ -15,6 +15,7 @@ export interface CreateAgentTaskInput {
   projectId?: string
   pluginId?: string
   attachmentIds?: string[]
+  webSearchEnabled?: boolean
   sourceTaskId?: string
   scheduleId?: string
   scheduledFor?: Date
@@ -63,6 +64,7 @@ export class AgentTasksService {
         projectId: input.projectId || null,
         pluginId: input.pluginId || null,
         attachmentIds: (input.attachmentIds || []) as Prisma.InputJsonValue,
+        webSearchEnabled: input.webSearchEnabled ?? true,
         sourceTaskId: input.sourceTaskId || null,
         scheduleId: input.scheduleId || null,
         scheduledFor: input.scheduledFor || null,
@@ -95,12 +97,14 @@ export class AgentTasksService {
       projectId: input.projectId === undefined ? task.projectId || undefined : input.projectId,
       pluginId: input.pluginId === undefined ? task.pluginId || undefined : input.pluginId,
       attachmentIds: input.attachmentIds ?? this.attachmentIds(task.attachmentIds),
+      webSearchEnabled: input.webSearchEnabled ?? task.webSearchEnabled,
     }
     await this.assertRelations(userId, merged)
     await this.prisma.agentTask.update({ where: { id }, data: {
       title: merged.title.trim(), goal: merged.goal.trim(), instructions: merged.instructions?.trim() || '', model: merged.model.trim(),
       skillId: merged.skillId?.trim() || 'daily', assistantId: merged.assistantId || null, projectId: merged.projectId || null,
       pluginId: merged.pluginId || null, attachmentIds: (merged.attachmentIds || []) as Prisma.InputJsonValue,
+      webSearchEnabled: merged.webSearchEnabled ?? true,
     } })
     return this.get(userId, id)
   }
@@ -112,6 +116,7 @@ export class AgentTasksService {
       title: `${task.title}（副本）`, goal: task.goal, instructions: task.instructions, model: task.model,
       skillId: task.skillId, assistantId: task.assistantId || undefined, projectId: task.projectId || undefined,
       pluginId: task.pluginId || undefined, attachmentIds: this.attachmentIds(task.attachmentIds), sourceTaskId: task.id,
+      webSearchEnabled: task.webSearchEnabled,
     })
   }
 
@@ -173,9 +178,15 @@ export class AgentTasksService {
       const run = await this.prisma.$transaction(async (tx) => {
         const result = await tx.agentTask.updateMany({
           where: { id, userId, status: { notIn: activeStatuses } },
-        data: { conversationId: null, generationJobId: null, status: AgentTaskStatus.QUEUED, errorMessage: null, startedAt: now, completedAt: null, archivedAt: null },
+          data: { conversationId: null, generationJobId: null, status: AgentTaskStatus.QUEUED, errorMessage: null, startedAt: now, completedAt: null, archivedAt: null },
         })
         if (!result.count) return null
+        if (task.conversationId) {
+          await tx.conversation.updateMany({
+            where: { id: task.conversationId, userId },
+            data: { archivedAt: now },
+          })
+        }
         await tx.agentTaskStep.updateMany({ where: { agentTaskId: id }, data: { status: AgentTaskStepStatus.PENDING, startedAt: null, completedAt: null, detail: '' } })
         return tx.agentRun.create({ data: { agentTaskId: id, runKey, status: AgentTaskStatus.QUEUED, maxIterations: 3 } })
       })
