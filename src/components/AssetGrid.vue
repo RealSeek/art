@@ -27,7 +27,7 @@
           <button type="button" aria-label="关闭预览" title="关闭" @click="closePreview"><X :size="20" /></button>
         </header>
         <div
-          ref="viewport"
+          :ref="setViewport"
           class="asset-preview-viewport"
           :class="{ 'is-panning': dragging, 'is-zoomed': view.scale > 1.001, 'asset-preview-viewport--video': isVideoAsset(selected) }"
           @wheel="handlePreviewWheel"
@@ -65,28 +65,41 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { Download, FileText, Hand, ImagePlus, Maximize2, MousePointer2, Play, Quote, RefreshCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { useAssetPreviewTransform } from '../composables/useAssetPreviewTransform'
 import type { StudioAsset } from '../types'
 
 withDefaults(defineProps<{ assets: StudioAsset[]; deletable?: boolean; reusable?: boolean; regeneratable?: boolean; variant?: 'cards' | 'gallery' | 'list' }>(), { deletable: false, reusable: false, regeneratable: false, variant: 'cards' })
 const emit = defineEmits<{ delete: [assetId: string]; reuse: [asset: StudioAsset]; quote: [asset: StudioAsset]; regenerate: [asset: StudioAsset] }>()
 
 const selected = ref<StudioAsset | null>(null)
-const viewport = ref<HTMLElement | null>(null)
-const dragging = ref(false)
-const dragMode = ref(false)
-const view = reactive({ scale: 1, x: 0, y: 0 })
-const videoRatio = ref(16 / 9)
-const pointer = reactive({ id: -1, x: 0, y: 0 })
-const canvasStyle = computed(() => ({ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})` }))
-const videoFrameStyle = computed(() => ({ aspectRatio: String(videoRatio.value) }))
+
+const {
+  canvasStyle,
+  dragging,
+  dragMode,
+  endPan,
+  handlePreviewWheel,
+  movePan,
+  resetView,
+  setViewport,
+  startPan,
+  syncVideoRatio,
+  toggleDragMode,
+  videoFrameStyle,
+  view,
+  zoomBy,
+} = useAssetPreviewTransform({
+  isEnabled: () => Boolean(selected.value && (isVisualAsset(selected.value) || isVideoAsset(selected.value))),
+  isVideo: () => Boolean(selected.value && isVideoAsset(selected.value)),
+})
 
 function openPreview(asset: StudioAsset) { selected.value = asset; dragMode.value = false; resetView() }
 function isVisualAsset(asset: StudioAsset) { return asset.kind === 'image' || asset.kind === 'product-pack' || Boolean(asset.mimeType?.startsWith('image/')) }
 function isVideoAsset(asset: StudioAsset) { return asset.kind === 'video' || Boolean(asset.mimeType?.startsWith('video/')) }
 function formatDate(value: number) { return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(value) }
-function closePreview() { selected.value = null; dragMode.value = false; dragging.value = false; pointer.id = -1 }
+function closePreview() { selected.value = null; dragMode.value = false; resetView() }
 function emitAction(action: 'reuse' | 'quote' | 'regenerate') {
   if (!selected.value) return
   const asset = selected.value
@@ -94,44 +107,6 @@ function emitAction(action: 'reuse' | 'quote' | 'regenerate') {
   if (action === 'reuse') emit('reuse', asset)
   else if (action === 'quote') emit('quote', asset)
   else emit('regenerate', asset)
-}
-function resetView() { view.scale = 1; view.x = 0; view.y = 0; dragging.value = false; pointer.id = -1 }
-function toggleDragMode() { dragMode.value = !dragMode.value; dragging.value = false; pointer.id = -1 }
-function syncVideoRatio(event: Event) {
-  const video = event.currentTarget as HTMLVideoElement
-  if (video.videoWidth && video.videoHeight) videoRatio.value = video.videoWidth / video.videoHeight
-}
-function clampScale(value: number) { return Math.min(4, Math.max(0.35, value)) }
-function zoomAt(nextScale: number, clientX?: number, clientY?: number) {
-  const element = viewport.value
-  const next = clampScale(nextScale)
-  if (!element || next === view.scale) return
-  const rect = element.getBoundingClientRect()
-  const pointX = (clientX ?? rect.left + rect.width / 2) - rect.left - rect.width / 2
-  const pointY = (clientY ?? rect.top + rect.height / 2) - rect.top - rect.height / 2
-  const ratio = next / view.scale
-  view.x = pointX - (pointX - view.x) * ratio
-  view.y = pointY - (pointY - view.y) * ratio
-  view.scale = next
-}
-function zoomBy(delta: number) { zoomAt(view.scale + delta) }
-function handleWheel(event: WheelEvent) { zoomAt(view.scale * (event.deltaY < 0 ? 1.12 : 0.89), event.clientX, event.clientY) }
-function handlePreviewWheel(event: WheelEvent) { if (!selected.value || (!isVisualAsset(selected.value) && !isVideoAsset(selected.value))) return; event.preventDefault(); handleWheel(event) }
-function startPan(event: PointerEvent) {
-  const videoSelected = Boolean(selected.value && isVideoAsset(selected.value))
-  if (event.button !== 0) return
-  if (videoSelected && !(event.target instanceof HTMLElement && event.target.classList.contains('asset-preview-video-drag-surface'))) return
-  pointer.id = event.pointerId; pointer.x = event.clientX; pointer.y = event.clientY
-  dragging.value = true
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-function movePan(event: PointerEvent) {
-  if (!dragging.value || event.pointerId !== pointer.id) return
-  view.x += event.clientX - pointer.x; view.y += event.clientY - pointer.y; pointer.x = event.clientX; pointer.y = event.clientY
-}
-function endPan(event: PointerEvent) {
-  if (event.pointerId !== pointer.id) return
-  dragging.value = false; pointer.id = -1
 }
 function playCardVideo(event: MouseEvent) {
   if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return
