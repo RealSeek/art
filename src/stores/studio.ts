@@ -28,6 +28,15 @@ async function waitForServerJob(jobId: string, onEvent?: (job: ServerJob) => voi
 const idempotencyKey = (prefix: string) => `${prefix}:${createClientId()}`
 const welcomeMessage = (): Message => ({ id: 'welcome', role: 'assistant', content: '告诉我今天要做的商品、画面或文案目标。我会先拆任务，再把可交付的素材放进资料库。', createdAt: Date.now() })
 let pendingWorkspaceHydration: Promise<void> | null = null
+let conversationLoadSequence = 0
+const pendingChatJobs = new Map<string, Promise<ServerJob>>()
+
+export class ChatSendError extends Error {
+  constructor(message: string, public readonly restoreDraft: boolean) {
+    super(message)
+    this.name = 'ChatSendError'
+  }
+}
 
 function mapConversation(item: ServerConversation): ConversationSummary {
   return { id: item.id, title: item.title, model: item.model, projectId: item.projectId, pinnedAt: item.pinnedAt ? Date.parse(item.pinnedAt) : null, sharedAt: item.sharedAt ? Date.parse(item.sharedAt) : null, createdAt: Date.parse(item.createdAt), updatedAt: Date.parse(item.updatedAt) }
@@ -120,6 +129,7 @@ export const useStudioStore = defineStore('studio', {
     activeMode: 'chat' as StudioMode,
     credits: 0,
     currentConversationId: '',
+    openingConversationId: '',
     temporaryChat: false,
     currentProjectId: '',
     isGenerating: false,
@@ -202,7 +212,9 @@ export const useStudioStore = defineStore('studio', {
       this.workspaceHydrating = false
     },
     newConversation(temporary = false) {
+      conversationLoadSequence += 1
       this.currentConversationId = ''
+      this.openingConversationId = ''
       this.temporaryChat = temporary
       this.messages = [welcomeMessage()]
       this.isGenerating = false
@@ -212,9 +224,12 @@ export const useStudioStore = defineStore('studio', {
       this.lastError = ''
     },
     async openConversation(conversationId: string) {
+      const loadSequence = ++conversationLoadSequence
+      this.openingConversationId = conversationId
       this.isLoading = true; this.lastError = ''
       try {
         const conversation = await api<ServerConversation>(`/conversations/${conversationId}`)
+        if (loadSequence !== conversationLoadSequence || this.openingConversationId !== conversationId) return conversation
         this.currentConversationId = conversation.id
         this.temporaryChat = Boolean(conversation.temporary)
         this.messages = (conversation.messages || []).filter((message) => message.role === 'USER' || message.role === 'ASSISTANT').map((message) => ({
@@ -231,9 +246,15 @@ export const useStudioStore = defineStore('studio', {
         }
         return conversation
       } catch (reason) {
+        if (loadSequence !== conversationLoadSequence) throw reason
         this.lastError = reason instanceof Error ? reason.message : '对话加载失败'
         throw reason
-      } finally { this.isLoading = false }
+      } finally {
+        if (loadSequence === conversationLoadSequence) {
+          this.openingConversationId = ''
+          this.isLoading = false
+        }
+      }
     },
     async setConversationModel(model: string) {
       if (!this.currentConversationId) return
@@ -281,6 +302,8 @@ export const useStudioStore = defineStore('studio', {
     async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string }) {
       const trimmed = content.trim()
       if (!trimmed) return
+      let messagePersisted = false
+      let jobId = ''
       this.isGenerating = true; this.lastError = ''
       try {
         if (!this.currentConversationId) {
@@ -289,50 +312,65 @@ export const useStudioStore = defineStore('studio', {
           if (!conversation.temporary) this.conversations.unshift(mapConversation(conversation))
           this.messages = []
         }
-        const userMessage = await api<ServerMessage>(`/conversations/${this.currentConversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
-        this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId: this.currentConversationId, options: input.assistantId ? { assistantId: input.assistantId } : {}, idempotencyKey: idempotencyKey('chat') }) })
-        this.activeJobId = job.id
+        const conversationId = this.currentConversationId
+        const userMessage = await api<ServerMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
+        messagePersisted = true
+        if (this.currentConversationId === conversationId) this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: input.assistantId ? { assistantId: input.assistantId } : {}, idempotencyKey: idempotencyKey('chat') }) })
+        jobId = job.id
+        if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
-        this.messages.push({ id: pendingId, role: 'assistant', content: '', model: input.model, createdAt: Date.now() })
-        await this.pollJob(job.id, (current) => {
-          if (!current.stream) return
-          const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
-          const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || input.model, createdAt: this.messages[index]?.createdAt || Date.now() }
-          if (index >= 0) this.messages[index] = streamed
-          else this.messages.push(streamed)
-        })
-        await Promise.all([this.openConversation(this.currentConversationId), this.refreshConversations(), this.refreshCredits()])
+        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model: input.model, createdAt: Date.now() })
+        await this.monitorChatJob(job.id, conversationId, input.model)
+        await Promise.all([
+          this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
+          this.refreshConversations(),
+          this.refreshCredits(),
+        ])
       } catch (reason) {
-        this.lastError = reason instanceof Error ? reason.message : '消息发送失败'
-        throw reason
-      } finally { this.isGenerating = false; this.activeJobId = '' }
+        const message = reason instanceof Error ? reason.message : '消息发送失败'
+        this.lastError = message
+        throw new ChatSendError(message, !messagePersisted)
+      } finally {
+        if (!jobId || this.activeJobId === jobId) {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
+      }
     },
     async branchMessage(messageId: string, content: string, model: string) {
       if (!this.currentConversationId || this.isGenerating) return
       const trimmed = content.trim()
       if (!trimmed) return
+      const conversationId = this.currentConversationId
+      let jobId = ''
       this.isGenerating = true; this.lastError = ''
       try {
-        const updated = await api<ServerMessage>(`/conversations/${this.currentConversationId}/messages/${messageId}/branch`, { method: 'POST', body: JSON.stringify({ content: trimmed }) })
-        const index = this.messages.findIndex((message) => message.id === messageId)
-        if (index >= 0) this.messages = [...this.messages.slice(0, index), { ...this.messages[index], content: trimmed, createdAt: Date.parse(updated.createdAt) }]
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model, conversationId: this.currentConversationId, projectId: this.currentProjectId || undefined, options: {}, idempotencyKey: idempotencyKey('chat-branch') }) })
-        this.activeJobId = job.id
+        const updated = await api<ServerMessage>(`/conversations/${conversationId}/messages/${messageId}/branch`, { method: 'POST', body: JSON.stringify({ content: trimmed }) })
+        if (this.currentConversationId === conversationId) {
+          const index = this.messages.findIndex((message) => message.id === messageId)
+          if (index >= 0) this.messages = [...this.messages.slice(0, index), { ...this.messages[index], content: trimmed, createdAt: Date.parse(updated.createdAt) }]
+        }
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model, conversationId, projectId: this.currentProjectId || undefined, options: {}, idempotencyKey: idempotencyKey('chat-branch') }) })
+        jobId = job.id
+        if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
-        this.messages.push({ id: pendingId, role: 'assistant', content: '', model, createdAt: Date.now() })
-        await this.pollJob(job.id, (current) => {
-          if (!current.stream) return
-          const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
-          const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || model, createdAt: this.messages[index]?.createdAt || Date.now() }
-          if (index >= 0) this.messages[index] = streamed
-          else this.messages.push(streamed)
-        })
-        await Promise.all([this.openConversation(this.currentConversationId), this.refreshConversations(), this.refreshCredits()])
+        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model, createdAt: Date.now() })
+        await this.monitorChatJob(job.id, conversationId, model)
+        await Promise.all([
+          this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
+          this.refreshConversations(),
+          this.refreshCredits(),
+        ])
       } catch (reason) {
         this.lastError = reason instanceof Error ? reason.message : '消息重新生成失败'
         throw reason
-      } finally { this.isGenerating = false; this.activeJobId = '' }
+      } finally {
+        if (!jobId || this.activeJobId === jobId) {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
+      }
     },
     async refreshConversations() {
       this.conversations = (await api<ServerConversation[]>('/conversations')).map(mapConversation)
@@ -494,6 +532,52 @@ export const useStudioStore = defineStore('studio', {
       const job = await waitForServerJob(jobId, onEvent)
       if (job.status === 'SUCCEEDED') return job
       throw new Error(job.errorMessage || (job.status === 'CANCELLED' ? '任务已取消' : '生成任务失败'))
+    },
+    async monitorChatJob(jobId: string, conversationId: string, fallbackModel: string) {
+      const existing = pendingChatJobs.get(jobId)
+      if (existing) return existing
+
+      const monitor = this.pollJob(jobId, (current) => {
+        if (!current.stream || this.currentConversationId !== conversationId) return
+        const pendingId = `stream:${jobId}`
+        const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
+        const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, createdAt: this.messages[index]?.createdAt || Date.now() }
+        if (index >= 0) this.messages[index] = streamed
+        else this.messages.push(streamed)
+      })
+      pendingChatJobs.set(jobId, monitor)
+      try { return await monitor }
+      finally { if (pendingChatJobs.get(jobId) === monitor) pendingChatJobs.delete(jobId) }
+    },
+    async resumeCurrentChat() {
+      const conversationId = this.currentConversationId
+      if (!conversationId || (this.openingConversationId && this.openingConversationId !== conversationId)) return
+      let resumedJobId = ''
+      try {
+        await this.openConversation(conversationId)
+        if (this.currentConversationId !== conversationId || (this.openingConversationId && this.openingConversationId !== conversationId)) return
+        const jobs = await api<ServerJob[]>('/generations?kind=CHAT')
+        if (this.currentConversationId !== conversationId || (this.openingConversationId && this.openingConversationId !== conversationId)) return
+        const active = jobs.find((job) => job.conversationId === conversationId && (job.status === 'QUEUED' || job.status === 'RUNNING'))
+        if (!active) {
+          this.isGenerating = false
+          this.activeJobId = ''
+          return
+        }
+        resumedJobId = active.id
+        this.isGenerating = true
+        this.activeJobId = active.id
+        await this.monitorChatJob(active.id, conversationId, active.model)
+        if (this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId)) await this.openConversation(conversationId)
+        await Promise.all([this.refreshConversations(), this.refreshCredits()])
+      } catch (reason) {
+        this.lastError = reason instanceof Error ? reason.message : '回复状态恢复失败'
+      } finally {
+        if (resumedJobId && this.currentConversationId === conversationId && this.activeJobId === resumedJobId) {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
+      }
     },
     async cancelGeneration(jobId: string) {
       if (!jobId || this.cancelingJobId === jobId) return

@@ -1078,7 +1078,13 @@ async function toggleConversationPinned(conversation: ConversationSummary) {
   }
 }
 
-async function openConversation(conversationId: string) { mobileOpen.value = false; await router.push('/chat'); await studio.openConversation(conversationId).catch(() => undefined) }
+async function openConversation(conversationId: string) {
+  mobileOpen.value = false
+  const loading = studio.openConversation(conversationId).catch(() => undefined)
+  await router.push('/chat')
+  await loading
+  if (studio.currentConversationId === conversationId) void studio.resumeCurrentChat()
+}
 function startConversationRename(conversation: { id: string; title: string }) {
   closeConversationMenu()
   renamingConversationId.value = conversation.id

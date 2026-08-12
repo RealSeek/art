@@ -352,7 +352,7 @@ import GeneratedImagePreview from '../components/GeneratedImagePreview.vue'
 import InspirationPreview from '../components/InspirationPreview.vue'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
-import { useStudioStore } from '../stores/studio'
+import { ChatSendError, useStudioStore } from '../stores/studio'
 import type { CodeArtifact, GenerationRun, Message, Project, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
 import { api } from '../services/api'
 import { consumeImagePrompt } from '../utils/prompt-transfer'
@@ -635,7 +635,7 @@ function creationOptionPrice(option: string) {
 }
 
 watchEffect(() => store.setMode(activeMode.value))
-watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
+watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'chat' && auth.isAuthenticated) void store.resumeCurrentChat(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
 watch([assetSearch, assetTab, assetFilter], () => { libraryAssetLimit.value = 30 })
 watch(() => store.currentConversationId, () => { const conversation = store.conversations.find((item) => item.id === store.currentConversationId); if (conversation?.model) model.value = conversation.model; messageNavigatorOpen.value = false; activeArtifact.value = null; void nextTick(syncMessageNavigator) })
 watch(messageJumps, (messages) => { if (!messages.some((message) => message.id === activeMessageJumpId.value)) activeMessageJumpId.value = messages.at(-1)?.id || ''; void nextTick(syncMessageNavigator) })
@@ -649,7 +649,10 @@ onMounted(async () => {
   if (pendingPrompt) generationPrompt.value = pendingPrompt.prompt
   const inspirationLoad = activeMode.value === 'images' ? loadInspirations('IMAGE') : activeMode.value === 'videos' ? loadInspirations('VIDEO') : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
   await Promise.all([catalog.load(), inspirationLoad, loadModelCatalog({ applyDefaults: true, force: true }), auth.isAuthenticated ? loadAssistants() : Promise.resolve()])
-  if (auth.isAuthenticated) await store.hydrateWorkspace().catch(() => undefined)
+  if (auth.isAuthenticated) {
+    await store.hydrateWorkspace().catch(() => undefined)
+    if (activeMode.value === 'chat') void store.resumeCurrentChat()
+  }
   await syncGenerationRoute()
   await nextTick()
   syncInspirationNavigation()
@@ -860,9 +863,11 @@ async function submitMessage() {
   try {
     await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id) })
     await scrollThreadToBottom()
-  } catch {
-    if (!draft.value.trim()) draft.value = content
-    if (!attachments.value.length) attachments.value = pendingAttachments
+  } catch (reason) {
+    if (reason instanceof ChatSendError && reason.restoreDraft) {
+      if (!draft.value.trim()) draft.value = content
+      if (!attachments.value.length) attachments.value = pendingAttachments
+    }
     await nextTick()
     resizeComposer()
   }

@@ -15,6 +15,7 @@ const activeMode = computed<StudioMode>(() => {
   const modes: Record<string, StudioMode> = {
     chat: 'chat',
     images: 'images',
+    videos: 'videos',
     commerce: 'commerce',
     prompts: 'prompts',
     projects: 'projects',
