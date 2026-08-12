@@ -1065,6 +1065,12 @@
         name: '',
         description: '',
         endpoint: '',
+        httpMethod: 'POST',
+        timeoutMs: 45000,
+        headersText: '{}',
+        secretHeadersText: '{}',
+        clearSecretHeaders: false,
+        inputSchemaText: '{}',
         scopes: [],
         enabled: false,
         requiresApproval: true
@@ -1074,6 +1080,12 @@
         { key: 'name', label: '工具名称', required: true, span: 12, maxlength: 100 },
         { key: 'description', label: '说明', type: 'textarea', rows: 3, maxlength: 2000 },
         { key: 'endpoint', label: '调用地址', placeholder: 'https://...', maxlength: 500 },
+        { key: 'httpMethod', label: '请求方法', type: 'select', span: 12, options: [{ label: 'POST', value: 'POST' }, { label: 'GET', value: 'GET' }, { label: 'PUT', value: 'PUT' }, { label: 'PATCH', value: 'PATCH' }, { label: 'DELETE', value: 'DELETE' }] },
+        { key: 'timeoutMs', label: '超时毫秒', type: 'number', span: 12, min: 1000, max: 120000 },
+        { key: 'headersText', label: '公共请求头（JSON）', type: 'textarea', rows: 3, placeholder: '{"X-App":"xinyue"}' },
+        { key: 'secretHeadersText', label: '敏感请求头（JSON，留空保留）', type: 'textarea', rows: 3, placeholder: '{"Authorization":"Bearer ..."}', omitEmpty: true },
+        { key: 'clearSecretHeaders', label: '清除已保存敏感请求头', type: 'switch' },
+        { key: 'inputSchemaText', label: '输入 Schema（JSON）', type: 'textarea', rows: 4, placeholder: '{"type":"object","properties":{}}' },
         {
           key: 'scopes',
           label: '权限范围',
@@ -1917,6 +1929,11 @@
         if (field.key === 'knowledgeBaseIds')
           value = (row.knowledgeBases || []).map((item: Row) => item.knowledgeBaseId)
       }
+      if (row && resourceKey.value === 'tools') {
+        if (field.key === 'headersText') value = JSON.stringify(row.headers || {}, null, 2)
+        if (field.key === 'secretHeadersText') value = ''
+        if (field.key === 'inputSchemaText') value = JSON.stringify(row.inputSchema || {}, null, 2)
+      }
       editorForm[field.key] = Array.isArray(value) ? [...value] : value
     }
     editorVisible.value = true
@@ -1947,6 +1964,14 @@
       delete payload.videoDuration
       delete payload.videoAspectRatio
       payload.options = options
+    }
+    if (resourceKey.value === 'tools') {
+      for (const [textKey, targetKey] of [['headersText', 'headers'], ['secretHeadersText', 'secretHeaders'], ['inputSchemaText', 'inputSchema']] as const) {
+        const raw = String(payload[textKey] || '').trim()
+        delete payload[textKey]
+        if (!raw && textKey === 'secretHeadersText') continue
+        try { payload[targetKey] = raw ? JSON.parse(raw) : {} } catch { throw new Error(`${textKey} 不是有效 JSON`) }
+      }
     }
     return payload
   }

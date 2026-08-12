@@ -15,7 +15,12 @@ export interface CreateAgentTaskInput {
   projectId?: string
   pluginId?: string
   attachmentIds?: string[]
+  sourceTaskId?: string
+  scheduleId?: string
+  scheduledFor?: Date
 }
+
+export interface UpdateAgentTaskInput extends Partial<Omit<CreateAgentTaskInput, 'scheduledFor'>> {}
 
 const activeStatuses: AgentTaskStatus[] = [AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING, AgentTaskStatus.WAITING_APPROVAL]
 
@@ -27,9 +32,9 @@ export class AgentTasksService {
     @InjectQueue('agent-task') private readonly queue: Queue,
   ) {}
 
-  async list(userId: string) {
+  async list(userId: string, archived = false) {
     return this.prisma.agentTask.findMany({
-      where: { userId },
+      where: { userId, archivedAt: archived ? { not: null } : null },
       orderBy: { updatedAt: 'desc' },
       take: 100,
       include: {
@@ -39,6 +44,7 @@ export class AgentTasksService {
         generationJob: { select: { id: true, status: true, creditCost: true, errorMessage: true } },
         conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
         runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 30 } } },
+        schedule: { select: { id: true, title: true, enabled: true, cronExpression: true, timezone: true, nextRunAt: true } },
       },
     })
   }
@@ -57,6 +63,9 @@ export class AgentTasksService {
         projectId: input.projectId || null,
         pluginId: input.pluginId || null,
         attachmentIds: (input.attachmentIds || []) as Prisma.InputJsonValue,
+        sourceTaskId: input.sourceTaskId || null,
+        scheduleId: input.scheduleId || null,
+        scheduledFor: input.scheduledFor || null,
         steps: { create: [
           { position: 0, title: '准备任务上下文' },
           { position: 1, title: '制定执行计划' },
@@ -68,6 +77,60 @@ export class AgentTasksService {
     })
   }
 
+  validateInput(userId: string, input: CreateAgentTaskInput) {
+    return this.assertRelations(userId, input)
+  }
+
+  async update(userId: string, id: string, input: UpdateAgentTaskInput) {
+    const task = await this.prisma.agentTask.findFirst({ where: { id, userId } })
+    if (!task) throw new NotFoundException('Agent 任务不存在')
+    if (activeStatuses.includes(task.status)) throw new BadRequestException('执行中的任务不能编辑')
+    const merged: CreateAgentTaskInput = {
+      title: input.title ?? task.title,
+      goal: input.goal ?? task.goal,
+      instructions: input.instructions ?? task.instructions,
+      model: input.model ?? task.model,
+      skillId: input.skillId ?? task.skillId,
+      assistantId: input.assistantId === undefined ? task.assistantId || undefined : input.assistantId,
+      projectId: input.projectId === undefined ? task.projectId || undefined : input.projectId,
+      pluginId: input.pluginId === undefined ? task.pluginId || undefined : input.pluginId,
+      attachmentIds: input.attachmentIds ?? this.attachmentIds(task.attachmentIds),
+    }
+    await this.assertRelations(userId, merged)
+    await this.prisma.agentTask.update({ where: { id }, data: {
+      title: merged.title.trim(), goal: merged.goal.trim(), instructions: merged.instructions?.trim() || '', model: merged.model.trim(),
+      skillId: merged.skillId?.trim() || 'daily', assistantId: merged.assistantId || null, projectId: merged.projectId || null,
+      pluginId: merged.pluginId || null, attachmentIds: (merged.attachmentIds || []) as Prisma.InputJsonValue,
+    } })
+    return this.get(userId, id)
+  }
+
+  async duplicate(userId: string, id: string) {
+    const task = await this.prisma.agentTask.findFirst({ where: { id, userId } })
+    if (!task) throw new NotFoundException('Agent 任务不存在')
+    return this.create(userId, {
+      title: `${task.title}（副本）`, goal: task.goal, instructions: task.instructions, model: task.model,
+      skillId: task.skillId, assistantId: task.assistantId || undefined, projectId: task.projectId || undefined,
+      pluginId: task.pluginId || undefined, attachmentIds: this.attachmentIds(task.attachmentIds), sourceTaskId: task.id,
+    })
+  }
+
+  async retry(userId: string, id: string) {
+    const task = await this.prisma.agentTask.findFirst({ where: { id, userId }, select: { status: true } })
+    if (!task) throw new NotFoundException('Agent 任务不存在')
+    const retryable: AgentTaskStatus[] = [AgentTaskStatus.FAILED, AgentTaskStatus.CANCELLED, AgentTaskStatus.SUCCEEDED]
+    if (!retryable.includes(task.status)) throw new BadRequestException('当前任务不能重新执行')
+    return this.run(userId, id)
+  }
+
+  async setArchived(userId: string, id: string, archived: boolean) {
+    const task = await this.prisma.agentTask.findFirst({ where: { id, userId }, select: { status: true } })
+    if (!task) throw new NotFoundException('Agent 任务不存在')
+    if (activeStatuses.includes(task.status)) throw new BadRequestException('请先停止正在执行的任务')
+    await this.prisma.agentTask.update({ where: { id }, data: { archivedAt: archived ? new Date() : null } })
+    return this.get(userId, id)
+  }
+
   async get(userId: string, id: string) {
     const task = await this.prisma.agentTask.findFirst({
       where: { id, userId },
@@ -77,11 +140,15 @@ export class AgentTasksService {
         steps: { orderBy: { position: 'asc' } },
         conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
         runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 100 } } },
+        schedule: { select: { id: true, title: true, enabled: true, cronExpression: true, timezone: true, nextRunAt: true } },
       },
     })
     if (!task) throw new NotFoundException('Agent 任务不存在')
     const run = task.generationJobId ? await this.generations.get(userId, task.generationJobId) : null
-    return { ...task, run, agentRun: task.runs[0] || null }
+    const latestRun = task.runs[0] || null
+    const artifactIds = latestRun ? this.attachmentIds(latestRun.artifactIds) : []
+    const artifacts = artifactIds.length ? await this.prisma.asset.findMany({ where: { id: { in: artifactIds }, userId, deletedAt: null }, select: { id: true, name: true, mimeType: true, size: true, createdAt: true } }) : []
+    return { ...task, run, agentRun: latestRun, artifacts: artifacts.map((asset) => ({ ...asset, size: Number(asset.size), contentUrl: `/v1/assets/${asset.id}/content` })) }
   }
 
   async run(userId: string, id: string) {
@@ -106,7 +173,7 @@ export class AgentTasksService {
       const run = await this.prisma.$transaction(async (tx) => {
         const result = await tx.agentTask.updateMany({
           where: { id, userId, status: { notIn: activeStatuses } },
-          data: { conversationId: null, generationJobId: null, status: AgentTaskStatus.QUEUED, errorMessage: null, startedAt: now, completedAt: null },
+        data: { conversationId: null, generationJobId: null, status: AgentTaskStatus.QUEUED, errorMessage: null, startedAt: now, completedAt: null, archivedAt: null },
         })
         if (!result.count) return null
         await tx.agentTaskStep.updateMany({ where: { agentTaskId: id }, data: { status: AgentTaskStepStatus.PENDING, startedAt: null, completedAt: null, detail: '' } })

@@ -362,6 +362,7 @@
       "providers": "上游渠道",
       "models": "模型与定价",
       "jobs": "生成任务",
+      "agentOperations": "Agent 运营中心",
       "assets": "文件与资产",
       "projects": "项目与工作流",
       "inspirations": "灵感内容",

@@ -253,6 +253,7 @@ model User {
   pluginInstallations  PluginInstallation[]
   pluginUsages         PluginUsage[]
   agentTasks           AgentTask[]
+  agentSchedules       AgentSchedule[]
 }
 
 model ExternalIdentity {
@@ -712,6 +713,12 @@ model ToolDefinition {
   name             String
   description      String          @default("") @db.Text
   endpoint         String          @default("")
+  httpMethod       String          @default("POST")
+  timeoutMs        Int             @default(45000)
+  headers          Json?
+  encryptedHeaders String          @default("") @db.Text
+  secretHeaderHints Json?
+  inputSchema      Json?
   scopes           Json?
   enabled          Boolean         @default(false)
   requiresApproval Boolean         @default(true)
@@ -1329,10 +1336,14 @@ model AgentTask {
   skillId         String          @default("daily")
   pluginId        String?
   attachmentIds   Json?
+  sourceTaskId    String?
+  scheduleId      String?
+  scheduledFor    DateTime?
   status          AgentTaskStatus @default(DRAFT)
   errorMessage    String?         @db.Text
   startedAt       DateTime?
   completedAt     DateTime?
+  archivedAt      DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1344,11 +1355,44 @@ model AgentTask {
   runs            AgentRun[]
   events          AgentEvent[]
   toolCalls       AgentToolCall[]
+  schedule        AgentSchedule?  @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([userId, updatedAt])
   @@index([userId, status])
   @@index([projectId])
   @@index([assistantId])
+  @@index([userId, archivedAt, updatedAt])
+  @@index([scheduleId, scheduledFor])
+  @@unique([scheduleId, scheduledFor])
+}
+
+model AgentSchedule {
+  id              String    @id @default(cuid())
+  userId          String
+  title           String
+  goal            String    @db.Text
+  instructions    String    @default("") @db.Text
+  model           String
+  skillId         String    @default("daily")
+  assistantId     String?
+  projectId       String?
+  pluginId        String?
+  attachmentIds   Json?
+  cronExpression  String
+  timezone        String    @default("Asia/Shanghai")
+  enabled         Boolean   @default(true)
+  lastTaskId      String?
+  lastRunAt       DateTime?
+  nextRunAt       DateTime?
+  consecutiveFailures Int   @default(0)
+  lastError       String    @default("") @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks           AgentTask[]
+
+  @@index([userId, enabled, updatedAt])
+  @@index([enabled, nextRunAt])
 }
 
 model AgentRun {

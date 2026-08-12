@@ -6,6 +6,7 @@ import { Job } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { AgentModelService } from './agent-model.service'
 import { AgentToolDescriptor, AgentToolsService } from './agent-tools.service'
+import { AgentSchedulesService } from './agent-schedules.service'
 
 type PlannedAction = { tool: string; input: Record<string, unknown>; reason: string }
 type AgentPlan = { summary: string; actions: PlannedAction[]; output: string }
@@ -35,9 +36,11 @@ export class AgentTasksProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly model: AgentModelService,
     private readonly tools: AgentToolsService,
+    private readonly schedules: AgentSchedulesService,
   ) { super() }
 
   async process(job: Job<{ taskId: string; runId: string; runKey: string }>) {
+    if (job.name === 'scheduled') return this.schedules.trigger(job)
     const { taskId, runId, runKey } = job.data
     const claimed = await this.prisma.agentRun.updateMany({
       where: { id: runId, agentTaskId: taskId, status: { in: [AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING] } },
@@ -76,6 +79,8 @@ export class AgentTasksProcessor extends WorkerHost {
         this.prisma.agentTaskStep.updateMany({ where: { agentTaskId: taskId, status: AgentTaskStepStatus.RUNNING }, data: { status: AgentTaskStepStatus.FAILED, detail: message, completedAt: now } }),
       ])
       await this.event(taskId, runId, 'error', '任务执行失败', message)
+      const failedTask = await this.prisma.agentTask.findUnique({ where: { id: taskId }, select: { scheduleId: true } })
+      if (failedTask?.scheduleId) await this.prisma.agentSchedule.updateMany({ where: { id: failedTask.scheduleId }, data: { consecutiveFailures: { increment: 1 }, lastError: message } })
       throw error
     }
   }
@@ -260,6 +265,7 @@ export class AgentTasksProcessor extends WorkerHost {
       this.prisma.conversation.update({ where: { id: task.conversationId! }, data: { updatedAt: now } }),
     ])
     await this.event(state.taskId, state.runId, 'completed', '任务已完成', `经过 ${state.iteration + 1} 轮执行与校验`)
+    if (task.scheduleId) await this.prisma.agentSchedule.updateMany({ where: { id: task.scheduleId }, data: { consecutiveFailures: 0, lastError: '' } })
     return {}
   }
 

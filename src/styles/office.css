@@ -23,12 +23,15 @@
 .office-history > header > div { display: grid; }
 .office-history > header strong { font-size: 13px; }
 .office-history > header small { color: var(--studio-muted); font-size: 10px; margin-top: 3px; }
+.office-history > header > span { display: flex; gap: 2px; }
 .office-history > header button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--studio-muted); display: flex; height: 32px; justify-content: center; width: 32px; }
 .office-history > header button:hover { background: var(--studio-control); color: var(--studio-text); }
 .office-history__list { min-height: 0; overflow-y: auto; padding: 6px; scrollbar-color: var(--studio-border) transparent; }
-.office-history__list > button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--studio-text); display: flex; gap: 10px; justify-content: space-between; min-height: 54px; padding: 7px 9px; text-align: left; width: 100%; }
-.office-history__list > button:hover, .office-history__list > button.active { background: var(--studio-control); }
-.office-history__list > button > span { display: grid; min-width: 0; }
+.office-history__list > article { align-items: center; border-radius: 6px; display: grid; grid-template-columns: minmax(0, 1fr) 30px; position: relative; }
+.office-history__list > article:hover, .office-history__list > article.active { background: var(--studio-control); }
+.office-history__list > article > button { align-items: center; background: transparent; border: 0; color: var(--studio-text); display: flex; gap: 10px; justify-content: space-between; min-height: 54px; min-width: 0; padding: 7px 5px 7px 9px; text-align: left; width: 100%; }
+.office-history__list > article > button:nth-child(2) { border-radius: 6px; color: var(--studio-muted); height: 30px; justify-content: center; min-height: 30px; padding: 0; width: 30px; }
+.office-history__list > article > button > span { display: grid; min-width: 0; }
 .office-history__list strong { font-size: 12px; font-weight: 570; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-history__list small { color: var(--studio-muted); font-size: 10px; margin-top: 4px; }
 .office-history__list em { background: var(--studio-control); border-radius: 999px; color: var(--studio-muted); flex: 0 0 auto; font-size: 10px; font-style: normal; padding: 3px 7px; }
@@ -36,6 +39,20 @@
 .office-history__list em[data-status="SUCCEEDED"] { background: rgba(49, 182, 107, .12); color: #45bf7b; }
 .office-history__list em[data-status="FAILED"] { background: rgba(226, 79, 79, .12); color: #eb7777; }
 .office-history__empty { align-items: center; color: var(--studio-muted); display: flex; font-size: 12px; gap: 8px; justify-content: center; min-height: 160px; }
+.office-task-menu { background: var(--studio-elevated); border: 1px solid var(--studio-border); border-radius: 7px; box-shadow: var(--studio-shadow); display: grid; padding: 4px; position: absolute; right: 5px; top: 42px; width: 138px; z-index: 4; }
+.office-task-menu button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--studio-text); display: flex; font-size: 11px; gap: 8px; height: 32px; padding: 0 8px; text-align: left; }
+.office-task-menu button:hover { background: var(--studio-control); } .office-task-menu button.danger { color: #e46767; }
+.office-schedules { right: 16px; width: min(420px, calc(100% - 32px)); }
+.office-schedule-body { min-height: 0; overflow-y: auto; padding: 10px; }
+.office-schedule-form { border-bottom: 1px solid var(--studio-border); display: grid; gap: 7px; padding-bottom: 12px; }
+.office-schedule-form input, .office-schedule-form textarea, .office-schedule-form select { background: var(--studio-control); border: 1px solid transparent; border-radius: 6px; color: var(--studio-text); font: inherit; font-size: 12px; outline: 0; padding: 8px 9px; resize: vertical; width: 100%; }
+.office-schedule-form input:focus, .office-schedule-form textarea:focus, .office-schedule-form select:focus { border-color: var(--office-blue); }
+.office-schedule-form > button { align-items: center; background: var(--studio-inverse-bg); border: 0; border-radius: 6px; color: var(--studio-inverse-text); display: flex; font-size: 11px; gap: 7px; height: 34px; justify-content: center; }
+.office-schedule-list { display: grid; padding-top: 6px; }
+.office-schedule-list > article { align-items: center; display: flex; gap: 12px; justify-content: space-between; min-height: 64px; padding: 8px 4px; }
+.office-schedule-list > article + article { border-top: 1px solid var(--studio-border); }
+.office-schedule-list article > div { display: grid; min-width: 0; } .office-schedule-list strong { font-size: 12px; } .office-schedule-list small { color: var(--studio-muted); font-size: 10px; margin-top: 3px; }
+.office-schedule-list article > span { display: flex; gap: 3px; } .office-schedule-list article button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--studio-muted); display: flex; height: 30px; justify-content: center; width: 30px; } .office-schedule-list article button:hover { background: var(--studio-control); color: var(--studio-text); }
 
 .office-welcome { align-content: center; display: grid; gap: 76px; justify-items: center; min-height: 0; overflow-y: auto; padding: 64px 24px 210px; }
 .office-welcome__copy { text-align: center; }
@@ -58,6 +75,9 @@
 .office-assistant-message > header small { color: var(--studio-muted); font-size: 11px; }
 .office-assistant-message .chat-markdown { font-size: 14px; line-height: 1.7; }
 .office-assistant-message > footer { display: flex; gap: 4px; margin-top: 18px; }
+.office-result-actions { display: flex; gap: 3px; justify-content: flex-end; margin: -48px 0 22px; }
+.office-result-actions button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--studio-muted); display: flex; font-size: 10px; gap: 5px; height: 29px; padding: 0 7px; }
+.office-result-actions button:hover { background: var(--studio-control); color: var(--studio-text); }
 .office-assistant-message > footer button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--studio-muted); display: flex; font-size: 11px; gap: 6px; height: 31px; padding: 0 8px; }
 .office-assistant-message > footer button:hover { background: var(--studio-control); color: var(--studio-text); }
 .office-thinking { align-items: center; color: var(--studio-muted); display: flex; font-size: 13px; gap: 9px; }

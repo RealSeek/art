@@ -61,6 +61,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         meta: resource('生成任务', 'ri:task-line', 'jobs')
       },
       {
+        path: 'agent-operations',
+        name: 'AgentOperations',
+        component: '/xinyue/agent',
+        meta: resource('Agent 运营中心', 'ri:robot-3-line', 'agentOperations')
+      },
+      {
         path: 'assets',
         name: 'AssetLibrary',
         component: '/xinyue/operations',

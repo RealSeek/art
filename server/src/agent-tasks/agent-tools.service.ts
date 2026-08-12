@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { CredentialCryptoService } from '../providers/credential-crypto.service'
 
 export type AgentToolDescriptor = {
   id?: string
@@ -16,7 +17,7 @@ type ToolExecutionTask = { id: string; userId: string; assistantId: string | nul
 
 @Injectable()
 export class AgentToolsService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly crypto: CredentialCryptoService) {}
 
   async available(task: ToolExecutionTask): Promise<AgentToolDescriptor[]> {
     const tools: AgentToolDescriptor[] = [
@@ -49,16 +50,22 @@ export class AgentToolsService {
     if (!tool.id) throw new Error('工具配置不存在')
     const configured = await this.prisma.toolDefinition.findFirst({ where: { id: tool.id, enabled: true } })
     if (!configured?.endpoint) throw new Error('工具尚未配置 Endpoint')
+    this.validateInput(input, configured.inputSchema)
     const started = Date.now()
     let status = 'FAILED'
     let output = ''
     let error = ''
     try {
-      const response = await fetch(configured.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(executionKey ? { 'Idempotency-Key': executionKey } : {}) },
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(45_000),
+      const method = configured.httpMethod.toUpperCase()
+      const publicHeaders = this.record(configured.headers)
+      const secretHeaders = configured.encryptedHeaders ? this.record(JSON.parse(this.crypto.decrypt(configured.encryptedHeaders))) : {}
+      const url = new URL(configured.endpoint)
+      if (method === 'GET' || method === 'DELETE') Object.entries(input).forEach(([key, value]) => { if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value)) })
+      const response = await fetch(url, {
+        method,
+        headers: { ...publicHeaders, ...secretHeaders, 'Content-Type': publicHeaders['Content-Type'] || publicHeaders['content-type'] || 'application/json', ...(executionKey ? { 'Idempotency-Key': executionKey } : {}) },
+        ...(method === 'GET' || method === 'DELETE' ? {} : { body: JSON.stringify(input) }),
+        signal: AbortSignal.timeout(Math.min(120_000, Math.max(1000, configured.timeoutMs))),
       })
       output = (await response.text()).slice(0, 100_000)
       if (!response.ok) throw new Error(`工具返回 ${response.status}`)
@@ -183,5 +190,26 @@ export class AgentToolsService {
 
   json(value: unknown): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
+  }
+
+  private record(value: Prisma.JsonValue | null): Record<string, string> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string')) as Record<string, string>
+  }
+
+  private validateInput(input: Record<string, unknown>, schema: Prisma.JsonValue | null) {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return
+    const definition = schema as Record<string, unknown>
+    const required = Array.isArray(definition.required) ? definition.required.filter((item): item is string => typeof item === 'string') : []
+    const missing = required.filter((key) => input[key] === undefined || input[key] === null || input[key] === '')
+    if (missing.length) throw new Error(`工具参数缺少必填字段：${missing.join('、')}`)
+    const properties = definition.properties && typeof definition.properties === 'object' && !Array.isArray(definition.properties) ? definition.properties as Record<string, unknown> : {}
+    for (const [key, value] of Object.entries(input)) {
+      const property = properties[key]
+      if (!property || typeof property !== 'object' || Array.isArray(property)) continue
+      const type = String((property as Record<string, unknown>).type || '')
+      const valid = !type || type === 'array' && Array.isArray(value) || type === 'object' && value !== null && typeof value === 'object' && !Array.isArray(value) || type === 'string' && typeof value === 'string' || type === 'number' && typeof value === 'number' || type === 'integer' && Number.isInteger(value) || type === 'boolean' && typeof value === 'boolean'
+      if (!valid) throw new Error(`工具参数 ${key} 类型应为 ${type}`)
+    }
   }
 }

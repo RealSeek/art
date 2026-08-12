@@ -3,20 +3,43 @@
     <header class="office-header">
       <div><BriefcaseBusiness :size="18" /><strong>办公中心</strong></div>
       <div class="office-header__actions">
+        <button v-if="auth.isAuthenticated && taskMode === 'agent'" type="button" :class="{ active: schedulePanelOpen }" @click="toggleSchedules"><CalendarClock :size="16" />定时任务</button>
         <button v-if="auth.isAuthenticated" type="button" :class="{ active: historyOpen }" @click="toggleHistory"><History :size="16" />任务记录</button>
         <button v-if="conversationId" type="button" :disabled="generating" @click="startNewTask"><SquarePen :size="17" />新工作任务</button>
       </div>
     </header>
 
     <aside v-if="historyOpen" class="office-history" aria-label="任务记录">
-      <header><div><strong>任务记录</strong><small>关闭页面后，任务仍会继续执行</small></div><button type="button" aria-label="关闭任务记录" @click="historyOpen = false"><X :size="17" /></button></header>
+      <header><div><strong>{{ archivedTasksVisible ? '已归档任务' : '任务记录' }}</strong><small>{{ archivedTasksVisible ? '可恢复到当前任务列表' : '关闭页面后，任务仍会继续执行' }}</small></div><span><button type="button" :title="archivedTasksVisible ? '查看当前任务' : '查看归档'" @click="toggleArchivedTasks"><ArchiveRestore v-if="archivedTasksVisible" :size="16" /><Archive v-else :size="16" /></button><button type="button" aria-label="关闭任务记录" @click="historyOpen = false"><X :size="17" /></button></span></header>
       <div v-if="historyLoading" class="office-history__empty"><LoaderCircle class="office-spin" :size="18" />正在加载</div>
       <div v-else-if="!agentTasks.length" class="office-history__empty">暂无任务记录</div>
       <div v-else class="office-history__list">
-        <button v-for="task in agentTasks" :key="task.id" type="button" :class="{ active: activeAgentTaskId === task.id }" @click="openAgentTask(task.id)">
-          <span><strong>{{ task.title }}</strong><small>{{ formatTaskTime(task.updatedAt) }}</small></span>
-          <em :data-status="task.status">{{ agentStatusLabel(task.status) }}</em>
-        </button>
+        <article v-for="task in agentTasks" :key="task.id" :class="{ active: activeAgentTaskId === task.id }">
+          <button type="button" @click="openAgentTask(task.id)"><span><strong>{{ task.title }}</strong><small>{{ formatTaskTime(task.updatedAt) }}</small></span><em :data-status="task.status">{{ agentStatusLabel(task.status) }}</em></button>
+          <button type="button" aria-label="任务操作" @click="toggleTaskMenu(task.id)"><MoreHorizontal :size="16" /></button>
+          <div v-if="taskMenuId === task.id" class="office-task-menu">
+            <button v-if="!archivedTasksVisible" type="button" @click="duplicateTask(task)"><Copy :size="14" />创建副本</button>
+            <button v-if="!archivedTasksVisible && ['FAILED', 'CANCELLED', 'SUCCEEDED'].includes(task.status)" type="button" @click="retryTask(task)"><RotateCcw :size="14" />重新执行</button>
+            <button type="button" @click="setTaskArchived(task, !archivedTasksVisible)"><ArchiveRestore v-if="archivedTasksVisible" :size="14" /><Archive v-else :size="14" />{{ archivedTasksVisible ? '恢复' : '归档' }}</button>
+            <button type="button" class="danger" @click="deleteTask(task)"><Trash2 :size="14" />删除</button>
+          </div>
+        </article>
+      </div>
+    </aside>
+
+    <aside v-if="schedulePanelOpen" class="office-history office-schedules" aria-label="定时任务">
+      <header><div><strong>定时任务</strong><small>由服务端可靠调度，关闭页面仍会执行</small></div><button type="button" aria-label="关闭定时任务" @click="schedulePanelOpen = false"><X :size="17" /></button></header>
+      <div class="office-schedule-body">
+        <form class="office-schedule-form" @submit.prevent="saveSchedule">
+          <input v-model.trim="scheduleForm.title" maxlength="120" placeholder="计划名称" required />
+          <textarea v-model.trim="scheduleForm.goal" maxlength="20000" rows="3" placeholder="每次执行的任务目标" required />
+          <select v-model="scheduleForm.preset" @change="applySchedulePreset"><option value="daily">每天 09:00</option><option value="weekday">工作日 09:00</option><option value="weekly">每周一 09:00</option><option value="monthly">每月 1 日 09:00</option><option value="custom">自定义 Cron</option></select>
+          <input v-if="scheduleForm.preset === 'custom'" v-model.trim="scheduleForm.cronExpression" placeholder="0 9 * * *" required />
+          <button type="submit" :disabled="scheduleSaving || !model"><LoaderCircle v-if="scheduleSaving" class="office-spin" :size="15" /><CalendarPlus v-else :size="15" />创建计划</button>
+        </form>
+        <div v-if="scheduleLoading" class="office-history__empty"><LoaderCircle class="office-spin" :size="17" />正在加载</div>
+        <div v-else-if="!agentSchedules.length" class="office-history__empty">暂无定时任务</div>
+        <div v-else class="office-schedule-list"><article v-for="schedule in agentSchedules" :key="schedule.id"><div><strong>{{ schedule.title }}</strong><small>{{ schedule.cronExpression }} · {{ schedule.timezone }}</small><small>下次 {{ schedule.nextRunAt ? formatTaskTime(schedule.nextRunAt) : '未安排' }}</small></div><span><button type="button" title="立即执行" @click="runSchedule(schedule)"><Play :size="14" /></button><button type="button" title="启用或停用" @click="toggleSchedule(schedule)"><Pause v-if="schedule.enabled" :size="14" /><Play v-else :size="14" /></button><button type="button" title="删除" @click="deleteSchedule(schedule)"><Trash2 :size="14" /></button></span></article></div>
       </div>
     </aside>
 
@@ -42,6 +65,7 @@
         <article v-if="submittedPrompt" class="office-user-message">{{ submittedPrompt }}</article>
         <article class="office-assistant-message">
           <header><span><component :is="selectedSkill.icon" :size="17" :style="{ color: selectedSkill.color }" /></span><strong>{{ selectedSkill.name }}</strong><small>{{ modeLabel }}</small></header>
+          <nav v-if="activeAgentTask && !generating" class="office-result-actions"><button v-if="['FAILED', 'CANCELLED', 'SUCCEEDED'].includes(activeAgentTask.status)" type="button" @click="retryTask(activeAgentTask)"><RotateCcw :size="14" />重新执行</button><button type="button" @click="duplicateTask(activeAgentTask)"><Copy :size="14" />创建副本</button><button type="button" @click="setTaskArchived(activeAgentTask, true)"><Archive :size="14" />归档</button></nav>
           <ol v-if="taskMode === 'agent' && activeAgentTask?.steps.length" class="office-agent-steps">
             <li v-for="step in activeAgentTask.steps" :key="step.id" :data-status="step.status">
               <span><Check v-if="step.status === 'SUCCEEDED'" :size="13" /><X v-else-if="step.status === 'FAILED'" :size="13" /><LoaderCircle v-else-if="step.status === 'RUNNING'" class="office-spin" :size="13" /><span v-else /></span>
@@ -122,12 +146,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
   PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
+  Archive, ArchiveRestore, CalendarClock, CalendarPlus, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
   type LucideIcon,
 } from 'lucide-vue-next'
 import ChatMessageContent from '../components/ChatMessageContent.vue'
@@ -151,7 +176,8 @@ type AgentTaskStep = { id: string; position: number; title: string; detail: stri
 type AgentToolCall = { id: string; key: string; name: string; input: Record<string, unknown>; status: string; approvalStatus: string; requiresApproval: boolean; iteration: number }
 type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string }
 type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
-type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null }
+type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
+type AgentSchedule = { id: string; title: string; goal: string; cronExpression: string; timezone: string; enabled: boolean; nextRunAt?: string | null }
 
 const builtInSkills: OfficeSkill[] = [
   { id: 'daily', name: '日常办公', category: '推荐', description: '整理任务、撰写通知、制定计划和处理通用办公事项', shortDescription: '通知、计划与工作整理', placeholder: '描述需要处理的办公任务', color: '#4f8cff', icon: FileText },
@@ -180,6 +206,13 @@ const activeAgentTask = ref<AgentTask | null>(null)
 const agentTasks = ref<AgentTask[]>([])
 const historyOpen = ref(false)
 const historyLoading = ref(false)
+const archivedTasksVisible = ref(false)
+const taskMenuId = ref('')
+const schedulePanelOpen = ref(false)
+const scheduleLoading = ref(false)
+const scheduleSaving = ref(false)
+const agentSchedules = ref<AgentSchedule[]>([])
+const scheduleForm = reactive({ title: '', goal: '', preset: 'daily', cronExpression: '0 9 * * *' })
 const reviewingCallId = ref('')
 const generating = ref(false)
 const canceling = ref(false)
@@ -289,8 +322,9 @@ async function submitTask() {
   skillPanelOpen.value = false; modeMenuOpen.value = false; modelMenuOpen.value = false
   try {
     if (taskMode.value === 'agent') {
-      const created = await api<AgentTask>('/agent-tasks', {
-        method: 'POST',
+      const draft = activeAgentTask.value?.status === 'DRAFT' ? activeAgentTask.value : null
+      const created = await api<AgentTask>(draft ? `/agent-tasks/${draft.id}` : '/agent-tasks', {
+        method: draft ? 'PATCH' : 'POST',
         body: JSON.stringify({
           title: `${selectedSkill.value.name} · ${raw.slice(0, 32)}`,
           goal: raw,
@@ -341,20 +375,63 @@ async function cancelTask() {
 async function loadAgentTasks() {
   if (!auth.isAuthenticated) return
   historyLoading.value = true
-  try { agentTasks.value = await api<AgentTask[]>('/agent-tasks', { cache: 'no-store' }) }
+  try { agentTasks.value = await api<AgentTask[]>(`/agent-tasks${archivedTasksVisible.value ? '?archived=true' : ''}`, { cache: 'no-store' }) }
   finally { historyLoading.value = false }
 }
 async function toggleHistory() {
   historyOpen.value = !historyOpen.value
   if (historyOpen.value) await loadAgentTasks()
 }
+async function toggleArchivedTasks() { archivedTasksVisible.value = !archivedTasksVisible.value; taskMenuId.value = ''; await loadAgentTasks() }
+function toggleTaskMenu(id: string) { taskMenuId.value = taskMenuId.value === id ? '' : id }
+async function duplicateTask(task: AgentTask) {
+  taskMenuId.value = ''
+  try { const copy = await api<AgentTask>(`/agent-tasks/${task.id}/duplicate`, { method: 'POST' }); startNewTask(); activeAgentTaskId.value = copy.id; activeAgentTask.value = copy; taskMode.value = 'agent'; prompt.value = copy.goal; const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId); if (matchingSkill) selectedSkill.value = matchingSkill; historyOpen.value = false; await loadAgentTasks() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '创建副本失败' }
+}
+async function retryTask(task: AgentTask) {
+  taskMenuId.value = ''; error.value = ''; generating.value = true
+  try { const started = await api<AgentTask>(`/agent-tasks/${task.id}/retry`, { method: 'POST' }); activeAgentTaskId.value = task.id; activeAgentTask.value = started; submittedPrompt.value = started.goal; answer.value = ''; conversationId.value = `agent:${task.id}`; const completed = await watchAgentTask(task.id); if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || '任务执行失败'); void createDeliverable(); await loadAgentTasks() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '重新执行失败' }
+  finally { generating.value = false }
+}
+async function setTaskArchived(task: AgentTask, archived: boolean) {
+  taskMenuId.value = ''
+  try { await api(`/agent-tasks/${task.id}/${archived ? 'archive' : 'unarchive'}`, { method: 'POST' }); if (activeAgentTaskId.value === task.id) startNewTask(); await loadAgentTasks() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : archived ? '归档失败' : '恢复失败' }
+}
+async function deleteTask(task: AgentTask) {
+  taskMenuId.value = ''
+  if (!window.confirm(`确认永久删除“${task.title}”？`)) return
+  try { await api(`/agent-tasks/${task.id}`, { method: 'DELETE' }); if (activeAgentTaskId.value === task.id) startNewTask(); await loadAgentTasks() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '删除任务失败' }
+}
+async function toggleSchedules() { schedulePanelOpen.value = !schedulePanelOpen.value; historyOpen.value = false; if (schedulePanelOpen.value) await loadSchedules() }
+async function loadSchedules() { scheduleLoading.value = true; try { agentSchedules.value = await api<AgentSchedule[]>('/agent-tasks/schedules/list/all', { cache: 'no-store' }) } finally { scheduleLoading.value = false } }
+function applySchedulePreset() { const values: Record<string, string> = { daily: '0 9 * * *', weekday: '0 9 * * 1-5', weekly: '0 9 * * 1', monthly: '0 9 1 * *' }; if (values[scheduleForm.preset]) scheduleForm.cronExpression = values[scheduleForm.preset] }
+async function saveSchedule() {
+  if (!scheduleForm.title.trim() || !scheduleForm.goal.trim() || !model.value) return
+  scheduleSaving.value = true; error.value = ''
+  try { await api('/agent-tasks/schedules/create', { method: 'POST', body: JSON.stringify({ title: scheduleForm.title, goal: scheduleForm.goal, model: model.value, skillId: selectedSkill.value.id, assistantId: selectedSkill.value.assistantId, pluginId: pluginId.value || undefined, attachmentIds: attachments.value.map((asset) => asset.id), cronExpression: scheduleForm.cronExpression, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', enabled: true }) }); scheduleForm.title = ''; scheduleForm.goal = ''; await loadSchedules() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '创建定时任务失败' }
+  finally { scheduleSaving.value = false }
+}
+async function runSchedule(schedule: AgentSchedule) { try { const task = await api<AgentTask>(`/agent-tasks/schedules/${schedule.id}/run`, { method: 'POST' }); schedulePanelOpen.value = false; await openAgentTask(task.id); void resumeAgentTask(task.id) } catch (reason) { error.value = reason instanceof Error ? reason.message : '启动计划失败' } }
+async function toggleSchedule(schedule: AgentSchedule) { try { await api(`/agent-tasks/schedules/${schedule.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !schedule.enabled }) }); await loadSchedules() } catch (reason) { error.value = reason instanceof Error ? reason.message : '更新计划失败' } }
+async function deleteSchedule(schedule: AgentSchedule) { if (!window.confirm(`确认删除计划“${schedule.title}”？`)) return; try { await api(`/agent-tasks/schedules/${schedule.id}`, { method: 'DELETE' }); await loadSchedules() } catch (reason) { error.value = reason instanceof Error ? reason.message : '删除计划失败' } }
 async function openAgentTask(id: string) {
   const task = await api<AgentTask>(`/agent-tasks/${id}`, { cache: 'no-store' })
   activeAgentTaskId.value = task.id
   activeAgentTask.value = task
   taskMode.value = 'agent'
+  if (task.status === 'DRAFT') {
+    conversationId.value = ''; submittedPrompt.value = ''; answer.value = ''; prompt.value = task.goal; deliverable.value = null; historyOpen.value = false
+    const draftSkill = allSkills.value.find((skill) => skill.id === task.skillId); if (draftSkill) selectedSkill.value = draftSkill
+    return
+  }
   submittedPrompt.value = task.goal
   answer.value = task.agentRun?.finalAnswer || task.run?.stream?.content || task.conversation?.messages[0]?.content || ''
+  deliverable.value = task.artifacts?.[0] || null
   conversationId.value = task.conversationId || `agent:${task.id}`
   const matchingSkill = allSkills.value.find((skill) => skill.id === task.skillId)
   if (matchingSkill) selectedSkill.value = matchingSkill

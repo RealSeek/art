@@ -8,6 +8,7 @@ import { AuthenticatedUser, CurrentUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
 import { AssetsService } from '../assets/assets.service'
 import { OfficeExportService } from './office-export.service'
+import { CredentialCryptoService } from '../providers/credential-crypto.service'
 
 class AssistantDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -33,6 +34,12 @@ class ToolDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
   @IsOptional() @IsString() @MaxLength(2000) description?: string
   @IsOptional() @IsString() @MaxLength(500) endpoint?: string
+  @IsOptional() @IsIn(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) httpMethod?: string
+  @IsOptional() @IsInt() @Min(1000) @Max(120000) timeoutMs?: number
+  @IsOptional() @IsObject() headers?: Record<string, string>
+  @IsOptional() @IsObject() secretHeaders?: Record<string, string>
+  @IsOptional() @IsBoolean() clearSecretHeaders?: boolean
+  @IsOptional() @IsObject() inputSchema?: Record<string, unknown>
   @IsOptional() @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) scopes?: string[]
   @IsOptional() @IsBoolean() enabled?: boolean
   @IsOptional() @IsBoolean() requiresApproval?: boolean
@@ -217,7 +224,7 @@ export class WorkspaceController {
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminWorkspaceController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService) {}
 
   @Get('assistants')
   assistants() { return this.prisma.assistant.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }], include: { tools: { select: { toolId: true } }, knowledgeBases: { select: { knowledgeBaseId: true } }, _count: { select: { knowledgeBases: true, tools: true } } } }) }
@@ -244,13 +251,13 @@ export class AdminWorkspaceController {
   async deleteAssistant(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) { const row = await this.prisma.assistant.delete({ where: { id } }); await this.audit(admin.id, request, 'assistant.delete', id, { name: row.name }); return { deleted: true } }
 
   @Get('tools')
-  tools() { return this.prisma.toolDefinition.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { assistants: true, calls: true } } } }) }
+  tools() { return this.prisma.toolDefinition.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { assistants: true, calls: true } } } }).then((rows) => rows.map((row) => ({ ...row, encryptedHeaders: undefined, hasSecretHeaders: Boolean(row.encryptedHeaders) }))) }
 
   @Post('tools')
-  async createTool(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: ToolDto) { const row = await this.prisma.toolDefinition.create({ data: { key: body.key.trim(), name: body.name.trim(), description: body.description?.trim() || '', endpoint: body.endpoint?.trim() || '', scopes: (body.scopes || []) as Prisma.InputJsonValue, enabled: body.enabled ?? false, requiresApproval: body.requiresApproval ?? true } }); await this.audit(admin.id, request, 'tool.create', row.id, { key: row.key }); return this.prisma.toolDefinition.findUniqueOrThrow({ where: { id: row.id }, include: { _count: { select: { assistants: true, calls: true } } } }) }
+  async createTool(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: ToolDto) { const secrets = this.cleanHeaders(body.secretHeaders); const row = await this.prisma.toolDefinition.create({ data: { key: body.key.trim(), name: body.name.trim(), description: body.description?.trim() || '', endpoint: body.endpoint?.trim() || '', httpMethod: body.httpMethod || 'POST', timeoutMs: body.timeoutMs ?? 45000, headers: this.cleanHeaders(body.headers) as Prisma.InputJsonValue, encryptedHeaders: Object.keys(secrets).length ? this.crypto.encrypt(JSON.stringify(secrets)) : '', secretHeaderHints: this.headerHints(secrets) as Prisma.InputJsonValue, inputSchema: body.inputSchema as Prisma.InputJsonValue, scopes: (body.scopes || []) as Prisma.InputJsonValue, enabled: body.enabled ?? false, requiresApproval: body.requiresApproval ?? true } }); await this.audit(admin.id, request, 'tool.create', row.id, { key: row.key }); return { ...await this.prisma.toolDefinition.findUniqueOrThrow({ where: { id: row.id }, include: { _count: { select: { assistants: true, calls: true } } } }), encryptedHeaders: undefined, hasSecretHeaders: Boolean(row.encryptedHeaders) } }
 
   @Patch('tools/:id')
-  async updateTool(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Body() body: ToolDto) { const row = await this.prisma.toolDefinition.update({ where: { id }, data: { key: body.key.trim(), name: body.name.trim(), description: body.description?.trim() || '', endpoint: body.endpoint?.trim() || '', scopes: (body.scopes || []) as Prisma.InputJsonValue, enabled: body.enabled ?? false, requiresApproval: body.requiresApproval ?? true } }); await this.audit(admin.id, request, 'tool.update', id, { key: row.key, enabled: row.enabled }); return this.prisma.toolDefinition.findUniqueOrThrow({ where: { id }, include: { _count: { select: { assistants: true, calls: true } } } }) }
+  async updateTool(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Body() body: ToolDto) { const current = await this.prisma.toolDefinition.findUnique({ where: { id } }); if (!current) throw new NotFoundException('工具不存在'); const supplied = this.cleanHeaders(body.secretHeaders); const merged = body.clearSecretHeaders ? {} : body.secretHeaders === undefined ? null : { ...this.readHeaders(current.encryptedHeaders), ...supplied }; const row = await this.prisma.toolDefinition.update({ where: { id }, data: { key: body.key.trim(), name: body.name.trim(), description: body.description?.trim() || '', endpoint: body.endpoint?.trim() || '', httpMethod: body.httpMethod || 'POST', timeoutMs: body.timeoutMs ?? 45000, headers: this.cleanHeaders(body.headers) as Prisma.InputJsonValue, ...(merged ? { encryptedHeaders: Object.keys(merged).length ? this.crypto.encrypt(JSON.stringify(merged)) : '', secretHeaderHints: this.headerHints(merged) as Prisma.InputJsonValue } : {}), inputSchema: body.inputSchema as Prisma.InputJsonValue, scopes: (body.scopes || []) as Prisma.InputJsonValue, enabled: body.enabled ?? false, requiresApproval: body.requiresApproval ?? true } }); await this.audit(admin.id, request, 'tool.update', id, { key: row.key, enabled: row.enabled }); return { ...await this.prisma.toolDefinition.findUniqueOrThrow({ where: { id }, include: { _count: { select: { assistants: true, calls: true } } } }), encryptedHeaders: undefined, hasSecretHeaders: Boolean(row.encryptedHeaders) } }
 
   @Delete('tools/:id')
   async deleteTool(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) { const row = await this.prisma.toolDefinition.delete({ where: { id } }); await this.audit(admin.id, request, 'tool.delete', id, { key: row.key }); return { deleted: true } }
@@ -278,4 +285,7 @@ export class AdminWorkspaceController {
   toolCalls() { return this.prisma.toolCallAudit.findMany({ orderBy: { createdAt: 'desc' }, take: 200, include: { user: { select: { email: true, displayName: true } }, tool: { select: { key: true, name: true } }, assistant: { select: { name: true } } } }) }
 
   private audit(actorId: string, request: FastifyRequest, action: string, targetId: string, after: Record<string, unknown>) { return this.prisma.auditLog.create({ data: { actorId, action, targetType: 'workspace', targetId, ipAddress: request.ip, userAgent: request.headers['user-agent'], after: after as Prisma.InputJsonValue } }) }
+  private cleanHeaders(value?: Record<string, string>) { return Object.fromEntries(Object.entries(value || {}).map(([key, item]) => [key.trim(), String(item).trim()]).filter(([key, item]) => key && item && !/[\r\n]/.test(key + item))) }
+  private readHeaders(value: string) { if (!value) return {}; try { return this.cleanHeaders(JSON.parse(this.crypto.decrypt(value))) } catch { return {} } }
+  private headerHints(value: Record<string, string>) { return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this.crypto.hint(item)])) }
 }

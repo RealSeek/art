@@ -139,7 +139,10 @@ export class OfficeExportService {
     if (!job && !agentTask?.runs[0]) throw new BadRequestException('该对话不是可导出的办公任务')
     const sourceId = agentTask?.runs[0]?.id || job!.id
     const existing = await this.prisma.asset.findFirst({ where: { userId, deletedAt: null, OR: [{ metadata: { path: ['officeJobId'], equals: sourceId } }, { metadata: { path: ['agentRunId'], equals: sourceId } }] } })
-    if (existing) return this.publicAsset(existing)
+    if (existing) {
+      if (agentTask?.runs[0]) await this.attachArtifact(agentTask.runs[0].id, agentTask.runs[0].artifactIds, existing.id)
+      return this.publicAsset(existing)
+    }
 
     const message = job ? await this.prisma.message.findFirst({ where: { conversationId, metadata: { path: ['jobId'], equals: job.id } }, select: { content: true } }) : null
     const content = agentTask?.runs[0]?.finalAnswer || message?.content || ''
@@ -156,11 +159,19 @@ export class OfficeExportService {
       kind: AssetKind.FILE,
       metadata: { purpose: 'generated', ...(agentTask?.runs[0] ? { agentRunId: sourceId } : { officeJobId: sourceId }), officeConversationId: conversationId, officeSkill: skillId, officeFormat: format },
     })
+    if (agentTask?.runs[0]) {
+      await this.attachArtifact(agentTask.runs[0].id, agentTask.runs[0].artifactIds, asset.id)
+    }
     return this.publicAsset(asset)
   }
 
   private publicAsset(asset: { id: string; name: string; mimeType: string; size: bigint; createdAt: Date }) {
     return { ...asset, size: Number(asset.size), contentUrl: `/v1/assets/${asset.id}/content` }
+  }
+
+  private attachArtifact(runId: string, value: unknown, assetId: string) {
+    const current = Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+    return this.prisma.agentRun.update({ where: { id: runId }, data: { artifactIds: [...new Set([...current, assetId])] } })
   }
 
   private render(format: OfficeFormat, title: string, content: string) {
