@@ -107,7 +107,7 @@
               </button>
             </div>
           </div>
-          <button class="composer-voice" :class="{ 'is-listening': voiceListening }" type="button" :aria-label="voiceListening ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening" :title="voiceListening ? '停止语音输入' : '语音输入'" @click="toggleVoice"><Mic :size="17" /></button>
+          <button class="composer-voice" :class="{ 'is-listening': voiceListening && voiceTarget === 'chat' }" type="button" :aria-label="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening && voiceTarget === 'chat'" :title="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '语音输入'" @click="toggleVoice('chat')"><Mic :size="17" /></button>
           <button :type="store.isGenerating ? 'button' : 'submit'" :aria-label="store.isGenerating ? '停止生成' : '发送'" :title="store.isGenerating ? '停止生成' : '发送，Enter'" :disabled="!store.isGenerating && !draft.trim() && !attachments.length" @click="store.isGenerating && store.cancelActiveJob()"><Square v-if="store.isGenerating" :size="14" fill="currentColor" /><ArrowUp v-else :size="20" /></button>
         </form>
 
@@ -152,17 +152,12 @@
       <div class="create-page-inner">
         <div class="creation-heading">
           <h1>{{ activeMode === 'commerce' ? t('studio.commerce') : t('workspace.creation') }}</h1>
-          <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
-            <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')"><ImageIcon :size="16" />图片</button>
-            <button type="button" :class="{ 'is-active': activeMode === 'videos' }" :aria-pressed="activeMode === 'videos'" @click="switchCreationMode('videos')"><Video :size="16" />视频</button>
-          </div>
+          <p v-if="activeMode !== 'commerce'">让创作随灵感而生</p>
         </div>
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
-        <form ref="creationComposer" class="creation-composer" :class="{ 'has-mobile-options': creationOptionsOpen, 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
+        <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-prompt-row">
-            <span class="creation-mode-icon">{{ activeMode === 'images' ? 'IMG' : activeMode === 'videos' ? 'VID' : 'SKU' }}</span>
-            <strong>{{ activeMode === 'images' ? '创建图片' : activeMode === 'videos' ? '创建视频' : '商品图' }}</strong>
-            <textarea ref="generationInput" v-model="generationPrompt" rows="1" :placeholder="activeMode === 'images' ? '描述新图片' : activeMode === 'videos' ? '描述镜头、主体动作和画面风格' : '描述你想制作的商品素材包或详情页'" @input="resizeGenerationInput" />
+            <textarea ref="generationInput" v-model="generationPrompt" rows="2" :placeholder="activeMode === 'images' ? '描述你想要的图片' : activeMode === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'" @input="resizeGenerationInput" />
           </div>
           <div v-if="activeMode !== 'videos' && (creationAttachments.length || maskAttachment)" class="creation-attachments" aria-label="参考图片">
             <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
@@ -180,22 +175,31 @@
             </article>
           </div>
           <div class="creation-controls">
-            <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考文件" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
-            <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" class="creation-add creation-mask-button" type="button" aria-label="添加蒙版" title="添加蒙版" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="17" /></button>
-            <button class="creation-mobile-options-toggle" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="生成设置" title="生成设置" :aria-expanded="creationOptionsOpen" @click.stop="creationOptionsOpen = !creationOptionsOpen"><Settings2 :size="18" /></button>
-            <div class="creation-option-buttons" :class="{ 'is-open': creationOptionsOpen }">
+            <div class="creation-control-track">
+              <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考文件" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
+              <i class="creation-control-divider" aria-hidden="true" />
+              <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
+                <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>
+                <button type="button" :class="{ 'is-active': activeMode === 'videos' }" :aria-pressed="activeMode === 'videos'" @click="switchCreationMode('videos')">视频</button>
+              </div>
+              <div class="creation-option-buttons">
+                <button v-if="activeMode !== 'commerce'" type="button" @click.stop="toggleCreationMenu('model', $event)"><Sparkles :size="16" /><span class="creation-control-label">模型</span>{{ activeMode === 'videos' ? videoModel : imageModel }}<ChevronDown :size="14" /></button>
+                <button v-else type="button" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" />{{ creationType }}<ChevronDown :size="14" /></button>
+                <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><ScanLine :size="16" /><span class="creation-control-label">比例</span>{{ activeMode === 'videos' ? videoAspectRatio : autoMode }}<ChevronDown :size="14" /></button>
+                <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'quality' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span>{{ activeMode === 'images' ? quality : activeMode === 'videos' ? videoResolution : `${commerceModules} 模块` }}<ChevronDown :size="14" /></button>
+              </div>
               <PluginSelector v-if="auth.isAuthenticated" v-model="creationPluginId" :capability="creationPluginCapability" compact />
-              <button v-if="activeMode !== 'commerce'" type="button" @click.stop="toggleCreationMenu('model', $event)"><Video v-if="activeMode === 'videos'" :size="16" /><ImageIcon v-else :size="16" />{{ activeMode === 'videos' ? videoModel : imageModel }}<ChevronDown :size="14" /></button>
-              <button v-else type="button" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" />{{ creationType }}<ChevronDown :size="14" /></button>
-              <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'resolution' : 'platform', $event)"><ScanLine :size="16" />{{ activeMode === 'videos' ? videoResolution : autoMode }}<ChevronDown :size="14" /></button>
-              <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'quality' : activeMode === 'videos' ? 'duration' : 'modules', $event)"><BadgeCheck :size="16" />{{ activeMode === 'images' ? quality : activeMode === 'videos' ? `${videoDuration} 秒` : `${commerceModules} 模块` }}<ChevronDown :size="14" /></button>
-              <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('aspect', $event)"><Ratio :size="16" />{{ videoAspectRatio }}<ChevronDown :size="14" /></button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="14" /></button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="14" /></button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><Blend :size="16" />{{ imageBackground }}<ChevronDown :size="14" /></button>
+              <button class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="creationOptionsOpen = !creationOptionsOpen"><Settings2 :size="17" /><span>更多</span><ChevronDown :size="13" /></button>
+              <span class="creation-cost" :title="`本次预计扣除 ${currentGenerationCost} 创作点`"><Sparkles :size="13" />{{ currentGenerationCost }} 点</span>
             </div>
-            <span class="creation-cost" :title="`本次预计扣除 ${currentGenerationCost} 创作点`"><Sparkles :size="13" />{{ currentGenerationCost }} 点</span>
-            <button class="creation-submit" type="submit" aria-label="开始生成" :disabled="!generationPrompt.trim()"><ArrowUp :size="20" /></button>
+            <button class="creation-submit" :class="{ 'is-listening': voiceListening && voiceTarget === 'creation' }" :type="generationPrompt.trim() ? 'submit' : 'button'" :aria-label="generationPrompt.trim() ? '开始生成' : voiceListening && voiceTarget === 'creation' ? '停止语音输入' : '语音输入'" @click="!generationPrompt.trim() && toggleVoice('creation')"><ArrowUp v-if="generationPrompt.trim()" :size="20" /><Mic v-else :size="19" /></button>
+            <div v-if="creationOptionsOpen" class="creation-more-panel" aria-label="更多生成设置">
+              <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />添加蒙版</button>
+              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
+              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
+              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
+              <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown :size="13" /></button>
+            </div>
           </div>
           <div v-if="creationMenu" ref="creationOptionsMenu" class="creation-options-menu" :class="`creation-options-menu--${creationMenu}`" :style="creationMenuStyle">
             <strong>{{ creationMenuTitle }}</strong>
@@ -351,9 +355,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } f
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Archive, ArchiveRestore, ArrowUp, BadgeCheck, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
+  Archive, ArchiveRestore, ArrowUp, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
   Download, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip,
-  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, Ratio, RefreshCw, RotateCcw, Save, ScanLine, Search, Settings2, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
+  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, ScanLine, Search, Settings2, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
@@ -455,6 +459,7 @@ type SpeechRecognizer = { lang: string; interimResults: boolean; continuous: boo
 type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
+const voiceTarget = ref<'chat' | 'creation'>('chat')
 async function toggleTemporaryChat() {
   if (!store.temporaryChat) {
     store.newConversation(true)
@@ -819,19 +824,25 @@ function resizeGenerationInput() {
   input.style.height = `${height}px`
   input.style.overflowY = input.scrollHeight > viewportLimit ? 'auto' : 'hidden'
 }
-function toggleVoice() {
+function toggleVoice(target: 'chat' | 'creation' = 'chat') {
   if (voiceListening.value) { voiceRecognizer.value?.stop(); return }
   const speechWindow = window as Window & { SpeechRecognition?: SpeechRecognizerConstructor; webkitSpeechRecognition?: SpeechRecognizerConstructor }
   const Constructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
   if (!Constructor) { store.lastError = '当前浏览器不支持语音输入，请使用 Chrome 或 Edge'; return }
   const recognizer = new Constructor()
+  voiceTarget.value = target
   recognizer.lang = document.documentElement.lang.startsWith('en') ? 'en-US' : 'zh-CN'
   recognizer.interimResults = false
   recognizer.continuous = false
   recognizer.onresult = (event) => {
     const transcript = Object.values(event.results).map((result) => result[0]?.transcript || '').join('')
-    if (transcript) draft.value = `${draft.value}${draft.value ? ' ' : ''}${transcript}`
-    void nextTick(resizeComposer)
+    if (transcript && voiceTarget.value === 'creation') {
+      generationPrompt.value = `${generationPrompt.value}${generationPrompt.value ? ' ' : ''}${transcript}`
+      void nextTick(resizeGenerationInput)
+    } else if (transcript) {
+      draft.value = `${draft.value}${draft.value ? ' ' : ''}${transcript}`
+      void nextTick(resizeComposer)
+    }
   }
   recognizer.onend = () => { voiceListening.value = false; voiceRecognizer.value = null }
   recognizer.onerror = () => { voiceListening.value = false; voiceRecognizer.value = null; store.lastError = '语音输入没有获得麦克风权限' }
