@@ -5,7 +5,5 @@ dist-ssr
 *.local
 .cursorrules
 
-# Auto-generated files
-src/types/import/auto-imports.d.ts
-src/types/import/components.d.ts
-.auto-import.json
+# Auto-generated type declarations are committed because they are required by
+# strict type-checking in clean clones and CI.
