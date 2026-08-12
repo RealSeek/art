@@ -1,0 +1,1 @@
+ALTER TYPE "InspirationMode" ADD VALUE IF NOT EXISTS 'VIDEO';

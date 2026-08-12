@@ -1,0 +1,29 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.playwright-cli/
+output/playwright/
+xiaoye.io_yibazhan/
+
+# Runtime data and user uploads stay on the server, never in source control.
+uploads/
+server/uploads/
+storage/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local editor and OS metadata.
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+*.log
+*.tsbuildinfo
+/*.png
+
+.env
+.env.*
+!.env.example

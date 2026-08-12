@@ -1,0 +1,41 @@
+{
+  "name": "flux-studio-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc -b && vite build",
+    "clean": "node scripts/clean.cjs",
+    "clean:reports": "node scripts/clean.cjs --reports",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "preview": "vite preview --host 0.0.0.0",
+    "admin:dev": "pnpm --dir admin dev",
+    "admin:build": "pnpm --dir admin build",
+    "build:all": "npm run build && npm run admin:build",
+    "server:dev": "npm --prefix server run dev",
+    "server:build": "npm --prefix server run build",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "dompurify": "^3.4.13",
+    "highlight.js": "^11.11.2",
+    "lucide-vue-next": "^0.539.0",
+    "marked": "^18.0.9",
+    "naive-ui": "^2.43.1",
+    "pinia": "^3.0.3",
+    "vite": "^7.1.2",
+    "vue": "^3.5.18",
+    "vue-i18n": "^11.4.8",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "typescript": "^5.9.2",
+    "vue-tsc": "^3.0.5"
+  }
+}

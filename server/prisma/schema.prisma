@@ -1,0 +1,1378 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum AssetKind {
+  IMAGE
+  VIDEO
+  FILE
+  PRODUCT_PACK
+}
+
+enum JobKind {
+  CHAT
+  IMAGE
+  VIDEO
+  COMMERCE
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum LedgerType {
+  GRANT
+  PURCHASE
+  SPEND
+  REFUND
+  ADJUST
+  INVITE
+  REDEEM
+}
+
+enum NotificationType {
+  SYSTEM
+  JOB
+  CREDIT
+  INVITE
+  SUPPORT
+}
+
+enum InspirationMode {
+  IMAGE
+  VIDEO
+  COMMERCE
+}
+
+enum ProviderType {
+  OPENAI
+  NEW_API
+  SUB2API
+  OPENAI_COMPATIBLE
+}
+
+enum ProviderAuthType {
+  BEARER
+  X_API_KEY
+  BOTH
+}
+
+enum ModelCapability {
+  CHAT
+  IMAGE
+  VIDEO
+  COMMERCE
+}
+
+enum RechargeOrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum PlanBillingCycle {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum SubscriptionOrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum ModerationRuleType {
+  KEYWORD
+  REGEX
+}
+
+enum ModerationAction {
+  LOG
+  REVIEW
+  BLOCK
+}
+
+enum ModerationSource {
+  CHAT
+  IMAGE
+  COMMERCE
+  FILE_NAME
+  SUPPORT
+}
+
+enum ModerationEventStatus {
+  OPEN
+  APPROVED
+  DISMISSED
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportAuthorType {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+model User {
+  id                  String                 @id @default(cuid())
+  email               String?                @unique
+  username            String?                @unique
+  displayName         String
+  avatarUrl           String?
+  passwordHash        String?
+  company             String                 @default("")
+  phone               String                 @default("")
+  tags                String[]               @default([])
+  adminNote           String                 @default("") @db.Text
+  role                UserRole               @default(USER)
+  status              UserStatus             @default(ACTIVE)
+  emailVerifiedAt     DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  sessions            Session[]
+  externalIdentities  ExternalIdentity[]
+  settings            UserSettings?
+  creditAccount       CreditAccount?
+  projects            Project[]
+  conversations       Conversation[]
+  assets              Asset[]
+  jobs                GenerationJob[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]             @relation("ActorAuditLogs")
+  invitations         Invitation[]           @relation("Inviter")
+  invitedBy           Invitation?            @relation("Invitee")
+  groupMemberships    UserGroupMember[]
+  apiCredentials      UserApiCredential[]
+  rechargeOrders      RechargeOrder[]
+  subscriptions       UserSubscription[]
+  subscriptionOrders  SubscriptionOrder[]
+  paymentTransactions PaymentTransaction[]
+  paymentRefunds      PaymentRefund[]
+  moderationEvents    ModerationEvent[]
+  supportTickets      SupportTicket[]        @relation("SupportTicketRequester")
+  assignedTickets     SupportTicket[]        @relation("SupportTicketAssignee")
+  supportMessages     SupportTicketMessage[] @relation("SupportMessageAuthor")
+  knowledgeBases      KnowledgeBase[]        @relation("KnowledgeBaseCreator")
+  ownedTeams          Team[]                 @relation("TeamOwner")
+  teamMemberships     TeamMember[]
+  toolCallAudits      ToolCallAudit[]
+  toolApprovalRequests ToolApprovalRequest[] @relation("ToolApprovalRequester")
+  reviewedToolApprovals ToolApprovalRequest[] @relation("ToolApprovalReviewer")
+}
+
+model ExternalIdentity {
+  id          String    @id @default(cuid())
+  userId      String
+  provider    String
+  subject     String
+  email       String?
+  displayName String?
+  avatarUrl   String?
+  profile     Json?
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([userId])
+  @@index([provider, email])
+}
+
+model UserGroup {
+  id                String                 @id @default(cuid())
+  name              String                 @unique
+  description       String                 @default("") @db.Text
+  color             String                 @default("#2563eb")
+  enabled           Boolean                @default(true)
+  restrictModels    Boolean                @default(false)
+  creditRatePercent Int                    @default(100)
+  allowUserByok     Boolean                @default(true)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  members           UserGroupMember[]
+  campaigns         AnnouncementCampaign[]
+  modelAccess       UserGroupModelAccess[]
+}
+
+model UserGroupMember {
+  groupId    String
+  userId     String
+  assignedAt DateTime  @default(now())
+  group      UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  ipAddress  String?
+  userAgent  String?
+  authMethod String    @default("email")
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model OtpCode {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, expiresAt])
+}
+
+model AuthTicket {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  kind       String
+  provider   String    @default("")
+  subject    String    @default("")
+  email      String?
+  profile    Json?
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([kind, expiresAt])
+  @@index([provider, subject])
+}
+
+model UserSettings {
+  id                   String  @id @default(cuid())
+  userId               String  @unique
+  appearance           String  @default("dark")
+  language             String  @default("zh-CN")
+  responseStyle        String  @default("default")
+  responseDetail       String  @default("auto")
+  replyLanguage        String  @default("follow")
+  customInstructions   String  @default("") @db.Text
+  nickname             String  @default("")
+  occupation           String  @default("")
+  bio                  String  @default("") @db.Text
+  useMemory            Boolean @default(true)
+  referenceChats       Boolean @default(true)
+  notifications        Boolean @default(true)
+  chatHistoryEnabled   Boolean @default(true)
+  trainingOptOut       Boolean @default(true)
+  temporaryChatDefault Boolean @default(false)
+  dataRetentionDays    Int     @default(0)
+  shareUsageAnalytics  Boolean @default(false)
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditAccount {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  balance   Int            @default(0)
+  version   Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries   CreditLedger[]
+}
+
+model CreditLedger {
+  id             String        @id @default(cuid())
+  accountId      String
+  type           LedgerType
+  amount         Int
+  balanceAfter   Int
+  idempotencyKey String?       @unique
+  referenceType  String?
+  referenceId    String?
+  description    String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  account        CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model Project {
+  id                 String           @id @default(cuid())
+  userId             String
+  name               String
+  description        String           @default("") @db.Text
+  instructions       String           @default("") @db.Text
+  workflowStatus     String           @default("PLANNING")
+  workflowConfig     Json?
+  defaultModel       String           @default("")
+  defaultAssistantId String?
+  revision           Int              @default(1)
+  archivedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultAssistant   Assistant?       @relation(fields: [defaultAssistantId], references: [id], onDelete: SetNull)
+  conversations      Conversation[]
+  assets             Asset[]
+  jobs               GenerationJob[]
+  versions           ProjectVersion[]
+
+  @@index([userId, updatedAt])
+  @@index([defaultAssistantId])
+}
+
+model ProjectVersion {
+  id            String   @id @default(cuid())
+  projectId     String
+  version       Int
+  label         String   @default("")
+  changeSummary String   @default("") @db.Text
+  snapshot      Json
+  createdAt     DateTime @default(now())
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, version])
+  @@index([projectId, createdAt])
+}
+
+model Conversation {
+  id         String          @id @default(cuid())
+  userId     String
+  projectId  String?
+  title      String          @default("新对话")
+  model      String
+  archivedAt DateTime?
+  pinnedAt   DateTime?
+  shareToken String?         @unique
+  sharedAt   DateTime?
+  temporary  Boolean         @default(false)
+  expiresAt  DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  messages   Message[]
+  jobs       GenerationJob[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, pinnedAt, updatedAt])
+  @@index([temporary, expiresAt])
+}
+
+model Message {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String         @db.Text
+  model          String?
+  inputTokens    Int?
+  outputTokens   Int?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments    MessageAsset[]
+
+  @@index([conversationId, createdAt])
+}
+
+model Asset {
+  id                String               @id @default(cuid())
+  userId            String
+  projectId         String?
+  kind              AssetKind
+  name              String
+  objectKey         String               @unique
+  mimeType          String
+  size              BigInt
+  width             Int?
+  height            Int?
+  checksum          String?
+  metadata          Json?
+  deletedAt         DateTime?
+  createdAt         DateTime             @default(now())
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project           Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  messages          MessageAsset[]
+  outputs           JobOutput[]
+  knowledgeBases    KnowledgeBaseAsset[]
+  inspirationCovers Inspiration[]        @relation("InspirationCover")
+
+  @@index([userId, createdAt])
+}
+
+model Inspiration {
+  id           String          @id @default(cuid())
+  mode         InspirationMode
+  title        String
+  prompt       String          @db.Text
+  badge        String          @default("")
+  coverUrl     String          @default("")
+  coverAssetId String?
+  model        String?
+  options      Json?
+  sortOrder    Int             @default(0)
+  enabled      Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  coverAsset   Asset?          @relation("InspirationCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+
+  @@index([mode, enabled, sortOrder])
+}
+
+model PromptTemplate {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("") @db.Text
+  prompt      String   @db.Text
+  category    String   @default("通用")
+  variables   Json?
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled, category, sortOrder])
+}
+
+model PromptLibrarySourceConfig {
+  id          String   @id
+  displayName String
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
+model PromptLibraryItemOverride {
+  itemId      String   @id
+  sourceId    String
+  title       String?
+  prompt      String?  @db.Text
+  description String?  @db.Text
+  tags        String[] @default([])
+  coverUrl    String?  @db.Text
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sourceId, enabled])
+}
+
+model Assistant {
+  id              String                   @id @default(cuid())
+  name            String
+  description     String                   @default("") @db.Text
+  systemPrompt    String                   @default("") @db.Text
+  defaultModel    String                   @default("")
+  templateIds     Json?
+  enabled         Boolean                  @default(true)
+  visibility      String                   @default("PUBLIC")
+  sortOrder       Int                      @default(0)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  knowledgeBases  AssistantKnowledgeBase[]
+  tools           AssistantTool[]
+  toolCallAudits  ToolCallAudit[]
+  defaultProjects Project[]
+  approvalRequests ToolApprovalRequest[]
+
+  @@index([enabled, visibility, sortOrder])
+}
+
+model KnowledgeBase {
+  id            String                   @id @default(cuid())
+  name          String
+  description   String                   @default("") @db.Text
+  status        String                   @default("READY")
+  creatorId     String
+  chunkCount    Int                      @default(0)
+  documentCount Int                      @default(0)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  creator       User                     @relation("KnowledgeBaseCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  assets        KnowledgeBaseAsset[]
+  assistants    AssistantKnowledgeBase[]
+
+  @@index([creatorId, updatedAt])
+}
+
+model KnowledgeBaseAsset {
+  knowledgeBaseId String
+  assetId         String
+  status          String        @default("READY")
+  extractedText   String        @default("") @db.Text
+  chunkCount      Int           @default(0)
+  createdAt       DateTime      @default(now())
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  asset           Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([knowledgeBaseId, assetId])
+  @@index([assetId])
+}
+
+model AssistantKnowledgeBase {
+  assistantId     String
+  knowledgeBaseId String
+  assistant       Assistant     @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([assistantId, knowledgeBaseId])
+}
+
+model ToolDefinition {
+  id               String          @id @default(cuid())
+  key              String          @unique
+  name             String
+  description      String          @default("") @db.Text
+  endpoint         String          @default("")
+  scopes           Json?
+  enabled          Boolean         @default(false)
+  requiresApproval Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  assistants       AssistantTool[]
+  calls            ToolCallAudit[]
+  approvalRequests ToolApprovalRequest[]
+}
+
+model AssistantTool {
+  assistantId String
+  toolId      String
+  assistant   Assistant      @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  tool        ToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@id([assistantId, toolId])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  description String       @default("") @db.Text
+  ownerId     String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  owner       User         @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model TeamMember {
+  teamId   String
+  userId   String
+  role     String   @default("MEMBER")
+  joinedAt DateTime @default(now())
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model ToolCallAudit {
+  id          String         @id @default(cuid())
+  userId      String
+  toolId      String
+  assistantId String?
+  status      String
+  input       Json?
+  output      Json?
+  error       String?        @db.Text
+  durationMs  Int?
+  createdAt   DateTime       @default(now())
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tool        ToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  assistant   Assistant?     @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([toolId, createdAt])
+}
+
+model ToolApprovalRequest {
+  id          String        @id @default(cuid())
+  userId      String
+  toolId      String
+  assistantId String?
+  status      String        @default("PENDING")
+  reason      String        @default("") @db.Text
+  adminNote   String        @default("") @db.Text
+  reviewedById String?
+  reviewedAt  DateTime?
+  expiresAt   DateTime?
+  consumedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation("ToolApprovalRequester", fields: [userId], references: [id], onDelete: Cascade)
+  tool        ToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  assistant   Assistant?    @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  reviewedBy  User?         @relation("ToolApprovalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([toolId, assistantId, status])
+}
+
+model ProviderChannel {
+  id                  String               @id @default(cuid())
+  name                String               @unique
+  type                ProviderType
+  baseUrl             String
+  encryptedApiKey     String               @default("") @db.Text
+  apiKeyHint          String               @default("")
+  authType            ProviderAuthType     @default(BEARER)
+  enabled             Boolean              @default(true)
+  priority            Int                  @default(0)
+  weight              Int                  @default(100)
+  timeoutMs           Int                  @default(120000)
+  allowUserKeys       Boolean              @default(true)
+  customHeaders       Json?
+  metadata            Json?
+  lastHealthStatus    String?
+  lastHealthMessage   String?              @db.Text
+  lastHealthAt        DateTime?
+  consecutiveFailures Int                  @default(0)
+  lastFailureAt       DateTime?
+  lastSuccessAt       DateTime?
+  cooldownUntil       DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  modelPresets        ModelPreset[]
+  modelRoutes         ModelProviderRoute[]
+  generationJobs      GenerationJob[]
+
+  @@index([enabled, priority])
+}
+
+model ModelPreset {
+  id                         String                 @id @default(cuid())
+  key                        String                 @unique
+  displayName                String
+  description                String                 @default("") @db.Text
+  providerId                 String?
+  upstreamModel              String
+  capability                 ModelCapability
+  enabled                    Boolean                @default(true)
+  isDefault                  Boolean                @default(false)
+  allowUserKey               Boolean                @default(true)
+  sortOrder                  Int                    @default(0)
+  flatCreditCost             Int                    @default(1)
+  inputCreditsPerMillion     Int                    @default(0)
+  outputCreditsPerMillion    Int                    @default(0)
+  inputCostMicrosPerMillion  Int                    @default(0)
+  outputCostMicrosPerMillion Int                    @default(0)
+  imageCostMicros            Int                    @default(0)
+  videoCostMicros            Int                    @default(0)
+  badge                      String                 @default("")
+  options                    Json?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  provider                   ProviderChannel?       @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  groupAccess                UserGroupModelAccess[]
+  providerRoutes             ModelProviderRoute[]
+
+  @@index([capability, enabled, sortOrder])
+  @@index([providerId])
+}
+
+model ModelProviderRoute {
+  id                         String          @id @default(cuid())
+  modelPresetId              String
+  providerId                 String
+  upstreamModelOverride      String?
+  enabled                    Boolean         @default(true)
+  priority                   Int?
+  weight                     Int?
+  inputCostMicrosPerMillion  Int?
+  outputCostMicrosPerMillion Int?
+  imageCostMicros            Int?
+  videoCostMicros            Int?
+  options                    Json?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+  modelPreset                ModelPreset     @relation(fields: [modelPresetId], references: [id], onDelete: Cascade)
+  provider                   ProviderChannel @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([modelPresetId, providerId])
+  @@index([modelPresetId, enabled])
+  @@index([providerId, enabled])
+}
+
+model UserGroupModelAccess {
+  groupId                String
+  modelPresetId          String
+  flatCreditCostOverride Int?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  group                  UserGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  modelPreset            ModelPreset @relation(fields: [modelPresetId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, modelPresetId])
+  @@index([modelPresetId])
+}
+
+model UserApiCredential {
+  id              String           @id @default(cuid())
+  userId          String
+  name            String
+  providerType    ProviderType
+  baseUrl         String
+  encryptedApiKey String           @db.Text
+  apiKeyHint      String
+  authType        ProviderAuthType @default(BEARER)
+  enabled         Boolean          @default(true)
+  isDefault       Boolean          @default(false)
+  customHeaders   Json?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, enabled])
+}
+
+model SystemSetting {
+  id                           String   @id @default("global")
+  siteName                     String   @default("Xinyue AI")
+  siteLogoUrl                  String   @default("")
+  supportUrl                   String   @default("")
+  registrationEnabled          Boolean  @default(true)
+  emailLoginEnabled            Boolean  @default(true)
+  emailVerifyEnabled           Boolean  @default(true)
+  passwordLoginEnabled         Boolean  @default(true)
+  passwordRegistrationEnabled  Boolean  @default(true)
+  linuxDoLoginEnabled          Boolean  @default(false)
+  linuxDoClientId              String   @default("")
+  encryptedLinuxDoClientSecret String   @default("") @db.Text
+  linuxDoClientSecretHint      String   @default("")
+  linuxDoRedirectUrl           String   @default("")
+  linuxDoScopes                String   @default("user")
+  linuxDoAuthorizeUrl          String   @default("https://connect.linux.do/oauth2/authorize")
+  linuxDoTokenUrl              String   @default("https://connect.linux.do/oauth2/token")
+  linuxDoUserInfoUrl           String   @default("https://connect.linux.do/api/user")
+  sub2apiLoginEnabled          Boolean  @default(false)
+  sub2apiBaseUrl               String   @default("")
+  sub2apiClientId              String   @default("")
+  encryptedSub2apiClientSecret String   @default("") @db.Text
+  sub2apiClientSecretHint      String   @default("")
+  sub2apiRedirectUrl           String   @default("")
+  sub2apiScopes                String   @default("openid profile email")
+  sub2apiAuthorizeUrl          String   @default("")
+  sub2apiTokenUrl              String   @default("")
+  sub2apiUserInfoUrl           String   @default("")
+  allowedEmailDomains          String[] @default([])
+  otpTtlMinutes                Int      @default(10)
+  otpResendSeconds             Int      @default(60)
+  defaultUserCredits           Int      @default(8)
+  defaultTheme                 String   @default("dark")
+  defaultLanguage              String   @default("zh-CN")
+  defaultChatModelKey          String   @default("")
+  defaultImageModelKey         String   @default("")
+  userByokEnabled              Boolean  @default(true)
+  inviteRewardCredits          Int      @default(0)
+  rechargeEnabled              Boolean  @default(false)
+  minRechargeCents             Int      @default(100)
+  currency                     String   @default("CNY")
+  creditValueMicros            Int      @default(10000)
+  subscriptionsEnabled         Boolean  @default(true)
+  trialEnabled                 Boolean  @default(true)
+  defaultTrialPlanId           String   @default("")
+  trialCredits                 Int      @default(8)
+  defaultUserGroupId           String   @default("")
+  temporaryChatRetentionHours  Int      @default(24)
+  defaultChatHistoryEnabled    Boolean  @default(true)
+  defaultTrainingOptOut        Boolean  @default(true)
+  defaultShareUsageAnalytics   Boolean  @default(false)
+  smtpEnabled                  Boolean  @default(false)
+  smtpHost                     String   @default("")
+  smtpPort                     Int      @default(465)
+  smtpSecure                   Boolean  @default(true)
+  smtpUsername                 String   @default("")
+  encryptedSmtpPassword        String   @default("") @db.Text
+  smtpPasswordHint             String   @default("")
+  smtpFromName                 String   @default("Xinyue AI")
+  smtpFromEmail                String   @default("")
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+}
+
+model AlertRule {
+  id                     String       @id @default(cuid())
+  key                    String       @unique
+  name                   String
+  description            String       @default("") @db.Text
+  enabled                Boolean      @default(true)
+  severity               String       @default("HIGH")
+  cooldownMinutes        Int          @default(30)
+  notifyInApp            Boolean      @default(true)
+  notifyWebhook          Boolean      @default(false)
+  webhookUrl             String       @default("") @db.Text
+  encryptedWebhookSecret String       @default("") @db.Text
+  webhookSecretHint      String       @default("")
+  mutedUntil             DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  events                 AlertEvent[]
+
+  @@index([enabled, severity])
+}
+
+model AlertEvent {
+  id               String    @id @default(cuid())
+  ruleId           String
+  fingerprint      String
+  status           String    @default("OPEN")
+  severity         String
+  title            String
+  message          String    @db.Text
+  source           String
+  targetId         String?
+  metadata         Json?
+  firstSeenAt      DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  rule             AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, fingerprint])
+  @@index([status, severity, lastSeenAt])
+  @@index([source, targetId])
+}
+
+model ExternalNavLink {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String   @default("") @db.Text
+  url         String
+  icon        String   @default("code")
+  enabled     Boolean  @default(true)
+  openNewTab  Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
+model SubscriptionPlan {
+  id                 String              @id @default(cuid())
+  code               String              @unique
+  name               String
+  description        String              @default("") @db.Text
+  billingCycle       PlanBillingCycle    @default(MONTHLY)
+  priceCents         Int                 @default(0)
+  originalPriceCents Int?
+  currency           String              @default("CNY")
+  includedCredits    Int                 @default(0)
+  trialDays          Int                 @default(0)
+  concurrency        Int                 @default(1)
+  allowByok          Boolean             @default(true)
+  apiAccess          Boolean             @default(false)
+  imageAccess        Boolean             @default(true)
+  videoAccess        Boolean             @default(false)
+  commerceAccess     Boolean             @default(false)
+  batchAccess        Boolean             @default(false)
+  enabled            Boolean             @default(true)
+  recommended        Boolean             @default(false)
+  sortOrder          Int                 @default(0)
+  capabilities       Json?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  subscriptions      UserSubscription[]
+  orders             SubscriptionOrder[]
+
+  @@index([enabled, sortOrder])
+}
+
+model UserSubscription {
+  id                 String             @id @default(cuid())
+  userId             String
+  planId             String
+  status             SubscriptionStatus @default(ACTIVE)
+  startsAt           DateTime           @default(now())
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime?
+  trialEndsAt        DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  cancelledAt        DateTime?
+  endedAt            DateTime?
+  metadata           Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan               SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, status, createdAt])
+  @@index([planId, status])
+}
+
+model SubscriptionOrder {
+  id              String                  @id @default(cuid())
+  userId          String
+  planId          String
+  status          SubscriptionOrderStatus @default(PENDING)
+  amountCents     Int
+  currency        String                  @default("CNY")
+  paymentMethod   String                  @default("")
+  externalOrderId String?                 @unique
+  paidAt          DateTime?
+  cancelledAt     DateTime?
+  metadata        Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            SubscriptionPlan        @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model RechargePackage {
+  id                 String          @id @default(cuid())
+  name               String
+  description        String          @default("") @db.Text
+  credits            Int
+  priceCents         Int
+  originalPriceCents Int?
+  enabled            Boolean         @default(true)
+  recommended        Boolean         @default(false)
+  sortOrder          Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  orders             RechargeOrder[]
+
+  @@index([enabled, sortOrder])
+}
+
+model RechargeOrder {
+  id              String              @id @default(cuid())
+  userId          String
+  packageId       String?
+  status          RechargeOrderStatus @default(PENDING)
+  credits         Int
+  amountCents     Int
+  currency        String              @default("CNY")
+  paymentMethod   String              @default("")
+  externalOrderId String?             @unique
+  paidAt          DateTime?
+  cancelledAt     DateTime?
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  package         RechargePackage?    @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PaymentChannel {
+  id               String                @id @default(cuid())
+  name             String
+  providerKey      String
+  enabled          Boolean               @default(false)
+  isDefault        Boolean               @default(false)
+  supportedMethods String[]              @default([])
+  minAmountCents   Int                   @default(100)
+  maxAmountCents   Int?
+  dailyLimitCents  Int?
+  feeRateBps       Int                   @default(0)
+  sortOrder        Int                   @default(0)
+  publicConfig     Json?
+  encryptedSecrets String                @default("") @db.Text
+  secretHints      Json?
+  lastHealthStatus String                @default("unchecked")
+  lastError        String                @default("") @db.Text
+  lastCheckedAt    DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  transactions     PaymentTransaction[]
+  webhookEvents    PaymentWebhookEvent[]
+  refunds          PaymentRefund[]
+
+  @@index([enabled, sortOrder])
+  @@index([providerKey, enabled])
+}
+
+model PaymentTransaction {
+  id                  String                @id @default(cuid())
+  userId              String
+  channelId           String
+  orderType           String
+  subscriptionOrderId String?
+  rechargeOrderId     String?
+  outTradeNo          String                @unique
+  providerTradeNo     String?
+  status              String                @default("PENDING")
+  amountCents         Int
+  currency            String                @default("CNY")
+  paymentMethod       String
+  checkoutUrl         String                @default("") @db.Text
+  qrCodeUrl           String                @default("") @db.Text
+  expiresAt           DateTime
+  paidAt              DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  failureReason       String                @default("") @db.Text
+  metadata            Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel             PaymentChannel        @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  webhookEvents       PaymentWebhookEvent[]
+  refunds             PaymentRefund[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([channelId, createdAt])
+  @@index([subscriptionOrderId])
+  @@index([rechargeOrderId])
+}
+
+model PaymentWebhookEvent {
+  id             String              @id @default(cuid())
+  channelId      String
+  transactionId  String?
+  externalId     String?
+  eventType      String              @default("")
+  signatureValid Boolean             @default(false)
+  processed      Boolean             @default(false)
+  errorMessage   String              @default("") @db.Text
+  payload        Json?
+  createdAt      DateTime            @default(now())
+  processedAt    DateTime?
+  channel        PaymentChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  transaction    PaymentTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, createdAt])
+  @@index([transactionId, createdAt])
+  @@index([externalId])
+}
+
+model PaymentRefund {
+  id               String             @id @default(cuid())
+  transactionId    String
+  userId           String
+  channelId        String
+  amountCents      Int
+  reason           String             @default("") @db.Text
+  status           String             @default("REQUESTED")
+  providerRefundId String?
+  failureReason    String             @default("") @db.Text
+  requestedById    String?
+  approvedById     String?
+  requestedAt      DateTime           @default(now())
+  processedAt      DateTime?
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  transaction      PaymentTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel          PaymentChannel     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model MessageAsset {
+  messageId String
+  assetId   String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  asset     Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, assetId])
+}
+
+model GenerationJob {
+  id                 String           @id @default(cuid())
+  userId             String
+  projectId          String?
+  conversationId     String?
+  kind               JobKind
+  status             JobStatus        @default(QUEUED)
+  provider           String
+  providerChannelId  String?
+  model              String
+  prompt             String           @db.Text
+  options            Json
+  creditCost         Int
+  revenueMicros      Int              @default(0)
+  upstreamCostMicros Int              @default(0)
+  inputTokens        Int              @default(0)
+  outputTokens       Int              @default(0)
+  idempotencyKey     String?          @unique
+  providerJobId      String?
+  errorCode          String?
+  errorMessage       String?          @db.Text
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project            Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  conversation       Conversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  providerChannel    ProviderChannel? @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
+  outputs            JobOutput[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([completedAt, status])
+  @@index([providerChannelId])
+}
+
+model JobOutput {
+  id       String        @id @default(cuid())
+  jobId    String
+  assetId  String
+  position Int           @default(0)
+  job      GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  asset    Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, assetId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  inviterId  String
+  inviteeId  String?   @unique
+  code       String    @unique
+  reward     Int       @default(0)
+  rewardedAt DateTime?
+  createdAt  DateTime  @default(now())
+  inviter    User      @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee    User?     @relation("Invitee", fields: [inviteeId], references: [id], onDelete: SetNull)
+}
+
+model RedemptionCode {
+  id         String    @id @default(cuid())
+  name       String    @default("")
+  codePrefix String    @default("")
+  codeHash   String    @unique
+  credits    Int
+  maxUses    Int       @default(1)
+  usedCount  Int       @default(0)
+  expiresAt  DateTime?
+  disabledAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model AnnouncementCampaign {
+  id             String     @id @default(cuid())
+  title          String
+  body           String     @db.Text
+  targetGroupId  String?
+  recipientCount Int        @default(0)
+  createdById    String
+  createdAt      DateTime   @default(now())
+  targetGroup    UserGroup? @relation(fields: [targetGroupId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String?
+  ipAddress  String?
+  userAgent  String?
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model ModerationPolicy {
+  id            String   @id @default("global")
+  enabled       Boolean  @default(true)
+  scanChat      Boolean  @default(true)
+  scanImage     Boolean  @default(true)
+  scanCommerce  Boolean  @default(true)
+  failClosed    Boolean  @default(true)
+  blockMessage  String   @default("内容未通过安全检查，请修改后重试。")
+  retainContent Boolean  @default(false)
+  excerptLength Int      @default(240)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ModerationRule {
+  id            String             @id @default(cuid())
+  name          String
+  category      String             @default("自定义")
+  type          ModerationRuleType @default(KEYWORD)
+  pattern       String             @db.Text
+  action        ModerationAction   @default(BLOCK)
+  caseSensitive Boolean            @default(false)
+  enabled       Boolean            @default(true)
+  sortOrder     Int                @default(0)
+  description   String             @default("") @db.Text
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([enabled, sortOrder])
+  @@index([category])
+}
+
+model ModerationEvent {
+  id             String                @id @default(cuid())
+  userId         String?
+  source         ModerationSource
+  action         ModerationAction
+  status         ModerationEventStatus @default(OPEN)
+  contentHash    String
+  contentExcerpt String                @default("") @db.Text
+  matchedRules   Json
+  context        Json?
+  resolvedById   String?
+  resolutionNote String                @default("") @db.Text
+  resolvedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  user           User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([source, action, createdAt])
+}
+
+model SupportTicket {
+  id                 String                 @id @default(cuid())
+  userId             String
+  assignedToId       String?
+  subject            String
+  category           String                 @default("其他")
+  status             SupportTicketStatus    @default(OPEN)
+  priority           SupportTicketPriority  @default(NORMAL)
+  lastUserMessageAt  DateTime?
+  lastAdminMessageAt DateTime?
+  userLastReadAt     DateTime?
+  adminLastReadAt    DateTime?
+  resolvedAt         DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation("SupportTicketRequester", fields: [userId], references: [id], onDelete: Cascade)
+  assignedTo         User?                  @relation("SupportTicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages           SupportTicketMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([status, priority, updatedAt])
+  @@index([assignedToId, status])
+}
+
+model SupportTicketMessage {
+  id         String            @id @default(cuid())
+  ticketId   String
+  authorType SupportAuthorType
+  authorId   String?
+  body       String            @db.Text
+  assetIds   String[]          @default([])
+  createdAt  DateTime          @default(now())
+  ticket     SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author     User?             @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model ContentPage {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  category    String   @default("关于我们")
+  summary     String   @default("") @db.Text
+  contentHtml String   @db.Text
+  coverUrl    String   @default("")
+  published   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  views       Int      @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([published, sortOrder, updatedAt])
+  @@index([category, published])
+}

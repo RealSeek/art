@@ -1,0 +1,249 @@
+// Xinyue 企业管理端主题层
+// 只覆盖视觉和布局，不改变 Art Design Pro 的路由、状态和组件契约。
+
+:root {
+  --xinyue-canvas: #f6f8fb;
+  --xinyue-surface: #ffffff;
+  --xinyue-surface-soft: #fbfcfe;
+  --xinyue-ink: #182235;
+  --xinyue-muted: #6b778c;
+  --xinyue-line: #e6eaf0;
+  --xinyue-line-strong: #d9e0ea;
+  --xinyue-accent-soft: color-mix(in srgb, var(--theme-color) 10%, white);
+  --xinyue-shadow: 0 5px 18px rgb(26 39 68 / 4%);
+}
+
+html.dark {
+  --xinyue-canvas: #10141b;
+  --xinyue-surface: #171c25;
+  --xinyue-surface-soft: #1b212c;
+  --xinyue-ink: #f0f3f8;
+  --xinyue-muted: #9aa7b8;
+  --xinyue-line: #28313e;
+  --xinyue-line-strong: #344050;
+  --xinyue-accent-soft: color-mix(in srgb, var(--theme-color) 18%, #171c25);
+  --xinyue-shadow: 0 8px 26px rgb(0 0 0 / 18%);
+}
+
+// 页面标题、卡片和业务容器
+#app-content .xinyue-page,
+#app-content .dashboard-page,
+#app-content .operation-page {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--xinyue-ink);
+}
+
+#app-content .xinyue-page .page-title,
+#app-content .dashboard-heading {
+  min-width: 0;
+  padding: 4px 0 6px;
+}
+
+#app-content .xinyue-page .page-title h1,
+#app-content .dashboard-heading h1 {
+  color: var(--xinyue-ink);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+#app-content .xinyue-page .page-title p,
+#app-content .dashboard-heading p {
+  color: var(--xinyue-muted);
+  line-height: 1.5;
+}
+
+#app-content .el-card,
+#app-content .art-card,
+#app-content .page-content {
+  border: 1px solid var(--xinyue-line) !important;
+  border-radius: 10px !important;
+  background: var(--xinyue-surface) !important;
+  box-shadow: var(--xinyue-shadow) !important;
+}
+
+#app-content .el-card__header {
+  border-bottom-color: var(--xinyue-line);
+}
+
+#app-content .art-table-card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+#app-content .art-table-card > .el-card__body {
+  min-width: 0;
+}
+
+// 表单输入框只保留轻量边界，按钮和表格恢复 Art Design Pro 原生样式。
+#app-content .el-input__wrapper,
+#app-content .el-select__wrapper,
+#app-content .el-textarea__inner,
+#app-content .el-input-number {
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--xinyue-line-strong) inset !important;
+}
+
+#app-content .el-input__wrapper:hover,
+#app-content .el-select__wrapper:hover,
+#app-content .el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-color) 50%, var(--xinyue-line-strong)) inset !important;
+}
+
+#app-content .el-dialog,
+#app-content .el-drawer {
+  background: var(--xinyue-surface);
+}
+
+// Dialog / Drawer 会 Teleport 到 body，不能只依赖 #app-content 选择器。
+.el-dialog,
+.el-drawer {
+  border: 1px solid var(--xinyue-line) !important;
+  border-radius: 12px !important;
+  background: var(--xinyue-surface) !important;
+  box-shadow: var(--xinyue-shadow) !important;
+}
+
+.el-dialog__header,
+.el-drawer__header {
+  margin: 0 !important;
+  padding: 18px 22px !important;
+  border-bottom: 1px solid var(--xinyue-line);
+}
+
+.el-dialog__body,
+.el-drawer__body {
+  color: var(--xinyue-ink);
+}
+
+.el-dialog__footer,
+.el-drawer__footer {
+  padding: 14px 22px !important;
+  border-top: 1px solid var(--xinyue-line);
+}
+
+.el-dialog .el-input__wrapper,
+.el-dialog .el-select__wrapper,
+.el-dialog .el-textarea__inner,
+.el-drawer .el-input__wrapper,
+.el-drawer .el-select__wrapper,
+.el-drawer .el-textarea__inner {
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--xinyue-line-strong) inset !important;
+}
+
+#app-content .el-dialog__header,
+#app-content .el-drawer__header {
+  border-bottom: 1px solid var(--xinyue-line);
+}
+
+#app-content .el-dialog__footer,
+#app-content .el-drawer__footer {
+  border-top: 1px solid var(--xinyue-line);
+}
+
+#app-content .el-tabs__item {
+  color: var(--xinyue-muted);
+  font-weight: 500;
+}
+
+#app-content .el-tabs__item.is-active {
+  color: var(--theme-color);
+  font-weight: 650;
+}
+
+#app-content .el-tabs__active-bar {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--theme-color);
+}
+
+#app-content .plan-grid article {
+  min-width: 0;
+  border: 1px solid var(--xinyue-line);
+  border-radius: 10px;
+  background: var(--xinyue-surface);
+  box-shadow: var(--xinyue-shadow);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+#app-content .plan-grid article:hover {
+  border-color: color-mix(in srgb, var(--theme-color) 45%, var(--xinyue-line));
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--theme-color) 10%, transparent);
+  transform: translateY(-2px);
+}
+
+#app-content .plan-grid article.recommended {
+  border-color: color-mix(in srgb, var(--theme-color) 55%, var(--xinyue-line));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--theme-color) 12%, transparent);
+}
+
+#app-content .pane-action,
+#app-content .resource-heading,
+#app-content .card-title {
+  min-width: 0;
+}
+
+#app-content .pane-action {
+  padding: 2px 0 4px;
+}
+
+#app-content .toggle-row,
+#app-content .toggle-item {
+  border-color: var(--xinyue-line) !important;
+  background: var(--xinyue-surface-soft) !important;
+}
+
+#app-content .el-alert {
+  border: 1px solid color-mix(in srgb, var(--theme-color) 20%, var(--xinyue-line));
+  border-radius: 8px;
+}
+
+// 商业化页面的密度和小屏收缩。
+#app-content .business-tabs,
+#app-content .settings-tabs {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#app-content .heading-actions,
+#app-content .page-title > .el-space,
+#app-content .page-title > .el-button {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+@media (max-width: 800px) {
+  #app-content .layout-content {
+    width: calc(100% - 24px);
+  }
+
+  #app-content .xinyue-page .page-title,
+  #app-content .dashboard-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  #app-content .xinyue-page .page-title > .el-button,
+  #app-content .dashboard-heading .heading-actions {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  #app-content .layout-content {
+    width: calc(100% - 16px);
+  }
+
+  #app-content .el-card__body,
+  #app-content .art-card {
+    padding: 14px !important;
+  }
+
+  #app-content .xinyue-page .page-title h1,
+  #app-content .dashboard-heading h1 {
+    font-size: 20px;
+  }
+}
