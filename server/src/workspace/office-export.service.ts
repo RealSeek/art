@@ -2,11 +2,41 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AssetKind } from '@prisma/client'
 import { Document, HeadingLevel, Packer, Paragraph } from 'docx'
 import ExcelJS = require('exceljs')
-import type PptxGenJSDefault from 'pptxgenjs'
+import { PassThrough } from 'node:stream'
 import { AssetsService } from '../assets/assets.service'
 import { PrismaService } from '../prisma/prisma.service'
 
-const PptxGenJS = require('pptxgenjs') as typeof PptxGenJSDefault
+type PresentationTextOptions = {
+  x?: number | string
+  y?: number | string
+  cx?: number | string
+  cy?: number | string
+  font_face?: string
+  font_size?: number
+  color?: string
+  fill?: string
+  line?: string
+  line_size?: number
+  bold?: boolean
+  align?: 'left' | 'right' | 'center' | 'justify'
+  bodyProp?: Record<string, unknown>
+}
+type PresentationSlide = {
+  back: string
+  addText(text: string, options?: PresentationTextOptions): unknown
+  addShape(shape: string, options?: PresentationTextOptions): unknown
+}
+type PresentationDocument = {
+  shapes: { RECT: string; LINE: string }
+  setDocTitle(title: string): void
+  setWidescreen(wide: boolean): void
+  makeNewSlide(): PresentationSlide
+  generate(stream: NodeJS.WritableStream): void
+  on(event: 'error', listener: (error: Error | string) => void): void
+}
+type OfficegenFactory = (type: 'pptx') => PresentationDocument
+
+const officegen = require('officegen') as OfficegenFactory
 
 type OfficeFormat = 'pptx' | 'xlsx' | 'docx' | 'md'
 type MarkdownSection = { title: string; lines: string[] }
@@ -92,6 +122,10 @@ export class OfficeExportService {
   async create(userId: string, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({ where: { id: conversationId, userId }, select: { id: true, title: true } })
     if (!conversation) throw new NotFoundException('办公任务不存在')
+    const agentTask = await this.prisma.agentTask.findFirst({
+      where: { userId, conversationId, status: 'SUCCEEDED' },
+      include: { runs: { where: { status: 'SUCCEEDED' }, orderBy: { completedAt: 'desc' }, take: 1 } },
+    })
     const jobs = await this.prisma.generationJob.findMany({
       where: { userId, conversationId, kind: 'CHAT', status: 'SUCCEEDED' },
       orderBy: { completedAt: 'desc' },
@@ -102,23 +136,25 @@ export class OfficeExportService {
       const options = item.options && typeof item.options === 'object' && !Array.isArray(item.options) ? item.options as Record<string, unknown> : {}
       return typeof options.officeSkill === 'string'
     })
-    if (!job) throw new BadRequestException('该对话不是可导出的办公任务')
-    const existing = await this.prisma.asset.findFirst({ where: { userId, deletedAt: null, metadata: { path: ['officeJobId'], equals: job.id } } })
+    if (!job && !agentTask?.runs[0]) throw new BadRequestException('该对话不是可导出的办公任务')
+    const sourceId = agentTask?.runs[0]?.id || job!.id
+    const existing = await this.prisma.asset.findFirst({ where: { userId, deletedAt: null, OR: [{ metadata: { path: ['officeJobId'], equals: sourceId } }, { metadata: { path: ['agentRunId'], equals: sourceId } }] } })
     if (existing) return this.publicAsset(existing)
 
-    const message = await this.prisma.message.findFirst({ where: { conversationId, metadata: { path: ['jobId'], equals: job.id } }, select: { content: true } })
-    if (!message?.content.trim()) throw new BadRequestException('办公任务尚未生成可导出的内容')
-    const options = job.options as Record<string, unknown>
-    const skillId = String(options.officeSkill || '')
+    const message = job ? await this.prisma.message.findFirst({ where: { conversationId, metadata: { path: ['jobId'], equals: job.id } }, select: { content: true } }) : null
+    const content = agentTask?.runs[0]?.finalAnswer || message?.content || ''
+    if (!content.trim()) throw new BadRequestException('办公任务尚未生成可导出的内容')
+    const options = job?.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+    const skillId = agentTask?.skillId || String(options.officeSkill || '')
     const format = skillId.startsWith('assistant:') ? 'docx' : skillFormats[skillId] || 'docx'
     const title = safeBaseName(conversation.title.replace(/^[^·]+·\s*/, ''))
-    const bytes = await this.render(format, title, message.content)
+    const bytes = await this.render(format, title, content)
     const name = `${title}.${format}`
     const asset = await this.assets.storeGenerated(userId, bytes, {
       name,
       mimeType: mimeTypes[format],
       kind: AssetKind.FILE,
-      metadata: { purpose: 'generated', officeJobId: job.id, officeConversationId: conversationId, officeSkill: skillId, officeFormat: format },
+      metadata: { purpose: 'generated', ...(agentTask?.runs[0] ? { agentRunId: sourceId } : { officeJobId: sourceId }), officeConversationId: conversationId, officeSkill: skillId, officeFormat: format },
     })
     return this.publicAsset(asset)
   }
@@ -135,19 +171,15 @@ export class OfficeExportService {
   }
 
   private async renderPresentation(title: string, content: string) {
-    const pptx = new PptxGenJS()
-    pptx.layout = 'LAYOUT_WIDE'
-    pptx.author = 'Xinyue AI'
-    pptx.company = 'Xinyue AI'
-    pptx.subject = title
-    pptx.title = title
-    pptx.theme = { headFontFace: 'Microsoft YaHei', bodyFontFace: 'Microsoft YaHei' }
+    const pptx = officegen('pptx')
+    pptx.setDocTitle(title)
+    pptx.setWidescreen(true)
 
-    const cover = pptx.addSlide()
-    cover.background = { color: 'F7F8FA' }
-    cover.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.16, h: 7.5, fill: { color: '2563EB' }, line: { color: '2563EB' } })
-    cover.addText(title, { x: 0.9, y: 2.45, w: 11.2, h: 0.9, fontFace: 'Microsoft YaHei', fontSize: 30, bold: true, color: '111827', margin: 0 })
-    cover.addText('Xinyue AI · 办公中心', { x: 0.92, y: 3.55, w: 5.5, h: 0.35, fontFace: 'Microsoft YaHei', fontSize: 11, color: '64748B', margin: 0 })
+    const cover = pptx.makeNewSlide()
+    cover.back = 'F7F8FA'
+    cover.addShape(pptx.shapes.RECT, { x: 0, y: 0, cx: 12, cy: 540, fill: '2563EB', line: '2563EB' })
+    cover.addText(title, { x: 66, y: 176, cx: 806, cy: 70, font_face: 'Microsoft YaHei', font_size: 30, bold: true, color: '111827', bodyProp: { normAutofit: 90000 } })
+    cover.addText('Xinyue AI · 办公中心', { x: 68, y: 256, cx: 396, cy: 28, font_face: 'Microsoft YaHei', font_size: 11, color: '64748B' })
 
     const sections = parseSections(content, title)
     const contentSections = sections.length > 1 && sections[0].lines.length <= 1 ? sections.slice(1) : sections
@@ -156,17 +188,34 @@ export class OfficeExportService {
       for (let index = 0; index < section.lines.length; index += 8) chunks.push(section.lines.slice(index, index + 8))
       if (!chunks.length) chunks.push([''])
       for (const [chunkIndex, lines] of chunks.entries()) {
-        const slide = pptx.addSlide()
-        slide.background = { color: 'FFFFFF' }
-        slide.addText(chunkIndex ? `${section.title}（续）` : section.title, { x: 0.72, y: 0.52, w: 11.7, h: 0.55, fontFace: 'Microsoft YaHei', fontSize: 22, bold: true, color: '111827', margin: 0 })
-        slide.addShape(pptx.ShapeType.line, { x: 0.72, y: 1.22, w: 11.85, h: 0, line: { color: 'DDE3EA', width: 1 } })
+        const slide = pptx.makeNewSlide()
+        slide.back = 'FFFFFF'
+        slide.addText(chunkIndex ? `${section.title}（续）` : section.title, { x: 52, y: 38, cx: 842, cy: 42, font_face: 'Microsoft YaHei', font_size: 22, bold: true, color: '111827', bodyProp: { normAutofit: 90000 } })
+        slide.addShape(pptx.shapes.LINE, { x: 52, y: 88, cx: 854, cy: 0, line: 'DDE3EA', line_size: 1 })
         const body = lines.map((line) => cleanMarkdown(line)).filter(Boolean).map((line) => `• ${line}`).join('\n') || ' '
-        slide.addText(body, { x: 0.86, y: 1.55, w: 11.25, h: 4.95, fontFace: 'Microsoft YaHei', fontSize: 16, color: '334155', breakLine: false, valign: 'top', margin: 0.08, paraSpaceAfter: 12, fit: 'shrink' })
-        slide.addText(`${sectionIndex + 1}`, { x: 11.95, y: 7.05, w: 0.55, h: 0.2, fontFace: 'Microsoft YaHei', fontSize: 8, color: '94A3B8', align: 'right', margin: 0 })
+        slide.addText(body, { x: 62, y: 112, cx: 820, cy: 356, font_face: 'Microsoft YaHei', font_size: 16, color: '334155', bodyProp: { normAutofit: 85000 } })
+        slide.addText(`${sectionIndex + 1}`, { x: 858, y: 506, cx: 48, cy: 14, font_face: 'Microsoft YaHei', font_size: 8, color: '94A3B8', align: 'right' })
       }
     }
-    const output = await pptx.write({ outputType: 'nodebuffer', compression: true })
-    return Buffer.isBuffer(output) ? output : Buffer.from(output as Uint8Array)
+    return new Promise<Buffer>((resolve, reject) => {
+      const output = new PassThrough()
+      const chunks: Buffer[] = []
+      let settled = false
+      const fail = (error: unknown) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+      output.on('data', (chunk: Buffer | Uint8Array) => chunks.push(Buffer.from(chunk)))
+      output.on('error', fail)
+      output.on('finish', () => {
+        if (settled) return
+        settled = true
+        resolve(Buffer.concat(chunks))
+      })
+      pptx.on('error', fail)
+      pptx.generate(output)
+    })
   }
 
   private async renderWorkbook(title: string, content: string) {

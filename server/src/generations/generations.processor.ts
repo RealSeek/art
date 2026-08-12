@@ -381,7 +381,7 @@ export class GenerationsProcessor extends WorkerHost {
         return { content: demoContent, usage: undefined }
       }
       const maxOutputTokens = Math.max(1, Math.min(32768, Number(billing.maxOutputTokens || 4096)))
-      if (!agentPrepared && assistantId && agentTools.length) {
+      if (!agentPrepared && assistantId && agentTools.length && options.disableAssistantTools !== true) {
         const calls = await this.planAgentTools(resolved, providerMessages, maxOutputTokens, agentTools)
         const results = await this.executeAgentTools(task, assistantId, agentTools, calls)
         agentContext = results.length ? `工具调用已经完成。请基于以下真实结果回答用户，不要声称执行了未列出的工具：\n${JSON.stringify(results)}` : ''

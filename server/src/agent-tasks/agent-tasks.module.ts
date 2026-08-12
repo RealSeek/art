@@ -4,10 +4,12 @@ import { GenerationsModule } from '../generations/generations.module'
 import { AgentTasksController } from './agent-tasks.controller'
 import { AgentTasksProcessor } from './agent-tasks.processor'
 import { AgentTasksService } from './agent-tasks.service'
+import { AgentModelService } from './agent-model.service'
+import { AgentToolsService } from './agent-tools.service'
 
 @Module({
   imports: [BullModule.registerQueue({ name: 'agent-task' }), GenerationsModule],
   controllers: [AgentTasksController],
-  providers: [AgentTasksService, AgentTasksProcessor],
+  providers: [AgentTasksService, AgentTasksProcessor, AgentModelService, AgentToolsService],
 })
 export class AgentTasksModule {}

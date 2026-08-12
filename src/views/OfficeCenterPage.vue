@@ -48,6 +48,17 @@
               <div><strong>{{ step.title }}</strong><small v-if="step.detail">{{ step.detail }}</small></div>
             </li>
           </ol>
+          <section v-if="pendingToolCalls.length" class="office-approvals">
+            <header><ShieldCheck :size="16" /><div><strong>需要你的确认</strong><small>批准后任务会从当前步骤继续执行</small></div></header>
+            <article v-for="call in pendingToolCalls" :key="call.id">
+              <div><strong>{{ call.name }}</strong><small>{{ toolCallSummary(call) }}</small></div>
+              <span><button type="button" :disabled="reviewingCallId === call.id" @click="reviewToolCall(call.id, 'REJECTED')">拒绝</button><button class="primary" type="button" :disabled="reviewingCallId === call.id" @click="reviewToolCall(call.id, 'APPROVED')">允许</button></span>
+            </article>
+          </section>
+          <details v-if="agentEvents.length" class="office-agent-events">
+            <summary>执行记录 · {{ agentEvents.length }}</summary>
+            <ol><li v-for="event in agentEvents" :key="event.id"><span /><div><strong>{{ event.title }}</strong><small v-if="event.detail">{{ event.detail }}</small></div></li></ol>
+          </details>
           <ChatMessageContent v-if="answer" :content="answer" />
           <div v-else class="office-thinking"><LoaderCircle :size="18" /><span>{{ taskMode === 'agent' ? '正在自主规划并执行任务' : '正在整理任务并生成结果' }}</span></div>
           <div v-if="answer && (exporting || deliverable)" class="office-deliverable">
@@ -116,7 +127,7 @@ import { useRouter } from 'vue-router'
 import {
   ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
-  PenLine, Plus, Presentation, Search, Sparkles, Square, SquarePen, Table2, X, Zap, History,
+  PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
   type LucideIcon,
 } from 'lucide-vue-next'
 import ChatMessageContent from '../components/ChatMessageContent.vue'
@@ -137,7 +148,10 @@ type AssistantOption = { id: string; name: string; description?: string; default
 type OfficeDeliverable = { id: string; name: string; mimeType: string; size: number; contentUrl: string }
 type AgentTaskStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 type AgentTaskStep = { id: string; position: number; title: string; detail: string; status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' }
-type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; conversation?: { id: string; messages: Array<{ content: string }> } | null }
+type AgentToolCall = { id: string; key: string; name: string; input: Record<string, unknown>; status: string; approvalStatus: string; requiresApproval: boolean; iteration: number }
+type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string }
+type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
+type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null }
 
 const builtInSkills: OfficeSkill[] = [
   { id: 'daily', name: '日常办公', category: '推荐', description: '整理任务、撰写通知、制定计划和处理通用办公事项', shortDescription: '通知、计划与工作整理', placeholder: '描述需要处理的办公任务', color: '#4f8cff', icon: FileText },
@@ -166,6 +180,7 @@ const activeAgentTask = ref<AgentTask | null>(null)
 const agentTasks = ref<AgentTask[]>([])
 const historyOpen = ref(false)
 const historyLoading = ref(false)
+const reviewingCallId = ref('')
 const generating = ref(false)
 const canceling = ref(false)
 const exporting = ref(false)
@@ -202,6 +217,8 @@ const filteredSkills = computed(() => allSkills.value.filter((skill) => {
 const modeLabel = computed(() => taskMode.value === 'fast' ? '快速' : taskMode.value === 'expert' ? '专家' : '任务')
 const deliverableFormat = computed(() => deliverable.value?.name.split('.').pop()?.toUpperCase() || 'OFFICE')
 const deliverableIcon = computed(() => deliverable.value?.name.toLowerCase().endsWith('.pptx') ? Presentation : deliverable.value?.name.toLowerCase().endsWith('.xlsx') ? FileSpreadsheet : FileText)
+const pendingToolCalls = computed(() => activeAgentTask.value?.agentRun?.toolCalls.filter((call) => call.requiresApproval && call.approvalStatus === 'PENDING') || [])
+const agentEvents = computed(() => [...(activeAgentTask.value?.agentRun?.events || [])].reverse())
 
 function selectSkill(skill: OfficeSkill) {
   const wasGeneratedPrefix = allSkills.value.some((item) => prompt.value.trim() === `${item.name}：` || prompt.value.trim() === `${item.name}:`)
@@ -337,7 +354,7 @@ async function openAgentTask(id: string) {
   activeAgentTask.value = task
   taskMode.value = 'agent'
   submittedPrompt.value = task.goal
-  answer.value = task.run?.stream?.content || task.conversation?.messages[0]?.content || ''
+  answer.value = task.agentRun?.finalAnswer || task.run?.stream?.content || task.conversation?.messages[0]?.content || ''
   conversationId.value = task.conversationId || `agent:${task.id}`
   const matchingSkill = allSkills.value.find((skill) => skill.id === task.skillId)
   if (matchingSkill) selectedSkill.value = matchingSkill
@@ -348,12 +365,30 @@ async function watchAgentTask(id: string) {
   const completed = await streamApiEvents<AgentTask>(`/agent-tasks/${id}/events`, (current) => {
     activeAgentTask.value = current
     if (current.conversationId) conversationId.value = current.conversationId
-    if (current.run?.stream?.content) answer.value = current.run.stream.content
+    const content = current.agentRun?.finalAnswer || current.run?.stream?.content
+    if (content) answer.value = content
   })
   activeAgentTask.value = completed
   if (completed.conversationId) conversationId.value = completed.conversationId
-  if (completed.run?.stream?.content) answer.value = completed.run.stream.content
+  const content = completed.agentRun?.finalAnswer || completed.run?.stream?.content
+  if (content) answer.value = content
   return completed
+}
+async function reviewToolCall(callId: string, decision: 'APPROVED' | 'REJECTED') {
+  if (!activeAgentTaskId.value || reviewingCallId.value) return
+  reviewingCallId.value = callId
+  error.value = ''
+  try {
+    const task = await api<AgentTask>(`/agent-tasks/${activeAgentTaskId.value}/tool-calls/${callId}/review`, { method: 'POST', body: JSON.stringify({ decision }) })
+    activeAgentTask.value = task
+    if (task.status === 'QUEUED' && !generating.value) void resumeAgentTask(task.id)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '处理工具确认失败'
+  } finally { reviewingCallId.value = '' }
+}
+function toolCallSummary(call: AgentToolCall) {
+  const query = typeof call.input.query === 'string' ? call.input.query : ''
+  return query || `Agent 请求调用 ${call.name}`
 }
 async function resumeAgentTask(id: string) {
   generating.value = true

@@ -26,6 +26,8 @@ const schema = z.object({
   AI_CHAT_MODEL: z.string().default('gpt-4.1'),
   AI_IMAGE_MODEL: z.string().default('gpt-image-1'),
   CREDENTIAL_ENCRYPTION_KEY: z.string().min(32).optional(),
+  WEB_SEARCH_ENDPOINT: z.string().url().optional(),
+  WEB_SEARCH_API_KEY: z.string().optional(),
 })
 
 export function validateEnv(input: Record<string, unknown>) {

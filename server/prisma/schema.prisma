@@ -720,6 +720,7 @@ model ToolDefinition {
   assistants       AssistantTool[]
   calls            ToolCallAudit[]
   approvalRequests ToolApprovalRequest[]
+  agentToolCalls    AgentToolCall[]
 }
 
 model AssistantTool {
@@ -1340,11 +1341,83 @@ model AgentTask {
   conversation    Conversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   generationJob   GenerationJob?  @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
   steps           AgentTaskStep[]
+  runs            AgentRun[]
+  events          AgentEvent[]
+  toolCalls       AgentToolCall[]
 
   @@index([userId, updatedAt])
   @@index([userId, status])
   @@index([projectId])
   @@index([assistantId])
+}
+
+model AgentRun {
+  id               String          @id @default(cuid())
+  agentTaskId      String
+  runKey           String          @unique
+  status           AgentTaskStatus @default(QUEUED)
+  currentNode      String          @default("prepare")
+  iteration        Int             @default(0)
+  maxIterations    Int             @default(3)
+  plan             Json?
+  context          Json?
+  verifierFeedback String          @default("") @db.Text
+  finalAnswer      String          @default("") @db.Text
+  artifactIds      Json?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  agentTask        AgentTask       @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  events           AgentEvent[]
+  toolCalls        AgentToolCall[]
+
+  @@index([agentTaskId, createdAt])
+  @@index([status, updatedAt])
+}
+
+model AgentEvent {
+  id          String    @id @default(cuid())
+  agentTaskId String
+  runId       String
+  type        String
+  title       String
+  detail      String    @default("") @db.Text
+  payload     Json?
+  createdAt   DateTime  @default(now())
+  agentTask   AgentTask @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  run         AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([agentTaskId, createdAt])
+  @@index([runId, createdAt])
+}
+
+model AgentToolCall {
+  id               String          @id @default(cuid())
+  agentTaskId      String
+  runId            String
+  toolId           String?
+  iteration        Int
+  position         Int
+  key              String
+  name             String
+  input            Json
+  output           Json?
+  status           String          @default("PENDING")
+  requiresApproval Boolean         @default(false)
+  approvalStatus   String          @default("NOT_REQUIRED")
+  error            String?         @db.Text
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  agentTask        AgentTask       @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  run              AgentRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  tool             ToolDefinition? @relation(fields: [toolId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, iteration, position])
+  @@index([agentTaskId, status, createdAt])
+  @@index([toolId, createdAt])
 }
 
 model AgentTaskStep {

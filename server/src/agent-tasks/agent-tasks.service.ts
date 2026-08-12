@@ -17,7 +17,7 @@ export interface CreateAgentTaskInput {
   attachmentIds?: string[]
 }
 
-const activeStatuses: AgentTaskStatus[] = [AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING]
+const activeStatuses: AgentTaskStatus[] = [AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING, AgentTaskStatus.WAITING_APPROVAL]
 
 @Injectable()
 export class AgentTasksService {
@@ -38,6 +38,7 @@ export class AgentTasksService {
         steps: { orderBy: { position: 'asc' } },
         generationJob: { select: { id: true, status: true, creditCost: true, errorMessage: true } },
         conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
+        runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 30 } } },
       },
     })
   }
@@ -75,11 +76,12 @@ export class AgentTasksService {
         project: { select: { id: true, name: true } },
         steps: { orderBy: { position: 'asc' } },
         conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
+        runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 100 } } },
       },
     })
     if (!task) throw new NotFoundException('Agent 任务不存在')
     const run = task.generationJobId ? await this.generations.get(userId, task.generationJobId) : null
-    return { ...task, run }
+    return { ...task, run, agentRun: task.runs[0] || null }
   }
 
   async run(userId: string, id: string) {
@@ -99,21 +101,23 @@ export class AgentTasksService {
     })
     const now = new Date()
     const runKey = `${id}-${now.getTime()}`
+    let runId = ''
     try {
-      const claimed = await this.prisma.$transaction(async (tx) => {
+      const run = await this.prisma.$transaction(async (tx) => {
         const result = await tx.agentTask.updateMany({
           where: { id, userId, status: { notIn: activeStatuses } },
           data: { conversationId: null, generationJobId: null, status: AgentTaskStatus.QUEUED, errorMessage: null, startedAt: now, completedAt: null },
         })
-        if (!result.count) return false
+        if (!result.count) return null
         await tx.agentTaskStep.updateMany({ where: { agentTaskId: id }, data: { status: AgentTaskStepStatus.PENDING, startedAt: null, completedAt: null, detail: '' } })
-        return true
+        return tx.agentRun.create({ data: { agentTaskId: id, runKey, status: AgentTaskStatus.QUEUED, maxIterations: 3 } })
       })
-      if (!claimed) throw new BadRequestException('任务正在执行中')
-      await this.queue.add('run', { taskId: id, runKey }, { jobId: runKey, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000 })
+      if (!run) throw new BadRequestException('任务正在执行中')
+      runId = run.id
+      await this.queue.add('run', { taskId: id, runId: run.id, runKey }, { jobId: runKey, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000 })
       return this.get(userId, id)
     } catch (error) {
-      if (!(error instanceof BadRequestException)) await this.prisma.agentTask.update({ where: { id }, data: { status: AgentTaskStatus.FAILED, errorMessage: error instanceof Error ? error.message : '任务启动失败', completedAt: new Date() } })
+      if (!(error instanceof BadRequestException)) await this.failEnqueue(id, runId, error, '任务启动失败')
       throw error
     }
   }
@@ -129,6 +133,7 @@ export class AgentTasksService {
     await this.prisma.$transaction([
       this.prisma.agentTask.updateMany({ where: { id, userId, status: { in: activeStatuses } }, data: { status: AgentTaskStatus.CANCELLED, completedAt: now } }),
       this.prisma.agentTaskStep.updateMany({ where: { agentTaskId: id, status: { in: [AgentTaskStepStatus.PENDING, AgentTaskStepStatus.RUNNING] } }, data: { status: AgentTaskStepStatus.CANCELLED, completedAt: now } }),
+      this.prisma.agentRun.updateMany({ where: { agentTaskId: id, status: { in: activeStatuses } }, data: { status: AgentTaskStatus.CANCELLED, completedAt: now } }),
     ])
     return this.get(userId, id)
   }
@@ -143,8 +148,44 @@ export class AgentTasksService {
     return { deleted: true }
   }
 
+  async reviewToolCall(userId: string, taskId: string, callId: string, decision: 'APPROVED' | 'REJECTED') {
+    const task = await this.prisma.agentTask.findFirst({ where: { id: taskId, userId }, select: { id: true, status: true } })
+    if (!task) throw new NotFoundException('Agent 任务不存在')
+    if (task.status !== AgentTaskStatus.WAITING_APPROVAL) throw new BadRequestException('任务当前不在等待审批')
+    const call = await this.prisma.agentToolCall.findFirst({ where: { id: callId, agentTaskId: taskId, requiresApproval: true }, include: { run: true } })
+    if (!call) throw new NotFoundException('待确认的工具调用不存在')
+    if (call.approvalStatus !== 'PENDING') throw new BadRequestException('该工具调用已经处理')
+    const reviewed = await this.prisma.agentToolCall.updateMany({ where: { id: call.id, approvalStatus: 'PENDING' }, data: { approvalStatus: decision } })
+    if (!reviewed.count) throw new BadRequestException('该工具调用已经处理')
+    await this.prisma.agentEvent.create({ data: { agentTaskId: taskId, runId: call.runId, type: 'approval', title: decision === 'APPROVED' ? `已批准 ${call.name}` : `已拒绝 ${call.name}`, detail: '用户已处理任务级工具调用确认' } })
+    const remaining = await this.prisma.agentToolCall.count({ where: { runId: call.runId, iteration: call.iteration, approvalStatus: 'PENDING' } })
+    if (!remaining) {
+      const claimed = await this.prisma.agentRun.updateMany({ where: { id: call.runId, status: AgentTaskStatus.WAITING_APPROVAL }, data: { status: AgentTaskStatus.QUEUED, currentNode: 'tools' } })
+      if (claimed.count) {
+        await this.prisma.agentTask.updateMany({ where: { id: taskId, status: AgentTaskStatus.WAITING_APPROVAL }, data: { status: AgentTaskStatus.QUEUED } })
+        const resumeKey = `${call.run.runKey}-resume-${call.iteration}`
+        try {
+          await this.queue.add('resume', { taskId, runId: call.runId, runKey: call.run.runKey }, { jobId: resumeKey, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000 })
+        } catch (error) {
+          await this.failEnqueue(taskId, call.runId, error, '审批完成，但任务恢复失败')
+          throw error
+        }
+      }
+    }
+    return this.get(userId, taskId)
+  }
+
   private attachmentIds(value: Prisma.JsonValue | null): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  }
+
+  private async failEnqueue(taskId: string, runId: string, error: unknown, fallback: string) {
+    const now = new Date()
+    const message = error instanceof Error ? error.message : fallback
+    await this.prisma.$transaction([
+      this.prisma.agentTask.updateMany({ where: { id: taskId, status: { in: [AgentTaskStatus.QUEUED, AgentTaskStatus.WAITING_APPROVAL] } }, data: { status: AgentTaskStatus.FAILED, errorMessage: message, completedAt: now } }),
+      ...(runId ? [this.prisma.agentRun.updateMany({ where: { id: runId, status: { in: [AgentTaskStatus.QUEUED, AgentTaskStatus.WAITING_APPROVAL] } }, data: { status: AgentTaskStatus.FAILED, completedAt: now } })] : []),
+    ])
   }
 
   private async assertRelations(userId: string, input: CreateAgentTaskInput) {
