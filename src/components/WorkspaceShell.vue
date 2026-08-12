@@ -93,7 +93,7 @@
       </div>
     </aside>
 
-    <main ref="workspaceMain" class="workspace-main" :class="{ 'workspace-main--chat': activeMode === 'chat' }">
+    <main ref="workspaceMain" class="workspace-main" :class="{ 'workspace-main--chat': activeMode === 'chat' || activeMode === 'office' }">
       <header class="workspace-mobile-header">
         <button class="icon-button" type="button" aria-label="打开菜单" @click="mobileOpen = true">
           <Menu :size="21" />
@@ -286,7 +286,9 @@ import { paymentMethodText, paymentProviderText, type PaymentMethodKey, type Pay
 import {
   Archive,
   Banknote,
+  BriefcaseBusiness,
   BookOpen,
+  Blocks,
   Code2,
   Bell,
   ChevronDown,
@@ -498,7 +500,7 @@ const filteredConversations = computed(() => {
   return studio.conversations.filter((item) => item.title.toLocaleLowerCase().includes(query))
 })
 const activeConversationMenu = computed(() => studio.conversations.find((item) => item.id === conversationMenuId.value) || null)
-const mobileTitle = computed(() => ({ chat: 'Xinyue AI', images: t('workspace.images'), commerce: t('studio.commerce'), prompts: t('workspace.prompts'), projects: t('studio.projects'), assets: t('studio.library') } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
+const mobileTitle = computed(() => ({ chat: 'Xinyue AI', images: t('workspace.images'), videos: t('workspace.videos'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), projects: t('studio.projects'), assets: t('studio.library') } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
 const storedSettings = readStoredSettings()
 const storedLanguage = storedSettings.language === 'English' ? 'en' : storedSettings.language === '中文' ? 'zh-CN' : storedSettings.language
 const storedAppearance = storedSettings.appearance === 'light' ? '浅色' : storedSettings.appearance === 'dark' ? '深色' : storedSettings.appearance === 'system' ? '跟随系统' : storedSettings.appearance
@@ -1146,7 +1148,9 @@ const navItems = computed<WorkspaceNavItem[]>(() => [
   { key: 'images', mode: 'images', label: t('workspace.images'), icon: ImageIcon, to: '/image', external: false, openNewTab: false },
   { key: 'videos', mode: 'videos', label: t('workspace.videos'), icon: Video, to: '/video', external: false, openNewTab: false },
   { key: 'commerce', mode: 'commerce', label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false },
+  { key: 'office', mode: 'office', label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false },
   { key: 'prompts', mode: 'prompts', label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false },
+  { key: 'plugins', mode: 'plugins', label: t('workspace.plugins'), icon: Blocks, to: '/plugins', external: false, openNewTab: false },
   { key: 'projects', mode: 'projects', label: t('workspace.projects'), icon: Folder, to: '/projects', external: false, openNewTab: false },
   { key: 'assets', mode: 'assets', label: t('workspace.assets'), icon: Files, to: '/files', external: false, openNewTab: false },
   ...externalLinks.value.map((item) => ({ key: `external-${item.key}`, mode: 'api' as const, label: item.name, icon: externalIconMap[item.icon] || ExternalLink, to: item.url, external: true, openNewTab: item.openNewTab })),

@@ -3,7 +3,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 const LandingPage = () => import('./views/LandingPage.vue')
 const LoginPage = () => import('./views/LoginPage.vue')
 const StudioPage = () => import('./views/StudioPage.vue')
+const OfficeCenterPage = () => import('./views/OfficeCenterPage.vue')
 const PromptLibraryPage = () => import('./views/PromptLibraryPage.vue')
+const PluginMarketPage = () => import('./views/PluginMarketPage.vue')
 const WorkspaceLayout = () => import('./components/WorkspaceLayout.vue')
 const ApiLandingPage = () => import('./views/ApiLandingPage.vue')
 const LegalPage = () => import('./views/LegalPage.vue')
@@ -23,7 +25,10 @@ export const router = createRouter({
         { path: '/image', name: 'images', component: StudioPage, meta: { title: '图片创作' } },
         { path: '/video', name: 'videos', component: StudioPage, meta: { title: '视频创作' } },
         { path: '/commerce', name: 'commerce', component: StudioPage, meta: { title: '商品视觉' } },
+        { path: '/office', name: 'office', component: OfficeCenterPage, meta: { title: '办公中心' } },
+        { path: '/agents', redirect: '/office' },
         { path: '/prompts', name: 'prompts', component: PromptLibraryPage, meta: { title: '提示词库' } },
+        { path: '/plugins', name: 'plugins', component: PluginMarketPage, meta: { title: '插件市场' } },
         { path: '/projects', name: 'projects', component: StudioPage, meta: { title: '项目' } },
         { path: '/files', name: 'assets', component: StudioPage, meta: { title: '文件库' } },
       ],

@@ -704,6 +704,7 @@
       | 'promptTemplates'
       | 'users'
       | 'assistants'
+      | 'pluginCategories'
     createOnly?: boolean
     editOnly?: boolean
     omitEmpty?: boolean
@@ -945,6 +946,50 @@
         },
         { key: 'coverUrl', label: '展示图片地址', maxlength: 2000 },
         { key: 'enabled', label: '前台展示', type: 'switch' }
+      ]
+    },
+    plugins: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      createLabel: '新增官方插件',
+      createUrl: '/v1/admin/plugins',
+      updateUrl: (row) => `/v1/admin/plugins/${row.id}`,
+      deleteUrl: (row) => `/v1/admin/plugins/${row.id}`,
+      defaults: { name: '', slug: '', description: '', instruction: '', icon: 'blocks', version: '1.0.0', capabilities: ['CHAT'], recommendedModel: '', outputRequirements: '', categoryId: '', status: 'DRAFT', featured: false, priceCredits: 0, sortOrder: 0 },
+      fields: [
+        { key: 'name', label: '插件名称', required: true, span: 12, maxlength: 80 },
+        { key: 'slug', label: '唯一标识', required: true, span: 12, maxlength: 100, placeholder: 'lowercase-plugin-name' },
+        { key: 'categoryId', label: '插件分类', type: 'select', optionsFrom: 'pluginCategories', span: 12 },
+        { key: 'icon', label: '图标名称', span: 12, maxlength: 80 },
+        { key: 'description', label: '插件简介', type: 'textarea', rows: 2, maxlength: 500 },
+        { key: 'instruction', label: '系统指令', type: 'textarea', required: true, rows: 9, maxlength: 20000 },
+        { key: 'capabilities', label: '支持能力', type: 'select', required: true, multiple: true, span: 12, options: [{ label: '对话', value: 'CHAT' }, { label: '图片生成', value: 'IMAGE' }, { label: '视频生成', value: 'VIDEO' }, { label: '商品视觉', value: 'COMMERCE' }, { label: '办公中心', value: 'OFFICE' }] },
+        { key: 'recommendedModel', label: '推荐模型', type: 'select', optionsFrom: 'models', filterable: true, allowCreate: true, span: 12 },
+        { key: 'outputRequirements', label: '输出要求', type: 'textarea', rows: 3, maxlength: 4000 },
+        { key: 'version', label: '版本', required: true, span: 8, maxlength: 40 },
+        { key: 'priceCredits', label: '安装价格（创作点）', type: 'number', span: 8, min: 0, max: 10000000 },
+        { key: 'sortOrder', label: '排序', type: 'number', span: 8, min: -10000, max: 10000 },
+        { key: 'status', label: '发布状态', type: 'select', required: true, span: 12, options: [{ label: '草稿', value: 'DRAFT' }, { label: '已发布', value: 'PUBLISHED' }, { label: '已停用', value: 'DISABLED' }] },
+        { key: 'featured', label: '精选推荐', type: 'switch', span: 12 }
+      ]
+    },
+    pluginCategories: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      createLabel: '新增插件分类',
+      createUrl: '/v1/admin/plugin-categories',
+      updateUrl: (row) => `/v1/admin/plugin-categories/${row.id}`,
+      deleteUrl: (row) => `/v1/admin/plugin-categories/${row.id}`,
+      defaults: { name: '', slug: '', description: '', icon: 'blocks', sortOrder: 0, enabled: true },
+      fields: [
+        { key: 'name', label: '分类名称', required: true, span: 12, maxlength: 60 },
+        { key: 'slug', label: '唯一标识', required: true, span: 12, maxlength: 80, placeholder: 'category-name' },
+        { key: 'description', label: '分类说明', type: 'textarea', rows: 3, maxlength: 500 },
+        { key: 'icon', label: '图标名称', span: 12, maxlength: 80 },
+        { key: 'sortOrder', label: '排序', type: 'number', span: 12, min: -10000, max: 10000 },
+        { key: 'enabled', label: '前台展示', type: 'switch', span: 12 }
       ]
     },
     assistants: {
@@ -1309,6 +1354,37 @@
         { key: 'enabled', label: '状态', width: 100, type: 'status' }
       ]
     },
+    plugins: {
+      title: '插件管理',
+      description: '管理官方插件的发布、能力、定价和使用情况',
+      icon: 'ri:apps-2-line',
+      endpoint: '/v1/admin/plugins',
+      columns: [
+        { key: 'name', label: '插件名称', minWidth: 180 },
+        { key: 'category.name', label: '分类', minWidth: 120 },
+        { key: 'capabilities', label: '支持能力', minWidth: 180 },
+        { key: 'status', label: '发布状态', width: 105, type: 'status' },
+        { key: 'featured', label: '精选', width: 85, type: 'status' },
+        { key: 'priceCredits', label: '安装价格', width: 105, type: 'number' },
+        { key: 'installCount', label: '安装', width: 85, type: 'number' },
+        { key: 'usageCount', label: '调用', width: 85, type: 'number' },
+        { key: 'errorCount', label: '失败', width: 85, type: 'number' },
+        { key: 'updatedAt', label: '更新时间', width: 175, type: 'date' }
+      ]
+    },
+    pluginCategories: {
+      title: '插件分类',
+      description: '维护插件市场分类、图标和前台排序',
+      icon: 'ri:folder-settings-line',
+      endpoint: '/v1/admin/plugin-categories',
+      columns: [
+        { key: 'name', label: '分类名称', minWidth: 180 },
+        { key: 'slug', label: '唯一标识', minWidth: 160 },
+        { key: 'description', label: '说明', minWidth: 220 },
+        { key: 'enabled', label: '状态', width: 100, type: 'status' },
+        { key: 'sortOrder', label: '排序', width: 90, type: 'number' }
+      ]
+    },
     assistants: {
       title: 'AI 助手',
       description: '配置系统提示词、默认模型、工具和知识库',
@@ -1550,7 +1626,8 @@
     knowledgeBases: [],
     promptTemplates: [],
     users: [],
-    assistants: []
+    assistants: [],
+    pluginCategories: []
   })
   const ticketVisible = ref(false)
   const ticketDetail = ref<Row | null>(null)
@@ -1727,6 +1804,9 @@
       SUCCEEDED: '已完成',
       FAILED: '失败',
       CANCELLED: '已取消',
+      DRAFT: '草稿',
+      PUBLISHED: '已发布',
+      DISABLED: '已停用',
       OPEN: '待处理',
       IN_PROGRESS: '处理中',
       WAITING_USER: '等待用户',
@@ -1753,6 +1833,7 @@
       IMAGE: '图片生成',
       VIDEO: '视频生成',
       COMMERCE: '商品视觉',
+      OFFICE: '办公中心',
       SUPPORT: '客服'
     }
     return xt(map[String(value)] || displayValue(value))
@@ -1798,7 +1879,8 @@
       knowledgeBases: '/v1/admin/knowledge-bases',
       promptTemplates: '/v1/admin/prompt-templates',
       users: '/v1/admin/users',
-      assistants: '/v1/admin/assistants'
+      assistants: '/v1/admin/assistants',
+      pluginCategories: '/v1/admin/plugin-categories'
     }
     const needed = new Set(
       editorConfig.value?.fields.map((field) => field.optionsFrom).filter(Boolean) || []

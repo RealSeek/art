@@ -1,0 +1,432 @@
+<template>
+  <main class="office-center" :class="{ 'has-result': conversationId }">
+    <header class="office-header">
+      <div><BriefcaseBusiness :size="18" /><strong>办公中心</strong></div>
+      <div class="office-header__actions">
+        <button v-if="auth.isAuthenticated" type="button" :class="{ active: historyOpen }" @click="toggleHistory"><History :size="16" />任务记录</button>
+        <button v-if="conversationId" type="button" :disabled="generating" @click="startNewTask"><SquarePen :size="17" />新工作任务</button>
+      </div>
+    </header>
+
+    <aside v-if="historyOpen" class="office-history" aria-label="任务记录">
+      <header><div><strong>任务记录</strong><small>关闭页面后，任务仍会继续执行</small></div><button type="button" aria-label="关闭任务记录" @click="historyOpen = false"><X :size="17" /></button></header>
+      <div v-if="historyLoading" class="office-history__empty"><LoaderCircle class="office-spin" :size="18" />正在加载</div>
+      <div v-else-if="!agentTasks.length" class="office-history__empty">暂无任务记录</div>
+      <div v-else class="office-history__list">
+        <button v-for="task in agentTasks" :key="task.id" type="button" :class="{ active: activeAgentTaskId === task.id }" @click="openAgentTask(task.id)">
+          <span><strong>{{ task.title }}</strong><small>{{ formatTaskTime(task.updatedAt) }}</small></span>
+          <em :data-status="task.status">{{ agentStatusLabel(task.status) }}</em>
+        </button>
+      </div>
+    </aside>
+
+    <section v-if="!conversationId" class="office-welcome">
+      <div class="office-welcome__copy">
+        <span>WORKSPACE</span>
+        <h1>今天要处理什么工作？</h1>
+        <p>选择一项办公能力，或直接描述需要交付的结果。</p>
+      </div>
+      <div class="office-recommendations" aria-label="推荐办公能力">
+        <span>为你推荐</span>
+        <button v-for="skill in recommendedSkills" :key="skill.id" type="button" @click="selectSkill(skill)">
+          <component :is="skill.icon" :size="17" :style="{ color: skill.color }" />
+          <strong>{{ skill.name }}</strong>
+          <small>{{ skill.shortDescription }}</small>
+          <ChevronRight :size="16" />
+        </button>
+      </div>
+    </section>
+
+    <section v-else ref="resultThread" class="office-result" aria-live="polite">
+      <div class="office-result__inner">
+        <article v-if="submittedPrompt" class="office-user-message">{{ submittedPrompt }}</article>
+        <article class="office-assistant-message">
+          <header><span><component :is="selectedSkill.icon" :size="17" :style="{ color: selectedSkill.color }" /></span><strong>{{ selectedSkill.name }}</strong><small>{{ modeLabel }}</small></header>
+          <ol v-if="taskMode === 'agent' && activeAgentTask?.steps.length" class="office-agent-steps">
+            <li v-for="step in activeAgentTask.steps" :key="step.id" :data-status="step.status">
+              <span><Check v-if="step.status === 'SUCCEEDED'" :size="13" /><X v-else-if="step.status === 'FAILED'" :size="13" /><LoaderCircle v-else-if="step.status === 'RUNNING'" class="office-spin" :size="13" /><span v-else /></span>
+              <div><strong>{{ step.title }}</strong><small v-if="step.detail">{{ step.detail }}</small></div>
+            </li>
+          </ol>
+          <ChatMessageContent v-if="answer" :content="answer" />
+          <div v-else class="office-thinking"><LoaderCircle :size="18" /><span>{{ taskMode === 'agent' ? '正在自主规划并执行任务' : '正在整理任务并生成结果' }}</span></div>
+          <div v-if="answer && (exporting || deliverable)" class="office-deliverable">
+            <span><component :is="deliverableIcon" :size="19" /></span>
+            <div><strong>{{ deliverable?.name || '正在制作交付文件' }}</strong><small>{{ deliverable ? `${deliverableFormat} · 已保存到文件库` : '正在生成可编辑的 Office 文件' }}</small></div>
+            <button v-if="deliverable" type="button" :disabled="downloading" @click="downloadDeliverable"><LoaderCircle v-if="downloading" class="office-spin" :size="15" /><Download v-else :size="16" />下载</button>
+            <LoaderCircle v-else class="office-spin" :size="17" />
+          </div>
+          <footer v-if="answer">
+            <button type="button" @click="copyAnswer"><Check v-if="copied" :size="15" /><Copy v-else :size="15" />{{ copied ? '已复制' : '复制' }}</button>
+            <button v-if="!deliverable && !exporting" type="button" @click="createDeliverable"><Download :size="15" />生成交付文件</button>
+          </footer>
+        </article>
+      </div>
+    </section>
+
+    <section class="office-composer-wrap">
+      <div v-if="skillPanelOpen" class="office-skill-panel">
+        <header><div><strong>办公技能</strong><small>{{ filteredSkills.length }} 项能力</small></div><button type="button" aria-label="关闭技能选择" @click="skillPanelOpen = false"><X :size="17" /></button></header>
+        <label><Search :size="15" /><input v-model="skillQuery" placeholder="搜索办公技能" /></label>
+        <nav aria-label="技能分类">
+          <button v-for="category in categories" :key="category" type="button" :class="{ active: selectedCategory === category }" @click="selectedCategory = category">{{ category }}</button>
+        </nav>
+        <div class="office-skill-list">
+          <button v-for="skill in filteredSkills" :key="skill.id" type="button" :class="{ active: selectedSkill.id === skill.id }" @click="selectSkill(skill)">
+            <span><component :is="skill.icon" :size="17" :style="{ color: skill.color }" /></span>
+            <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
+            <Check v-if="selectedSkill.id === skill.id" :size="16" />
+          </button>
+        </div>
+      </div>
+
+      <form class="office-composer" @submit.prevent="submitTask">
+        <div v-if="attachments.length" class="office-attachments">
+          <span v-for="(asset, index) in attachments" :key="asset.id"><FileText :size="14" />{{ asset.title }}<button type="button" :aria-label="`移除${asset.title}`" @click="attachments.splice(index, 1)"><X :size="13" /></button></span>
+        </div>
+        <textarea ref="taskInput" v-model="prompt" rows="2" :placeholder="selectedSkill.placeholder" @keydown="handleKeydown" />
+        <footer>
+          <div>
+            <button type="button" aria-label="添加文件" title="添加文件" :disabled="uploading" @click="openFilePicker"><LoaderCircle v-if="uploading" class="office-spin" :size="18" /><Plus v-else :size="20" /></button>
+            <button class="office-mode-button" type="button" :aria-expanded="modeMenuOpen" @click="toggleModeMenu"><Zap v-if="taskMode === 'fast'" :size="15" /><BrainCircuit v-else-if="taskMode === 'expert'" :size="15" /><Bot v-else :size="15" />{{ modeLabel }}<ChevronDown :size="13" /></button>
+            <div v-if="modeMenuOpen" class="office-mode-menu">
+              <button type="button" :class="{ active: taskMode === 'fast' }" @click="taskMode = 'fast'; modeMenuOpen = false"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
+              <button type="button" :class="{ active: taskMode === 'expert' }" @click="taskMode = 'expert'; modeMenuOpen = false"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
+              <button type="button" :class="{ active: taskMode === 'agent' }" @click="taskMode = 'agent'; modeMenuOpen = false"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
+            </div>
+            <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!chatModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ model || '暂无可用模型' }}<ChevronDown :size="13" /></button>
+            <div v-if="modelMenuOpen" class="office-model-menu">
+              <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
+            </div>
+            <button class="office-skill-button" :class="{ active: skillPanelOpen }" type="button" :aria-expanded="skillPanelOpen" @click="toggleSkillPanel"><Layers3 :size="16" />{{ selectedSkill.name }}<ChevronDown :size="13" /></button>
+            <PluginSelector v-if="auth.isAuthenticated" v-model="pluginId" capability="OFFICE" compact />
+          </div>
+          <button class="office-submit" :type="generating ? 'button' : 'submit'" :disabled="canceling || (!generating && (!prompt.trim() || (auth.isAuthenticated && !model)))" :aria-label="generating ? '停止生成' : '提交任务'" @click="generating && cancelTask()"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><ArrowUp v-else :size="19" /></button>
+        </footer>
+      </form>
+      <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.csv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.sql,.log,text/*,application/json" multiple hidden @change="handleFiles" />
+      <p v-if="error" class="office-error" role="alert">{{ error }}</p>
+    </section>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
+  FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
+  PenLine, Plus, Presentation, Search, Sparkles, Square, SquarePen, Table2, X, Zap, History,
+  type LucideIcon,
+} from 'lucide-vue-next'
+import ChatMessageContent from '../components/ChatMessageContent.vue'
+import PluginSelector from '../components/PluginSelector.vue'
+import { api, apiUrl, streamApiEvents } from '../services/api'
+import { useAuthStore } from '../stores/auth'
+import { useStudioStore } from '../stores/studio'
+import type { StudioAsset } from '../types'
+import { createClientId } from '../utils/client-id'
+
+type TaskMode = 'fast' | 'expert' | 'agent'
+type OfficeSkill = { id: string; name: string; category: string; description: string; shortDescription: string; placeholder: string; color: string; icon: LucideIcon; assistantId?: string }
+type CatalogModel = { key: string; displayName: string; description?: string; capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; enabled?: boolean; isDefault: boolean }
+type ServerConversation = { id: string }
+type ServerMessage = { id: string; createdAt: string }
+type ServerJob = { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null } | null }
+type AssistantOption = { id: string; name: string; description?: string; defaultModel?: string }
+type OfficeDeliverable = { id: string; name: string; mimeType: string; size: number; contentUrl: string }
+type AgentTaskStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+type AgentTaskStep = { id: string; position: number; title: string; detail: string; status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' }
+type AgentTask = { id: string; title: string; goal: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; conversation?: { id: string; messages: Array<{ content: string }> } | null }
+
+const builtInSkills: OfficeSkill[] = [
+  { id: 'daily', name: '日常办公', category: '推荐', description: '整理任务、撰写通知、制定计划和处理通用办公事项', shortDescription: '通知、计划与工作整理', placeholder: '描述需要处理的办公任务', color: '#4f8cff', icon: FileText },
+  { id: 'writing', name: '内容创作', category: '推荐', description: '撰写文章、方案、活动文案和新媒体内容', shortDescription: '文章、方案与宣传文案', placeholder: '描述主题、受众和期望风格', color: '#31b66b', icon: PenLine },
+  { id: 'analysis', name: '数据分析', category: '推荐', description: '分析表格、提炼指标、解释趋势并形成业务结论', shortDescription: '指标、趋势与业务结论', placeholder: '粘贴数据或上传表格并说明分析目标', color: '#8a6cff', icon: BarChart3 },
+  { id: 'development', name: '代码开发', category: '推荐', description: '编写、解释、检查和重构代码，输出可运行方案', shortDescription: '开发、调试与代码审查', placeholder: '描述功能、技术栈或粘贴报错信息', color: '#f29b38', icon: Code2 },
+  { id: 'ppt', name: 'PPT 大纲', category: '文档', description: '生成演示文稿结构、逐页内容与演讲备注', shortDescription: '逐页结构与演讲备注', placeholder: '输入汇报主题、听众和预计页数', color: '#32b8cf', icon: Presentation },
+  { id: 'report', name: '报告撰写', category: '文档', description: '生成周报、月报、复盘和正式业务报告', shortDescription: '周报、月报与项目复盘', placeholder: '输入原始事项、数据和报告用途', color: '#4f8cff', icon: MessageSquareText },
+  { id: 'meeting', name: '会议纪要', category: '文档', description: '提取议题、结论、待办、负责人和截止时间', shortDescription: '结论、待办与责任人', placeholder: '粘贴会议记录或上传会议文档', color: '#36b86b', icon: ListChecks },
+  { id: 'spreadsheet', name: '多维表格', category: '数据', description: '设计字段、公式、视图和自动化规则', shortDescription: '字段、公式与自动化', placeholder: '描述需要管理的数据和使用流程', color: '#5c79ff', icon: Table2 },
+  { id: 'excel', name: 'Excel 助手', category: '数据', description: '生成公式、清洗步骤、透视表和图表方案', shortDescription: '公式、清洗与透视分析', placeholder: '描述表格结构、目标或上传文件', color: '#1fa766', icon: FileSpreadsheet },
+  { id: 'email', name: '邮件写作', category: '沟通', description: '撰写正式邮件、跟进邮件和客户回复', shortDescription: '正式邮件与客户沟通', placeholder: '说明收件人、背景和邮件目的', color: '#ed725d', icon: Mail },
+  { id: 'brainstorm', name: '方案脑暴', category: '创意', description: '围绕目标给出可筛选、可执行的创意方向', shortDescription: '创意方向与落地路径', placeholder: '描述目标、限制和已有想法', color: '#e5a824', icon: Lightbulb },
+]
+
+const auth = useAuthStore()
+const studio = useStudioStore()
+const router = useRouter()
+const prompt = ref('')
+const submittedPrompt = ref('')
+const answer = ref('')
+const conversationId = ref('')
+const activeJobId = ref('')
+const activeAgentTaskId = ref('')
+const activeAgentTask = ref<AgentTask | null>(null)
+const agentTasks = ref<AgentTask[]>([])
+const historyOpen = ref(false)
+const historyLoading = ref(false)
+const generating = ref(false)
+const canceling = ref(false)
+const exporting = ref(false)
+const downloading = ref(false)
+const error = ref('')
+const copied = ref(false)
+const uploading = ref(false)
+const attachments = ref<StudioAsset[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+const taskInput = ref<HTMLTextAreaElement | null>(null)
+const resultThread = ref<HTMLElement | null>(null)
+const taskMode = ref<TaskMode>('fast')
+const selectedSkill = ref<OfficeSkill>(builtInSkills[0])
+const skillPanelOpen = ref(false)
+const modeMenuOpen = ref(false)
+const modelMenuOpen = ref(false)
+const skillQuery = ref('')
+const selectedCategory = ref('全部')
+const model = ref('')
+const pluginId = ref('')
+const chatModels = ref<CatalogModel[]>([])
+const organizationSkills = ref<OfficeSkill[]>([])
+const deliverable = ref<OfficeDeliverable | null>(null)
+const organizationAssistantModels = new Map<string, string>()
+
+const allSkills = computed(() => [...builtInSkills, ...organizationSkills.value])
+const categories = computed(() => ['全部', '推荐', '文档', '数据', '沟通', '创意', ...(organizationSkills.value.length ? ['组织技能'] : [])])
+const recommendedSkills = computed(() => builtInSkills.filter((skill) => skill.category === '推荐'))
+const filteredSkills = computed(() => allSkills.value.filter((skill) => {
+  const categoryMatches = selectedCategory.value === '全部' || skill.category === selectedCategory.value
+  const query = skillQuery.value.trim().toLowerCase()
+  return categoryMatches && (!query || `${skill.name} ${skill.description}`.toLowerCase().includes(query))
+}))
+const modeLabel = computed(() => taskMode.value === 'fast' ? '快速' : taskMode.value === 'expert' ? '专家' : '任务')
+const deliverableFormat = computed(() => deliverable.value?.name.split('.').pop()?.toUpperCase() || 'OFFICE')
+const deliverableIcon = computed(() => deliverable.value?.name.toLowerCase().endsWith('.pptx') ? Presentation : deliverable.value?.name.toLowerCase().endsWith('.xlsx') ? FileSpreadsheet : FileText)
+
+function selectSkill(skill: OfficeSkill) {
+  const wasGeneratedPrefix = allSkills.value.some((item) => prompt.value.trim() === `${item.name}：` || prompt.value.trim() === `${item.name}:`)
+  selectedSkill.value = skill
+  const assistantModel = organizationAssistantModels.get(skill.id)
+  if (assistantModel) model.value = assistantModel
+  skillPanelOpen.value = false
+  if (wasGeneratedPrefix) prompt.value = ''
+  void nextTick(() => taskInput.value?.focus())
+}
+function toggleModeMenu() {
+  modeMenuOpen.value = !modeMenuOpen.value
+  modelMenuOpen.value = false
+  skillPanelOpen.value = false
+}
+function toggleModelMenu() {
+  modelMenuOpen.value = !modelMenuOpen.value
+  modeMenuOpen.value = false
+  skillPanelOpen.value = false
+}
+function toggleSkillPanel() {
+  skillPanelOpen.value = !skillPanelOpen.value
+  modeMenuOpen.value = false
+  modelMenuOpen.value = false
+}
+function startNewTask() {
+  conversationId.value = ''
+  activeJobId.value = ''
+  activeAgentTaskId.value = ''
+  activeAgentTask.value = null
+  submittedPrompt.value = ''
+  answer.value = ''
+  prompt.value = ''
+  attachments.value = []
+  deliverable.value = null
+  exporting.value = false
+  error.value = ''
+  void nextTick(() => taskInput.value?.focus())
+}
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitTask() }
+}
+function openFilePicker() {
+  if (!auth.isAuthenticated) { void router.push('/login?redirect=/office'); return }
+  fileInput.value?.click()
+}
+async function handleFiles(event: Event) {
+  const files = Array.from((event.target as HTMLInputElement).files || [])
+  if (!files.length) return
+  const availableSlots = Math.max(0, 12 - attachments.value.length)
+  if (!availableSlots) { error.value = '每个办公任务最多添加 12 个附件'; return }
+  uploading.value = true; error.value = ''
+  try {
+    attachments.value.push(...await studio.uploadFiles(files.slice(0, availableSlots), undefined, undefined, 'attachment'))
+    if (files.length > availableSlots) error.value = '每个办公任务最多添加 12 个附件，超出部分未上传'
+  }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '文件上传失败' }
+  finally { uploading.value = false; if (fileInput.value) fileInput.value.value = '' }
+}
+async function submitTask() {
+  const raw = prompt.value.trim()
+  if (!raw || generating.value) return
+  if (!auth.isAuthenticated) { await router.push('/login?redirect=/office'); return }
+  if (!model.value) { error.value = '当前账户没有可用的对话模型，请联系管理员配置模型权限'; return }
+  error.value = ''; answer.value = ''; submittedPrompt.value = raw; generating.value = true
+  deliverable.value = null
+  canceling.value = false
+  skillPanelOpen.value = false; modeMenuOpen.value = false; modelMenuOpen.value = false
+  try {
+    if (taskMode.value === 'agent') {
+      const created = await api<AgentTask>('/agent-tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: `${selectedSkill.value.name} · ${raw.slice(0, 32)}`,
+          goal: raw,
+          model: model.value,
+          skillId: selectedSkill.value.id,
+          assistantId: selectedSkill.value.assistantId,
+          pluginId: pluginId.value || undefined,
+          attachmentIds: attachments.value.map((asset) => asset.id),
+        }),
+      })
+      activeAgentTaskId.value = created.id
+      activeAgentTask.value = created
+      conversationId.value = `agent:${created.id}`
+      const started = await api<AgentTask>(`/agent-tasks/${created.id}/run`, { method: 'POST' })
+      activeAgentTask.value = started
+      const completed = await watchAgentTask(created.id)
+      if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : 'Agent 任务执行失败'))
+      prompt.value = ''
+      void createDeliverable()
+      await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
+      return
+    }
+    const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: model.value, title: `${selectedSkill.value.name} · ${raw.slice(0, 32)}` }) })
+    conversationId.value = conversation.id
+    await api<ServerMessage>(`/conversations/${conversation.id}/messages`, { method: 'POST', body: JSON.stringify({ content: raw, assetIds: attachments.value.map((asset) => asset.id) }) })
+    const options = { officeMode: taskMode.value, officeSkill: selectedSkill.value.id, ...(selectedSkill.value.assistantId ? { assistantId: selectedSkill.value.assistantId } : {}), ...(pluginId.value ? { pluginId: pluginId.value } : {}) }
+    const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: raw, model: model.value, conversationId: conversation.id, options, idempotencyKey: `office:${createClientId()}` }) })
+    activeJobId.value = job.id
+    const completed = await streamApiEvents<ServerJob>(`/generations/${job.id}/events`, (current) => { if (current.stream) answer.value = current.stream.content })
+    if (completed.stream) answer.value = completed.stream.content
+    if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : '办公任务生成失败'))
+    prompt.value = ''
+    void createDeliverable()
+    await Promise.all([studio.refreshConversations(), studio.refreshCredits()])
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : '办公任务提交失败' }
+  finally { generating.value = false; canceling.value = false; activeJobId.value = ''; void nextTick(() => resultThread.value?.scrollTo({ top: resultThread.value.scrollHeight, behavior: 'smooth' })) }
+}
+async function cancelTask() {
+  if (canceling.value || (!activeJobId.value && !activeAgentTaskId.value)) return
+  canceling.value = true
+  try {
+    if (activeAgentTaskId.value) await api(`/agent-tasks/${activeAgentTaskId.value}/cancel`, { method: 'POST' })
+    else await api(`/generations/${activeJobId.value}/cancel`, { method: 'POST' })
+  }
+  catch (reason) { canceling.value = false; error.value = reason instanceof Error ? reason.message : '停止任务失败' }
+}
+
+async function loadAgentTasks() {
+  if (!auth.isAuthenticated) return
+  historyLoading.value = true
+  try { agentTasks.value = await api<AgentTask[]>('/agent-tasks', { cache: 'no-store' }) }
+  finally { historyLoading.value = false }
+}
+async function toggleHistory() {
+  historyOpen.value = !historyOpen.value
+  if (historyOpen.value) await loadAgentTasks()
+}
+async function openAgentTask(id: string) {
+  const task = await api<AgentTask>(`/agent-tasks/${id}`, { cache: 'no-store' })
+  activeAgentTaskId.value = task.id
+  activeAgentTask.value = task
+  taskMode.value = 'agent'
+  submittedPrompt.value = task.goal
+  answer.value = task.run?.stream?.content || task.conversation?.messages[0]?.content || ''
+  conversationId.value = task.conversationId || `agent:${task.id}`
+  const matchingSkill = allSkills.value.find((skill) => skill.id === task.skillId)
+  if (matchingSkill) selectedSkill.value = matchingSkill
+  historyOpen.value = false
+  if (task.status === 'QUEUED' || task.status === 'RUNNING') void resumeAgentTask(task.id)
+}
+async function watchAgentTask(id: string) {
+  const completed = await streamApiEvents<AgentTask>(`/agent-tasks/${id}/events`, (current) => {
+    activeAgentTask.value = current
+    if (current.conversationId) conversationId.value = current.conversationId
+    if (current.run?.stream?.content) answer.value = current.run.stream.content
+  })
+  activeAgentTask.value = completed
+  if (completed.conversationId) conversationId.value = completed.conversationId
+  if (completed.run?.stream?.content) answer.value = completed.run.stream.content
+  return completed
+}
+async function resumeAgentTask(id: string) {
+  generating.value = true
+  error.value = ''
+  try {
+    const completed = await watchAgentTask(id)
+    if (completed.status === 'SUCCEEDED') {
+      if (!deliverable.value) void createDeliverable()
+      await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
+    } else if (completed.status === 'FAILED') error.value = completed.errorMessage || 'Agent 任务执行失败'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '无法恢复任务进度'
+  } finally {
+    generating.value = false
+    canceling.value = false
+  }
+}
+function agentStatusLabel(status: AgentTaskStatus) {
+  return ({ DRAFT: '草稿', QUEUED: '排队中', RUNNING: '执行中', WAITING_APPROVAL: '待审批', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已停止' } as Record<AgentTaskStatus, string>)[status]
+}
+function formatTaskTime(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+async function copyAnswer() {
+  await navigator.clipboard.writeText(answer.value)
+  copied.value = true
+  window.setTimeout(() => { copied.value = false }, 1500)
+}
+async function createDeliverable() {
+  if (!conversationId.value || exporting.value || deliverable.value) return
+  exporting.value = true
+  try {
+    deliverable.value = await api<OfficeDeliverable>('/office/exports', { method: 'POST', body: JSON.stringify({ conversationId: conversationId.value }) })
+    await studio.refreshAssets()
+  } catch (reason) {
+    error.value = `内容已生成，但交付文件制作失败：${reason instanceof Error ? reason.message : '请稍后重试'}`
+  } finally {
+    exporting.value = false
+  }
+}
+async function downloadDeliverable() {
+  if (!deliverable.value || downloading.value) return
+  downloading.value = true
+  try {
+    const response = await fetch(apiUrl(deliverable.value.contentUrl), { credentials: 'include' })
+    if (!response.ok) throw new Error(`文件下载失败 (${response.status})`)
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = deliverable.value.name
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '文件下载失败'
+  } finally {
+    downloading.value = false
+  }
+}
+
+onMounted(async () => {
+  studio.setMode('office')
+  const [models, assistants] = await Promise.all([
+    api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => []),
+    api<AssistantOption[]>('/assistants').catch(() => []),
+  ])
+  chatModels.value = models.filter((item) => item.capability === 'CHAT' && item.enabled !== false)
+  const defaultModel = chatModels.value.find((item) => item.isDefault) || chatModels.value[0]
+  if (defaultModel) model.value = defaultModel.displayName
+  organizationSkills.value = assistants.map((assistant, index) => {
+    const id = `assistant:${assistant.id}`
+    if (assistant.defaultModel) organizationAssistantModels.set(id, assistant.defaultModel)
+    return { id, name: assistant.name, category: '组织技能', description: assistant.description || '由管理员配置的办公助手', shortDescription: assistant.description || '组织专属办公能力', placeholder: `描述需要交给${assistant.name}处理的任务`, color: ['#4f8cff', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Sparkles, assistantId: assistant.id }
+  })
+  if (auth.isAuthenticated) void loadAgentTasks()
+})
+</script>

@@ -5,7 +5,7 @@ import { createClientId } from '../utils/client-id'
 
 type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: { feedback?: 'UP' | 'DOWN' | null } | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
-type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; assets?: { id: string }[] }
+type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; assets?: ServerAsset[]; conversations?: ServerConversation[]; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
 type ServerAsset = { id: string; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; metadata?: Record<string, unknown> | null }
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
@@ -52,7 +52,7 @@ function mapWorkflowConfig(input?: ProjectWorkflowConfig | null): ProjectWorkflo
 }
 
 function mapProject(item: ServerProject): Project {
-  return { id: item.id, name: item.name, brief: item.description || '尚未添加项目说明。', description: item.description || '', instructions: item.instructions || '', updatedAt: Date.parse(item.updatedAt), assetIds: item.assets?.map((asset) => asset.id) || [], archived: Boolean(item.archivedAt), workflowStatus: item.workflowStatus || 'PLANNING', workflowConfig: mapWorkflowConfig(item.workflowConfig), defaultModel: item.defaultModel || '', defaultAssistantId: item.defaultAssistantId || null, revision: item.revision || 1 }
+  return { id: item.id, name: item.name, brief: item.description || '尚未添加项目说明。', description: item.description || '', instructions: item.instructions || '', updatedAt: Date.parse(item.updatedAt), assetIds: item.assets?.map((asset) => asset.id) || [], assets: item.assets?.map(mapAsset) || [], conversations: item.conversations?.map(mapConversation) || [], assetCount: item._count?.assets ?? item.assets?.length ?? 0, conversationCount: item._count?.conversations ?? item.conversations?.length ?? 0, versionCount: item._count?.versions ?? item.revision ?? 1, archived: Boolean(item.archivedAt), workflowStatus: item.workflowStatus || 'PLANNING', workflowConfig: mapWorkflowConfig(item.workflowConfig), defaultModel: item.defaultModel || '', defaultAssistantId: item.defaultAssistantId || null, revision: item.revision || 1 }
 }
 
 function mapVersion(item: ServerVersion): ProjectVersion {
@@ -299,7 +299,7 @@ export const useStudioStore = defineStore('studio', {
       const message = this.messages.find((item) => item.id === messageId)
       if (message) message.feedback = value
     },
-    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string }) {
+    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string; pluginId?: string }) {
       const trimmed = content.trim()
       if (!trimmed) return
       let messagePersisted = false
@@ -316,7 +316,7 @@ export const useStudioStore = defineStore('studio', {
         const userMessage = await api<ServerMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
         messagePersisted = true
         if (this.currentConversationId === conversationId) this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: input.assistantId ? { assistantId: input.assistantId } : {}, idempotencyKey: idempotencyKey('chat') }) })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}) }, idempotencyKey: idempotencyKey('chat') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
@@ -384,7 +384,6 @@ export const useStudioStore = defineStore('studio', {
       const project = mapProject(row)
       const index = this.projects.findIndex((item) => item.id === projectId)
       if (index >= 0) this.projects[index] = project; else this.projects.unshift(project)
-      this.currentProjectId = projectId
       return project
     },
     async updateProjectWorkflow(projectId: string, payload: { workflowStatus: ProjectWorkflowStatus; workflowConfig: Omit<ProjectWorkflowConfig, 'steps'> & { steps: Omit<ProjectWorkflowConfig['steps'][number], 'sortOrder'>[] }; defaultModel?: string; defaultAssistantId?: string | null; instructions?: string; changeSummary?: string; versionLabel?: string }) {
@@ -411,8 +410,9 @@ export const useStudioStore = defineStore('studio', {
     async setProjectArchived(projectId: string, archived: boolean) {
       const row = await api<ServerProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ archived }) })
       const index = this.projects.findIndex((project) => project.id === projectId)
-      if (index >= 0) this.projects[index] = mapProject(row)
+      if (index >= 0) this.projects[index] = { ...this.projects[index], ...mapProject(row) }
       if (archived && this.currentProjectId === projectId) this.currentProjectId = ''
+      return this.projects[index]
     },
     async deleteProject(projectId: string) {
       await api(`/projects/${projectId}`, { method: 'DELETE' })
@@ -462,7 +462,7 @@ export const useStudioStore = defineStore('studio', {
         this.messages.push({ id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
-          options: { size: options.ratio, quality: options.quality || 'medium', count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio },
+          options: { size: options.ratio, quality: options.quality || 'medium', count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
         const generation = mapGeneration(job, options)

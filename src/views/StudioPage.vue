@@ -94,6 +94,7 @@
               <button v-for="item in assistants" :key="item.id" type="button" :class="{ 'is-active': assistantId === item.id }" @click="selectAssistant(item)"><span><strong>{{ item.name }}</strong><small>{{ item.description || '管理员配置的专属工作助手' }}</small></span><Check v-if="assistantId === item.id" :size="15" /></button>
             </div>
           </div>
+          <PluginSelector v-if="auth.isAuthenticated" v-model="chatPluginId" capability="CHAT" compact />
           <div class="composer-control composer-model">
             <button type="button" :aria-label="`选择模型，当前为${model}`" :title="`模型：${model}`" @click="toggleModelMenu">
               <span>{{ model }}</span><ChevronDown :size="15" />
@@ -177,6 +178,7 @@
             <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" class="creation-add creation-mask-button" type="button" aria-label="添加蒙版" title="添加蒙版" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="17" /></button>
             <button class="creation-mobile-options-toggle" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="生成设置" title="生成设置" :aria-expanded="creationOptionsOpen" @click.stop="creationOptionsOpen = !creationOptionsOpen"><Settings2 :size="18" /></button>
             <div class="creation-option-buttons" :class="{ 'is-open': creationOptionsOpen }">
+              <PluginSelector v-if="auth.isAuthenticated" v-model="creationPluginId" :capability="creationPluginCapability" compact />
               <button v-if="activeMode !== 'commerce'" type="button" @click.stop="toggleCreationMenu('model', $event)"><Video v-if="activeMode === 'videos'" :size="16" /><ImageIcon v-else :size="16" />{{ activeMode === 'videos' ? videoModel : imageModel }}<ChevronDown :size="14" /></button>
               <button v-else type="button" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" />{{ creationType }}<ChevronDown :size="14" /></button>
               <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'resolution' : 'platform', $event)"><ScanLine :size="16" />{{ activeMode === 'videos' ? videoResolution : autoMode }}<ChevronDown :size="14" /></button>
@@ -256,13 +258,15 @@
     <section v-else-if="activeMode === 'projects'" :key="activeMode" class="studio-index-page projects-page">
       <div class="index-page-inner">
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
+        <div v-if="projectNotice" class="project-notice" role="status"><Check :size="15" /><span>{{ projectNotice }}</span><button type="button" aria-label="关闭提示" @click="projectNotice = ''"><X :size="15" /></button></div>
         <header class="index-page-header"><h1>{{ t('studio.projects') }}</h1><div><label class="workspace-search"><Search :size="16" /><input v-model="projectSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="projectModalOpen = true"><Plus :size="17" />{{ t('studio.create') }}</button></div></header>
-        <div class="index-tabs"><button :class="{ 'is-active': projectTab === 'active' }" type="button" @click="projectTab = 'active'">项目</button><button :class="{ 'is-active': projectTab === 'archived' }" type="button" @click="projectTab = 'archived'">已归档</button></div>
-        <div class="project-table-head"><span>名称</span><span>修改时间</span><span>操作</span></div>
-        <div v-if="filteredProjects.length" class="project-table">
-          <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" @click="store.selectProject(project.id)"><span><Folder :size="18" />{{ project.name }}</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
+        <div class="index-tabs"><button :class="{ 'is-active': projectTab === 'active' }" type="button" @click="projectTab = 'active'"><span>项目</span><small>{{ activeProjectCount }}</small></button><button :class="{ 'is-active': projectTab === 'archived' }" type="button" @click="projectTab = 'archived'"><span>已归档</span><small>{{ archivedProjectCount }}</small></button></div>
+        <div class="project-table-head"><span>名称</span><span>项目内容</span><span>修改时间</span><span>操作</span></div>
+        <div v-if="auth.isAuthenticated && store.workspaceHydrating && !store.projects.length" class="project-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
+        <div v-else-if="filteredProjects.length" class="project-table">
+          <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" :title="project.archived ? '已归档项目不能设为当前项目' : '设为当前项目'" :disabled="project.archived" @click="selectCurrentProject(project)"><span class="project-row-name"><Folder :size="18" /><span><strong>{{ project.name }}</strong><small>{{ project.brief }}</small></span></span><span class="project-row-content">{{ project.conversationCount }} 个对话 · {{ project.assetCount }} 个文件 · {{ project.versionCount }} 个版本</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
         </div>
-        <div v-else class="project-empty"><strong>还没有项目</strong><p>把同一主题的聊天和来源集中到一个项目中。</p><button type="button" @click="projectModalOpen = true">创建项目</button></div>
+        <div v-else class="project-empty"><ArchiveRestore v-if="projectTab === 'archived'" :size="30" /><Folder v-else :size="30" /><strong>{{ projectSearch ? '没有匹配的项目' : projectTab === 'archived' ? '还没有已归档项目' : '还没有项目' }}</strong><p>{{ projectSearch ? '换一个关键词继续查找。' : projectTab === 'archived' ? '归档后的项目会保留聊天、文件和版本，并显示在这里。' : '把同一主题的聊天、文件和工作流集中到一个项目中。' }}</p><button v-if="projectSearch" type="button" @click="projectSearch = ''">清除搜索</button><button v-else-if="projectTab === 'active'" type="button" @click="projectModalOpen = true">创建项目</button></div>
       </div>
     </section>
 
@@ -315,6 +319,7 @@
           <div v-if="projectDetailLoading" class="project-detail-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
           <div v-else class="project-detail-body">
             <div class="project-detail-main">
+              <section class="project-detail-section project-content-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">CONTENT</span><h3>项目内容</h3></div><span class="project-content-total">{{ projectDetail?.conversationCount || 0 }} 个对话 · {{ projectDetail?.assetCount || 0 }} 个文件</span></div><div class="project-content-grid"><div><h4>最近对话</h4><button v-for="conversation in projectDetail?.conversations || []" :key="conversation.id" class="project-content-row" type="button" @click="openProjectConversation(conversation.id)"><MessageSquare :size="15" /><span><strong>{{ conversation.title }}</strong><small>{{ conversation.model }} · {{ formatDate(conversation.updatedAt) }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.conversations.length" class="project-content-empty">在选中此项目后开始对话，对话会显示在这里。</p></div><div><h4>项目文件</h4><button v-for="asset in projectDetail?.assets || []" :key="asset.id" class="project-content-row" type="button" @click="openProjectAsset(asset)"><ImageIcon v-if="asset.kind === 'image'" :size="15" /><Video v-else-if="asset.kind === 'video'" :size="15" /><FileText v-else :size="15" /><span><strong>{{ asset.title }}</strong><small>{{ asset.tags.join(' · ') }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.assets.length" class="project-content-empty">上传到项目或在项目中生成的文件会显示在这里。</p></div></div></section>
               <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">WORKFLOW</span><h3>工作流设置</h3></div><span class="project-revision">v{{ projectDetail?.revision || 1 }}</span></div>
                 <div class="project-form-grid"><label><span>项目状态</span><select v-model="projectWorkflowStatus"><option value="PLANNING">规划中</option><option value="IN_PROGRESS">进行中</option><option value="REVIEW">待审核</option><option value="COMPLETED">已完成</option><option value="ARCHIVED">已归档</option></select></label><label><span>默认模型</span><input v-model="projectDefaultModel" maxlength="160" placeholder="跟随系统默认模型" /></label></div>
                 <label class="project-form-field"><span>默认项目指令</span><textarea v-model="projectInstructions" maxlength="4000" rows="4" placeholder="每次在此项目中开始工作时使用的背景和约束" /></label>
@@ -342,7 +347,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Archive, ArchiveRestore, ArrowUp, BadgeCheck, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
   Download, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip,
-  History, LoaderCircle, Maximize2, Mic, Pencil, Play, Plus, Ratio, RefreshCw, RotateCcw, Save, ScanLine, Search, Settings2, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
+  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, Ratio, RefreshCw, RotateCcw, Save, ScanLine, Search, Settings2, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
@@ -350,10 +355,11 @@ import ChatMessageContent from '../components/ChatMessageContent.vue'
 import CodeArtifactPanel from '../components/CodeArtifactPanel.vue'
 import GeneratedImagePreview from '../components/GeneratedImagePreview.vue'
 import InspirationPreview from '../components/InspirationPreview.vue'
+import PluginSelector from '../components/PluginSelector.vue'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
-import type { CodeArtifact, GenerationRun, Message, Project, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
+import type { CodeArtifact, GenerationRun, Message, PluginCapability, Project, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
 import { api } from '../services/api'
 import { consumeImagePrompt } from '../utils/prompt-transfer'
 import { createClientId } from '../utils/client-id'
@@ -406,6 +412,8 @@ const promptTemplateCategory = ref('')
 const assistantMenuOpen = ref(false)
 const assistants = ref<AssistantOption[]>([])
 const assistantId = ref('')
+const chatPluginId = ref('')
+const creationPluginId = ref('')
 const attachments = ref<StudioAsset[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const filePurpose = ref<FilePurpose>('chat-file')
@@ -469,6 +477,7 @@ const filteredPromptTemplates = computed(() => promptTemplates.value.filter((ite
   return (!promptTemplateCategory.value || item.category === promptTemplateCategory.value) && (!promptTemplateQuery.value || haystack.includes(promptTemplateQuery.value.toLowerCase()))
 }))
 const selectedAssistant = computed(() => assistants.value.find((item) => item.id === assistantId.value))
+const creationPluginCapability = computed<PluginCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
 const generationPrompt = ref('')
 const generationInput = ref<HTMLTextAreaElement | null>(null)
 const creationComposer = ref<HTMLFormElement | null>(null)
@@ -536,6 +545,7 @@ const canScrollInspirationPrevious = ref(false)
 const canScrollInspirationNext = ref(false)
 const projectSearch = ref('')
 const projectTab = ref<'active' | 'archived'>('active')
+const projectNotice = ref('')
 const assetSearch = ref('')
 const assetTab = ref('all')
 const assetFilter = ref('all')
@@ -589,6 +599,8 @@ const pendingVideoRuns = computed(() => {
     .sort((left, right) => right.createdAt - left.createdAt)
 })
 const filteredProjects = computed(() => store.projects.filter((project) => Boolean(project.archived) === (projectTab.value === 'archived') && project.name.toLowerCase().includes(projectSearch.value.trim().toLowerCase())))
+const activeProjectCount = computed(() => store.projects.filter((project) => !project.archived).length)
+const archivedProjectCount = computed(() => store.projects.filter((project) => project.archived).length)
 const filteredAssets = computed(() => store.recentAssets.filter((asset) => {
   const matchesTab = assetTab.value === 'all' || (assetTab.value === 'generated' ? asset.purpose === 'generated' : assetTab.value === 'reference' ? asset.purpose === 'reference' || asset.purpose === 'mask' : asset.kind === assetTab.value)
   const matchesSource = assetFilter.value === 'all' || (assetFilter.value === 'uploaded' ? asset.source === 'upload' : asset.source === 'generated')
@@ -861,7 +873,7 @@ async function submitMessage() {
   await nextTick()
   resizeComposer()
   try {
-    await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id) })
+    await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, pluginId: chatPluginId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id) })
     await scrollThreadToBottom()
   } catch (reason) {
     if (reason instanceof ChatSendError && reason.restoreDraft) {
@@ -968,7 +980,7 @@ async function submitGeneration() {
   if (!requireAuth(activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'videos' ? '/video' : '/image')) return
   if (!generationPrompt.value.trim()) return
   try {
-    const job = await store.startGeneration({ mode: activeMode.value, prompt: generationPrompt.value, model: activeMode.value === 'videos' ? videoModel.value : imageModel.value, ratio: autoMode.value === '自动' ? activeImageCapabilities.value.defaultSize : providerSize(autoMode.value), quality: providerQuality(quality.value), count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? autoMode.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value }, undefined, false, model.value)
+    const job = await store.startGeneration({ mode: activeMode.value, prompt: generationPrompt.value, model: activeMode.value === 'videos' ? videoModel.value : imageModel.value, ratio: autoMode.value === '自动' ? activeImageCapabilities.value.defaultSize : providerSize(autoMode.value), quality: providerQuality(quality.value), count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? autoMode.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined }, undefined, false, model.value)
     generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null
     await openGenerationConversation(job.id)
   } catch { /* Store exposes the server error in-page. */ }
@@ -1198,7 +1210,18 @@ async function restoreProject(version: ProjectVersion) {
   } catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '版本恢复失败' }
   finally { projectRestoringVersion.value = null }
 }
-async function toggleProjectArchive(projectId: string, archived: boolean) { try { await store.setProjectArchived(projectId, archived) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目状态更新失败' } }
+async function toggleProjectArchive(projectId: string, archived: boolean) {
+  try {
+    const project = store.projects.find((item) => item.id === projectId)
+    await store.setProjectArchived(projectId, archived)
+    projectTab.value = archived ? 'archived' : 'active'
+    projectNotice.value = `“${project?.name || '项目'}”已${archived ? '归档' : '恢复'}`
+    window.setTimeout(() => { projectNotice.value = '' }, 3000)
+  } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目状态更新失败' }
+}
+function selectCurrentProject(project: Project) { store.selectProject(project.id); projectNotice.value = `已切换到项目“${project.name}”，后续对话、上传和生成内容会归入该项目。`; window.setTimeout(() => { projectNotice.value = '' }, 3600) }
+async function openProjectConversation(conversationId: string) { closeProjectDetails(); await router.push('/chat'); await store.openConversation(conversationId) }
+function openProjectAsset(asset: StudioAsset) { if (asset.kind === 'image' || asset.kind === 'video') previewAsset.value = asset; else downloadGeneratedAsset(asset) }
 async function deleteProject(projectId: string, name: string) { if (!window.confirm(`确认删除“${name}”？此操作无法撤销。`)) return; try { await store.deleteProject(projectId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目删除失败' } }
 async function deleteAsset(assetId: string) { try { await store.deleteAsset(assetId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件删除失败' } }
 function requireAuth(redirect: string) { if (auth.isAuthenticated) return true; void router.push(`/login?redirect=${encodeURIComponent(redirect)}`); return false }

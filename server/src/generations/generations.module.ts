@@ -7,9 +7,10 @@ import { GenerationsProcessor } from './generations.processor'
 import { GenerationsService } from './generations.service'
 import { ProvidersModule } from '../providers/providers.module'
 import { ModerationModule } from '../moderation/moderation.module'
+import { PluginsModule } from '../plugins/plugins.module'
 
 @Module({
-  imports: [BullModule.registerQueue({ name: 'generation' }), CreditsModule, AssetsModule, ProvidersModule, ModerationModule],
+  imports: [BullModule.registerQueue({ name: 'generation' }), CreditsModule, AssetsModule, ProvidersModule, ModerationModule, PluginsModule],
   controllers: [GenerationsController],
   providers: [GenerationsService, GenerationsProcessor],
   exports: [GenerationsService],

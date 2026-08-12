@@ -367,6 +367,8 @@
       "inspirations": "灵感内容",
       "promptTemplates": "提示词模板",
       "promptLibrary": "提示词库",
+      "plugins": "插件管理",
+      "pluginCategories": "插件分类",
       "assistants": "AI 助手",
       "tools": "工具与审批",
       "toolApprovals": "审批申请",

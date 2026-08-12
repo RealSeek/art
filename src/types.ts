@@ -1,4 +1,7 @@
-export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'prompts' | 'projects' | 'assets' | 'api'
+export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'office' | 'prompts' | 'plugins' | 'projects' | 'assets' | 'api'
+export type PluginCapability = 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE' | 'OFFICE'
+export interface PluginCategory { id: string; name: string; slug: string; description: string; icon: string; sortOrder: number; enabled: boolean; _count?: { plugins: number } }
+export interface Plugin { id: string; name: string; slug: string; description: string; instruction: string; icon: string; version: string; categoryId?: string | null; capabilities: PluginCapability[]; recommendedModel: string; outputRequirements: string; visibility: 'OFFICIAL' | 'PRIVATE'; status: 'DRAFT' | 'PUBLISHED' | 'DISABLED'; featured: boolean; priceCredits: number; installCount: number; usageCount: number; errorCount: number; installed?: boolean; owned?: boolean; category?: PluginCategory | null }
 
 export type AssetKind = 'image' | 'video' | 'text' | 'product-pack'
 
@@ -57,6 +60,11 @@ export interface Project {
   brief: string
   updatedAt: number
   assetIds: string[]
+  assets: StudioAsset[]
+  conversations: ConversationSummary[]
+  assetCount: number
+  conversationCount: number
+  versionCount: number
   archived?: boolean
   description?: string
   instructions?: string
@@ -122,6 +130,7 @@ export interface GenerationOptions {
   duration?: number
   aspectRatio?: string
   creditCost?: number
+  pluginId?: string
 }
 
 export type GenerationRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'

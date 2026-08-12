@@ -17,7 +17,9 @@ const activeMode = computed<StudioMode>(() => {
     images: 'images',
     videos: 'videos',
     commerce: 'commerce',
+    office: 'office',
     prompts: 'prompts',
+    plugins: 'plugins',
     projects: 'projects',
     assets: 'assets',
   }

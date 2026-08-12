@@ -26,6 +26,8 @@ import { AlertsModule } from './alerts/alerts.module'
 import { PromptTemplatesModule } from './prompt-templates/prompt-templates.module'
 import { WorkspaceModule } from './workspace/workspace.module'
 import { ContentModule } from './content/content.module'
+import { PluginsModule } from './plugins/plugins.module'
+import { AgentTasksModule } from './agent-tasks/agent-tasks.module'
 
 @Module({
   imports: [
@@ -52,6 +54,8 @@ import { ContentModule } from './content/content.module'
     PromptTemplatesModule,
     WorkspaceModule,
     ContentModule,
+    PluginsModule,
+    AgentTasksModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

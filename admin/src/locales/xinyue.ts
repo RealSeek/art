@@ -20,6 +20,8 @@ const englishGlossary: Record<string, string> = {
   灵感内容: 'Inspiration',
   提示词模板: 'Prompt Templates',
   提示词库: 'Prompt Library',
+  插件管理: 'Plugins',
+  插件分类: 'Plugin Categories',
   'AI 助手': 'AI Assistants',
   工具与审批: 'Tools & Approvals',
   审批申请: 'Approval Requests',

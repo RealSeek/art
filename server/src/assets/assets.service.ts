@@ -110,7 +110,8 @@ export class AssetsService {
 
   async storeGenerated(userId: string, data: Uint8Array, input: { name: string; mimeType: string; kind: AssetKind; projectId?: string; metadata?: Record<string, unknown> }) {
     await this.assertProjectOwnership(userId, input.projectId)
-    const extension = input.mimeType === 'image/png' ? '.png' : input.mimeType === 'image/webp' ? '.webp' : input.mimeType === 'image/gif' ? '.gif' : input.mimeType === 'image/avif' ? '.avif' : input.mimeType === 'image/svg+xml' ? '.svg' : input.mimeType === 'video/webm' ? '.webm' : input.mimeType === 'video/quicktime' ? '.mov' : input.mimeType.startsWith('video/') ? '.mp4' : '.jpg'
+    const namedExtension = extname(input.name).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12)
+    const extension = input.mimeType === 'image/png' ? '.png' : input.mimeType === 'image/webp' ? '.webp' : input.mimeType === 'image/gif' ? '.gif' : input.mimeType === 'image/avif' ? '.avif' : input.mimeType === 'image/svg+xml' ? '.svg' : input.mimeType === 'video/webm' ? '.webm' : input.mimeType === 'video/quicktime' ? '.mov' : input.mimeType.startsWith('video/') ? '.mp4' : namedExtension || '.bin'
     const fileName = input.name.toLowerCase().endsWith(extension) ? input.name : `${input.name}${extension}`
     const objectKey = this.makeObjectKey(userId, fileName, true)
     const target = this.safePath(objectKey)

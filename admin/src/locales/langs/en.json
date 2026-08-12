@@ -367,6 +367,8 @@
       "inspirations": "Inspiration",
       "promptTemplates": "Prompt Templates",
       "promptLibrary": "Prompt Library",
+      "plugins": "Plugins",
+      "pluginCategories": "Plugin Categories",
       "assistants": "AI Assistants",
       "tools": "Tools & Approvals",
       "toolApprovals": "Approval Requests",

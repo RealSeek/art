@@ -91,6 +91,18 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         meta: resource('提示词库', 'ri:book-open-line', 'promptLibrary')
       },
       {
+        path: 'plugins',
+        name: 'PluginManagement',
+        component: '/xinyue/operations',
+        meta: resource('插件管理', 'ri:apps-2-line', 'plugins')
+      },
+      {
+        path: 'plugin-categories',
+        name: 'PluginCategoryManagement',
+        component: '/xinyue/operations',
+        meta: resource('插件分类', 'ri:folder-settings-line', 'pluginCategories')
+      },
+      {
         path: 'assistants',
         name: 'AssistantManagement',
         component: '/xinyue/operations',

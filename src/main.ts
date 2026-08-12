@@ -10,6 +10,8 @@ import './styles/landing.css'
 import './styles/api.css'
 import './styles/legal.css'
 import './styles/prompt-library.css'
+import './styles/office.css'
+import './styles/plugins.css'
 
 const app = createApp(App)
 const pinia = createPinia()

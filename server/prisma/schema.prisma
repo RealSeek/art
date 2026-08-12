@@ -48,6 +48,24 @@ enum JobStatus {
   CANCELLED
 }
 
+enum AgentTaskStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  WAITING_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AgentTaskStepStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
 enum LedgerType {
   GRANT
   PURCHASE
@@ -166,6 +184,25 @@ enum SupportAuthorType {
   SYSTEM
 }
 
+enum PluginVisibility {
+  OFFICIAL
+  PRIVATE
+}
+
+enum PluginStatus {
+  DRAFT
+  PUBLISHED
+  DISABLED
+}
+
+enum PluginCapability {
+  CHAT
+  IMAGE
+  VIDEO
+  COMMERCE
+  OFFICE
+}
+
 model User {
   id                  String                 @id @default(cuid())
   email               String?                @unique
@@ -212,6 +249,10 @@ model User {
   toolCallAudits      ToolCallAudit[]
   toolApprovalRequests ToolApprovalRequest[] @relation("ToolApprovalRequester")
   reviewedToolApprovals ToolApprovalRequest[] @relation("ToolApprovalReviewer")
+  privatePlugins       Plugin[]               @relation("PluginOwner")
+  pluginInstallations  PluginInstallation[]
+  pluginUsages         PluginUsage[]
+  agentTasks           AgentTask[]
 }
 
 model ExternalIdentity {
@@ -374,6 +415,7 @@ model Project {
   assets             Asset[]
   jobs               GenerationJob[]
   versions           ProjectVersion[]
+  agentTasks         AgentTask[]
 
   @@index([userId, updatedAt])
   @@index([defaultAssistantId])
@@ -411,6 +453,7 @@ model Conversation {
   project    Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
   messages   Message[]
   jobs       GenerationJob[]
+  agentTask  AgentTask?
 
   @@index([userId, updatedAt])
   @@index([userId, pinnedAt, updatedAt])
@@ -492,6 +535,89 @@ model PromptTemplate {
   @@index([enabled, category, sortOrder])
 }
 
+model PluginCategory {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @default("") @db.Text
+  icon        String   @default("blocks")
+  sortOrder   Int      @default(0)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  plugins     Plugin[]
+
+  @@index([enabled, sortOrder])
+}
+
+model Plugin {
+  id                 String               @id @default(cuid())
+  ownerId            String?
+  categoryId         String?
+  name               String
+  slug               String               @unique
+  description        String               @default("") @db.Text
+  instruction        String               @db.Text
+  icon               String               @default("blocks")
+  version            String               @default("1.0.0")
+  capabilities       PluginCapability[]   @default([])
+  recommendedModel   String               @default("")
+  outputRequirements String               @default("") @db.Text
+  config             Json?
+  visibility         PluginVisibility     @default(PRIVATE)
+  status             PluginStatus         @default(DRAFT)
+  featured           Boolean              @default(false)
+  priceCredits       Int                  @default(0)
+  installCount       Int                  @default(0)
+  usageCount         Int                  @default(0)
+  errorCount         Int                  @default(0)
+  sortOrder          Int                  @default(0)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  owner              User?                @relation("PluginOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  category           PluginCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  installations      PluginInstallation[]
+  usages             PluginUsage[]
+
+  @@index([visibility, status, featured, sortOrder])
+  @@index([ownerId, updatedAt])
+  @@index([categoryId, status])
+}
+
+model PluginInstallation {
+  userId      String
+  pluginId    String
+  enabled     Boolean  @default(true)
+  paidCredits Int      @default(0)
+  settings    Json?
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plugin      Plugin   @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([userId, pluginId])
+  @@index([pluginId, enabled])
+}
+
+model PluginUsage {
+  id         String           @id @default(cuid())
+  userId     String
+  pluginId   String
+  jobId      String?          @unique
+  capability PluginCapability
+  status     String           @default("QUEUED")
+  error      String?          @db.Text
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plugin     Plugin           @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  job        GenerationJob?   @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([pluginId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
 model PromptLibrarySourceConfig {
   id          String   @id
   displayName String
@@ -535,6 +661,7 @@ model Assistant {
   toolCallAudits  ToolCallAudit[]
   defaultProjects Project[]
   approvalRequests ToolApprovalRequest[]
+  agentTasks       AgentTask[]
 
   @@index([enabled, visibility, sortOrder])
 }
@@ -1178,11 +1305,63 @@ model GenerationJob {
   conversation       Conversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   providerChannel    ProviderChannel? @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
   outputs            JobOutput[]
+  pluginUsage        PluginUsage?
+  agentTask          AgentTask?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([completedAt, status])
   @@index([providerChannelId])
+}
+
+model AgentTask {
+  id              String          @id @default(cuid())
+  userId          String
+  projectId       String?
+  assistantId     String?
+  conversationId  String?         @unique
+  generationJobId String?         @unique
+  title           String
+  goal            String          @db.Text
+  instructions    String          @default("") @db.Text
+  model           String
+  skillId         String          @default("daily")
+  pluginId        String?
+  attachmentIds   Json?
+  status          AgentTaskStatus @default(DRAFT)
+  errorMessage    String?         @db.Text
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assistant       Assistant?      @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  conversation    Conversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  generationJob   GenerationJob?  @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+  steps           AgentTaskStep[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, status])
+  @@index([projectId])
+  @@index([assistantId])
+}
+
+model AgentTaskStep {
+  id          String              @id @default(cuid())
+  agentTaskId String
+  position    Int
+  title       String
+  detail      String              @default("") @db.Text
+  status      AgentTaskStepStatus @default(PENDING)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  agentTask   AgentTask           @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([agentTaskId, position])
+  @@index([agentTaskId, position])
 }
 
 model JobOutput {

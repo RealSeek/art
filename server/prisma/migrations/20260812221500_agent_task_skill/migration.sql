@@ -1,0 +1,1 @@
+ALTER TABLE "AgentTask" ADD COLUMN "skillId" TEXT NOT NULL DEFAULT 'daily';

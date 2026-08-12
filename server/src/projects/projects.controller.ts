@@ -194,7 +194,7 @@ export class ProjectsController {
             defaultModel: true,
           },
         },
-        _count: { select: { versions: true } },
+        _count: { select: { assets: { where: { deletedAt: null } }, conversations: { where: { archivedAt: null } }, versions: true } },
       },
     });
     if (!project) throw new NotFoundException("项目不存在");

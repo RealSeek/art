@@ -7,6 +7,7 @@ import { AdminGuard } from '../admin/admin.guard'
 import { AuthenticatedUser, CurrentUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
 import { AssetsService } from '../assets/assets.service'
+import { OfficeExportService } from './office-export.service'
 
 class AssistantDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -41,11 +42,15 @@ class ReviewToolApprovalDto {
   @IsOptional() @IsString() @MaxLength(2000) adminNote?: string
   @IsOptional() @IsInt() @Min(5) @Max(10080) expiresInMinutes?: number
 }
+class OfficeExportDto { @IsString() @MinLength(1) @MaxLength(100) conversationId!: string }
 
 @Controller()
 @UseGuards(AuthGuard)
 export class WorkspaceController {
-  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly officeExports: OfficeExportService) {}
+
+  @Post('office/exports')
+  exportOffice(@CurrentUser() user: AuthenticatedUser, @Body() body: OfficeExportDto) { return this.officeExports.create(user.id, body.conversationId) }
 
   @Get('assistants')
   assistants() { return this.prisma.assistant.findMany({ where: { enabled: true, visibility: 'PUBLIC' }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }], select: { id: true, name: true, description: true, defaultModel: true, templateIds: true, tools: { select: { toolId: true } } } }) }
