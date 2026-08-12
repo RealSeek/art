@@ -2222,7 +2222,12 @@ html[data-studio-theme="light"] .settings-api-list article footer button { backg
 html[data-studio-theme="light"] .settings-action-row > button:hover,
 html[data-studio-theme="light"] .settings-api-list article footer button:hover { background: #f2f2f2; }
 .create-page-inner { margin: 0 auto; padding-top: 116px; width: min(768px, calc(100% - 48px)); }
-.create-page-inner > h1 { font-size: 32px; font-weight: 400; line-height: 40px; margin: 0 0 20px; }
+.creation-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 20px; min-height: 40px; }
+.creation-heading h1 { font-size: 32px; font-weight: 400; line-height: 40px; margin: 0; }
+.creation-mode-switch { align-items: center; background: var(--studio-control); border: 1px solid var(--studio-border); border-radius: 8px; display: inline-flex; gap: 2px; padding: 3px; }
+.creation-mode-switch button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--studio-muted); display: inline-flex; font-size: 13px; font-weight: 550; gap: 6px; height: 34px; justify-content: center; min-width: 78px; padding: 0 13px; }
+.creation-mode-switch button:hover { color: var(--studio-text); }
+.creation-mode-switch button.is-active { background: var(--studio-elevated); box-shadow: 0 1px 3px rgba(0, 0, 0, .2); color: var(--studio-text); }
 .creation-composer {
   background: #212121;
   border: 0;
@@ -2540,7 +2545,10 @@ html[data-studio-theme="light"] .inspiration-preview__stage { background: #f1f1f
   .workspace-mobile-header .icon-button { flex-basis: 32px; height: 32px; width: 32px; }
   .workspace-mobile-title { font-size: 21px; font-weight: 700; margin-left: 6px; white-space: nowrap; }
   .create-page-inner { padding-top: 85px; width: calc(100% - 32px); }
-  .create-page-inner > h1 { display: none; }
+  .creation-heading { justify-content: flex-end; margin-bottom: 14px; min-height: 38px; }
+  .creation-heading h1 { display: none; }
+  .creation-mode-switch { width: 100%; }
+  .creation-mode-switch button { flex: 1; }
   .index-page-inner { padding-top: 28px; width: calc(100% - 28px); }
   .projects-page .index-page-inner { padding-top: 60px; }
   .library-page .index-page-inner { padding-top: 40px; width: calc(100% - 64px); }

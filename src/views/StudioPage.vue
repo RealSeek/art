@@ -150,7 +150,13 @@
 
     <section v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" class="studio-create-page">
       <div class="create-page-inner">
-        <h1>{{ activeMode === 'images' ? t('studio.images') : activeMode === 'videos' ? t('studio.videos') : t('studio.commerce') }}</h1>
+        <div class="creation-heading">
+          <h1>{{ activeMode === 'commerce' ? t('studio.commerce') : t('workspace.creation') }}</h1>
+          <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
+            <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')"><ImageIcon :size="16" />图片</button>
+            <button type="button" :class="{ 'is-active': activeMode === 'videos' }" :aria-pressed="activeMode === 'videos'" @click="switchCreationMode('videos')"><Video :size="16" />视频</button>
+          </div>
+        </div>
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'has-mobile-options': creationOptionsOpen, 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-prompt-row">
@@ -975,6 +981,15 @@ function selectCreationOption(option: string) {
   }
   closeCreationMenu()
   if (window.innerWidth <= 640) creationOptionsOpen.value = false
+}
+async function switchCreationMode(mode: 'images' | 'videos') {
+  if (activeMode.value === mode) return
+  closeCreationMenu()
+  creationOptionsOpen.value = false
+  store.clearError()
+  await router.push(mode === 'videos' ? '/video' : '/image')
+  await nextTick()
+  generationInput.value?.focus({ preventScroll: true })
 }
 async function submitGeneration() {
   if (!requireAuth(activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'videos' ? '/video' : '/image')) return

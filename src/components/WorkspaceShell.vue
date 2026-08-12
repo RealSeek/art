@@ -28,7 +28,7 @@
           :target="item.external && item.openNewTab ? '_blank' : undefined"
           :rel="item.external && item.openNewTab ? 'noreferrer' : undefined"
           class="workspace-menu__item"
-          :class="{ 'is-active': !item.external && activeMode === item.mode && (item.mode !== 'chat' || !studio.currentConversationId) }"
+          :class="{ 'is-active': !item.external && (item.activeModes || [item.mode]).includes(activeMode) && (item.mode !== 'chat' || !studio.currentConversationId) }"
           :title="!sidebarOpen ? item.label : undefined"
           @click="handleNavLink($event, item)"
         >
@@ -328,7 +328,6 @@ import {
   Trash2,
   Users,
   UserRound,
-  Video,
   Wrench,
   WalletCards,
   Webhook,
@@ -399,7 +398,7 @@ interface WorkspaceAsset { id: string; name: string }
 interface KnowledgeBaseAsset { assetId: string; chunkCount: number; asset: WorkspaceAsset }
 interface KnowledgeBase { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; assets: KnowledgeBaseAsset[] }
 interface AssistantToolBinding { key: string; assistant: { id: string; name: string }; tool: { id: string; key: string; name: string; description: string; requiresApproval: boolean }; approval?: { id: string; status: string; expiresAt?: string | null } }
-interface WorkspaceNavItem { key: string; mode: StudioMode; label: string; icon: Component; to: string; external: boolean; openNewTab: boolean }
+interface WorkspaceNavItem { key: string; mode: StudioMode; activeModes?: StudioMode[]; label: string; icon: Component; to: string; external: boolean; openNewTab: boolean }
 const notifications = ref<NotificationItem[]>([])
 const creditLedger = ref<CreditEntry[]>([])
 const inviteInfo = reactive<InviteInfo>({ code: '', url: '', invited: 0, reward: 0 })
@@ -500,7 +499,7 @@ const filteredConversations = computed(() => {
   return studio.conversations.filter((item) => item.title.toLocaleLowerCase().includes(query))
 })
 const activeConversationMenu = computed(() => studio.conversations.find((item) => item.id === conversationMenuId.value) || null)
-const mobileTitle = computed(() => ({ chat: 'Xinyue AI', images: t('workspace.images'), videos: t('workspace.videos'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), projects: t('studio.projects'), assets: t('studio.library') } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
+const mobileTitle = computed(() => ({ chat: 'Xinyue AI', images: t('workspace.creation'), videos: t('workspace.creation'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), projects: t('studio.projects'), assets: t('studio.library') } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
 const storedSettings = readStoredSettings()
 const storedLanguage = storedSettings.language === 'English' ? 'en' : storedSettings.language === '中文' ? 'zh-CN' : storedSettings.language
 const storedAppearance = storedSettings.appearance === 'light' ? '浅色' : storedSettings.appearance === 'dark' ? '深色' : storedSettings.appearance === 'system' ? '跟随系统' : storedSettings.appearance
@@ -1145,8 +1144,7 @@ async function logout() {
 const externalIconMap: Record<string, Component> = { code: Code2, 'book-open': BookOpen, webhook: Webhook, 'key-round': KeyRound, 'life-buoy': LifeBuoy, 'external-link': ExternalLink }
 const navItems = computed<WorkspaceNavItem[]>(() => [
   { key: 'chat', mode: 'chat', label: t('workspace.newChat'), icon: SquarePen, to: '/chat', external: false, openNewTab: false },
-  { key: 'images', mode: 'images', label: t('workspace.images'), icon: ImageIcon, to: '/image', external: false, openNewTab: false },
-  { key: 'videos', mode: 'videos', label: t('workspace.videos'), icon: Video, to: '/video', external: false, openNewTab: false },
+  { key: 'creation', mode: 'images', activeModes: ['images', 'videos'], label: t('workspace.creation'), icon: ImageIcon, to: '/image', external: false, openNewTab: false },
   { key: 'commerce', mode: 'commerce', label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false },
   { key: 'office', mode: 'office', label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false },
   { key: 'prompts', mode: 'prompts', label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false },
