@@ -1,0 +1,54 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install user application
+        run: npm ci
+
+      - name: Install API
+        run: npm --prefix server ci
+
+      - name: Install administration
+        run: pnpm --dir admin install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: npm --prefix server run prisma:generate
+
+      - name: Build user application
+        run: npm run build
+
+      - name: Build API
+        run: npm run server:build
+
+      - name: Build administration
+        run: npm run admin:build
