@@ -23,7 +23,7 @@
           <p>{{ plugin.description || '未填写插件说明' }}</p>
           <div class="plugin-capabilities"><span v-for="item in plugin.capabilities" :key="item">{{ capabilityName(item) }}</span></div>
           <footer v-if="activeTab !== 'mine'"><span><Download :size="14" />{{ plugin.installCount }}<template v-if="plugin.priceCredits"> · {{ plugin.priceCredits }} 点</template><template v-else> · 免费</template></span><button v-if="plugin.installed" type="button" :disabled="busyId === plugin.id" @click="uninstall(plugin)"><Check :size="15" />已安装</button><button v-else class="primary" type="button" :disabled="busyId === plugin.id" @click="install(plugin)"><LoaderCircle v-if="busyId === plugin.id" class="plugin-spin" :size="15" /><Plus v-else :size="15" />安装</button></footer>
-          <footer v-else><span><ShieldCheck :size="14" />不可公开或分享</span><div><button type="button" @click="openEditor(plugin)"><Pencil :size="15" />编辑</button><button class="danger" type="button" :disabled="busyId === plugin.id" @click="removePrivate(plugin)"><Trash2 :size="15" /></button></div></footer>
+          <footer v-else><span><ShieldCheck :size="14" />不可公开或分享</span><div><button type="button" @click="openEditor(plugin)"><Pencil :size="15" />编辑</button><button class="danger" type="button" :disabled="busyId === plugin.id" aria-label="删除插件" @click="removePrivate(plugin)"><Trash2 :size="15" /></button></div></footer>
         </article>
       </section>
       <section v-else class="plugin-empty"><Blocks :size="28" /><strong>{{ activeTab === 'mine' ? '还没有私有插件' : activeTab === 'installed' ? '还没有安装插件' : '没有找到插件' }}</strong><p>{{ activeTab === 'mine' ? '创建声明式插件，用于自己的对话和创作任务。' : '从官方市场安装后即可在创作区调用。' }}</p></section>
@@ -35,20 +35,19 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
-import { Aperture, Blocks, BriefcaseBusiness, Check, CircleAlert, Code2, Download, Image, LoaderCircle, MessageSquare, Palette, Pencil, Plus, Search, ShieldCheck, ShoppingBag, Trash2, Video, X } from 'lucide-vue-next'
+import { Aperture, Badge, Blocks, BriefcaseBusiness, ChartNoAxesCombined, Check, CircleAlert, Clapperboard, Code2, CodeXml, Download, FileSearch, GraduationCap, Image, Landmark, LayoutTemplate, LoaderCircle, Megaphone, MessageSquare, MessagesSquare, Network, NotebookTabs, Palette, Pencil, Plus, Presentation, Scale, Search, SearchCheck, ShieldCheck, ShoppingBag, Table2, Trash2, Video, X } from 'lucide-vue-next'
 import { api } from '../services/api'
 import type { Plugin, PluginCapability, PluginCategory } from '../types'
 
 type Tab = 'market' | 'installed' | 'mine'
 const activeTab = ref<Tab>('market'); const market = ref<Plugin[]>([]); const installed = ref<Plugin[]>([]); const mine = ref<Plugin[]>([]); const categories = ref<PluginCategory[]>([])
 const loading = ref(true); const error = ref(''); const query = ref(''); const category = ref(''); const busyId = ref(''); const saving = ref(false); const editorOpen = ref(false)
-const emptyDraft = () => ({ id: '', name: '', description: '', instruction: '', icon: 'blocks', categoryId: '', version: '1.0.0', recommendedModel: '', outputRequirements: '', capabilities: ['CHAT'] as PluginCapability[] })
-const draft = reactive(emptyDraft())
+const emptyDraft = () => ({ id: '', name: '', description: '', instruction: '', icon: 'blocks', categoryId: '', version: '1.0.0', recommendedModel: '', outputRequirements: '', capabilities: ['CHAT'] as PluginCapability[] }); const draft = reactive(emptyDraft())
 const capabilityOptions: Array<{ id: PluginCapability; label: string }> = [{ id: 'CHAT', label: '对话' }, { id: 'IMAGE', label: '图片' }, { id: 'VIDEO', label: '视频' }, { id: 'COMMERCE', label: '电商' }, { id: 'OFFICE', label: '办公' }]
 const iconOptions = [{ id: 'blocks', label: '插件' }, { id: 'aperture', label: '创意' }, { id: 'briefcase-business', label: '办公' }, { id: 'code-2', label: '开发' }, { id: 'image', label: '图片' }, { id: 'palette', label: '设计' }, { id: 'shopping-bag', label: '电商' }, { id: 'video', label: '视频' }, { id: 'chat', label: '对话' }]
 const tabs = computed(() => [{ id: 'market' as const, label: '官方市场', icon: markRaw(Blocks), count: market.value.length }, { id: 'installed' as const, label: '已安装', icon: markRaw(Download), count: installed.value.length }, { id: 'mine' as const, label: '我的插件', icon: markRaw(ShieldCheck), count: mine.value.length }])
 const visiblePlugins = computed(() => activeTab.value === 'installed' ? installed.value : activeTab.value === 'mine' ? mine.value : market.value)
-const icons = { aperture: Aperture, blocks: Blocks, 'briefcase-business': BriefcaseBusiness, 'code-2': Code2, image: Image, palette: Palette, 'shopping-bag': ShoppingBag, video: Video, chat: MessageSquare }
+const icons = { aperture: Aperture, 'badge-palette': Badge, blocks: Blocks, 'briefcase-business': BriefcaseBusiness, 'chart-no-axes-combined': ChartNoAxesCombined, clapperboard: Clapperboard, 'code-2': Code2, 'file-search': FileSearch, 'graduation-cap': GraduationCap, image: Image, landmark: Landmark, 'layout-template': LayoutTemplate, megaphone: Megaphone, 'messages-square': MessagesSquare, network: Network, 'notebook-tabs': NotebookTabs, palette: Palette, presentation: Presentation, scale: Scale, 'scan-code': CodeXml, 'search-check': SearchCheck, 'shopping-bag': ShoppingBag, 'table-2': Table2, video: Video, chat: MessageSquare }
 function pluginIcon(name: string) { return markRaw(icons[name as keyof typeof icons] || Blocks) }
 function capabilityName(value: PluginCapability) { return capabilityOptions.find((item) => item.id === value)?.label || value }
 async function loadAll() { loading.value = true; error.value = ''; try { [market.value, installed.value, mine.value, categories.value] = await Promise.all([api<Plugin[]>(`/plugins/market?${new URLSearchParams({ ...(query.value ? { q: query.value } : {}), ...(category.value ? { category: category.value } : {}) })}`), api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine'), api<PluginCategory[]>('/plugins/categories')]) } catch (reason) { error.value = reason instanceof Error ? reason.message : '插件加载失败' } finally { loading.value = false } }

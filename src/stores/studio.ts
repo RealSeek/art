@@ -97,6 +97,7 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
     ratio: String(options.size || '1024x1024'),
     count: Number(options.count || 1),
     quality: typeof options.quality === 'string' ? options.quality : undefined,
+    style: typeof options.style === 'string' ? options.style : undefined,
     modules: Number(options.modules || 8),
     referenceAssetIds: Array.isArray(options.referenceAssetIds) ? options.referenceAssetIds.map(String) : [],
     maskAssetId: typeof options.maskAssetId === 'string' ? options.maskAssetId : undefined,
@@ -462,7 +463,7 @@ export const useStudioStore = defineStore('studio', {
         this.messages.push({ id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
-          options: { size: options.ratio, quality: options.quality || 'medium', count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId },
+          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
         const generation = mapGeneration(job, options)

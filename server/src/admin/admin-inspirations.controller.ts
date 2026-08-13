@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { AssetKind, InspirationMode, Prisma } from '@prisma/client'
 import type { FastifyRequest } from 'fastify'
 import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
@@ -38,8 +38,8 @@ export class AdminInspirationsController {
   constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService) {}
 
   @Get()
-  async list() {
-    const rows = await this.prisma.inspiration.findMany({ orderBy: [{ mode: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }] })
+  async list(@Query('mode') mode?: InspirationMode) {
+    const rows = await this.prisma.inspiration.findMany({ where: mode ? { mode } : undefined, orderBy: [{ mode: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }] })
     return rows.map((item) => {
       const options = this.record(item.options)
       const previewVideoAssetId = this.previewVideoAssetId(options)

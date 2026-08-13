@@ -118,22 +118,30 @@
 
       <form class="office-composer" @submit.prevent="submitTask">
         <div v-if="attachments.length" class="office-attachments">
-          <span v-for="(asset, index) in attachments" :key="asset.id"><FileText :size="14" />{{ asset.title }}<button type="button" :aria-label="`移除${asset.title}`" @click="attachments.splice(index, 1)"><X :size="13" /></button></span>
+          <article v-for="(asset, index) in attachments" :key="asset.id" :class="officeHasImagePreview(asset) ? 'is-image' : 'is-file'">
+            <img v-if="officeHasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
+            <template v-else><span><FileText :size="18" /></span><div><strong :title="asset.title">{{ asset.title }}</strong><small>{{ officeAttachmentMeta(asset) }}</small></div></template>
+            <button type="button" :aria-label="`移除${asset.title}`" @click="attachments.splice(index, 1)"><X :size="13" /></button>
+          </article>
         </div>
-        <textarea ref="taskInput" v-model="prompt" rows="2" :placeholder="selectedSkill.placeholder" @keydown="handleKeydown" />
+        <textarea ref="taskInput" v-model="prompt" rows="2" :placeholder="selectedSkill.placeholder" @focus="collapseOfficePopovers" @keydown="handleKeydown" />
         <footer>
           <div>
             <button type="button" aria-label="添加文件" title="添加文件" :disabled="uploading" @click="openFilePicker"><LoaderCircle v-if="uploading" class="office-spin" :size="18" /><Plus v-else :size="20" /></button>
-            <button class="office-mode-button" type="button" :aria-expanded="modeMenuOpen" @click="toggleModeMenu"><Zap v-if="taskMode === 'fast'" :size="15" /><BrainCircuit v-else-if="taskMode === 'expert'" :size="15" /><Bot v-else :size="15" />{{ modeLabel }}<ChevronDown :size="13" /></button>
-            <div v-if="modeMenuOpen" class="office-mode-menu">
-              <button type="button" :class="{ active: taskMode === 'fast' }" @click="taskMode = 'fast'; modeMenuOpen = false"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
-              <button type="button" :class="{ active: taskMode === 'expert' }" @click="taskMode = 'expert'; modeMenuOpen = false"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
-              <button type="button" :class="{ active: taskMode === 'agent' }" @click="taskMode = 'agent'; modeMenuOpen = false"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
-            </div>
-            <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!chatModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ model || '暂无可用模型' }}<ChevronDown :size="13" /></button>
-            <div v-if="modelMenuOpen" class="office-model-menu">
-              <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
-            </div>
+            <span class="office-control-anchor">
+              <button class="office-mode-button" type="button" :aria-expanded="modeMenuOpen" @click="toggleModeMenu"><Zap v-if="taskMode === 'fast'" :size="15" /><BrainCircuit v-else-if="taskMode === 'expert'" :size="15" /><Bot v-else :size="15" />{{ modeLabel }}<ChevronDown :size="13" /></button>
+              <div v-if="modeMenuOpen" class="office-mode-menu">
+                <button type="button" :class="{ active: taskMode === 'fast' }" @click="taskMode = 'fast'; modeMenuOpen = false"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
+                <button type="button" :class="{ active: taskMode === 'expert' }" @click="taskMode = 'expert'; modeMenuOpen = false"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
+                <button type="button" :class="{ active: taskMode === 'agent' }" @click="taskMode = 'agent'; modeMenuOpen = false"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
+              </div>
+            </span>
+            <span class="office-control-anchor">
+              <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!chatModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ model || '暂无可用模型' }}<ChevronDown :size="13" /></button>
+              <div v-if="modelMenuOpen" class="office-model-menu">
+                <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
+              </div>
+            </span>
             <button class="office-skill-button" :class="{ active: skillPanelOpen }" type="button" :aria-expanded="skillPanelOpen" @click="toggleSkillPanel"><Layers3 :size="16" />{{ selectedSkill.name }}<ChevronDown :size="13" /></button>
             <button v-if="taskMode === 'agent'" class="office-web-button" :class="{ active: webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" title="联网搜索" @click="webSearchEnabled = !webSearchEnabled"><Globe2 :size="16" />联网</button>
             <PluginSelector v-if="auth.isAuthenticated" v-model="pluginId" capability="OFFICE" compact />
@@ -141,14 +149,14 @@
           <button class="office-submit" :type="generating ? 'button' : 'submit'" :disabled="canceling || (!generating && (!prompt.trim() || (auth.isAuthenticated && !model)))" :aria-label="generating ? '停止生成' : '提交任务'" @click="generating && cancelTask()"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><ArrowUp v-else :size="19" /></button>
         </footer>
       </form>
-      <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.csv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.sql,.log,text/*,application/json" multiple hidden @change="handleFiles" />
+      <input ref="fileInput" type="file" accept="image/*,.txt,.md,.markdown,.csv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.sql,.log,text/*,application/json" multiple hidden @change="handleFiles" />
       <p v-if="error" class="office-error" role="alert">{{ error }}</p>
     </section>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
@@ -264,6 +272,16 @@ const agentSources = computed(() => {
   return [...new Map(safeSources.map((source) => [source.url, source])).values()].slice(0, 20)
 })
 
+function officeHasImagePreview(asset: StudioAsset) {
+  return Boolean(asset.contentUrl) && (asset.kind === 'image' || asset.mimeType?.startsWith('image/'))
+}
+function officeAttachmentMeta(asset: StudioAsset) {
+  const extension = asset.title.includes('.') ? asset.title.split('.').pop()?.toUpperCase() : undefined
+  const type = extension || asset.mimeType?.split('/').pop()?.toUpperCase() || '文件'
+  if (!asset.size) return type
+  return asset.size < 1024 * 1024 ? `${type} · ${Math.max(1, Math.round(asset.size / 1024))} KB` : `${type} · ${(asset.size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 function selectSkill(skill: OfficeSkill) {
   const wasGeneratedPrefix = allSkills.value.some((item) => prompt.value.trim() === `${item.name}：` || prompt.value.trim() === `${item.name}:`)
   selectedSkill.value = skill
@@ -274,19 +292,30 @@ function selectSkill(skill: OfficeSkill) {
   void nextTick(() => taskInput.value?.focus())
 }
 function toggleModeMenu() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
   modeMenuOpen.value = !modeMenuOpen.value
   modelMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function toggleModelMenu() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
   modelMenuOpen.value = !modelMenuOpen.value
   modeMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function toggleSkillPanel() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
   skillPanelOpen.value = !skillPanelOpen.value
   modeMenuOpen.value = false
   modelMenuOpen.value = false
+}
+function closeOfficePopovers() {
+  modeMenuOpen.value = false
+  modelMenuOpen.value = false
+  skillPanelOpen.value = false
+}
+function collapseOfficePopovers() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
 }
 function startNewTask() {
   conversationId.value = ''
@@ -540,6 +569,7 @@ async function downloadDeliverable() {
 
 onMounted(async () => {
   studio.setMode('office')
+  document.addEventListener('xinyue:close-popovers', closeOfficePopovers)
   const [models, assistants] = await Promise.all([
     api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => []),
     api<AssistantOption[]>('/assistants').catch(() => []),
@@ -554,4 +584,5 @@ onMounted(async () => {
   })
   if (auth.isAuthenticated) void loadAgentTasks()
 })
+onUnmounted(() => document.removeEventListener('xinyue:close-popovers', closeOfficePopovers))
 </script>

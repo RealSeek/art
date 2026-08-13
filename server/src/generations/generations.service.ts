@@ -52,10 +52,13 @@ export class GenerationsService {
     const assistantId = input.kind === 'CHAT' && typeof input.options.assistantId === 'string' ? input.options.assistantId : undefined
     const assistant = assistantId ? await this.prisma.assistant.findFirst({ where: { id: assistantId, enabled: true, visibility: 'PUBLIC' }, select: { id: true, defaultModel: true } }) : null
     if (assistantId && !assistant) throw new NotFoundException('助手不存在或已停用')
-    const requestedModel = input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
+    const creationToolId = input.kind === 'IMAGE' && typeof input.options.creationToolId === 'string' ? input.options.creationToolId.trim() : ''
+    const creationTool = creationToolId ? await this.prisma.inspiration.findFirst({ where: { id: creationToolId, mode: 'IMAGE_TOOL', enabled: true }, select: { id: true, title: true, prompt: true, model: true, options: true } }) : null
+    if (creationToolId && !creationTool) throw new NotFoundException('图片工具不存在或已停用')
+    const requestedModel = creationTool?.model || input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
     const resolved = await this.providers.resolve(userId, requestedModel, capability, input.options)
     const normalizedOptions = input.kind === 'IMAGE' || input.kind === 'COMMERCE'
-      ? { ...input.options, ...normalizeImageOptions(input.options, resolved.imageCapabilities) }
+      ? { ...input.options, ...(creationTool ? { creationTool: { id: creationTool.id, title: creationTool.title, instruction: creationTool.prompt, options: creationTool.options } } : {}), ...normalizeImageOptions(input.options, resolved.imageCapabilities) }
       : input.kind === 'VIDEO'
         ? { ...input.options, ...normalizeVideoOptions(input.options, resolved.videoCapabilities) }
         : input.options

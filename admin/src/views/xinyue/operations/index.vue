@@ -297,7 +297,7 @@
           </ElCol>
         </ElRow>
 
-        <template v-if="resourceKey === 'inspirations'">
+        <template v-if="resourceKey === 'inspirations' || resourceKey === 'imageTools'">
           <ElDivider content-position="left">{{ xt('演示素材') }}</ElDivider>
           <div class="media-editor">
             <div>
@@ -359,7 +359,7 @@
               </div>
               <p class="media-help">{{ xt('支持 MP4、WebM 或 MOV，文件最大 50 MB；上传文件优先于外部视频地址。') }}</p>
             </div>
-            <div v-else>
+            <div v-else-if="resourceKey === 'inspirations'">
               <span class="field-label">{{ xt('成组预览图片（最多 30 张）') }}</span>
               <div class="preview-grid">
                 <div
@@ -877,6 +877,36 @@
         { key: 'enabled', label: '前台展示', type: 'switch', span: 12 }
       ]
     },
+    imageTools: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      createLabel: '新增图片工具',
+      createUrl: '/v1/admin/inspirations',
+      updateUrl: (row) => `/v1/admin/inspirations/${row.id}`,
+      deleteUrl: (row) => `/v1/admin/inspirations/${row.id}`,
+      defaults: {
+        mode: 'IMAGE_TOOL',
+        title: '',
+        prompt: '',
+        coverUrl: '',
+        model: '',
+        inputMode: 'REFERENCE',
+        placeholder: '',
+        sortOrder: 0,
+        enabled: true
+      },
+      fields: [
+        { key: 'title', label: '工具名称', required: true, span: 12, maxlength: 80 },
+        { key: 'inputMode', label: '素材方式', type: 'select', required: true, span: 12, options: [{ label: '参考图', value: 'REFERENCE' }, { label: '参考图与蒙版', value: 'MASK' }] },
+        { key: 'prompt', label: '执行指令', type: 'textarea', required: true, rows: 7, maxlength: 5000 },
+        { key: 'placeholder', label: '输入提示', maxlength: 160 },
+        { key: 'model', label: '指定模型', type: 'select', span: 12, optionsFrom: 'models', filterable: true, allowCreate: true },
+        { key: 'coverUrl', label: '外部封面地址', placeholder: 'https://...', maxlength: 1000 },
+        { key: 'sortOrder', label: '排序', type: 'number', span: 12, min: 0 },
+        { key: 'enabled', label: '前台展示', type: 'switch', span: 12 }
+      ]
+    },
     promptTemplates: {
       canCreate: true,
       canEdit: true,
@@ -1332,6 +1362,21 @@
         { key: 'title', label: '名称', minWidth: 190 },
         { key: 'mode', label: '场景', width: 120, type: 'status' },
         { key: 'badge', label: '角标', width: 110 },
+        { key: 'model', label: '指定模型', minWidth: 140 },
+        { key: 'enabled', label: '状态', width: 100, type: 'status' },
+        { key: 'sortOrder', label: '排序', width: 90, type: 'number' },
+        { key: 'updatedAt', label: '更新时间', width: 175, type: 'date' }
+      ]
+    },
+    imageTools: {
+      title: '图片工具',
+      description: '管理 AI 抠图、擦除、扩图和清晰化等前台快捷工具',
+      icon: 'ri:image-edit-line',
+      endpoint: '/v1/admin/inspirations?mode=IMAGE_TOOL',
+      columns: [
+        { key: 'imageUrl', label: '封面', width: 118, type: 'image' },
+        { key: 'title', label: '工具名称', minWidth: 190 },
+        { key: 'options.inputMode', label: '素材方式', width: 130, type: 'status' },
         { key: 'model', label: '指定模型', minWidth: 140 },
         { key: 'enabled', label: '状态', width: 100, type: 'status' },
         { key: 'sortOrder', label: '排序', width: 90, type: 'number' },
@@ -1924,6 +1969,8 @@
       if (row && resourceKey.value === 'inspirations' && field.key === 'videoDuration') value = row.options?.duration || 5
       if (row && resourceKey.value === 'inspirations' && field.key === 'videoAspectRatio') value = row.options?.aspectRatio || '16:9'
       if (row && resourceKey.value === 'inspirations' && field.key === 'externalVideoUrl') value = row.options?.previewVideoUrl || ''
+      if (row && resourceKey.value === 'imageTools' && field.key === 'inputMode') value = row.options?.inputMode || 'REFERENCE'
+      if (row && resourceKey.value === 'imageTools' && field.key === 'placeholder') value = row.options?.placeholder || ''
       if (row && resourceKey.value === 'assistants') {
         if (field.key === 'toolIds') value = (row.tools || []).map((item: Row) => item.toolId)
         if (field.key === 'knowledgeBaseIds')
@@ -1965,6 +2012,13 @@
       delete payload.videoAspectRatio
       payload.options = options
     }
+    if (resourceKey.value === 'imageTools') {
+      const options = { ...(editingRow.value?.options || {}), inputMode: payload.inputMode || 'REFERENCE', placeholder: String(payload.placeholder || '').trim() }
+      delete payload.inputMode
+      delete payload.placeholder
+      payload.mode = 'IMAGE_TOOL'
+      payload.options = options
+    }
     if (resourceKey.value === 'tools') {
       for (const [textKey, targetKey] of [['headersText', 'headers'], ['secretHeadersText', 'secretHeaders'], ['inputSchemaText', 'inputSchema']] as const) {
         const raw = String(payload[textKey] || '').trim()
@@ -1988,7 +2042,7 @@
         data: editorPayload(),
         showSuccessMessage: true
       })
-      if (resourceKey.value === 'inspirations')
+      if (resourceKey.value === 'inspirations' || resourceKey.value === 'imageTools')
         await uploadInspirationMedia(saved.id || editingRow.value?.id)
       editorVisible.value = false
       await load()

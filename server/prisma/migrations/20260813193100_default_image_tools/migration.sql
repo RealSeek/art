@@ -1,0 +1,7 @@
+INSERT INTO "Inspiration" ("id", "mode", "title", "prompt", "badge", "coverUrl", "model", "options", "sortOrder", "enabled", "createdAt", "updatedAt") VALUES
+  ('default-tool-background-removal', 'IMAGE_TOOL', 'AI 抠图', '精确识别并保留用户参考图中的主要主体，完整移除原背景，处理好发丝、透明材质和细小边缘，输出干净自然的透明背景图片。不要改变主体外观、比例、颜色和细节。', '', '/assets/inspiration-1.jpg', NULL, '{"toolKey":"background-removal","inputMode":"REFERENCE","placeholder":"上传图片，描述需要保留的主体"}'::jsonb, 10, true, NOW(), NOW()),
+  ('default-tool-erase', 'IMAGE_TOOL', '擦除', '根据用户要求和蒙版区域，移除参考图中指定内容，并使用与周围一致的纹理、光线、透视和结构自然补全画面。不得改动未选中的区域。', '', '/assets/inspiration-3.jpg', NULL, '{"toolKey":"erase","inputMode":"MASK","placeholder":"上传原图和蒙版，描述要擦除的内容"}'::jsonb, 20, true, NOW(), NOW()),
+  ('default-tool-mark-edit', 'IMAGE_TOOL', '标记改图', '严格依据用户标记或蒙版，只修改指定区域。保持未标记区域、主体身份、构图、光线和整体风格不变，修改结果需自然融入原图。', '', '/assets/inspiration-2.jpg', NULL, '{"toolKey":"marked-edit","inputMode":"MASK","placeholder":"上传原图并添加蒙版，描述修改要求"}'::jsonb, 30, true, NOW(), NOW()),
+  ('default-tool-outpaint', 'IMAGE_TOOL', '扩图', '在保持原图主体、风格、透视、光线和色彩一致的前提下自然扩展画面边界。新增区域需要连续、合理且无明显拼接痕迹。', '', '/assets/product-visual-white.jpg', NULL, '{"toolKey":"outpaint","inputMode":"REFERENCE","placeholder":"上传图片，描述需要扩展的方向和内容"}'::jsonb, 40, true, NOW(), NOW()),
+  ('default-tool-enhance', 'IMAGE_TOOL', '变清晰', '提升参考图的清晰度、纹理和细节表现，减少噪点、压缩痕迹和模糊，同时严格保持人物身份、主体结构、构图、文字和原始色彩，不得凭空改变内容。', '', '/assets/inspiration-4.jpg', NULL, '{"toolKey":"enhance","inputMode":"REFERENCE","placeholder":"上传图片，可补充清晰化要求"}'::jsonb, 50, true, NOW(), NOW())
+ON CONFLICT ("id") DO NOTHING;

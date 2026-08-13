@@ -437,7 +437,12 @@ export class GenerationsProcessor extends WorkerHost {
   private async runImage(task: GenerationJob) {
     await this.cleanupJobOutputs(task)
     const options = task.options as Record<string, unknown>
-    const prompt = await this.pluginPrompt(task, task.kind === 'COMMERCE' ? PluginCapability.COMMERCE : PluginCapability.IMAGE)
+    const basePrompt = await this.pluginPrompt(task, task.kind === 'COMMERCE' ? PluginCapability.COMMERCE : PluginCapability.IMAGE)
+    const selectedStyle = typeof options.style === 'string' ? options.style.trim() : ''
+    const creationTool = options.creationTool && typeof options.creationTool === 'object' && !Array.isArray(options.creationTool) ? options.creationTool as Record<string, unknown> : null
+    const toolInstruction = creationTool && typeof creationTool.instruction === 'string' ? creationTool.instruction.trim() : ''
+    const promptedByTool = toolInstruction ? `${basePrompt}\n\n图片编辑工具要求：${toolInstruction}` : basePrompt
+    const prompt = selectedStyle ? `${promptedByTool}\n\n视觉风格：${selectedStyle}。保持主体和用户要求不变，将该风格自然应用到构图、光影、色彩与材质。` : promptedByTool
     const count = task.kind === 'COMMERCE' ? Math.max(1, Math.min(Number(options.modules || 8), 12)) : Math.max(1, Math.min(Number(options.count || 1), 10))
     const execution = await this.withProviderFailover(task, task.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE', async (resolved) => {
       if (resolved.source === 'demo') throw new ProviderRequestError('图片模型未绑定可用渠道，请在管理端配置模型路由', 503)

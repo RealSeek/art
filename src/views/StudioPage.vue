@@ -72,20 +72,19 @@
           <article v-if="showChatThinking" class="message message--assistant message--thinking">{{ t('studio.thinking') }}</article>
         </div>
 
-        <div v-if="attachments.length" class="attachment-list" aria-label="待发送附件">
-          <article v-for="(asset, index) in attachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
-            <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
-            <div v-else class="attachment-file-copy">
-              <span class="attachment-file-icon"><FileText :size="20" /></span>
-              <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
-            </div>
-            <button class="attachment-remove" type="button" :aria-label="`移除附件 ${asset.title}`" title="移除附件" @click="attachments.splice(index, 1)"><X :size="14" /></button>
-          </article>
-        </div>
-
         <form class="chat-composer" @submit.prevent="submitMessage">
+          <div v-if="attachments.length" class="attachment-list" aria-label="待发送附件">
+            <article v-for="(asset, index) in attachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
+              <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
+              <div v-else class="attachment-file-copy">
+                <span class="attachment-file-icon"><FileText :size="20" /></span>
+                <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
+              </div>
+              <button class="attachment-remove" type="button" :aria-label="`移除附件 ${asset.title}`" title="移除附件" @click="attachments.splice(index, 1)"><X :size="14" /></button>
+            </article>
+          </div>
           <button type="button" aria-label="添加文件等" title="添加文件等" :class="{ 'is-open': attachmentOpen }" :disabled="uploading" @click="toggleAttachmentMenu"><Plus :size="20" /></button>
-          <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="t('studio.messagePlaceholder')" @input="resizeComposer" @keydown="handleComposerKeydown" />
+          <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="t('studio.messagePlaceholder')" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
           <div v-if="auth.isAuthenticated && assistants.length" class="composer-control composer-assistant">
             <button type="button" :class="{ 'is-active': assistantId }" :aria-label="`选择助手，当前为${selectedAssistant?.name || '默认助手'}`" @click="toggleComposerAssistants"><Bot :size="16" /><span>{{ selectedAssistant?.name || '助手' }}</span><ChevronDown :size="14" /></button>
             <div v-if="assistantMenuOpen" class="composer-popover assistant-popover">
@@ -152,12 +151,12 @@
       <div class="create-page-inner">
         <div class="creation-heading">
           <h1>{{ activeMode === 'commerce' ? t('studio.commerce') : t('workspace.creation') }}</h1>
-          <p v-if="activeMode !== 'commerce'">让创作随灵感而生</p>
+          <p>{{ activeMode === 'commerce' ? '从商品参考图到成套营销素材' : '让创作随灵感而生' }}</p>
         </div>
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-prompt-row">
-            <textarea ref="generationInput" v-model="generationPrompt" rows="2" :placeholder="activeMode === 'images' ? '描述你想要的图片' : activeMode === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'" @input="resizeGenerationInput" />
+            <textarea ref="generationInput" v-model="generationPrompt" rows="2" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeGenerationInput" />
           </div>
           <div v-if="creationAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
             <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
@@ -183,29 +182,47 @@
                 <button type="button" :class="{ 'is-active': activeMode === 'videos' }" :aria-pressed="activeMode === 'videos'" @click="switchCreationMode('videos')">视频</button>
               </div>
               <div class="creation-option-buttons">
-                <button v-if="activeMode !== 'commerce'" type="button" @click.stop="toggleCreationMenu('model', $event)"><Sparkles :size="16" /><span class="creation-control-label">模型</span>{{ activeMode === 'videos' ? videoModel : imageModel }}<ChevronDown :size="14" /></button>
-                <button v-else type="button" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" />{{ creationType }}<ChevronDown :size="14" /></button>
-                <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><ScanLine :size="16" /><span class="creation-control-label">比例</span>{{ activeMode === 'videos' ? videoAspectRatio : autoMode }}<ChevronDown :size="14" /></button>
-                <button type="button" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'quality' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span>{{ activeMode === 'images' ? quality : activeMode === 'videos' ? videoResolution : `${commerceModules} 模块` }}<ChevronDown :size="14" /></button>
+                <button type="button" :class="{ 'is-open': creationMenu === 'model' }" @click.stop="toggleCreationMenu('model', $event)"><Sparkles :size="16" /><span class="creation-control-label">模型</span>{{ activeCreationModel }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button v-if="activeMode === 'commerce'" type="button" :class="{ 'is-open': creationMenu === 'type' }" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" /><span class="creation-control-label">类型</span>{{ creationType }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><SlidersHorizontal :size="16" /><span class="creation-control-label">{{ activeMode === 'commerce' ? '平台' : '比例' }}</span>{{ activeMode === 'videos' ? videoAspectRatio : activeMode === 'commerce' ? commercePlatform : autoMode }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span><template v-if="activeMode === 'images'">{{ imageStyle }}</template><template v-else-if="activeMode === 'videos'">{{ videoResolution }}</template><template v-else>{{ commerceModules }} 模块</template><ChevronDown class="creation-control-chevron" :size="14" /></button>
               </div>
-              <PluginSelector v-if="auth.isAuthenticated" v-model="creationPluginId" :capability="creationPluginCapability" compact />
-              <button class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="creationOptionsOpen = !creationOptionsOpen"><Settings2 :size="17" /><span>更多</span><ChevronDown :size="13" /></button>
+              <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
+              <div class="creation-more-wrap">
+                <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
+                <Teleport to="body">
+                <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
+                  <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />添加蒙版</button>
+                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('quality', $event)"><BadgeCheck :size="16" />{{ quality }}画质<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
+                </div>
+                </Teleport>
+              </div>
               <span class="creation-cost" :title="`本次预计扣除 ${currentGenerationCost} 创作点`"><Sparkles :size="13" />{{ currentGenerationCost }} 点</span>
             </div>
-            <button class="creation-submit" :class="{ 'is-listening': voiceListening && voiceTarget === 'creation' }" :type="generationPrompt.trim() ? 'submit' : 'button'" :aria-label="generationPrompt.trim() ? '开始生成' : voiceListening && voiceTarget === 'creation' ? '停止语音输入' : '语音输入'" @click="!generationPrompt.trim() && toggleVoice('creation')"><ArrowUp v-if="generationPrompt.trim()" :size="20" /><Mic v-else :size="19" /></button>
-            <div v-if="creationOptionsOpen" class="creation-more-panel" aria-label="更多生成设置">
-              <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />添加蒙版</button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
-              <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
-              <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown :size="13" /></button>
+            <button class="creation-submit" :class="{ 'is-listening': voiceListening && voiceTarget === 'creation' }" :type="canSubmitCreation ? 'submit' : 'button'" :aria-label="canSubmitCreation ? '开始生成' : voiceListening && voiceTarget === 'creation' ? '停止语音输入' : '语音输入'" @click="!canSubmitCreation && toggleVoice('creation')"><ArrowUp v-if="canSubmitCreation" :size="20" /><Mic v-else :size="19" /></button>
+          </div>
+          <Teleport to="body">
+            <div v-if="creationMenu" ref="creationOptionsMenu" class="creation-options-menu creation-options-menu--floating" :class="`creation-options-menu--${creationMenu}`" :style="creationMenuStyle">
+              <strong>{{ creationMenuTitle }}</strong>
+              <div v-if="creationMenu === 'size'" class="creation-ratio-grid">
+                <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span class="creation-ratio-shape" :class="ratioShapeClass(option)"><i /><i v-if="option === '自动'" /></span><span>{{ option }}</span></button>
+              </div>
+              <button v-else v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ option }}<small v-if="creationOptionPrice(option)">{{ creationOptionPrice(option) }} 点</small></span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>
-          </div>
-          <div v-if="creationMenu" ref="creationOptionsMenu" class="creation-options-menu" :class="`creation-options-menu--${creationMenu}`" :style="creationMenuStyle">
-            <strong>{{ creationMenuTitle }}</strong>
-            <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span>{{ option }}<small v-if="creationOptionPrice(option)">{{ creationOptionPrice(option) }} 点</small></span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
-          </div>
+          </Teleport>
         </form>
+
+        <section v-if="(activeMode === 'images' || activeMode === 'videos') && imageTools.length" class="creation-tools" aria-label="图片快捷工具">
+          <button v-for="tool in imageTools" :key="tool.id" type="button" :class="{ 'is-active': selectedImageToolId === tool.id }" :aria-pressed="selectedImageToolId === tool.id" @click="selectImageTool(tool)">
+            <span>{{ tool.title }}</span><img :src="tool.imageUrl" :alt="`${tool.title}示例`" />
+          </button>
+        </section>
 
         <section class="inspiration-section">
           <header>
@@ -355,9 +372,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } f
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Archive, ArchiveRestore, ArrowUp, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
+  Archive, ArchiveRestore, ArrowUp, BadgeCheck, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
   Download, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip,
-  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, ScanLine, Search, Settings2, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
+  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
@@ -383,6 +400,9 @@ interface Inspiration {
   videoUrl?: string
   model?: string | null
   options?: Record<string, unknown> | null
+}
+interface ImageTool extends Inspiration {
+  options?: { inputMode?: 'REFERENCE' | 'MASK'; placeholder?: string; [key: string]: unknown } | null
 }
 
 interface PromptTemplate {
@@ -496,15 +516,18 @@ const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
 const imageModel = ref('GPT Image 2')
 const videoModel = ref('Grok Imagine Video')
+const commerceModel = ref('')
 const videoResolution = ref('720p')
 const videoDuration = ref(5)
 const videoAspectRatio = ref('16:9')
 const autoMode = ref('自动')
 const quality = ref<string>('标准')
+const imageStyle = ref('')
 const imageCount = ref(1)
 const outputFormat = ref<'PNG' | 'JPEG' | 'WebP'>('PNG')
 const imageBackground = ref<'自动背景' | '透明背景' | '不透明背景'>('自动背景')
 const creationType = ref('详情页')
+const commercePlatform = ref('自动')
 const commerceModules = ref(8)
 const selectedCommerceRun = ref<GenerationRun | null>(null)
 const activeImageCapabilities = computed(() => {
@@ -525,12 +548,13 @@ function imageSizeLabel(value: string) {
 }
 function qualityLabel(value: string): string { return value === 'low' ? '低' : value === 'high' ? '高' : '标准' }
 function backgroundLabel(value: string) { return value === 'transparent' ? '透明背景' : value === 'opaque' ? '不透明背景' : '自动背景' }
-function syncImageSelection() { const caps = activeImageCapabilities.value; const sizeLabels = caps.sizes.map(imageSizeLabel); if (autoMode.value !== '自动' && !sizeLabels.includes(autoMode.value)) autoMode.value = imageSizeLabel(caps.defaultSize); if (imageCount.value > caps.maxCount) imageCount.value = caps.maxCount; if (!caps.qualities.map(qualityLabel).includes(quality.value)) quality.value = qualityLabel(caps.defaultQuality); if (!caps.outputFormats.map((item) => item.toUpperCase()).includes(outputFormat.value)) outputFormat.value = caps.outputFormats[0].toUpperCase() as typeof outputFormat.value; if (!caps.backgrounds.map(backgroundLabel).includes(imageBackground.value)) imageBackground.value = backgroundLabel(caps.backgrounds[0]) }
+function syncImageSelection() { const caps = activeImageCapabilities.value; if (!imageRatios.includes(autoMode.value)) autoMode.value = imageRatioForSize(autoMode.value); if (imageCount.value > caps.maxCount) imageCount.value = caps.maxCount; if (!caps.qualities.map(qualityLabel).includes(quality.value)) quality.value = qualityLabel(caps.defaultQuality); if (!caps.outputFormats.map((item) => item.toUpperCase()).includes(outputFormat.value)) outputFormat.value = caps.outputFormats[0].toUpperCase() as typeof outputFormat.value; if (!caps.backgrounds.map(backgroundLabel).includes(imageBackground.value)) imageBackground.value = backgroundLabel(caps.backgrounds[0]) }
 function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!caps.durations.includes(videoDuration.value)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
 const selectedImageModel = computed(() => catalogModels.value.find((item) => item.capability === 'IMAGE' && item.displayName === imageModel.value))
 const selectedVideoModel = computed(() => catalogModels.value.find((item) => item.capability === 'VIDEO' && item.displayName === videoModel.value))
-const selectedCommerceModel = computed(() => catalogModels.value.find((item) => item.capability === 'COMMERCE' && (item.displayName === imageModel.value || item.isDefault)) || catalogModels.value.find((item) => item.capability === 'COMMERCE'))
-const currentImageCredit = computed(() => { const size = autoMode.value === '自动' ? activeImageCapabilities.value.defaultSize : providerSize(autoMode.value); const tier = imageSizeLabel(size).split(' ')[0]; const base = selectedImageModel.value?.effectiveCreditCost ?? selectedImageModel.value?.flatCreditCost ?? 1; return activeImageCapabilities.value.resolutionPricing?.[tier] ?? base * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1) })
+const selectedCommerceModel = computed(() => catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.displayName === commerceModel.value) || catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'COMMERCE'))
+const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : activeMode.value === 'commerce' ? commerceModel.value || selectedCommerceModel.value?.displayName || imageModel.value : imageModel.value)
+const currentImageCredit = computed(() => { const size = imageSizeForRatio(autoMode.value); const tier = imageSizeLabel(size).split(' ')[0]; const base = selectedImageModel.value?.effectiveCreditCost ?? selectedImageModel.value?.flatCreditCost ?? 1; return activeImageCapabilities.value.resolutionPricing?.[tier] ?? base * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1) })
 const currentVideoCredit = computed(() => activeVideoCapabilities.value.pricing[`${videoResolution.value}:${videoDuration.value}`] ?? (selectedVideoModel.value?.effectiveCreditCost ?? selectedVideoModel.value?.flatCreditCost ?? 10) * (videoResolution.value === '1080p' ? 2 : videoResolution.value === '2160p' ? 4 : 1) * Math.max(1, Math.ceil(videoDuration.value / 5)))
 const currentGenerationCost = computed(() => activeMode.value === 'images' ? currentImageCredit.value * imageCount.value : activeMode.value === 'videos' ? currentVideoCredit.value : (selectedCommerceModel.value?.effectiveCreditCost ?? selectedCommerceModel.value?.flatCreditCost ?? 1) * commerceModules.value)
 
@@ -546,11 +570,16 @@ function attachmentMeta(asset: StudioAsset) {
   if (asset.size < 1024 * 1024) return `${type} · ${(asset.size / 1024).toFixed(1)} KB`
   return `${type} · ${(asset.size / (1024 * 1024)).toFixed(1)} MB`
 }
-const creationMenu = ref<'model' | 'type' | 'size' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'quality' | 'modules' | 'count' | 'format' | 'background' | null>(null)
+const creationMenu = ref<'model' | 'type' | 'size' | 'style' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'quality' | 'modules' | 'count' | 'format' | 'background' | null>(null)
 const creationMenuAnchor = ref<HTMLElement | null>(null)
+const creationMenuAnchorRect = ref<{ left: number; right: number; top: number; bottom: number; width: number } | null>(null)
 const creationOptionsMenu = ref<HTMLElement | null>(null)
 const creationMenuStyle = ref<Record<string, string>>({})
 const creationOptionsOpen = ref(false)
+const creationMoreTrigger = ref<HTMLButtonElement | null>(null)
+const creationMorePanel = ref<HTMLElement | null>(null)
+const creationMorePanelStyle = ref<Record<string, string>>({ visibility: 'hidden' })
+const creationPluginOpen = ref(false)
 const inspirationRail = ref<HTMLElement | null>(null)
 const canScrollInspirationPrevious = ref(false)
 const canScrollInspirationNext = ref(false)
@@ -567,6 +596,8 @@ const libraryAssetLimit = ref(30)
 const newMenuOpen = ref(false)
 const assetTabs = [{ label: '全部', value: 'all' }, { label: '生成作品', value: 'generated' }, { label: '图片', value: 'image' }, { label: '视频', value: 'video' }, { label: '参考图', value: 'reference' }, { label: '商品素材', value: 'product-pack' }, { label: '文件', value: 'text' }]
 const imageInspirations = ref<Inspiration[]>([])
+const imageTools = ref<ImageTool[]>([])
+const selectedImageToolId = ref('')
 const videoInspirations = ref<Inspiration[]>([])
 const commerceInspirations = ref<Inspiration[]>([])
 const selectedInspirationId = ref('')
@@ -595,6 +626,9 @@ const chatTimeline = computed<ChatTimelineEntry[]>(() => [
 const messageJumps = computed(() => chatMessages.value.filter((message) => message.role === 'user'))
 const fileAccept = computed(() => filePurpose.value === 'creation' || filePurpose.value === 'mask' ? 'image/*' : '*/*')
 const activeInspirations = computed(() => activeMode.value === 'commerce' ? commerceInspirations.value : activeMode.value === 'videos' ? videoInspirations.value : imageInspirations.value)
+const selectedImageTool = computed(() => activeMode.value === 'images' ? imageTools.value.find((tool) => tool.id === selectedImageToolId.value) || null : null)
+const canSubmitCreation = computed(() => Boolean(generationPrompt.value.trim()) || Boolean(selectedImageTool.value && creationAttachments.value.length))
+const creationPromptPlaceholder = computed(() => selectedImageTool.value?.options?.placeholder || (activeMode.value === 'images' ? '描述你想要的图片' : activeMode.value === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'))
 const modeAssets = computed(() => store.recentAssets.filter((asset) => asset.source === 'generated' && (activeMode.value === 'images' ? asset.kind === 'image' : activeMode.value === 'videos' ? asset.kind === 'video' : asset.kind === 'product-pack')))
 const visibleModeAssets = computed(() => modeAssets.value.slice(0, modeAssetLimit.value))
 const commerceRuns = computed(() => {
@@ -619,14 +653,19 @@ const filteredAssets = computed(() => store.recentAssets.filter((asset) => {
   return matchesTab && matchesSource && matchesSearch
 }))
 const visibleLibraryAssets = computed(() => filteredAssets.value.slice(0, libraryAssetLimit.value))
-const creationMenuTitle = computed(() => ({ model: activeMode.value === 'videos' ? '视频模型' : '图片模型', type: '商品类型', size: '图片尺寸', resolution: '视频分辨率', duration: '视频时长', aspect: '画面比例', platform: '目标平台', quality: '图片质量', modules: '详情模块', count: '生成张数', format: '输出格式', background: '图片背景' }[creationMenu.value || 'model']))
+const imageRatios = ['自动', '9:16', '2:3', '3:4', '1:1', '4:3', '3:2', '16:9']
+const imageStyles = ['人像摄影', '电影写真', '中国风', '动漫', '3D渲染', '赛博朋克', 'CG 动画', '水墨画', '油画', '古典', '水彩画', '卡通', '儿童绘画', '抽象', '锐笔插画', '二次元', '油墨印刷', '版画', '莫奈', '毕加索', '伦勃朗', '马蒂斯', '巴洛克', '复古动漫', '绘本']
+const styleThumbnails = ['/assets/inspiration-1.jpg', '/assets/inspiration-2.jpg', '/assets/inspiration-3.jpg', '/assets/inspiration-4.jpg', '/assets/inspirations/video/fashion-stage.jpg', '/assets/inspirations/video/sci-fi-iris.jpg', '/assets/inspirations/video/urban-transit.jpg', '/assets/inspirations/video/artisan-pottery.jpg', '/assets/inspirations/video/culinary-detail.jpg', '/assets/inspirations/video/epic-coast.jpg', '/assets/inspirations/video/liminal-corridor.jpg', '/assets/inspirations/video/mountain-road.jpg', '/assets/inspirations/video/urban-geometry.jpg']
+const creationMenuTitle = computed(() => ({ model: activeMode.value === 'videos' ? '视频模型' : activeMode.value === 'commerce' ? '商品视觉模型' : '图片模型', type: '商品类型', size: '比例', style: '风格', resolution: '视频分辨率', duration: '视频时长', aspect: '画面比例', platform: '目标平台', quality: '图片质量', modules: '详情模块', count: '生成张数', format: '输出格式', background: '图片背景' }[creationMenu.value || 'model']))
 const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'model') {
-    const items = catalogModels.value.filter((item) => item.capability === (activeMode.value === 'videos' ? 'VIDEO' : 'IMAGE')).map((item) => item.displayName)
-    return items.length ? items : activeMode.value === 'videos' ? ['Grok Imagine Video'] : ['GPT Image 2', 'Grok Imagine']
+    const capability = activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE'
+    const items = catalogModels.value.filter((item) => item.capability === capability).map((item) => item.displayName)
+    return items.length ? items : activeMode.value === 'videos' ? ['Grok Imagine Video'] : activeMode.value === 'commerce' ? [imageModel.value] : ['GPT Image 2', 'Grok Imagine']
   }
   if (creationMenu.value === 'type') return ['详情页', '素材包']
-  if (creationMenu.value === 'size') return ['自动', ...activeImageCapabilities.value.sizes.map(imageSizeLabel)]
+  if (creationMenu.value === 'size') return imageRatios
+  if (creationMenu.value === 'style') return imageStyles
   if (creationMenu.value === 'resolution') return activeVideoCapabilities.value.resolutions
   if (creationMenu.value === 'duration') return activeVideoCapabilities.value.durations.map((item) => `${item} 秒`)
   if (creationMenu.value === 'aspect') return activeVideoCapabilities.value.aspectRatios
@@ -634,13 +673,13 @@ const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'quality') return activeImageCapabilities.value.qualities.map(qualityLabel)
   if (creationMenu.value === 'modules') return ['6 个模块', '8 个模块', '10 个模块', '12 个模块']
   if (creationMenu.value === 'count') return Array.from({ length: activeImageCapabilities.value.maxCount }, (_, index) => `${index + 1} 张`)
-  if (creationMenu.value === 'format') return activeImageCapabilities.value.outputFormats.map((item) => item.toUpperCase())
-  if (creationMenu.value === 'background') return activeImageCapabilities.value.backgrounds.map(backgroundLabel)
+  if (creationMenu.value === 'format') return (activeMode.value === 'commerce' ? ['png', 'jpeg', 'webp'] : activeImageCapabilities.value.outputFormats).map(outputFormatLabel)
+  if (creationMenu.value === 'background') return activeMode.value === 'commerce' ? ['自动背景', '透明背景', '不透明背景'] : activeImageCapabilities.value.backgrounds.map(backgroundLabel)
   return []
 })
 function creationOptionPrice(option: string) {
   if (creationMenu.value === 'size') {
-    const size = option === '自动' ? activeImageCapabilities.value.defaultSize : providerSize(option)
+    const size = imageSizeForRatio(option)
     const tier = imageSizeLabel(size).split(' ')[0]
     const base = selectedImageModel.value?.effectiveCreditCost ?? selectedImageModel.value?.flatCreditCost ?? 1
     return (activeImageCapabilities.value.resolutionPricing?.[tier] ?? base * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1)) * imageCount.value
@@ -657,8 +696,12 @@ function creationOptionPrice(option: string) {
   return 0
 }
 
+function ratioShapeClass(option: string) { return `is-${option === '自动' ? 'auto' : option.replace(':', '-')}` }
+function styleThumbnail(option: string) { return styleThumbnails[Math.max(0, imageStyles.indexOf(option)) % styleThumbnails.length] }
+function outputFormatLabel(value: string): typeof outputFormat.value { return value.toLowerCase() === 'jpeg' || value.toLowerCase() === 'jpg' ? 'JPEG' : value.toLowerCase() === 'webp' ? 'WebP' : 'PNG' }
+
 watchEffect(() => store.setMode(activeMode.value))
-watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'chat' && auth.isAuthenticated) void store.resumeCurrentChat(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
+watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; creationPluginOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'chat' && auth.isAuthenticated) void store.resumeCurrentChat(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if ((mode === 'images' || mode === 'videos') && !imageTools.value.length) await loadImageTools(); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
 watch([assetSearch, assetTab, assetFilter], () => { libraryAssetLimit.value = 30 })
 watch(() => store.currentConversationId, () => { const conversation = store.conversations.find((item) => item.id === store.currentConversationId); if (conversation?.model) model.value = conversation.model; messageNavigatorOpen.value = false; activeArtifact.value = null; void nextTick(syncMessageNavigator) })
 watch(messageJumps, (messages) => { if (!messages.some((message) => message.id === activeMessageJumpId.value)) activeMessageJumpId.value = messages.at(-1)?.id || ''; void nextTick(syncMessageNavigator) })
@@ -670,7 +713,7 @@ onMounted(async () => {
   document.addEventListener('xinyue:close-popovers', closeWorkspacePopovers)
   const pendingPrompt = activeMode.value === 'images' ? consumeImagePrompt() : null
   if (pendingPrompt) generationPrompt.value = pendingPrompt.prompt
-  const inspirationLoad = activeMode.value === 'images' ? loadInspirations('IMAGE') : activeMode.value === 'videos' ? loadInspirations('VIDEO') : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
+  const inspirationLoad = activeMode.value === 'images' ? Promise.all([loadInspirations('IMAGE'), loadImageTools()]) : activeMode.value === 'videos' ? Promise.all([loadInspirations('VIDEO'), loadImageTools()]) : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
   await Promise.all([catalog.load(), inspirationLoad, loadModelCatalog({ applyDefaults: true, force: true }), auth.isAuthenticated ? loadAssistants() : Promise.resolve()])
   if (auth.isAuthenticated) {
     await store.hydrateWorkspace().catch(() => undefined)
@@ -681,6 +724,9 @@ onMounted(async () => {
   syncInspirationNavigation()
   window.addEventListener('resize', syncInspirationNavigation)
   window.addEventListener('resize', positionCreationMenu)
+  window.addEventListener('scroll', positionCreationMenu, true)
+  window.addEventListener('resize', positionCreationMorePanel)
+  window.addEventListener('scroll', positionCreationMorePanel, true)
   window.addEventListener('resize', resizeGenerationInput)
   window.addEventListener('focus', refreshModelCatalogOnFocus)
   document.addEventListener('pointerdown', closeCreationMenuOnOutside)
@@ -692,6 +738,9 @@ onUnmounted(() => {
   window.clearTimeout(messageNavigatorCloseTimer)
   window.removeEventListener('resize', syncInspirationNavigation)
   window.removeEventListener('resize', positionCreationMenu)
+  window.removeEventListener('scroll', positionCreationMenu, true)
+  window.removeEventListener('resize', positionCreationMorePanel)
+  window.removeEventListener('scroll', positionCreationMorePanel, true)
   window.removeEventListener('resize', resizeGenerationInput)
   window.removeEventListener('focus', refreshModelCatalogOnFocus)
   document.removeEventListener('pointerdown', closeCreationMenuOnOutside)
@@ -706,12 +755,15 @@ async function loadModelCatalog(options: { applyDefaults?: boolean; force?: bool
     const defaultChat = catalogModels.value.find((item) => item.capability === 'CHAT' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'CHAT')
     const defaultImage = catalogModels.value.find((item) => item.capability === 'IMAGE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'IMAGE')
     const defaultVideo = catalogModels.value.find((item) => item.capability === 'VIDEO' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'VIDEO')
+    const defaultCommerce = catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'COMMERCE')
     const chatSelectionExists = catalogModels.value.some((item) => item.capability === 'CHAT' && item.displayName === model.value)
     const imageSelectionExists = catalogModels.value.some((item) => item.capability === 'IMAGE' && item.displayName === imageModel.value)
     const videoSelectionExists = catalogModels.value.some((item) => item.capability === 'VIDEO' && item.displayName === videoModel.value)
+    const commerceSelectionExists = catalogModels.value.some((item) => item.capability === 'COMMERCE' && item.displayName === commerceModel.value)
     if (!store.currentConversationId && defaultChat && (options.applyDefaults || !chatSelectionExists)) model.value = defaultChat.displayName
     if (defaultImage && (options.applyDefaults || !imageSelectionExists)) imageModel.value = defaultImage.displayName
     if (defaultVideo && (options.applyDefaults || !videoSelectionExists)) videoModel.value = defaultVideo.displayName
+    if (defaultCommerce && (options.applyDefaults || !commerceSelectionExists)) commerceModel.value = defaultCommerce.displayName
     syncImageSelection()
     syncVideoSelection()
   } catch { /* Static fallbacks keep the workspace usable while the catalog is unavailable. */ }
@@ -728,6 +780,18 @@ function closeWorkspacePopovers() {
   modelOpen.value = false
   assistantMenuOpen.value = false
   promptTemplatesOpen.value = false
+  closeCreationMenu()
+  creationOptionsOpen.value = false
+  creationMorePanelStyle.value = { visibility: 'hidden' }
+  creationPluginOpen.value = false
+}
+function collapseWorkspacePopovers() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
+}
+
+async function loadImageTools() {
+  try { imageTools.value = await api<ImageTool[]>('/inspirations?mode=IMAGE_TOOL') }
+  catch { imageTools.value = [] }
 }
 
 async function loadInspirations(mode: 'IMAGE' | 'VIDEO' | 'COMMERCE') {
@@ -918,38 +982,72 @@ async function handleFiles(event: Event) {
 function closeCreationMenu() {
   creationMenu.value = null
   creationMenuAnchor.value = null
+  creationMenuAnchorRect.value = null
   creationMenuStyle.value = {}
 }
 function closeCreationMenuOnOutside(event: PointerEvent) {
-  if (!creationComposer.value?.contains(event.target as Node)) { closeCreationMenu(); creationOptionsOpen.value = false }
+  const target = event.target as Node
+  if (creationComposer.value?.contains(target) || creationMorePanel.value?.contains(target) || creationOptionsMenu.value?.contains(target)) return
+  closeCreationMenu()
+  creationOptionsOpen.value = false
+  creationMorePanelStyle.value = { visibility: 'hidden' }
 }
 async function toggleCreationMenu(menu: NonNullable<typeof creationMenu.value>, event: MouseEvent) {
   if (creationMenu.value === menu) { closeCreationMenu(); return }
+  const anchor = event.currentTarget as HTMLElement
+  const anchorRect = anchor.getBoundingClientRect()
+  const openedFromMore = Boolean(anchor.closest('.creation-more-panel'))
+  if (!openedFromMore) document.dispatchEvent(new Event('xinyue:close-popovers'))
+  creationOptionsOpen.value = openedFromMore
   creationMenu.value = menu
-  creationMenuAnchor.value = event.currentTarget as HTMLElement
+  creationMenuAnchor.value = anchor
+  creationMenuAnchorRect.value = { left: anchorRect.left, right: anchorRect.right, top: anchorRect.top, bottom: anchorRect.bottom, width: anchorRect.width }
   creationMenuStyle.value = { visibility: 'hidden' }
   await nextTick()
   positionCreationMenu()
 }
+function toggleMoreOptions() {
+  const shouldOpen = !creationOptionsOpen.value
+  if (shouldOpen) document.dispatchEvent(new Event('xinyue:close-popovers'))
+  creationOptionsOpen.value = shouldOpen
+  if (shouldOpen) creationPluginOpen.value = false
+  if (shouldOpen) { creationMorePanelStyle.value = { visibility: 'hidden' }; void nextTick(positionCreationMorePanel) }
+  else creationMorePanelStyle.value = { visibility: 'hidden' }
+}
+function positionCreationMorePanel() {
+  if (!creationOptionsOpen.value || !creationMoreTrigger.value || !creationMorePanel.value) return
+  const anchor = creationMoreTrigger.value.getBoundingClientRect()
+  const panel = creationMorePanel.value.getBoundingClientRect()
+  const gap = 8
+  const left = Math.min(window.innerWidth - panel.width - 12, Math.max(12, anchor.left + anchor.width / 2 - panel.width / 2))
+  const roomBelow = window.innerHeight - anchor.bottom - gap
+  const top = roomBelow >= panel.height ? anchor.bottom + gap : Math.max(12, anchor.top - panel.height - gap)
+  creationMorePanelStyle.value = { left: `${left}px`, top: `${top}px`, visibility: 'visible' }
+}
 function positionCreationMenu() {
-  const composer = creationComposer.value
   const anchor = creationMenuAnchor.value
   const menu = creationOptionsMenu.value
-  if (!composer || !anchor || !menu || !creationMenu.value) return
-  const composerRect = composer.getBoundingClientRect()
-  const anchorRect = anchor.getBoundingClientRect()
+  if (!anchor || !menu || !creationMenu.value) return
+  const liveAnchorRect = anchor.isConnected ? anchor.getBoundingClientRect() : null
+  const anchorRect = liveAnchorRect?.width ? liveAnchorRect : creationMenuAnchorRect.value
+  if (!anchorRect) return
+  const viewportInset = 12
+  const gap = 8
   const desiredHeight = menu.scrollHeight
-  const spaceAbove = Math.max(0, anchorRect.top - 16)
-  const spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - 16)
+  const spaceAbove = Math.max(0, anchorRect.top - viewportInset - gap)
+  const spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - viewportInset - gap)
   const placeAbove = desiredHeight <= spaceAbove || spaceAbove > spaceBelow
   const availableHeight = placeAbove ? spaceAbove : spaceBelow
-  const renderedHeight = Math.max(72, Math.min(desiredHeight, availableHeight))
+  const renderedHeight = Math.max(72, Math.min(desiredHeight, availableHeight || 72))
   const menuWidth = menu.getBoundingClientRect().width
-  const maximumLeft = Math.max(8, composerRect.width - menuWidth - 8)
-  const left = Math.min(maximumLeft, Math.max(8, anchorRect.left - composerRect.left))
+  const maximumLeft = Math.max(viewportInset, window.innerWidth - menuWidth - viewportInset)
+  const anchoredLeft = creationMenu.value === 'size'
+    ? anchorRect.left + (anchorRect.width - menuWidth) / 2
+    : anchorRect.left
+  const left = Math.min(maximumLeft, Math.max(viewportInset, anchoredLeft))
   const top = placeAbove
-    ? anchorRect.top - composerRect.top - renderedHeight - 8
-    : anchorRect.bottom - composerRect.top + 8
+    ? Math.max(viewportInset, anchorRect.top - renderedHeight - gap)
+    : Math.min(window.innerHeight - renderedHeight - viewportInset, anchorRect.bottom + gap)
   creationMenuStyle.value = {
     bottom: 'auto',
     left: `${left}px`,
@@ -960,12 +1058,14 @@ function positionCreationMenu() {
   }
 }
 function isCreationOptionActive(option: string) {
-  if (creationMenu.value === 'model') return (activeMode.value === 'videos' ? videoModel.value : imageModel.value) === option
+  if (creationMenu.value === 'model') return activeCreationModel.value === option
   if (creationMenu.value === 'type') return creationType.value === option
-  if (creationMenu.value === 'size' || creationMenu.value === 'platform') return autoMode.value === option
+  if (creationMenu.value === 'size') return autoMode.value === option
+  if (creationMenu.value === 'platform') return commercePlatform.value === option
   if (creationMenu.value === 'resolution') return videoResolution.value === option
   if (creationMenu.value === 'duration') return `${videoDuration.value} 秒` === option
   if (creationMenu.value === 'aspect') return videoAspectRatio.value === option
+  if (creationMenu.value === 'style') return imageStyle.value === option
   if (creationMenu.value === 'quality') return quality.value === option
   if (creationMenu.value === 'modules') return `${commerceModules.value} 个模块` === option
   if (creationMenu.value === 'count') return `${imageCount.value} 张` === option
@@ -974,12 +1074,14 @@ function isCreationOptionActive(option: string) {
   return false
 }
 function selectCreationOption(option: string) {
-  if (creationMenu.value === 'model') { if (activeMode.value === 'videos') { videoModel.value = option; syncVideoSelection() } else { imageModel.value = option; syncImageSelection() } }
+  if (creationMenu.value === 'model') { if (activeMode.value === 'videos') { videoModel.value = option; syncVideoSelection() } else if (activeMode.value === 'commerce') commerceModel.value = option; else { imageModel.value = option; syncImageSelection() } }
   else if (creationMenu.value === 'type') creationType.value = option
-  else if (creationMenu.value === 'size' || creationMenu.value === 'platform') autoMode.value = option
+  else if (creationMenu.value === 'size') autoMode.value = option
+  else if (creationMenu.value === 'platform') commercePlatform.value = option
   else if (creationMenu.value === 'resolution') videoResolution.value = option
   else if (creationMenu.value === 'duration') videoDuration.value = Number.parseInt(option, 10)
   else if (creationMenu.value === 'aspect') videoAspectRatio.value = option
+  else if (creationMenu.value === 'style') imageStyle.value = imageStyle.value === option ? '' : option
   else if (creationMenu.value === 'quality') quality.value = option
   else if (creationMenu.value === 'modules') commerceModules.value = Number.parseInt(option, 10)
   else if (creationMenu.value === 'count') imageCount.value = Number.parseInt(option, 10)
@@ -998,18 +1100,35 @@ async function switchCreationMode(mode: 'images' | 'videos') {
   closeCreationMenu()
   creationOptionsOpen.value = false
   store.clearError()
+  if (mode === 'videos') selectedImageToolId.value = ''
   await router.push(mode === 'videos' ? '/video' : '/image')
   await nextTick()
   generationInput.value?.focus({ preventScroll: true })
 }
 async function submitGeneration() {
   if (!requireAuth(activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'videos' ? '/video' : '/image')) return
-  if (!generationPrompt.value.trim()) return
+  const prompt = generationPrompt.value.trim() || (selectedImageTool.value ? `使用${selectedImageTool.value.title}处理这张图片` : '')
+  if (!prompt) return
+  if (selectedImageTool.value && !creationAttachments.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; openFilePicker('creation'); return }
   try {
-    const job = await store.startGeneration({ mode: activeMode.value, prompt: generationPrompt.value, model: activeMode.value === 'videos' ? videoModel.value : imageModel.value, ratio: autoMode.value === '自动' ? activeImageCapabilities.value.defaultSize : providerSize(autoMode.value), quality: providerQuality(quality.value), count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? autoMode.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined }, undefined, false, model.value)
-    generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null
+    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForRatio(autoMode.value), quality: providerQuality(quality.value), style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined, creationToolId: selectedImageToolId.value || undefined }, undefined, false, model.value)
+    generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
     await openGenerationConversation(job.id)
   } catch { /* Store exposes the server error in-page. */ }
+}
+
+async function selectImageTool(tool: ImageTool) {
+  if (activeMode.value === 'videos') {
+    await switchCreationMode('images')
+    await nextTick()
+  }
+  selectedImageToolId.value = selectedImageToolId.value === tool.id ? '' : tool.id
+  closeWorkspacePopovers()
+  if (!selectedImageToolId.value) return
+  store.clearError()
+  if (!generationPrompt.value.trim() && tool.options?.placeholder) generationPrompt.value = ''
+  if (!creationAttachments.value.length) openFilePicker('creation')
+  else void nextTick(() => generationInput.value?.focus({ preventScroll: true }))
 }
 
 async function retryVideoGeneration(generation: GenerationRun) {
@@ -1082,8 +1201,9 @@ async function useGeneratedAssetAsReference(asset: StudioAsset, generation?: Gen
   creationAttachments.value = [asset]
   generationPrompt.value = generation?.prompt || store.activeGeneration?.prompt || ''
   const options: Record<string, unknown> = asset.options || (generation ? { size: generation.request.ratio, quality: generation.request.quality, count: generation.request.count, outputFormat: generation.request.outputFormat, background: generation.request.background } : {})
-  if (typeof options.size === 'string') autoMode.value = imageSizeLabel(options.size)
+  if (typeof options.size === 'string') autoMode.value = imageRatioForSize(options.size)
   if (typeof options.quality === 'string') quality.value = qualityLabel(options.quality)
+  if (typeof options.style === 'string') imageStyle.value = options.style
   if (typeof options.outputFormat === 'string') outputFormat.value = options.outputFormat.toLowerCase() === 'jpeg' ? 'JPEG' : options.outputFormat.toLowerCase() === 'webp' ? 'WebP' : 'PNG'
   if (typeof options.background === 'string') imageBackground.value = backgroundLabel(options.background)
   if (typeof options.count === 'number') imageCount.value = Math.min(activeImageCapabilities.value.maxCount, Math.max(1, options.count))
@@ -1152,7 +1272,7 @@ async function useInspiration(item: Inspiration | null) {
     if (typeof options.duration === 'number' && activeVideoCapabilities.value.durations.includes(options.duration)) videoDuration.value = options.duration
     if (typeof options.aspectRatio === 'string' && activeVideoCapabilities.value.aspectRatios.includes(options.aspectRatio)) videoAspectRatio.value = options.aspectRatio
   } else if (activeMode.value === 'commerce' && typeof options.platform === 'string') autoMode.value = options.platform
-  else if (typeof options.ratio === 'string') autoMode.value = options.ratio
+  else if (typeof options.ratio === 'string') autoMode.value = imageRatioForSize(options.ratio)
   if (typeof options.quality === 'string') quality.value = qualityLabel(options.quality)
   if (typeof options.outputFormat === 'string') outputFormat.value = options.outputFormat.toLowerCase() === 'jpeg' ? 'JPEG' : options.outputFormat.toLowerCase() === 'webp' ? 'WebP' : 'PNG'
   if (typeof options.background === 'string') imageBackground.value = backgroundLabel(options.background)
@@ -1251,6 +1371,30 @@ function openProjectAsset(asset: StudioAsset) { if (asset.kind === 'image' || as
 async function deleteProject(projectId: string, name: string) { if (!window.confirm(`确认删除“${name}”？此操作无法撤销。`)) return; try { await store.deleteProject(projectId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目删除失败' } }
 async function deleteAsset(assetId: string) { try { await store.deleteAsset(assetId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件删除失败' } }
 function requireAuth(redirect: string) { if (auth.isAuthenticated) return true; void router.push(`/login?redirect=${encodeURIComponent(redirect)}`); return false }
+function imageRatioForSize(value: string) {
+  if (imageRatios.includes(value)) return value
+  const normalized = value.replace('×', 'x')
+  const match = normalized.match(/(\d{1,4})x(\d{1,4})/)
+  if (!match) return '自动'
+  const ratio = Number(match[1]) / Number(match[2])
+  return imageRatios.slice(1).sort((left, right) => {
+    const [leftWidth, leftHeight] = left.split(':').map(Number)
+    const [rightWidth, rightHeight] = right.split(':').map(Number)
+    return Math.abs(leftWidth / leftHeight - ratio) - Math.abs(rightWidth / rightHeight - ratio)
+  })[0] || '自动'
+}
+function imageSizeForRatio(ratio: string) {
+  const sizes = activeImageCapabilities.value.sizes
+  if (!sizes.length || ratio === '自动') return activeImageCapabilities.value.defaultSize
+  const [targetWidth, targetHeight] = ratio.split(':').map(Number)
+  if (!targetWidth || !targetHeight) return providerSize(ratio)
+  const targetRatio = targetWidth / targetHeight
+  return [...sizes].sort((left, right) => {
+    const [leftWidth, leftHeight] = left.split('x').map(Number)
+    const [rightWidth, rightHeight] = right.split('x').map(Number)
+    return Math.abs(leftWidth / leftHeight - targetRatio) - Math.abs(rightWidth / rightHeight - targetRatio)
+  })[0] || activeImageCapabilities.value.defaultSize
+}
 function providerSize(value: string) { const match = value.match(/(\d{3,4})×(\d{3,4})/); return match ? `${match[1]}x${match[2]}` : '1024x1024' }
 function providerQuality(value: string) { return value === '高' ? 'high' : value === '低' ? 'low' : 'medium' }
 function providerOutputFormat(value: typeof outputFormat.value) { return value === 'JPEG' ? 'jpeg' : value === 'WebP' ? 'webp' : 'png' as const }

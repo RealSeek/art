@@ -118,6 +118,7 @@ export interface GenerationOptions {
   ratio: string
   count: number
   quality?: string
+  style?: string
   modules?: number
   referenceAssetIds?: string[]
   maskAssetId?: string
@@ -131,6 +132,7 @@ export interface GenerationOptions {
   aspectRatio?: string
   creditCost?: number
   pluginId?: string
+  creationToolId?: string
 }
 
 export type GenerationRunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'

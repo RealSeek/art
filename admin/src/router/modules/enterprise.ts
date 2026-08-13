@@ -85,6 +85,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         meta: resource('灵感内容', 'ri:lightbulb-line', 'inspirations')
       },
       {
+        path: 'image-tools',
+        name: 'ImageToolManagement',
+        component: '/xinyue/operations',
+        meta: resource('图片工具', 'ri:image-edit-line', 'imageTools')
+      },
+      {
         path: 'prompt-templates',
         name: 'PromptTemplateManagement',
         component: '/xinyue/operations',

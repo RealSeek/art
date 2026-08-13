@@ -20,6 +20,7 @@ const englishGlossary: Record<string, string> = {
   文件与资产: 'Files & Assets',
   项目与工作流: 'Projects & Workflows',
   灵感内容: 'Inspiration',
+  图片工具: 'Image Tools',
   提示词模板: 'Prompt Templates',
   提示词库: 'Prompt Library',
   插件管理: 'Plugins',
