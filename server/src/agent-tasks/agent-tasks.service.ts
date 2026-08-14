@@ -152,7 +152,7 @@ export class AgentTasksService {
     const run = task.generationJobId ? await this.generations.get(userId, task.generationJobId) : null
     const latestRun = task.runs[0] || null
     const artifactIds = latestRun ? this.attachmentIds(latestRun.artifactIds) : []
-    const artifacts = artifactIds.length ? await this.prisma.asset.findMany({ where: { id: { in: artifactIds }, userId, deletedAt: null }, select: { id: true, name: true, mimeType: true, size: true, createdAt: true } }) : []
+    const artifacts = artifactIds.length ? await this.prisma.asset.findMany({ where: { id: { in: artifactIds }, userId, deletedAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, name: true, mimeType: true, size: true, createdAt: true } }) : []
     return { ...task, run, agentRun: latestRun, artifacts: artifacts.map((asset) => ({ ...asset, size: Number(asset.size), contentUrl: `/v1/assets/${asset.id}/content` })) }
   }
 

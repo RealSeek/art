@@ -2,6 +2,9 @@ export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'office' | 
 export type PluginCapability = 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE' | 'OFFICE'
 export interface PluginCategory { id: string; name: string; slug: string; description: string; icon: string; sortOrder: number; enabled: boolean; _count?: { plugins: number } }
 export interface Plugin { id: string; name: string; slug: string; description: string; instruction: string; icon: string; version: string; categoryId?: string | null; capabilities: PluginCapability[]; recommendedModel: string; outputRequirements: string; visibility: 'OFFICIAL' | 'PRIVATE'; status: 'DRAFT' | 'PUBLISHED' | 'DISABLED'; featured: boolean; priceCredits: number; installCount: number; usageCount: number; errorCount: number; installed?: boolean; owned?: boolean; category?: PluginCategory | null }
+export interface AssistantProfile { id: string; name: string; description: string; defaultModel: string; templateIds?: string[]; tools?: Array<{ toolId: string }> }
+export interface CapabilityTool { id: string; key: string; name: string; description: string; icon?: string; kind?: 'BUILT_IN' | 'CONNECTOR'; authType?: 'NONE' | 'API_KEY'; documentationUrl?: string; credentialFields?: Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean }>; requiresApproval: boolean; scopes?: string[]; enabled?: boolean; connection?: { status: string; credentialHints?: Record<string, string>; connectedAt: string } | null }
+export interface KnowledgeBaseSummary { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; _count?: { assets: number; assistants: number } }
 
 export type AssetKind = 'image' | 'video' | 'text' | 'product-pack'
 
@@ -13,6 +16,7 @@ export interface Message {
   attachmentIds?: string[]
   model?: string
   feedback?: 'UP' | 'DOWN' | null
+  suggestions?: string[]
 }
 
 export interface CodeArtifact {

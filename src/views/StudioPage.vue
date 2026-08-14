@@ -1,13 +1,17 @@
 <template>
-    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="{ 'has-messages': hasChatThread, 'is-artifact-open': activeArtifact }">
+    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="[`chat-ui--${chatUiPreset}`, { 'has-messages': hasChatThread, 'is-artifact-open': activeArtifact }]">
       <div class="chat-dialog-pane">
-      <header class="chat-page__header"><h1>{{ store.temporaryChat ? '' : 'Xinyue AI' }}</h1><div class="chat-page__header-actions"><button v-if="auth.isAuthenticated" class="temporary-chat-toggle" :class="{ active: store.temporaryChat }" type="button" :aria-pressed="store.temporaryChat" :title="store.temporaryChat ? '删除临时聊天并返回新对话' : '开启临时聊天'" @click="toggleTemporaryChat"><Trash2 v-if="store.temporaryChat" :size="15" /><Clock3 v-else :size="15" /><span>{{ store.temporaryChat ? '退出临时聊天' : '临时聊天' }}</span></button><div v-else-if="catalog.loginEnabled" class="chat-page__auth-actions"><RouterLink to="/login?redirect=/chat">登录</RouterLink><RouterLink v-if="catalog.registrationAvailable" class="is-primary" to="/login?redirect=/chat&amp;register=1">免费注册</RouterLink></div></div></header>
+      <header class="chat-page__header"><h1 class="chat-page__title">Xinyue AI</h1><div class="chat-page__header-actions"><button v-if="auth.isAuthenticated" class="temporary-chat-toggle" :class="{ active: store.temporaryChat }" type="button" :aria-pressed="store.temporaryChat" :aria-label="store.temporaryChat ? '退出临时聊天' : '开启临时聊天'" :title="store.temporaryChat ? '退出临时聊天' : '临时聊天'" @click="toggleTemporaryChat"><MessageCircleDashed :size="19" /></button><div v-else-if="catalog.loginEnabled" class="chat-page__auth-actions"><RouterLink to="/login?redirect=/chat">登录</RouterLink><RouterLink v-if="catalog.registrationAvailable" class="is-primary" to="/login?redirect=/chat&amp;register=1">免费注册</RouterLink></div></div></header>
       <div v-if="store.lastError" class="studio-feedback" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
 
       <div class="chat-center" :class="{ 'chat-center--thread': hasChatThread }">
-        <div v-if="!hasChatThread && store.temporaryChat" class="temporary-chat-intro"><h2>临时聊天</h2><p>这次聊天不会出现在历史记录中，也不会用于改进模型。</p></div>
-        <h2 v-else-if="!hasChatThread">{{ t('studio.thought') }}</h2>
-        <div v-else ref="thread" class="chat-thread" @scroll="syncMessageNavigator">
+        <div v-if="!hasChatThread" class="chat-home-identity" :class="{ 'is-temporary': store.temporaryChat }">
+          <span v-if="chatUiPreset === 'kimi'" class="chat-home-wordmark">XINYUE</span>
+          <h2 v-if="chatHomeTitle"><Sparkles v-if="chatUiPreset === 'qianwen' && !store.temporaryChat" class="chat-home-qianwen-mark" :size="30" fill="currentColor" />{{ chatHomeTitle }}</h2>
+          <h2 v-else-if="store.temporaryChat">临时聊天</h2>
+          <p v-if="chatHomeSubtitle">{{ chatHomeSubtitle }}</p>
+        </div>
+        <div v-if="hasChatThread" ref="thread" class="chat-thread" @scroll="syncMessageNavigator">
           <template v-for="entry in chatTimeline" :key="`${entry.kind}-${entry.id}`">
             <div v-if="entry.message" class="message-row" :class="[`message-row--${entry.message.role}`, { 'is-jump-highlight': jumpHighlightId === entry.message.id }]" :data-message-id="entry.message.id" :data-user-message="entry.message.role === 'user' ? 'true' : undefined">
               <form v-if="editingMessageId === entry.message.id" class="message-editor" @submit.prevent="saveMessageEdit(entry.message.id)">
@@ -27,6 +31,11 @@
                     <button type="button" title="有帮助" :class="{ 'is-active': entry.message.feedback === 'UP' }" :aria-pressed="entry.message.feedback === 'UP'" @click="setMessageFeedback(entry.message.id, 'UP')"><ThumbsUp :size="15" /></button>
                     <button type="button" title="没有帮助" :class="{ 'is-active': entry.message.feedback === 'DOWN' }" :aria-pressed="entry.message.feedback === 'DOWN'" @click="setMessageFeedback(entry.message.id, 'DOWN')"><ThumbsDown :size="15" /></button>
                   </template>
+                </nav>
+                <nav v-if="shouldShowFollowUps(entry.message)" class="message-follow-ups" aria-label="你可能还想问">
+                  <button v-for="suggestion in followUpsForMessage(entry.message)" :key="suggestion" type="button" :disabled="store.isGenerating" @click="useFollowUpSuggestion(suggestion)">
+                    <span>{{ suggestion }}</span><ChevronRight :size="17" />
+                  </button>
                 </nav>
               </template>
             </div>
@@ -72,6 +81,11 @@
           <article v-if="showChatThinking" class="message message--assistant message--thinking">{{ t('studio.thinking') }}</article>
         </div>
 
+        <section v-if="!hasChatThread && chatUiPreset === 'doubao'" class="chat-home-suggestions" aria-label="推荐问题">
+          <span>为你推荐</span>
+          <button v-for="suggestion in doubaoRecommendations" :key="suggestion.title" type="button" @click="useChatSuggestion(suggestion)">{{ suggestion.title }}</button>
+        </section>
+
         <form class="chat-composer" @submit.prevent="submitMessage">
           <div v-if="attachments.length" class="attachment-list" aria-label="待发送附件">
             <article v-for="(asset, index) in attachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
@@ -84,17 +98,17 @@
             </article>
           </div>
           <button type="button" aria-label="添加文件等" title="添加文件等" :class="{ 'is-open': attachmentOpen }" :disabled="uploading" @click="toggleAttachmentMenu"><Plus :size="20" /></button>
-          <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="t('studio.messagePlaceholder')" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
-          <div v-if="auth.isAuthenticated && assistants.length" class="composer-control composer-assistant">
-            <button type="button" :class="{ 'is-active': assistantId }" :aria-label="`选择助手，当前为${selectedAssistant?.name || '默认助手'}`" @click="toggleComposerAssistants"><Bot :size="16" /><span>{{ selectedAssistant?.name || '助手' }}</span><ChevronDown :size="14" /></button>
-            <div v-if="assistantMenuOpen" class="composer-popover assistant-popover">
-              <header><span><strong>选择助手</strong><small>应用后台配置的指令、模型和工具</small></span></header>
-              <button type="button" :class="{ 'is-active': !assistantId }" @click="clearAssistant"><span><strong>默认助手</strong><small>使用当前模型直接对话</small></span><Check v-if="!assistantId" :size="15" /></button>
-              <button v-for="item in assistants" :key="item.id" type="button" :class="{ 'is-active': assistantId === item.id }" @click="selectAssistant(item)"><span><strong>{{ item.name }}</strong><small>{{ item.description || '管理员配置的专属工作助手' }}</small></span><Check v-if="assistantId === item.id" :size="15" /></button>
-            </div>
-          </div>
-          <PluginSelector v-if="auth.isAuthenticated" v-model="chatPluginId" capability="CHAT" compact />
-          <div class="composer-control composer-model">
+          <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="chatComposerPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
+          <nav v-if="chatUiPreset === 'doubao' || (!hasChatThread && chatUiPreset === 'qianwen')" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
+            <button class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><Sparkles :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
+            <button v-for="item in visibleChatShortcuts" :key="item.label" type="button" @click="useChatShortcut(item)">
+              <component :is="item.icon" :size="16" /><span>{{ item.label }}</span><small v-if="item.badge">{{ item.badge }}</small>
+            </button>
+            <button class="chat-home-more-trigger" :class="{ 'is-open': chatMoreMenuOpen }" type="button" :aria-expanded="chatMoreMenuOpen" @click="toggleChatMoreMenu"><LayoutGrid :size="16" /><span>更多</span></button>
+          </nav>
+          <div v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-kimi-modes" aria-label="回答模式"><button type="button" :class="{ 'is-active': activeChatMode === '快速' }" @click="activeChatMode = '快速'">快速</button><button type="button" :class="{ 'is-active': activeChatMode === '进阶' }" @click="activeChatMode = '进阶'">进阶</button><ChevronDown :size="14" /></div>
+          <CapabilitySelector v-if="auth.isAuthenticated" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
+          <div v-if="hasChatThread || chatUiPreset !== 'gpt'" class="composer-control composer-model">
             <button type="button" :aria-label="`选择模型，当前为${model}`" :title="`模型：${model}`" @click="toggleModelMenu">
               <span>{{ model }}</span><ChevronDown :size="15" />
             </button>
@@ -107,9 +121,24 @@
             </div>
           </div>
           <button class="composer-voice" :class="{ 'is-listening': voiceListening && voiceTarget === 'chat' }" type="button" :aria-label="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening && voiceTarget === 'chat'" :title="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '语音输入'" @click="toggleVoice('chat')"><Mic :size="17" /></button>
-          <button :type="store.isGenerating ? 'button' : 'submit'" :aria-label="store.isGenerating ? '停止生成' : '发送'" :title="store.isGenerating ? '停止生成' : '发送，Enter'" :disabled="!store.isGenerating && !draft.trim() && !attachments.length" @click="store.isGenerating && store.cancelActiveJob()"><Square v-if="store.isGenerating" :size="14" fill="currentColor" /><ArrowUp v-else :size="20" /></button>
+          <button class="chat-composer-submit" :class="{ 'is-voice-entry': showChatVoiceEntry }" :type="store.isGenerating || showChatVoiceEntry ? 'button' : 'submit'" :aria-label="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : '发送'" :title="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : '发送，Enter'" :disabled="!store.isGenerating && !showChatVoiceEntry && !draft.trim() && !attachments.length" @click="handleChatSubmitAction"><Square v-if="store.isGenerating" :size="14" fill="currentColor" /><AudioLines v-else-if="showChatVoiceEntry" :size="18" /><ArrowUp v-else :size="20" /></button>
+          <Transition name="composer-menu"><div v-if="chatModeMenuOpen" class="chat-home-floating-menu chat-home-mode-menu" role="menu"><button v-for="option in chatModeOptions" :key="option.label" type="button" role="menuitemradio" :aria-checked="activeChatMode === option.label" @click="selectChatMode(option.label)"><component :is="option.icon" :size="17" /><span><strong>{{ option.label }}</strong><small v-if="option.note">{{ option.note }}</small></span><em v-if="option.badge">{{ option.badge }}</em><Check v-if="activeChatMode === option.label" :size="15" /></button></div></Transition>
+          <Transition name="composer-menu"><div v-if="chatMoreMenuOpen" class="chat-home-floating-menu chat-home-more-menu" role="menu"><button v-if="chatUiPreset === 'doubao'" type="button" role="menuitem" @click="openDoubaoModelMenu"><Sparkles :size="17" /><span><strong>选择模型</strong><small>{{ model }}</small></span><ChevronRight :size="15" /></button><button v-for="item in chatMoreShortcuts" :key="item.label" type="button" role="menuitem" @click="useChatShortcut(item); chatMoreMenuOpen = false"><component :is="item.icon" :size="17" /><span><strong>{{ item.label }}</strong></span></button></div></Transition>
         </form>
 
+        <div v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-kimi-resource-bar"><button type="button" @click="openFilePicker('chat-file')"><Paperclip :size="16" />选择文件</button><button type="button" @click="openConfiguredDestination(kimiProject.targetUrl)"><Folder :size="16" />{{ kimiProject.label }}</button></div>
+
+        <nav v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-home-shortcuts" :aria-label="`${chatUiLabel}快捷入口`">
+          <button v-for="item in chatHomeShortcuts" :key="item.label" type="button" @click="useChatShortcut(item)">
+            <component :is="item.icon" :size="16" /><span>{{ item.label }}</span><small v-if="item.badge">{{ item.badge }}</small>
+          </button>
+        </nav>
+        <section v-if="!hasChatThread && chatUiPreset === 'qianwen' && qianwenBanners.length" class="chat-home-qianwen-carousel" aria-label="推荐服务">
+          <nav aria-label="切换推荐服务"><button v-for="(_, index) in qianwenBanners" :key="index" type="button" :class="{ 'is-active': qianwenBannerIndex === index }" :aria-label="`查看第 ${index + 1} 项`" @click="qianwenBannerIndex = index" /></nav>
+          <button class="chat-home-qianwen-banner" type="button" @click="openConfiguredDestination(activeQianwenBanner.targetUrl)">
+            <span class="chat-home-qianwen-banner__visual" :style="activeQianwenBanner.imageUrl ? { backgroundImage: `url(${activeQianwenBanner.imageUrl})` } : undefined"><Presentation v-if="!activeQianwenBanner.imageUrl" :size="23" /></span><span><strong>{{ activeQianwenBanner.title }}</strong><small>{{ activeQianwenBanner.description }}</small></span><em>{{ activeQianwenBanner.buttonText }}</em>
+          </button>
+        </section>
         <Transition name="composer-menu">
           <div v-if="attachmentOpen" class="composer-attachment-panel" :class="{ 'is-library-panel': promptTemplatesOpen }">
             <section v-if="promptTemplatesOpen" class="prompt-template-picker" aria-label="提示词模板">
@@ -128,6 +157,10 @@
         </Transition>
       </div>
 
+      <button v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-home-explore" type="button" @click="router.push('/prompts')">
+        <Lightbulb :size="16" /><span>探索灵感</span><small>浏览提示词</small><ChevronRight :size="15" />
+      </button>
+
       <aside v-if="messageJumps.length > 1" class="chat-message-navigator" :class="{ 'is-open': messageNavigatorOpen }" aria-label="已发送消息导航" @mouseenter="openMessageNavigator" @mouseleave="scheduleMessageNavigatorClose" @focusin="openMessageNavigator" @focusout="closeMessageNavigatorOnBlur">
         <button type="button" :aria-expanded="messageNavigatorOpen" aria-label="浏览已发送消息" title="浏览已发送消息" @click="openMessageNavigator">
           <span v-for="message in messageJumps.slice(0, 8)" :key="message.id" :class="{ active: activeMessageJumpId === message.id }" />
@@ -141,7 +174,7 @@
         </section>
       </aside>
 
-      <footer v-if="store.temporaryChat" class="temporary-chat-retention">为保护安全，临时聊天会按管理员设置的保留期限自动删除。</footer>
+      <footer v-if="store.temporaryChat && chatUiPreset === 'gpt'" class="temporary-chat-retention">为保护安全，临时聊天会按管理员设置的保留期限自动删除。</footer>
       <footer v-else-if="!auth.isAuthenticated" class="chat-legal">Xinyue AI 是 AI 服务。使用即表示你同意我们的<RouterLink to="/terms">条款</RouterLink>和<RouterLink to="/privacy">隐私政策</RouterLink>。请勿分享敏感信息。<RouterLink to="/about">了解更多</RouterLink></footer>
       </div>
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
@@ -286,21 +319,21 @@
       <div class="index-page-inner">
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
         <div v-if="projectNotice" class="project-notice" role="status"><Check :size="15" /><span>{{ projectNotice }}</span><button type="button" aria-label="关闭提示" @click="projectNotice = ''"><X :size="15" /></button></div>
-        <header class="index-page-header"><h1>{{ t('studio.projects') }}</h1><div><label class="workspace-search"><Search :size="16" /><input v-model="projectSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="projectModalOpen = true"><Plus :size="17" />{{ t('studio.create') }}</button></div></header>
+        <header class="index-page-header"><div class="index-page-title"><h1>{{ t('studio.projects') }}</h1><p>集中管理对话、文件、工作流和版本历史。</p></div><div><label class="workspace-search"><Search :size="16" /><input v-model="projectSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="projectModalOpen = true"><Plus :size="17" />{{ t('studio.create') }}</button></div></header>
         <div class="index-tabs"><button :class="{ 'is-active': projectTab === 'active' }" type="button" @click="projectTab = 'active'"><span>项目</span><small>{{ activeProjectCount }}</small></button><button :class="{ 'is-active': projectTab === 'archived' }" type="button" @click="projectTab = 'archived'"><span>已归档</span><small>{{ archivedProjectCount }}</small></button></div>
         <div class="project-table-head"><span>名称</span><span>项目内容</span><span>修改时间</span><span>操作</span></div>
         <div v-if="auth.isAuthenticated && store.workspaceHydrating && !store.projects.length" class="project-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
         <div v-else-if="filteredProjects.length" class="project-table">
           <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" :title="project.archived ? '已归档项目不能设为当前项目' : '设为当前项目'" :disabled="project.archived" @click="selectCurrentProject(project)"><span class="project-row-name"><Folder :size="18" /><span><strong>{{ project.name }}</strong><small>{{ project.brief }}</small></span></span><span class="project-row-content">{{ project.conversationCount }} 个对话 · {{ project.assetCount }} 个文件 · {{ project.versionCount }} 个版本</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
         </div>
-        <div v-else class="project-empty"><ArchiveRestore v-if="projectTab === 'archived'" :size="30" /><Folder v-else :size="30" /><strong>{{ projectSearch ? '没有匹配的项目' : projectTab === 'archived' ? '还没有已归档项目' : '还没有项目' }}</strong><p>{{ projectSearch ? '换一个关键词继续查找。' : projectTab === 'archived' ? '归档后的项目会保留聊天、文件和版本，并显示在这里。' : '把同一主题的聊天、文件和工作流集中到一个项目中。' }}</p><button v-if="projectSearch" type="button" @click="projectSearch = ''">清除搜索</button><button v-else-if="projectTab === 'active'" type="button" @click="projectModalOpen = true">创建项目</button></div>
+        <div v-else class="project-empty"><span class="index-empty-icon"><ArchiveRestore v-if="projectTab === 'archived'" :size="25" /><Folder v-else :size="25" /></span><strong>{{ projectSearch ? '没有匹配的项目' : projectTab === 'archived' ? '还没有已归档项目' : '创建你的第一个项目' }}</strong><p>{{ projectSearch ? '换一个关键词继续查找。' : projectTab === 'archived' ? '归档后的项目会保留聊天、文件和版本，并显示在这里。' : '把同一主题的聊天、文件和工作流集中管理，后续内容会自动归入当前项目。' }}</p><button v-if="projectSearch" type="button" @click="projectSearch = ''">清除搜索</button><button v-else-if="projectTab === 'active'" type="button" @click="projectModalOpen = true"><Plus :size="15" />创建项目</button></div>
       </div>
     </section>
 
     <section v-else-if="activeMode === 'assets'" :key="activeMode" class="studio-index-page library-page">
       <div class="index-page-inner">
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
-        <header class="index-page-header"><h1>{{ t('studio.library') }}</h1><div><label class="workspace-search"><Search :size="16" /><input v-model="assetSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="newMenuOpen = !newMenuOpen">{{ t('studio.create') }}<ChevronDown :size="15" /></button><div v-if="newMenuOpen" class="library-new-menu"><button type="button" @click="openFilePicker('library')"><Upload :size="16" />上传文件</button></div></div></header>
+        <header class="index-page-header"><div class="index-page-title"><h1>文件库</h1><p>管理生成作品、参考素材和办公文件。</p></div><div><label class="workspace-search"><Search :size="16" /><input v-model="assetSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="newMenuOpen = !newMenuOpen"><Plus :size="16" />{{ t('studio.create') }}<ChevronDown :size="15" /></button><div v-if="newMenuOpen" class="library-new-menu"><button type="button" @click="openFilePicker('library')"><Upload :size="16" />上传文件</button></div></div></header>
         <div class="library-toolbar">
           <nav><button v-for="tab in assetTabs" :key="tab.value" type="button" :class="{ 'is-active': assetTab === tab.value }" @click="assetTab = tab.value">{{ tab.label }}</button></nav>
           <div class="library-view-controls"><button type="button" aria-label="筛选" title="筛选" :class="{ 'is-active': assetFilter !== 'all' || filterMenuOpen }" @click="filterMenuOpen = !filterMenuOpen"><ListFilter :size="17" /></button><div v-if="filterMenuOpen" class="library-filter-menu"><strong>筛选</strong><button v-for="filter in assetFilters" :key="filter.value" type="button" :class="{ 'is-active': assetFilter === filter.value }" @click="assetFilter = filter.value; filterMenuOpen = false">{{ filter.label }}<Check v-if="assetFilter === filter.value" :size="15" /></button></div><i></i><button type="button" aria-label="网格视图" title="网格视图" :class="{ 'is-active': libraryGrid }" @click="libraryGrid = true"><LayoutGrid :size="18" /></button><button type="button" aria-label="列表视图" title="列表视图" :class="{ 'is-active': !libraryGrid }" @click="libraryGrid = false"><List :size="18" /></button></div>
@@ -311,7 +344,7 @@
           <AssetGrid :assets="visibleLibraryAssets" :variant="libraryGrid ? 'cards' : 'list'" :deletable="auth.isAuthenticated" @delete="deleteAsset" />
           <button v-if="visibleLibraryAssets.length < filteredAssets.length" class="library-load-more" type="button" @click="libraryAssetLimit += 30">加载更多</button>
         </div>
-        <div v-else class="library-empty"><Search :size="34" /><strong>{{ uploading ? '正在上传' : '未找到文件' }}</strong><button type="button" :disabled="uploading" @click="openFilePicker('library')">上传</button></div>
+        <div v-else class="library-empty"><span class="index-empty-icon"><Upload :size="25" /></span><strong>{{ uploading ? '正在上传' : assetSearch ? '没有匹配的文件' : '上传你的第一个文件' }}</strong><p>{{ assetSearch ? '换一个关键词，或调整上方分类和筛选条件。' : '支持图片、视频、文档和表格，上传后可在对话、创作与办公任务中使用。' }}</p><button type="button" :disabled="uploading" @click="openFilePicker('library')"><Upload :size="15" />{{ uploading ? '上传中' : '上传文件' }}</button></div>
       </div>
     </section>
 
@@ -372,9 +405,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } f
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Archive, ArchiveRestore, ArrowUp, BadgeCheck, Blend, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FileText, FileType2, Folder,
-  Download, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip,
-  History, LoaderCircle, Maximize2, MessageSquare, Mic, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Sparkles, Square, ThumbsDown, ThumbsUp, Trash2, Upload, Video, X,
+  Archive, ArchiveRestore, ArrowUp, AudioLines, BadgeCheck, Blend, Bot, BriefcaseBusiness, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Code2, Copy, FileText, FileType2, Folder,
+  Download, Globe2, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip, Presentation,
+  History, Languages, LoaderCircle, Maximize2, MessageCircleDashed, MessageSquare, Mic, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Sparkles, Square, Table2, ThumbsDown, ThumbsUp, Trash2, Upload, Video, WandSparkles, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
@@ -383,6 +416,7 @@ import CodeArtifactPanel from '../components/CodeArtifactPanel.vue'
 import GeneratedImagePreview from '../components/GeneratedImagePreview.vue'
 import InspirationPreview from '../components/InspirationPreview.vue'
 import PluginSelector from '../components/PluginSelector.vue'
+import CapabilitySelector from '../components/CapabilitySelector.vue'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
@@ -423,6 +457,82 @@ const { t } = useI18n()
 const store = useStudioStore()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
+type ChatUiPreset = 'gpt' | 'doubao' | 'qianwen' | 'kimi'
+type ChatShortcut = { label: string; icon: typeof ImageIcon; route?: string; prompt?: string; badge?: string }
+const chatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
+const chatUiLabel = computed(() => ({ gpt: 'GPT', doubao: '豆包', qianwen: '千问', kimi: 'Kimi' })[chatUiPreset.value])
+const chatHomeTitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '临时聊天' : ({ gpt: '我们先从哪里开始呢？', doubao: '有什么我能帮你的吗？', qianwen: '你好，我是 Xinyue AI', kimi: '' })[chatUiPreset.value])
+const chatHomeSubtitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '这次聊天不会出现在历史记录中，也不会用于改进模型。' : '')
+const chatComposerPlaceholder = computed(() => store.temporaryChat ? '临时聊天' : ({ gpt: '有问题，随便问', doubao: '发消息...', qianwen: '向 Xinyue AI 提问', kimi: '尽管问，或做个 Agent 任务...' })[chatUiPreset.value])
+const showChatVoiceEntry = computed(() => ['gpt', 'doubao'].includes(chatUiPreset.value) && !draft.value.trim() && !attachments.value.length)
+const doubaoRecommendations = computed(() => catalog.settings.chatHomeContent.doubaoRecommendations)
+const qianwenBanners = computed(() => catalog.settings.chatHomeContent.qianwenBanners)
+const qianwenBannerIndex = ref(0)
+const activeQianwenBanner = computed(() => qianwenBanners.value[qianwenBannerIndex.value] || qianwenBanners.value[0] || { title: '', description: '', buttonText: '', imageUrl: '', targetUrl: '/office' })
+const kimiProject = computed(() => catalog.settings.chatHomeContent.kimiProject)
+let qianwenBannerTimer = 0
+const chatShortcutSets: Record<Exclude<ChatUiPreset, 'gpt'>, ChatShortcut[]> = {
+  doubao: [
+    { label: '快速', icon: Sparkles, prompt: '请快速、直接地回答：', badge: '新' },
+    { label: '视频生成', icon: Video, route: '/video' },
+    { label: '音乐生成', icon: Music2, prompt: '请根据以下描述创作音乐方案：' },
+    { label: '图像生成', icon: ImageIcon, route: '/image' },
+    { label: 'AI 播客', icon: Mic, prompt: '请策划一份 AI 播客脚本：' },
+    { label: 'AI 表格', icon: Table2, route: '/office?tool=spreadsheet' },
+    { label: '帮我写作', icon: FileText, prompt: '请帮我撰写：' },
+    { label: '录音转写', icon: Mic, prompt: '请将以下录音内容准确转写并整理：' },
+    { label: '更多', icon: LayoutGrid, route: '/capabilities' },
+  ],
+  qianwen: [
+    { label: '快速', icon: Sparkles, prompt: '请快速回答：' },
+    { label: '办公助理', icon: Bot, route: '/office', badge: '本地电脑' },
+    { label: 'PPT 创作', icon: Presentation, route: '/office' },
+    { label: 'AI 生视频', icon: Video, route: '/video' },
+    { label: 'AI 生图', icon: ImageIcon, route: '/image' },
+    { label: '更多', icon: LayoutGrid, route: '/capabilities' },
+  ],
+  kimi: [
+    { label: 'PPT', icon: Presentation, route: '/office' },
+    { label: '集群', icon: Bot, route: '/office' },
+    { label: '深度研究', icon: Globe2, prompt: '请进行深度研究并给出来源：' },
+    { label: '文档', icon: FileText, route: '/office' },
+    { label: '网站', icon: Globe2, route: '/office' },
+    { label: '表格', icon: Table2, route: '/office' },
+    { label: '设计', icon: WandSparkles, route: '/image' },
+  ],
+}
+const chatHomeShortcuts = computed(() => chatUiPreset.value === 'gpt' ? [] : chatShortcutSets[chatUiPreset.value])
+const visibleChatShortcuts = computed(() => chatHomeShortcuts.value.filter((item) => !['快速', '更多'].includes(item.label)))
+const chatMoreShortcuts = computed<ChatShortcut[]>(() => chatUiPreset.value === 'qianwen'
+  ? [
+      { label: '代码', icon: Code2, route: '/office?tool=code' },
+      { label: '翻译', icon: Languages, prompt: '请准确翻译以下内容：' },
+      { label: 'AI 写作', icon: FileText, prompt: '请帮我撰写：' },
+      { label: '研究', icon: Search, prompt: '请深入研究并给出来源：' },
+      { label: '录音纪要', icon: Mic, prompt: '请整理以下录音内容：' },
+      { label: '音视频速读', icon: Video, prompt: '请总结以下音视频内容：' },
+    ]
+  : [
+      { label: 'PPT 生成', icon: Presentation, route: '/office?tool=ppt' },
+      { label: '翻译', icon: Languages, prompt: '请准确翻译以下内容：' },
+      { label: '深入研究', icon: Search, prompt: '请深入研究并给出来源：' },
+      { label: '解题答疑', icon: FileText, prompt: '请逐步解答：' },
+      { label: '数据分析', icon: Table2, route: '/office?tool=spreadsheet' },
+    ])
+const chatModeOptions = computed<Array<{ label: string; icon: typeof Sparkles; note: string; badge?: string }>>(() => chatUiPreset.value === 'qianwen'
+  ? [
+      { label: '快速', icon: Sparkles, note: '快速直接地回答' },
+      { label: '思考研究', icon: Search, note: '深度推理、多轮搜索' },
+    ]
+  : [
+      { label: '快速', icon: Sparkles, note: '' },
+      { label: '专家', icon: Search, note: '' },
+      { label: '工作任务 Turbo', icon: BriefcaseBusiness, note: '' },
+      { label: '工作任务 Pro', icon: Bot, note: '', badge: '升级' },
+    ])
+const activeChatMode = ref('快速')
+const chatModeMenuOpen = ref(false)
+const chatMoreMenuOpen = ref(false)
 const draft = ref('')
 const composerInput = ref<HTMLTextAreaElement | null>(null)
 const activeArtifact = ref<CodeArtifact | null>(null)
@@ -480,6 +590,23 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const voiceTarget = ref<'chat' | 'creation'>('chat')
+function useChatShortcut(item: ChatShortcut) {
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
+  if (item.route) { void router.push(item.route); return }
+  draft.value = item.prompt || ''
+  void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
+}
+function useChatSuggestion(suggestion: { title: string; prompt: string; targetUrl?: string }) {
+  if (suggestion.targetUrl) { openConfiguredDestination(suggestion.targetUrl); return }
+  draft.value = suggestion.prompt || suggestion.title
+  void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
+}
+function openConfiguredDestination(target: string) {
+  if (!target) return
+  if (/^https?:\/\//i.test(target)) { window.open(target, '_blank', 'noopener,noreferrer'); return }
+  void router.push(target.startsWith('/') ? target : `/${target}`)
+}
 async function toggleTemporaryChat() {
   if (!store.temporaryChat) {
     store.newConversation(true)
@@ -507,7 +634,6 @@ const filteredPromptTemplates = computed(() => promptTemplates.value.filter((ite
   const haystack = `${item.title} ${item.description} ${item.prompt}`.toLowerCase()
   return (!promptTemplateCategory.value || item.category === promptTemplateCategory.value) && (!promptTemplateQuery.value || haystack.includes(promptTemplateQuery.value.toLowerCase()))
 }))
-const selectedAssistant = computed(() => assistants.value.find((item) => item.id === assistantId.value))
 const creationPluginCapability = computed<PluginCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
 const generationPrompt = ref('')
 const generationInput = ref<HTMLTextAreaElement | null>(null)
@@ -614,6 +740,7 @@ const activeMode = computed<StudioMode>(() => {
 type ChatTimelineEntry = { id: string; kind: 'message' | 'generation'; createdAt: number; message?: Message; generation?: GenerationRun }
 const hasChatThread = computed(() => store.messages.some((message) => message.id !== 'welcome') || store.generations.length > 0)
 const chatMessages = computed(() => hasChatThread.value ? store.messages.filter((message) => message.id !== 'welcome') : store.messages)
+const latestAssistantMessageId = computed(() => [...chatMessages.value].reverse().find((message) => message.role === 'assistant' && !message.id.startsWith('stream:'))?.id || '')
 const showChatThinking = computed(() => {
   if (!store.isGenerating || store.activeGeneration) return false
   const latest = store.messages.at(-1)
@@ -703,7 +830,18 @@ function outputFormatLabel(value: string): typeof outputFormat.value { return va
 watchEffect(() => store.setMode(activeMode.value))
 watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; creationPluginOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'chat' && auth.isAuthenticated) void store.resumeCurrentChat(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if ((mode === 'images' || mode === 'videos') && !imageTools.value.length) await loadImageTools(); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
 watch([assetSearch, assetTab, assetFilter], () => { libraryAssetLimit.value = 30 })
-watch(() => store.currentConversationId, () => { const conversation = store.conversations.find((item) => item.id === store.currentConversationId); if (conversation?.model) model.value = conversation.model; messageNavigatorOpen.value = false; activeArtifact.value = null; void nextTick(syncMessageNavigator) })
+watch(() => store.currentConversationId, () => {
+  const conversation = store.conversations.find((item) => item.id === store.currentConversationId)
+  if (conversation?.model) model.value = conversation.model
+  messageNavigatorOpen.value = false
+  activeArtifact.value = null
+  void nextTick(syncMessageNavigator)
+})
+watch(() => store.openingConversationId, (conversationId, previousConversationId) => {
+  if (conversationId || !previousConversationId || store.currentConversationId !== previousConversationId) return
+  void scrollThreadToBottom('auto')
+})
+watch(assistantId, (id) => { const assistant = assistants.value.find((item) => item.id === id); if (assistant?.defaultModel) model.value = assistant.defaultModel })
 watch(messageJumps, (messages) => { if (!messages.some((message) => message.id === activeMessageJumpId.value)) activeMessageJumpId.value = messages.at(-1)?.id || ''; void nextTick(syncMessageNavigator) })
 watch(() => route.query.generation, () => { void syncGenerationRoute() })
 watch(() => store.generations.map((generation) => `${generation.id}:${generation.status}:${generation.assets.length}`).join('|'), () => { if (activeMode.value === 'chat') void scrollThreadToBottom() })
@@ -711,6 +849,8 @@ watch(() => store.messages.map((message) => `${message.id}:${message.content.len
 watch(generationPrompt, () => { void nextTick().then(resizeGenerationInput) })
 onMounted(async () => {
   document.addEventListener('xinyue:close-popovers', closeWorkspacePopovers)
+  document.addEventListener('pointerdown', closeChatComposerPopoversOnOutside)
+  document.addEventListener('keydown', closeChatComposerPopoversOnEscape)
   const pendingPrompt = activeMode.value === 'images' ? consumeImagePrompt() : null
   if (pendingPrompt) generationPrompt.value = pendingPrompt.prompt
   const inspirationLoad = activeMode.value === 'images' ? Promise.all([loadInspirations('IMAGE'), loadImageTools()]) : activeMode.value === 'videos' ? Promise.all([loadInspirations('VIDEO'), loadImageTools()]) : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
@@ -730,9 +870,14 @@ onMounted(async () => {
   window.addEventListener('resize', resizeGenerationInput)
   window.addEventListener('focus', refreshModelCatalogOnFocus)
   document.addEventListener('pointerdown', closeCreationMenuOnOutside)
+  qianwenBannerTimer = window.setInterval(() => {
+    if (chatUiPreset.value === 'qianwen' && !hasChatThread.value && qianwenBanners.value.length > 1) qianwenBannerIndex.value = (qianwenBannerIndex.value + 1) % qianwenBanners.value.length
+  }, 5000)
 })
 onUnmounted(() => {
   document.removeEventListener('xinyue:close-popovers', closeWorkspacePopovers)
+  document.removeEventListener('pointerdown', closeChatComposerPopoversOnOutside)
+  document.removeEventListener('keydown', closeChatComposerPopoversOnEscape)
   voiceRecognizer.value?.stop()
   window.clearTimeout(jumpHighlightTimer)
   window.clearTimeout(messageNavigatorCloseTimer)
@@ -744,6 +889,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', resizeGenerationInput)
   window.removeEventListener('focus', refreshModelCatalogOnFocus)
   document.removeEventListener('pointerdown', closeCreationMenuOnOutside)
+  window.clearInterval(qianwenBannerTimer)
 })
 
 async function loadModelCatalog(options: { applyDefaults?: boolean; force?: boolean } = {}) {
@@ -780,13 +926,29 @@ function closeWorkspacePopovers() {
   modelOpen.value = false
   assistantMenuOpen.value = false
   promptTemplatesOpen.value = false
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
   closeCreationMenu()
   creationOptionsOpen.value = false
   creationMorePanelStyle.value = { visibility: 'hidden' }
   creationPluginOpen.value = false
 }
 function collapseWorkspacePopovers() {
+  closeWorkspacePopovers()
   document.dispatchEvent(new Event('xinyue:close-popovers'))
+}
+function closeChatComposerPopoversOnOutside(event: PointerEvent) {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.chat-home-floating-menu, .chat-home-mode-trigger, .chat-home-more-trigger, .model-popover, .composer-model')) return
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
+  modelOpen.value = false
+}
+function closeChatComposerPopoversOnEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || (!chatModeMenuOpen.value && !chatMoreMenuOpen.value && !modelOpen.value)) return
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
+  modelOpen.value = false
 }
 
 async function loadImageTools() {
@@ -813,17 +975,40 @@ async function loadInspirations(mode: 'IMAGE' | 'VIDEO' | 'COMMERCE') {
   }
 }
 
-function toggleAttachmentMenu() { attachmentOpen.value = !attachmentOpen.value; modelOpen.value = false; assistantMenuOpen.value = false; promptTemplatesOpen.value = false }
+function toggleChatModeMenu() {
+  chatModeMenuOpen.value = !chatModeMenuOpen.value
+  chatMoreMenuOpen.value = false
+  attachmentOpen.value = false
+  modelOpen.value = false
+  assistantMenuOpen.value = false
+}
+function toggleChatMoreMenu() {
+  chatMoreMenuOpen.value = !chatMoreMenuOpen.value
+  chatModeMenuOpen.value = false
+  attachmentOpen.value = false
+  modelOpen.value = false
+  assistantMenuOpen.value = false
+}
+function openDoubaoModelMenu() {
+  chatMoreMenuOpen.value = false
+  modelOpen.value = true
+  void loadModelCatalog({ force: true })
+}
+function selectChatMode(label: string) {
+  activeChatMode.value = label
+  chatModeMenuOpen.value = false
+  if (label.startsWith('工作任务')) void router.push('/office?mode=agent')
+}
+function toggleAttachmentMenu() { attachmentOpen.value = !attachmentOpen.value; modelOpen.value = false; assistantMenuOpen.value = false; promptTemplatesOpen.value = false; chatModeMenuOpen.value = false; chatMoreMenuOpen.value = false }
 function toggleModelMenu() {
   modelOpen.value = !modelOpen.value
   attachmentOpen.value = false
   assistantMenuOpen.value = false
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
   if (modelOpen.value) void loadModelCatalog({ force: true })
 }
 function openPromptLibrary() { attachmentOpen.value = false; void router.push('/prompts') }
-function toggleComposerAssistants() { assistantMenuOpen.value = !assistantMenuOpen.value; modelOpen.value = false; attachmentOpen.value = false }
-function clearAssistant() { assistantId.value = ''; assistantMenuOpen.value = false }
-function selectAssistant(item: AssistantOption) { assistantId.value = item.id; assistantMenuOpen.value = false; attachmentOpen.value = false; if (item.defaultModel) model.value = item.defaultModel }
 async function togglePromptTemplates() {
   promptTemplatesOpen.value = !promptTemplatesOpen.value
   if (!promptTemplatesOpen.value || promptTemplates.value.length) return
@@ -873,9 +1058,10 @@ function selectModel(value: string) { model.value = value; modelOpen.value = fal
 function resizeComposer() {
   if (!composerInput.value) return
   composerInput.value.style.height = 'auto'
-  const height = Math.min(composerInput.value.scrollHeight, 160)
+  const maxHeight = chatUiPreset.value === 'doubao' ? 36 : 160
+  const height = Math.min(composerInput.value.scrollHeight, maxHeight)
   composerInput.value.style.height = `${height}px`
-  composerInput.value.style.overflowY = composerInput.value.scrollHeight > 160 ? 'auto' : 'hidden'
+  composerInput.value.style.overflowY = composerInput.value.scrollHeight > maxHeight ? 'auto' : 'hidden'
 }
 function resizeGenerationInput() {
   const input = generationInput.value
@@ -914,12 +1100,43 @@ function toggleVoice(target: 'chat' | 'creation' = 'chat') {
   voiceListening.value = true
   try { recognizer.start() } catch { voiceListening.value = false; voiceRecognizer.value = null; store.lastError = '语音输入启动失败' }
 }
+function handleChatSubmitAction() {
+  if (store.isGenerating) { void store.cancelActiveJob(); return }
+  if (showChatVoiceEntry.value) toggleVoice('chat')
+}
+function scrollShortcutRail(event: WheelEvent) {
+  const rail = event.currentTarget as HTMLElement | null
+  if (!rail || Math.abs(event.deltaX) > Math.abs(event.deltaY) || rail.scrollWidth <= rail.clientWidth) return
+  rail.scrollLeft += event.deltaY
+  event.preventDefault()
+}
 function startMessageEdit(message: { id: string; content: string }) { editingMessageId.value = message.id; editingMessageContent.value = message.content }
 function cancelMessageEdit() { editingMessageId.value = ''; editingMessageContent.value = '' }
 function copyMessage(message: { id: string; content: string }) {
   navigator.clipboard?.writeText(message.content).catch(() => undefined)
   copiedMessageId.value = message.id
   window.setTimeout(() => { if (copiedMessageId.value === message.id) copiedMessageId.value = '' }, 1600)
+}
+function followUpsForMessage(message: Message) {
+  if (message.suggestions?.length) return message.suggestions.slice(0, 3)
+  const index = store.messages.findIndex((item) => item.id === message.id)
+  const prompt = store.messages.slice(0, index).reverse().find((item) => item.role === 'user')?.content || ''
+  const topic = prompt.replace(/https?:\/\/\S+/g, ' ').replace(/[\r\n#*_`>\[\](){}]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28).replace(/[，。！？,.!?；;：:]$/, '')
+  const normalized = `${prompt}\n${message.content}`.toLowerCase()
+  if (/代码|编程|接口|api|报错|bug|typescript|javascript|python|java|vue|react|nest/.test(normalized)) return ['请给出一份完整可运行的实现示例', '这个方案有哪些边界情况和常见错误？', '应该如何测试并确认实现正确？']
+  if (/方案|选择|对比|区别|架构|框架|产品/.test(normalized)) return ['请按成本、效果和实施难度做一个对比', '你更推荐哪一种方案？为什么？', '请把推荐方案拆成可执行步骤']
+  if (/写|文案|文章|邮件|报告|总结|改写|翻译/.test(normalized)) return ['请再提供一个更简洁的版本', '能换一种更自然的表达风格吗？', '请整理成可以直接使用的最终稿']
+  return [topic ? `能围绕“${topic}”再举一个具体例子吗？` : '能再举一个具体例子吗？', '这件事有哪些容易忽略的注意事项？', '请把上面的内容整理成可执行步骤']
+}
+function shouldShowFollowUps(message: Message) {
+  return message.role === 'assistant' && message.id === latestAssistantMessageId.value && !store.isGenerating && Boolean(followUpsForMessage(message).length)
+}
+async function useFollowUpSuggestion(value: string) {
+  if (store.isGenerating) return
+  draft.value = value
+  await nextTick()
+  resizeComposer()
+  await submitMessage()
 }
 function openCodeArtifact(artifact: CodeArtifact) { activeArtifact.value = artifact }
 async function saveMessageEdit(messageId: string) {
@@ -1107,12 +1324,14 @@ async function switchCreationMode(mode: 'images' | 'videos') {
 }
 async function submitGeneration() {
   if (!requireAuth(activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'videos' ? '/video' : '/image')) return
+  const submittedMode = activeMode.value
   const prompt = generationPrompt.value.trim() || (selectedImageTool.value ? `使用${selectedImageTool.value.title}处理这张图片` : '')
   if (!prompt) return
   if (selectedImageTool.value && !creationAttachments.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; openFilePicker('creation'); return }
   try {
     const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForRatio(autoMode.value), quality: providerQuality(quality.value), style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined, creationToolId: selectedImageToolId.value || undefined }, undefined, false, model.value)
     generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
+    if (submittedMode === 'commerce') return
     await openGenerationConversation(job.id)
   } catch { /* Store exposes the server error in-page. */ }
 }
@@ -1360,7 +1579,6 @@ async function toggleProjectArchive(projectId: string, archived: boolean) {
   try {
     const project = store.projects.find((item) => item.id === projectId)
     await store.setProjectArchived(projectId, archived)
-    projectTab.value = archived ? 'archived' : 'active'
     projectNotice.value = `“${project?.name || '项目'}”已${archived ? '归档' : '恢复'}`
     window.setTimeout(() => { projectNotice.value = '' }, 3000)
   } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目状态更新失败' }

@@ -263,6 +263,7 @@ model User {
   pluginUsages         PluginUsage[]
   agentTasks           AgentTask[]
   agentSchedules       AgentSchedule[]
+  connectorCredentials ConnectorCredential[]
 }
 
 model ExternalIdentity {
@@ -721,6 +722,12 @@ model ToolDefinition {
   key              String          @unique
   name             String
   description      String          @default("") @db.Text
+  icon             String          @default("wrench")
+  iconAssetId      String?
+  kind             String          @default("BUILT_IN")
+  authType         String          @default("NONE")
+  documentationUrl String          @default("") @db.Text
+  credentialFields Json?
   endpoint         String          @default("")
   httpMethod       String          @default("POST")
   timeoutMs        Int             @default(45000)
@@ -737,6 +744,22 @@ model ToolDefinition {
   calls            ToolCallAudit[]
   approvalRequests ToolApprovalRequest[]
   agentToolCalls    AgentToolCall[]
+  credentials       ConnectorCredential[]
+}
+
+model ConnectorCredential {
+  userId               String
+  toolId               String
+  encryptedCredentials String   @db.Text
+  credentialHints      Json?
+  status               String   @default("CONNECTED")
+  connectedAt          DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tool                  ToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@id([userId, toolId])
+  @@index([toolId, status])
 }
 
 model WebSearchChannel {
@@ -998,6 +1021,8 @@ model SystemSetting {
   defaultUserCredits           Int      @default(8)
   defaultTheme                 String   @default("dark")
   defaultLanguage              String   @default("zh-CN")
+  chatUiPreset                 String   @default("gpt")
+  chatHomeContent              Json     @default("{}")
   defaultChatModelKey          String   @default("")
   defaultImageModelKey         String   @default("")
   userByokEnabled              Boolean  @default(true)

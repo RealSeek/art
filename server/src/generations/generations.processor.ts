@@ -25,6 +25,30 @@ const officeSkillPrompts: Record<string, string> = {
 }
 const textAttachmentExtensions = new Set(['.txt', '.md', '.markdown', '.csv', '.json', '.xml', '.html', '.css', '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.go', '.rs', '.sql', '.log'])
 
+function followUpSuggestions(prompt: string, answer: string) {
+  const topic = prompt
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[\r\n#*_`>\[\](){}]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 32)
+    .replace(/[，。！？,.!?；;：:]$/, '')
+  const normalized = `${prompt}\n${answer}`.toLowerCase()
+  const result = /代码|编程|接口|api|报错|bug|typescript|javascript|python|java|vue|react|nest/.test(normalized)
+    ? ['请给出一份完整可运行的实现示例', '这个方案有哪些边界情况和常见错误？', '应该如何测试并确认实现正确？']
+    : /方案|选择|对比|区别|架构|框架|产品/.test(normalized)
+      ? ['请按成本、效果和实施难度做一个对比', '你更推荐哪一种方案？为什么？', '请把推荐方案拆成可执行步骤']
+      : /写|文案|文章|邮件|报告|总结|改写|翻译/.test(normalized)
+        ? ['请再提供一个更简洁的版本', '能换一种更自然的表达风格吗？', '请整理成可以直接使用的最终稿']
+        : [
+            topic ? `能围绕“${topic}”再举一个具体例子吗？` : '能再举一个具体例子吗？',
+            '这件事有哪些容易忽略的注意事项？',
+            '请把上面的内容整理成可执行步骤',
+          ]
+  return [...new Set(result)].slice(0, 3)
+}
+
 type ProviderPayload = {
   [key: string]: unknown
   choices?: Array<{ message?: { content?: unknown } }>
@@ -398,6 +422,8 @@ export class GenerationsProcessor extends WorkerHost {
     content = execution.result.content
     usage = execution.result.usage
     await this.assertNotCancelled(task.id)
+    const latestUserPrompt = [...messages].reverse().find((message) => message.role === 'USER')?.content || task.prompt
+    const suggestions = followUpSuggestions(latestUserPrompt, content)
     const inputTokens = Math.max(0, Number(usage?.prompt_tokens || 0))
     const outputTokens = Math.max(0, Number(usage?.completion_tokens || 0))
     const upstreamCostMicros = Math.min(2_000_000_000, Math.ceil(inputTokens * resolved.inputCostMicrosPerMillion / 1_000_000) + Math.ceil(outputTokens * resolved.outputCostMicrosPerMillion / 1_000_000))
@@ -407,7 +433,7 @@ export class GenerationsProcessor extends WorkerHost {
     await this.prisma.$transaction(async (tx) => {
       const active = await tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { inputTokens, outputTokens, upstreamCostMicros, creditCost: finalCreditCost, revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)) } })
       if (!active.count) throw new JobCancelledError('Generation job was cancelled')
-      await tx.message.update({ where: { id: streamMessage.id }, data: { content, model: resolved.model, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, metadata: { jobId: task.id, streaming: false, providerSource: resolved.source, providerType: resolved.type, presetKey: resolved.presetKey, apiProtocol: resolved.apiProtocol } } })
+      await tx.message.update({ where: { id: streamMessage.id }, data: { content, model: resolved.model, inputTokens: usage?.prompt_tokens, outputTokens: usage?.completion_tokens, metadata: { jobId: task.id, streaming: false, providerSource: resolved.source, providerType: resolved.type, presetKey: resolved.presetKey, apiProtocol: resolved.apiProtocol, suggestions } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } })
     })
     const refund = reservedCreditCost - finalCreditCost

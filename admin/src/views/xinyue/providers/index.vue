@@ -85,14 +85,15 @@
       <ElForm label-position="top"
         ><ElRow :gutter="14"
           ><ElCol :span="12"
-            ><ElFormItem :label="xt('渠道名称')"><ElInput v-model.trim="editor.name" /></ElFormItem></ElCol
+            ><ElFormItem :label="xt('渠道名称')"
+              ><ElInput v-model.trim="editor.name" /></ElFormItem></ElCol
           ><ElCol :span="12"
             ><ElFormItem :label="xt('渠道类型')"
               ><ElSelect v-model="editor.type" class="w-full"
                 ><ElOption
                   v-for="(label, value) in typeText"
                   :key="value"
-                   :label="xt(label)"
+                  :label="xt(label)"
                   :value="value" /></ElSelect></ElFormItem></ElCol></ElRow
         ><ElFormItem label="API Base URL"
           ><ElInput
@@ -104,7 +105,7 @@
             type="password"
             show-password
             :placeholder="
-               editor.id ? `${xt('留空保留')} ${editor.apiKeyHint || xt('现有密钥')}` : 'sk-...'
+              editor.id ? `${xt('留空保留')} ${editor.apiKeyHint || xt('现有密钥')}` : 'sk-...'
             " /></ElFormItem
         ><ElRow :gutter="14"
           ><ElCol :span="8"
@@ -173,7 +174,11 @@
   const editor = reactive(emptyEditor())
   const batchResult = ref<{ checked: number; healthy: number; unhealthy: number } | null>(null)
   const healthText = (row: Provider) =>
-    row.lastHealthStatus === 'healthy' ? xt('正常') : row.lastHealthStatus ? xt('异常') : xt('未检测')
+    row.lastHealthStatus === 'healthy'
+      ? xt('正常')
+      : row.lastHealthStatus
+        ? xt('异常')
+        : xt('未检测')
   const healthType = (row: Provider) =>
     row.lastHealthStatus === 'healthy' ? 'success' : row.lastHealthStatus ? 'danger' : 'info'
   async function load() {
@@ -219,7 +224,9 @@
     checking.value = row.id
     try {
       const result = await xinyueApi.discoverProvider(row.id)
-      ElMessage.success(`${xt('连接正常，发现')} ${result.models.length} ${xt('个模型')}，${xt('延迟')} ${result.latencyMs}ms`)
+      ElMessage.success(
+        `${xt('连接正常，发现')} ${result.models.length} ${xt('个模型')}，${xt('延迟')} ${result.latencyMs}ms`
+      )
       await load()
     } finally {
       checking.value = ''
@@ -235,12 +242,16 @@
     }
   }
   async function remove(row: Provider) {
-    await ElMessageBox.confirm(`${xt('确认删除渠道')} "${row.name}"?`, xt('删除渠道'), { type: 'warning' })
+    await ElMessageBox.confirm(`${xt('确认删除渠道')} "${row.name}"?`, xt('删除渠道'), {
+      type: 'warning'
+    })
     await xinyueApi.deleteProvider(row.id)
     await load()
   }
   onMounted(load)
-  onActivated(() => { if (rows.value.length) void load() })
+  onActivated(() => {
+    if (rows.value.length) void load()
+  })
 </script>
 
 <style scoped>
@@ -249,25 +260,30 @@
     flex-direction: column;
     gap: 12px;
   }
+
   .page-title {
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
+
   .page-title h1 {
     margin: 0 0 4px;
     font-size: 22px;
   }
+
   .page-title p {
     margin: 0;
     color: var(--art-gray-500);
   }
+
   .block-note {
     display: block;
     margin-top: 3px;
-    color: var(--art-gray-500);
     font-size: 12px;
+    color: var(--art-gray-500);
   }
+
   .w-full {
     width: 100%;
   }

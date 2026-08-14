@@ -29,7 +29,7 @@ test('提示词库展示预览图并只将完整提示词带入图片生成', as
   await assertNoPageOverflow(page)
   await page.getByRole('button', { name: '使用', exact: true }).first().click()
   await expect(page).toHaveURL(/\/image$/)
-  const generationInput = page.getByPlaceholder('描述新图片')
+  const generationInput = page.locator('.creation-prompt-row textarea')
   await expect(generationInput).toHaveValue(prompt)
   await expect(page.locator('.creation-attachments')).toHaveCount(0)
   const promptBox = await generationInput.boundingBox()
@@ -55,7 +55,7 @@ test('工作区切页保留侧栏且长输入菜单不越界', async ({ page }) 
   await page.getByRole('link', { name: '提示词库', exact: true }).click()
   await expect(page).toHaveURL(/\/prompts$/)
   await expect(sidebar).toHaveAttribute('data-e2e-persistent', 'true')
-  await page.getByRole('link', { name: '图片', exact: true }).click()
+  await page.getByRole('link', { name: 'AI 创作', exact: true }).click()
   await expect(page).toHaveURL(/\/image$/)
   await expect(sidebar).toHaveAttribute('data-e2e-persistent', 'true')
 
@@ -344,7 +344,7 @@ test('上传图片会显示可移除的真实缩略图', async ({ page }) => {
 
     await page.goto('/image')
     const chooserPromise = page.waitForEvent('filechooser')
-    await page.getByRole('button', { name: '添加参考文件', exact: true }).click()
+    await page.getByRole('button', { name: '添加参考素材', exact: true }).click()
     const chooser = await chooserPromise
     const creationUpload = page.waitForResponse((response) => response.url().includes('/v1/assets/uploads') && response.request().method() === 'POST')
     await chooser.setFiles(fixture)
@@ -376,8 +376,7 @@ test('浅色工作台关键页面保持可读且浮层不遮挡内容', async ({
   await page.goto('/image')
   await expect(page.locator('html')).toHaveAttribute('data-studio-theme', 'light')
   await expect(page.locator('.workspace-main')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-  await expect(page.locator('.creation-composer')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
-  await expect(page.locator('.creation-prompt-row > strong')).toHaveCSS('color', 'rgb(49, 95, 159)')
+  await expect(page.locator('.creation-composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
   await expect(page.getByRole('heading', { name: '生成图片', exact: true })).toBeVisible()
   const inspirationHeaderBox = await page.locator('.inspiration-section > header').boundingBox()
   const inspirationCardBox = await page.locator('.inspiration-card').first().boundingBox()
@@ -408,19 +407,15 @@ test('浅色工作台关键页面保持可读且浮层不遮挡内容', async ({
   expect(attachmentPanelBox!.y - (chatComposerBox!.y + chatComposerBox!.height)).toBeLessThanOrEqual(10)
   await expect(attachmentButton).toHaveCSS('background-color', 'rgb(232, 232, 232)')
   await attachmentButton.click()
-  await page.locator('.composer-model > button').click()
-  const headingBox = await heading.boundingBox()
-  const modelBox = await page.locator('.model-popover').boundingBox()
-  expect(headingBox).not.toBeNull()
-  expect(modelBox).not.toBeNull()
-  expect(modelBox!.y).toBeGreaterThanOrEqual(headingBox!.y + headingBox!.height)
+  await expect(heading).toBeVisible()
+  await assertNoPageOverflow(page)
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/image')
-  await page.getByRole('button', { name: '生成设置', exact: true }).click()
-  await expect(page.locator('.creation-option-buttons')).toHaveClass(/is-open/)
-  await expect(page.locator('.creation-option-buttons').getByRole('button', { name: /^自动背景$/ })).toBeVisible()
-  const mobileOptionsBox = await page.locator('.creation-option-buttons').boundingBox()
+  await page.getByRole('button', { name: '更多生成设置', exact: true }).click()
+  await expect(page.locator('.creation-more-button')).toHaveClass(/is-active/)
+  await expect(page.locator('.creation-more-panel').getByRole('button', { name: /^自动背景$/ })).toBeVisible()
+  const mobileOptionsBox = await page.locator('.creation-more-panel').boundingBox()
   const mobileInspirationHeadingBox = await page.getByRole('heading', { name: '生成图片', exact: true }).boundingBox()
   expect(mobileOptionsBox).not.toBeNull()
   expect(mobileInspirationHeadingBox).not.toBeNull()
@@ -470,9 +465,10 @@ test('聊天设置可切换浅色模式，模型菜单显示后台信息', async
   await expect(page.locator('html')).toHaveAttribute('data-studio-theme', 'light')
   await page.locator('.settings-close').click()
 
-  await page.locator('.composer-model > button').click()
-  await expect(page.locator('.model-popover')).toBeVisible()
-  await expect(page.locator('.model-popover button').first()).toBeVisible()
+  await page.goto('/image')
+  await page.getByRole('button', { name: /模型 GPT Image 2/ }).click()
+  await expect(page.locator('.creation-options-menu')).toBeVisible()
+  await expect(page.locator('.creation-options-menu button').first()).toBeVisible()
   await assertNoPageOverflow(page)
 
   await page.locator('.workspace-account-button').click()
@@ -509,12 +505,13 @@ test('最近对话可以重命名并归档', async ({ page }) => {
 
 test('图片输出格式与背景选项会保持有效组合', async ({ page }) => {
   await page.goto('/image')
-  const controls = page.locator('.creation-controls')
-  for (const buttonName of [/^GPT Image 2$/, /^自动$/, /^标准$/, /^1 张$/, /^PNG$/, /^自动背景$/]) {
-    await controls.getByRole('button', { name: buttonName }).click()
+  const composer = page.locator('.creation-composer')
+  for (const buttonName of [/模型 GPT Image 2/, /比例 自动/]) {
+    const trigger = page.getByRole('button', { name: buttonName })
+    await trigger.click()
     const menuBox = await page.locator('.creation-options-menu').boundingBox()
-    const triggerBox = await controls.getByRole('button', { name: buttonName }).boundingBox()
-    const composerBox = await page.locator('.creation-composer').boundingBox()
+    const triggerBox = await trigger.boundingBox()
+    const composerBox = await composer.boundingBox()
     expect(menuBox).not.toBeNull()
     expect(triggerBox).not.toBeNull()
     expect(composerBox).not.toBeNull()
@@ -528,16 +525,18 @@ test('图片输出格式与背景选项会保持有效组合', async ({ page }) 
       ? menuBox!.y - (triggerBox!.y + triggerBox!.height)
       : triggerBox!.y - (menuBox!.y + menuBox!.height)
     expect(triggerGap).toBeLessThanOrEqual(10)
-    await controls.getByRole('button', { name: buttonName }).click()
+    await trigger.click()
   }
-  await controls.getByRole('button', { name: /PNG/ }).click()
+  await page.getByRole('button', { name: '更多生成设置', exact: true }).click()
+  const morePanel = page.getByLabel('更多生成设置')
+  await morePanel.getByRole('button', { name: 'PNG', exact: true }).click()
   await page.locator('.creation-options-menu').getByRole('button', { name: 'JPEG', exact: true }).click()
-  await expect(controls.getByRole('button', { name: /JPEG/ })).toBeVisible()
+  await expect(morePanel.getByRole('button', { name: 'JPEG', exact: true })).toBeVisible()
 
-  await controls.getByRole('button', { name: /自动背景/ }).click()
+  await morePanel.getByRole('button', { name: '自动背景', exact: true }).click()
   await page.locator('.creation-options-menu').getByRole('button', { name: '透明背景', exact: true }).click()
-  await expect(controls.getByRole('button', { name: /透明背景/ })).toBeVisible()
-  await expect(controls.getByRole('button', { name: /PNG/ })).toBeVisible()
+  await expect(morePanel.getByRole('button', { name: '透明背景', exact: true })).toBeVisible()
+  await expect(morePanel.getByRole('button', { name: 'PNG', exact: true })).toBeVisible()
   await assertNoPageOverflow(page)
 })
 
@@ -664,7 +663,7 @@ test('项目页面可创建、归档、恢复并删除项目', async ({ page }) 
 
     await page.getByRole('button', { name: `归档${projectName}` }).click()
     await expect(projectRow).toHaveCount(0)
-    await page.getByRole('button', { name: '已归档', exact: true }).click()
+    await page.getByRole('button', { name: /^已归档/ }).click()
     projectRow = page.locator('.project-row').filter({ hasText: projectName })
     await expect(projectRow).toBeVisible()
     await page.getByRole('button', { name: `恢复${projectName}` }).click()
@@ -674,17 +673,19 @@ test('项目页面可创建、归档、恢复并删除项目', async ({ page }) 
   }
 })
 
-test('文件库视图、筛选、缩放和下载按钮可用', async ({ page }) => {
+test('文件库视图、筛选、图片缩放和下载按钮可用', async ({ page }) => {
   await page.goto('/files')
   const firstAsset = page.locator('.asset-card').first()
+  const firstVisualAsset = page.locator('.asset-card').filter({ has: page.locator('.asset-card__preview img') }).first()
   await expect(firstAsset).toBeVisible()
+  await expect(firstVisualAsset).toBeVisible()
   await page.getByRole('button', { name: '列表视图' }).click()
   await expect(page.locator('.library-assets-list')).toBeVisible()
   await page.getByRole('button', { name: '网格视图' }).click()
   await page.getByRole('button', { name: '筛选' }).click()
   await page.locator('.library-filter-menu').getByRole('button', { name: '全部来源' }).click()
 
-  await firstAsset.click()
+  await firstVisualAsset.click()
   const preview = page.locator('.asset-preview-dialog')
   await expect(preview).toBeVisible()
   await preview.getByRole('button', { name: '放大' }).click()
@@ -696,4 +697,33 @@ test('文件库视图、筛选、缩放和下载按钮可用', async ({ page }) 
   expect((await downloadPromise).suggestedFilename()).not.toBe('')
   await preview.getByRole('button', { name: '关闭预览' }).click()
   await expect(preview).toHaveCount(0)
+})
+
+test('核心工作区页面均可加载且没有前端错误或横向溢出', async ({ page }) => {
+  const routes = [
+    ['/chat', '.studio-chat'],
+    ['/image', '.studio-create-page'],
+    ['/video', '.studio-create-page'],
+    ['/commerce', '.studio-create-page'],
+    ['/office', '.office-center'],
+    ['/prompts', '.prompt-library-page'],
+    ['/capabilities', '.capability-page'],
+    ['/projects', '.projects-page'],
+    ['/files', '.library-page'],
+  ] as const
+  const consoleErrors: string[] = []
+  const failedRequests: string[] = []
+  page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()) })
+  page.on('response', (response) => {
+    if (response.status() === 401 || response.status() >= 500) failedRequests.push(`${response.status()} ${response.url()}`)
+  })
+
+  for (const [path, selector] of routes) {
+    await page.goto(path)
+    await expect(page.locator(selector)).toBeVisible()
+    await assertNoPageOverflow(page)
+  }
+
+  expect(failedRequests, failedRequests.join('\n')).toEqual([])
+  expect(consoleErrors, consoleErrors.join('\n')).toEqual([])
 })

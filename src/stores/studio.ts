@@ -4,7 +4,7 @@ import type { ConversationSummary, GenerationOptions, GenerationRun, Message, Pr
 import { createClientId } from '../utils/client-id'
 
 type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
-type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: { feedback?: 'UP' | 'DOWN' | null } | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
+type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: { feedback?: 'UP' | 'DOWN' | null; suggestions?: string[] } | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; assets?: ServerAsset[]; conversations?: ServerConversation[]; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
 type ServerAsset = { id: string; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; metadata?: Record<string, unknown> | null }
@@ -237,6 +237,7 @@ export const useStudioStore = defineStore('studio', {
           id: message.id, role: message.role.toLowerCase() as 'user' | 'assistant', content: message.content,
           model: message.model || undefined, createdAt: Date.parse(message.createdAt), attachmentIds: message.attachments?.map((attachment) => attachment.assetId || attachment.asset?.id || '').filter(Boolean),
           feedback: message.metadata?.feedback || null,
+          suggestions: Array.isArray(message.metadata?.suggestions) ? message.metadata.suggestions.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 3) : [],
         }))
         if (!this.messages.length) this.messages = [welcomeMessage()]
         this.generations = (conversation.generationJobs || []).map((generation) => mapGeneration(generation))
@@ -543,7 +544,7 @@ export const useStudioStore = defineStore('studio', {
         const pendingId = `stream:${jobId}`
         const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
         const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, createdAt: this.messages[index]?.createdAt || Date.now() }
-        if (index >= 0) this.messages[index] = streamed
+        if (index >= 0) this.messages.splice(index, 1, streamed)
         else this.messages.push(streamed)
       })
       pendingChatJobs.set(jobId, monitor)

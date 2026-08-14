@@ -1148,7 +1148,7 @@ const navItems = computed<WorkspaceNavItem[]>(() => [
   { key: 'commerce', mode: 'commerce', label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false },
   { key: 'office', mode: 'office', label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false },
   { key: 'prompts', mode: 'prompts', label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false },
-  { key: 'plugins', mode: 'plugins', label: t('workspace.plugins'), icon: Blocks, to: '/plugins', external: false, openNewTab: false },
+  { key: 'plugins', mode: 'plugins', label: '能力中心', icon: Blocks, to: '/capabilities', external: false, openNewTab: false },
   { key: 'projects', mode: 'projects', label: t('workspace.projects'), icon: Folder, to: '/projects', external: false, openNewTab: false },
   { key: 'assets', mode: 'assets', label: t('workspace.assets'), icon: Files, to: '/files', external: false, openNewTab: false },
   ...externalLinks.value.map((item) => ({ key: `external-${item.key}`, mode: 'api' as const, label: item.name, icon: externalIconMap[item.icon] || ExternalLink, to: item.url, external: true, openNewTab: item.openNewTab })),

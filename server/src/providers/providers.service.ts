@@ -54,6 +54,8 @@ type SystemSettingsInput = Partial<{
   defaultUserCredits: number
   defaultTheme: string
   defaultLanguage: string
+  chatUiPreset: string
+  chatHomeContent: Record<string, unknown>
   defaultChatModelKey: string
   defaultImageModelKey: string
   userByokEnabled: boolean
@@ -126,6 +128,21 @@ type VideoCapabilities = {
 type VideoCapabilityRoute = {
   options: Prisma.JsonValue | null
   provider: { enabled: boolean; encryptedApiKey: string }
+}
+
+const DEFAULT_CHAT_HOME_CONTENT = {
+  doubaoRecommendations: [
+    { title: '热点：北语教授刘宗迪称《山海经》并非怪物图鉴', prompt: '请介绍这个热点，并说明相关观点和背景。', targetUrl: '' },
+    { title: '语言模型的训练数据如何影响 AI 回答的准确性和多样性？', prompt: '语言模型的训练数据如何影响 AI 回答的准确性和多样性？', targetUrl: '' },
+    { title: '长期喝全糖饮品对身体有哪些影响？', prompt: '长期喝全糖饮品对身体有哪些影响？', targetUrl: '' },
+    { title: '有哪些训练方法能让猫听懂指令？', prompt: '有哪些训练方法能让猫听懂指令？', targetUrl: '' },
+  ],
+  qianwenBanners: [
+    { title: 'Xinyue 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
+    { title: 'Xinyue 输入法 App 全新上线', description: '说话即成稿，支持多种语言', buttonText: '立即下载体验', imageUrl: '', targetUrl: '/office' },
+    { title: '一键生成录音纪要', description: '纪要自动整理，重要内容清晰呈现', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
+  ],
+  kimiProject: { label: '选择项目', targetUrl: '/projects' },
 }
 
 const DEFAULT_PRESETS = [
@@ -522,7 +539,12 @@ export class ProvidersService implements OnModuleInit {
       sub2apiUserInfoUrl: _sub2apiUserInfoUrl,
       ...safe
     } = row
-    if (admin) return { ...safe, hasSmtpPassword: Boolean(encryptedSmtpPassword), hasLinuxDoClientSecret: Boolean(encryptedLinuxDoClientSecret) }
+    if (admin) return {
+      ...safe,
+      chatHomeContent: this.chatHomeContent(row.chatHomeContent),
+      hasSmtpPassword: Boolean(encryptedSmtpPassword),
+      hasLinuxDoClientSecret: Boolean(encryptedLinuxDoClientSecret),
+    }
     return {
       siteName: row.siteName,
       siteLogoUrl: row.siteLogoUrl,
@@ -537,6 +559,8 @@ export class ProvidersService implements OnModuleInit {
       otpResendSeconds: row.otpResendSeconds,
       defaultTheme: row.defaultTheme,
       defaultLanguage: row.defaultLanguage,
+      chatUiPreset: row.chatUiPreset,
+      chatHomeContent: this.chatHomeContent(row.chatHomeContent),
       userByokEnabled: row.userByokEnabled,
       rechargeEnabled: row.rechargeEnabled,
       currency: row.currency,
@@ -548,8 +572,9 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async updateSystemSettings(input: SystemSettingsInput) {
-    const { smtpPassword, linuxDoClientSecret, ...settings } = input
+    const { smtpPassword, linuxDoClientSecret, chatHomeContent, ...settings } = input
     const data: Prisma.SystemSettingUpdateInput = { ...settings }
+    if (chatHomeContent) data.chatHomeContent = this.chatHomeContent(chatHomeContent) as Prisma.InputJsonValue
     if (smtpPassword) {
       data.encryptedSmtpPassword = this.crypto.encrypt(smtpPassword)
       data.smtpPasswordHint = this.crypto.hint(smtpPassword)
@@ -566,6 +591,37 @@ export class ProvidersService implements OnModuleInit {
     }
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: data, create: { id: 'global', ...data } as Prisma.SystemSettingCreateInput })
     return this.getSystemSettings(true)
+  }
+
+  private chatHomeContent(value: Prisma.JsonValue | Record<string, unknown> | null | undefined) {
+    const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+    const text = (item: unknown, fallback = '', max = 500) => typeof item === 'string' ? item.trim().slice(0, max) : fallback
+    const destination = (item: unknown, fallback: string) => {
+      const value = text(item, fallback, 1000)
+      if (value.startsWith('/')) return value
+      try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.toString() : fallback } catch { return fallback }
+    }
+    const defaultRecommendations = DEFAULT_CHAT_HOME_CONTENT.doubaoRecommendations
+    const recommendations = Array.isArray(input.doubaoRecommendations) ? input.doubaoRecommendations : defaultRecommendations
+    const defaultBanners = DEFAULT_CHAT_HOME_CONTENT.qianwenBanners
+    const banners = Array.isArray(input.qianwenBanners) ? input.qianwenBanners : defaultBanners
+    const rawProject = input.kimiProject && typeof input.kimiProject === 'object' && !Array.isArray(input.kimiProject) ? input.kimiProject as Record<string, unknown> : DEFAULT_CHAT_HOME_CONTENT.kimiProject
+    return {
+      doubaoRecommendations: recommendations.slice(0, 12).map((item, index) => {
+        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+        const fallback = defaultRecommendations[index % defaultRecommendations.length]
+        return { title: text(row.title, fallback.title, 160), prompt: text(row.prompt, fallback.prompt, 2000), targetUrl: destination(row.targetUrl, fallback.targetUrl) }
+      }).filter((item) => item.title),
+      qianwenBanners: banners.slice(0, 8).map((item, index) => {
+        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+        const fallback = defaultBanners[index % defaultBanners.length]
+        return {
+          title: text(row.title, fallback.title, 120), description: text(row.description, fallback.description, 240),
+          buttonText: text(row.buttonText, fallback.buttonText, 40), imageUrl: destination(row.imageUrl, ''), targetUrl: destination(row.targetUrl, fallback.targetUrl),
+        }
+      }).filter((item) => item.title),
+      kimiProject: { label: text(rawProject.label, DEFAULT_CHAT_HOME_CONTENT.kimiProject.label, 60), targetUrl: destination(rawProject.targetUrl, DEFAULT_CHAT_HOME_CONTENT.kimiProject.targetUrl) },
+    }
   }
 
   private externalUrl(input: string) {
