@@ -19,6 +19,22 @@
                 <footer><button type="button" @click="cancelMessageEdit">取消</button><button type="submit" :disabled="!editingMessageContent.trim() || store.isGenerating">保存并提交</button></footer>
               </form>
               <template v-else>
+                <section v-if="entry.message.role === 'assistant' && entry.message.webSearch" class="message-web-search" :class="`is-${entry.message.webSearch.status}`">
+                  <button type="button" :aria-expanded="searchSourcesExpanded(entry.message.id)" :disabled="entry.message.webSearch.status === 'searching' || !entry.message.webSearch.sources.length" @click="toggleSearchSources(entry.message.id)">
+                    <LoaderCircle v-if="entry.message.webSearch.status === 'searching'" class="message-web-search__spinner" :size="16" />
+                    <Globe2 v-else :size="16" />
+                    <span>
+                      <strong>{{ webSearchSummary(entry.message.webSearch) }}</strong>
+                      <small v-if="entry.message.webSearch.status === 'failed'">{{ entry.message.webSearch.error || '当前搜索渠道暂时不可用' }}</small>
+                    </span>
+                    <ChevronDown v-if="entry.message.webSearch.sources.length" :size="15" :class="{ 'is-open': searchSourcesExpanded(entry.message.id) }" />
+                  </button>
+                  <div v-if="entry.message.webSearch.sources.length && searchSourcesExpanded(entry.message.id)" class="message-web-search__sources">
+                    <a v-for="(source, sourceIndex) in entry.message.webSearch.sources" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">
+                      <span>{{ sourceIndex + 1 }}</span><strong>{{ source.title }}</strong><small>{{ sourceDomain(source.url) }}</small><ArrowRight :size="14" />
+                    </a>
+                  </div>
+                </section>
                 <article :class="`message message--${entry.message.role}`">
                   <ChatMessageContent v-if="entry.message.role === 'assistant'" :content="entry.message.content" @preview="openCodeArtifact" />
                   <template v-else>{{ entry.message.content }}</template>
@@ -34,7 +50,7 @@
                 </nav>
                 <nav v-if="shouldShowFollowUps(entry.message)" class="message-follow-ups" aria-label="你可能还想问">
                   <button v-for="suggestion in followUpsForMessage(entry.message)" :key="suggestion" type="button" :disabled="store.isGenerating" @click="useFollowUpSuggestion(suggestion)">
-                    <span>{{ suggestion }}</span><ChevronRight :size="17" />
+                    <span>{{ suggestion }}</span><ArrowRight :size="15" />
                   </button>
                 </nav>
               </template>
@@ -101,6 +117,7 @@
           <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="chatComposerPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
           <nav v-if="chatUiPreset === 'doubao' || (!hasChatThread && chatUiPreset === 'qianwen')" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
             <button class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><Sparkles :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
+            <button class="composer-web-search" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
             <button v-for="item in visibleChatShortcuts" :key="item.label" type="button" @click="useChatShortcut(item)">
               <component :is="item.icon" :size="16" /><span>{{ item.label }}</span><small v-if="item.badge">{{ item.badge }}</small>
             </button>
@@ -108,6 +125,7 @@
           </nav>
           <div v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-kimi-modes" aria-label="回答模式"><button type="button" :class="{ 'is-active': activeChatMode === '快速' }" @click="activeChatMode = '快速'">快速</button><button type="button" :class="{ 'is-active': activeChatMode === '进阶' }" @click="activeChatMode = '进阶'">进阶</button><ChevronDown :size="14" /></div>
           <CapabilitySelector v-if="auth.isAuthenticated" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
+          <button v-if="chatUiPreset !== 'doubao' && (hasChatThread || chatUiPreset !== 'qianwen')" class="composer-web-search composer-web-search--standalone" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
           <div v-if="hasChatThread || chatUiPreset !== 'gpt'" class="composer-control composer-model">
             <button type="button" :aria-label="`选择模型，当前为${model}`" :title="`模型：${model}`" @click="toggleModelMenu">
               <span>{{ model }}</span><ChevronDown :size="15" />
@@ -150,7 +168,7 @@
             <template v-else>
               <button type="button" @click="openFilePicker('chat-file')"><Paperclip :size="19" /><span><strong>添加照片和文件</strong></span></button>
               <button type="button" @click="attachmentOpen = false; router.push('/image')"><ImageIcon :size="20" /><span><strong>创建图片</strong><small>可视化呈现任何内容</small></span></button>
-              <button type="button" @click="openPromptLibrary"><LibraryBig :size="19" /><span><strong>提示词库</strong><small>浏览图片提示词和参考效果</small></span></button>
+              <button type="button" @click="openPromptLibrary()"><LibraryBig :size="19" /><span><strong>提示词库</strong><small>浏览图片、视频和文字提示词</small></span></button>
               <button type="button" @click="togglePromptTemplates"><FileText :size="19" /><span><strong>提示词模板</strong><small>使用后台预设内容</small></span><LoaderCircle v-if="promptTemplatesLoading" class="admin-spin" :size="15" /></button>
             </template>
           </div>
@@ -259,11 +277,14 @@
 
         <section class="inspiration-section">
           <header>
-            <h2>{{ activeMode === 'images' ? '生成图片' : activeMode === 'videos' ? '生成视频' : t('studio.inspiration') }}</h2>
-            <nav class="inspiration-navigation" aria-label="浏览生成灵感">
-              <button class="inspiration-arrow inspiration-arrow--previous" type="button" aria-label="上一组" title="上一组" :disabled="!canScrollInspirationPrevious" @click="scrollInspiration(-1)"><ChevronLeft :size="20" /></button>
-              <button class="inspiration-arrow inspiration-arrow--next" type="button" aria-label="下一组" title="下一组" :disabled="!canScrollInspirationNext" @click="scrollInspiration(1)"><ChevronRight :size="20" /></button>
-            </nav>
+            <h2>{{ activeMode === 'images' || activeMode === 'videos' ? '灵感中心' : t('studio.inspiration') }}</h2>
+            <div class="inspiration-header-actions">
+              <button v-if="activeMode === 'images' || activeMode === 'videos'" class="inspiration-more" type="button" @click="openPromptLibrary(activeMode === 'videos' ? 'VIDEO' : 'IMAGE')">更多灵感<ArrowRight :size="16" /></button>
+              <nav class="inspiration-navigation" aria-label="浏览生成灵感">
+                <button class="inspiration-arrow inspiration-arrow--previous" type="button" aria-label="上一组" title="上一组" :disabled="!canScrollInspirationPrevious" @click="scrollInspiration(-1)"><ChevronLeft :size="20" /></button>
+                <button class="inspiration-arrow inspiration-arrow--next" type="button" aria-label="下一组" title="下一组" :disabled="!canScrollInspirationNext" @click="scrollInspiration(1)"><ChevronRight :size="20" /></button>
+              </nav>
+            </div>
           </header>
           <div class="inspiration-browser">
             <div ref="inspirationRail" class="inspiration-rail" @scroll="syncInspirationNavigation">
@@ -324,7 +345,7 @@
         <div class="project-table-head"><span>名称</span><span>项目内容</span><span>修改时间</span><span>操作</span></div>
         <div v-if="auth.isAuthenticated && store.workspaceHydrating && !store.projects.length" class="project-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
         <div v-else-if="filteredProjects.length" class="project-table">
-          <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" :title="project.archived ? '已归档项目不能设为当前项目' : '设为当前项目'" :disabled="project.archived" @click="selectCurrentProject(project)"><span class="project-row-name"><Folder :size="18" /><span><strong>{{ project.name }}</strong><small>{{ project.brief }}</small></span></span><span class="project-row-content">{{ project.conversationCount }} 个对话 · {{ project.assetCount }} 个文件 · {{ project.versionCount }} 个版本</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
+          <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" :title="project.archived ? '已归档项目不能设为当前项目' : '设为当前项目'" :disabled="project.archived" @click="selectCurrentProject(project)"><span class="project-row-name"><Folder :size="18" /><span><strong>{{ project.name }}</strong><small>{{ project.brief }}</small></span></span><span class="project-row-content">{{ project.conversationCount }} 个对话 · {{ project.assetCount }} 个文件 · {{ project.versionCount }} 个版本</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button v-if="project.accessRole === 'OWNER'" type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button v-if="project.accessRole === 'OWNER'" type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
         </div>
         <div v-else class="project-empty"><span class="index-empty-icon"><ArchiveRestore v-if="projectTab === 'archived'" :size="25" /><Folder v-else :size="25" /></span><strong>{{ projectSearch ? '没有匹配的项目' : projectTab === 'archived' ? '还没有已归档项目' : '创建你的第一个项目' }}</strong><p>{{ projectSearch ? '换一个关键词继续查找。' : projectTab === 'archived' ? '归档后的项目会保留聊天、文件和版本，并显示在这里。' : '把同一主题的聊天、文件和工作流集中管理，后续内容会自动归入当前项目。' }}</p><button v-if="projectSearch" type="button" @click="projectSearch = ''">清除搜索</button><button v-else-if="projectTab === 'active'" type="button" @click="projectModalOpen = true"><Plus :size="15" />创建项目</button></div>
       </div>
@@ -380,20 +401,37 @@
           <div v-else class="project-detail-body">
             <div class="project-detail-main">
               <section class="project-detail-section project-content-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">CONTENT</span><h3>项目内容</h3></div><span class="project-content-total">{{ projectDetail?.conversationCount || 0 }} 个对话 · {{ projectDetail?.assetCount || 0 }} 个文件</span></div><div class="project-content-grid"><div><h4>最近对话</h4><button v-for="conversation in projectDetail?.conversations || []" :key="conversation.id" class="project-content-row" type="button" @click="openProjectConversation(conversation.id)"><MessageSquare :size="15" /><span><strong>{{ conversation.title }}</strong><small>{{ conversation.model }} · {{ formatDate(conversation.updatedAt) }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.conversations.length" class="project-content-empty">在选中此项目后开始对话，对话会显示在这里。</p></div><div><h4>项目文件</h4><button v-for="asset in projectDetail?.assets || []" :key="asset.id" class="project-content-row" type="button" @click="openProjectAsset(asset)"><ImageIcon v-if="asset.kind === 'image'" :size="15" /><Video v-else-if="asset.kind === 'video'" :size="15" /><FileText v-else :size="15" /><span><strong>{{ asset.title }}</strong><small>{{ asset.tags.join(' · ') }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.assets.length" class="project-content-empty">上传到项目或在项目中生成的文件会显示在这里。</p></div></div></section>
-              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">WORKFLOW</span><h3>工作流设置</h3></div><span class="project-revision">v{{ projectDetail?.revision || 1 }}</span></div>
-                <div class="project-form-grid"><label><span>项目状态</span><select v-model="projectWorkflowStatus"><option value="PLANNING">规划中</option><option value="IN_PROGRESS">进行中</option><option value="REVIEW">待审核</option><option value="COMPLETED">已完成</option><option value="ARCHIVED">已归档</option></select></label><label><span>默认模型</span><input v-model="projectDefaultModel" maxlength="160" placeholder="跟随系统默认模型" /></label></div>
-                <label class="project-form-field"><span>默认项目指令</span><textarea v-model="projectInstructions" maxlength="4000" rows="4" placeholder="每次在此项目中开始工作时使用的背景和约束" /></label>
-                <div class="project-form-grid"><label><span>默认助手</span><select v-model="projectDefaultAssistantId"><option value="">不使用默认助手</option><option v-for="assistant in assistants" :key="assistant.id" :value="assistant.id">{{ assistant.name }}</option></select></label><label><span>版本标签</span><input v-model="projectVersionLabel" maxlength="80" placeholder="例如：第一轮方案" /></label></div>
-                <label class="project-form-field"><span>默认提示词</span><textarea v-model="projectDefaultPrompt" maxlength="10000" rows="3" placeholder="工作流开始时自动带入的提示词" /></label>
-                <label class="project-form-field"><span>交付要求</span><textarea v-model="projectOutputRequirements" maxlength="10000" rows="3" placeholder="定义最终产物、格式和验收标准" /></label>
+              <section class="project-detail-section">
+                <div class="project-section-heading"><div><span class="project-detail-eyebrow">COLLABORATION</span><h3>项目成员</h3></div><span class="project-content-total">{{ (projectDetail?.members.length || 0) + 1 }} 人</span></div>
+                <div class="project-member-list">
+                  <article><span class="project-member-avatar">{{ projectDetail?.owner?.displayName?.slice(0, 1) || '主' }}</span><div><strong>{{ projectDetail?.owner?.displayName || '项目所有者' }}</strong><small>{{ projectDetail?.owner?.email || '所有者' }}</small></div><em>所有者</em></article>
+                  <article v-for="member in projectDetail?.members || []" :key="member.userId"><span class="project-member-avatar">{{ member.user.displayName.slice(0, 1) }}</span><div><strong>{{ member.user.displayName }}</strong><small>{{ member.user.email || '未绑定邮箱' }}</small></div><select v-if="projectDetail?.accessRole === 'OWNER'" :value="member.role" :disabled="projectMemberBusy === member.userId" @change="updateProjectMemberRole(member.userId, ($event.target as HTMLSelectElement).value as 'ADMIN' | 'MEMBER')"><option value="MEMBER">成员</option><option value="ADMIN">管理员</option></select><em v-else>{{ member.role === 'ADMIN' ? '管理员' : '成员' }}</em><button v-if="projectDetail?.accessRole === 'OWNER'" type="button" title="移除成员" :disabled="projectMemberBusy === member.userId" @click="removeProjectMember(member.userId)"><Trash2 :size="14" /></button></article>
+                </div>
+                <form v-if="projectDetail?.accessRole === 'OWNER'" class="project-member-form" @submit.prevent="addProjectMember"><input v-model.trim="projectMemberEmail" type="email" maxlength="200" placeholder="输入已注册用户的邮箱" /><select v-model="projectMemberRole"><option value="MEMBER">成员</option><option value="ADMIN">管理员</option></select><button type="submit" :disabled="projectMemberBusy === 'add' || !projectMemberEmail"><Plus :size="15" />添加成员</button></form>
               </section>
-              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">STEPS</span><h3>工作流步骤</h3></div><button class="project-inline-button" type="button" @click="addProjectStep"><Plus :size="15" />新增步骤</button></div>
-                <div v-if="projectSteps.length" class="project-steps"><article v-for="(step, index) in projectSteps" :key="step.id" class="project-step"><span class="project-step-number">{{ String(index + 1).padStart(2, '0') }}</span><div class="project-step-fields"><input v-model="step.title" maxlength="120" placeholder="步骤名称" /><input v-model="step.description" maxlength="1000" placeholder="这一步的目标和交付物" /></div><select v-model="step.status" aria-label="步骤状态"><option value="TODO">待开始</option><option value="IN_PROGRESS">进行中</option><option value="DONE">已完成</option></select><button type="button" aria-label="删除步骤" title="删除步骤" @click="removeProjectStep(index)"><Trash2 :size="15" /></button></article></div>
+              <section class="project-detail-section">
+                <div class="project-section-heading"><div><span class="project-detail-eyebrow">PROJECT SKILL</span><h3>项目技能</h3></div><span class="project-content-total">{{ projectSkillStatus?.active?.enabled ? `v${projectSkillStatus.active.version} 已启用` : '未启用' }}</span></div>
+                <p class="project-version-note">项目技能会作为项目级工作规范，自动应用于后续聊天和 Agent 任务。</p>
+                <div v-if="projectSkillStatus?.canManage" class="project-skill-editor"><input v-model="projectSkillName" maxlength="80" placeholder="技能名称" /><textarea v-model="projectSkillContent" maxlength="50000" rows="7" placeholder="输入项目长期使用的流程、约束、风格和验收标准" /><div><button type="button" class="project-secondary-button" :disabled="projectSkillBusy || !projectSkillStatus?.active?.enabled" @click="disableProjectSkill">停用技能</button><button type="button" class="project-primary-button" :disabled="projectSkillBusy || !projectSkillName.trim() || !projectSkillContent.trim()" @click="saveProjectSkill"><Save :size="15" />保存为新版本</button></div></div>
+                <div v-else-if="projectSkillStatus?.active" class="project-skill-readonly"><strong>{{ projectSkillStatus.active.name }}</strong><pre>{{ projectSkillStatus.active.content }}</pre></div>
+                <div class="project-skill-summary"><select v-model="projectSkillConversationId"><option value="">选择自己的项目对话</option><option v-for="conversation in projectDetail?.conversations || []" :key="conversation.id" :value="conversation.id">{{ conversation.title }}</option></select><input v-model="projectSkillSummaryRequest" maxlength="2000" placeholder="可选：说明需要提炼的规则" /><button type="button" :disabled="projectSkillBusy || !projectSkillConversationId" @click="summarizeProjectSkill">AI 总结</button></div>
+                <div v-if="projectSkillCandidate" class="project-skill-candidate"><header><div><strong>{{ projectSkillCandidate.name }}</strong><small>{{ projectSkillCandidate.changeSummary }}</small></div><button v-if="projectSkillStatus?.canManage" type="button" :disabled="projectSkillBusy" @click="activateProjectSkillCandidate">采用此版本</button></header><pre>{{ projectSkillCandidate.content }}</pre></div>
+                <details v-if="projectSkillStatus?.versions.length" class="project-skill-history"><summary>技能版本历史 · {{ projectSkillStatus.versions.length }}</summary><article v-for="version in projectSkillStatus.versions" :key="version.id"><div><strong>v{{ version.version }} · {{ version.name }}</strong><small>{{ version.changeSummary || '未填写变更说明' }} · {{ version.createdBy?.displayName || '系统' }}</small></div><button v-if="projectSkillStatus?.canManage && !version.active" type="button" :disabled="projectSkillBusy" @click="restoreProjectSkill(version.version)"><RotateCcw :size="13" />恢复</button></article></details>
+              </section>
+              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">WORKFLOW</span><h3>工作流设置</h3></div><span class="project-revision">v{{ projectDetail?.revision || 1 }}</span></div>
+                <div class="project-form-grid"><label><span>项目状态</span><select v-model="projectWorkflowStatus" :disabled="!projectSkillStatus?.canManage"><option value="PLANNING">规划中</option><option value="IN_PROGRESS">进行中</option><option value="REVIEW">待审核</option><option value="COMPLETED">已完成</option><option value="ARCHIVED">已归档</option></select></label><label><span>默认模型</span><input v-model="projectDefaultModel" :disabled="!projectSkillStatus?.canManage" maxlength="160" placeholder="跟随系统默认模型" /></label></div>
+                <label class="project-form-field"><span>默认项目指令</span><textarea v-model="projectInstructions" :disabled="!projectSkillStatus?.canManage" maxlength="4000" rows="4" placeholder="每次在此项目中开始工作时使用的背景和约束" /></label>
+                <div class="project-form-grid"><label><span>默认助手</span><select v-model="projectDefaultAssistantId" :disabled="!projectSkillStatus?.canManage"><option value="">不使用默认助手</option><option v-for="assistant in assistants" :key="assistant.id" :value="assistant.id">{{ assistant.name }}</option></select></label><label><span>版本标签</span><input v-model="projectVersionLabel" :disabled="!projectSkillStatus?.canManage" maxlength="80" placeholder="例如：第一轮方案" /></label></div>
+                <label class="project-form-field"><span>默认提示词</span><textarea v-model="projectDefaultPrompt" :disabled="!projectSkillStatus?.canManage" maxlength="10000" rows="3" placeholder="工作流开始时自动带入的提示词" /></label>
+                <label class="project-form-field"><span>交付要求</span><textarea v-model="projectOutputRequirements" :disabled="!projectSkillStatus?.canManage" maxlength="10000" rows="3" placeholder="定义最终产物、格式和验收标准" /></label>
+              </section>
+              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">STEPS</span><h3>工作流步骤</h3></div><button v-if="projectSkillStatus?.canManage" class="project-inline-button" type="button" @click="addProjectStep"><Plus :size="15" />新增步骤</button></div>
+                <div v-if="projectSteps.length" class="project-steps"><article v-for="(step, index) in projectSteps" :key="step.id" class="project-step"><span class="project-step-number">{{ String(index + 1).padStart(2, '0') }}</span><div class="project-step-fields"><input v-model="step.title" :disabled="!projectSkillStatus?.canManage" maxlength="120" placeholder="步骤名称" /><input v-model="step.description" :disabled="!projectSkillStatus?.canManage" maxlength="1000" placeholder="这一步的目标和交付物" /></div><select v-model="step.status" :disabled="!projectSkillStatus?.canManage" aria-label="步骤状态"><option value="TODO">待开始</option><option value="IN_PROGRESS">进行中</option><option value="DONE">已完成</option></select><button v-if="projectSkillStatus?.canManage" type="button" aria-label="删除步骤" title="删除步骤" @click="removeProjectStep(index)"><Trash2 :size="15" /></button></article></div>
                 <div v-else class="project-steps-empty"><Layers3 :size="20" /><span>还没有工作步骤，从拆解第一项任务开始。</span></div>
               </section>
-              <footer class="project-detail-actions"><button type="button" class="project-secondary-button" @click="closeProjectDetails">取消</button><button type="button" class="project-primary-button" :disabled="projectSaving" @click="saveProjectWorkflow"><LoaderCircle v-if="projectSaving" class="admin-spin" :size="15" /><Save v-else :size="15" />保存工作流</button></footer>
+              <footer class="project-detail-actions"><button type="button" class="project-secondary-button" @click="closeProjectDetails">关闭</button><button v-if="projectSkillStatus?.canManage" type="button" class="project-primary-button" :disabled="projectSaving" @click="saveProjectWorkflow"><LoaderCircle v-if="projectSaving" class="admin-spin" :size="15" /><Save v-else :size="15" />保存工作流</button></footer>
             </div>
-            <aside class="project-version-panel"><div class="project-section-heading"><div><span class="project-detail-eyebrow">HISTORY</span><h3>版本历史</h3></div><button type="button" class="project-icon-button" title="创建版本检查点" aria-label="创建版本检查点" @click="createProjectCheckpoint"><Plus :size="16" /></button></div><p class="project-version-note">每次保存都会自动留下版本，可随时恢复。</p><div v-if="projectVersions.length" class="project-versions"><article v-for="version in projectVersions" :key="version.id" class="project-version" :class="{ 'is-current': version.version === projectDetail?.revision }"><div class="project-version-dot"></div><div class="project-version-copy"><div><strong>v{{ version.version }}</strong><span>{{ version.label || '未命名版本' }}</span></div><p>{{ version.changeSummary || '未填写修改摘要' }}</p><time>{{ formatDate(version.createdAt) }}</time><div class="project-version-actions"><button type="button" class="project-restore-button" @click="projectVersionPreview = projectVersionPreview?.id === version.id ? null : version"><FileText :size="13" />{{ projectVersionPreview?.id === version.id ? '收起快照' : '查看快照' }}</button><button type="button" class="project-restore-button" :disabled="version.version === projectDetail?.revision || projectRestoringVersion === version.version" @click="restoreProject(version)"><RotateCcw :size="13" />{{ projectRestoringVersion === version.version ? '恢复中' : version.version === projectDetail?.revision ? '当前版本' : '恢复此版本' }}</button></div><pre v-if="projectVersionPreview?.id === version.id" class="project-version-snapshot">{{ formatProjectSnapshot(version.snapshot) }}</pre></div></article></div><div v-else class="project-steps-empty"><History :size="20" /><span>暂无版本历史</span></div></aside>
+            <aside class="project-version-panel"><div class="project-section-heading"><div><span class="project-detail-eyebrow">HISTORY</span><h3>版本历史</h3></div><button v-if="projectSkillStatus?.canManage" type="button" class="project-icon-button" title="创建版本检查点" aria-label="创建版本检查点" @click="createProjectCheckpoint"><Plus :size="16" /></button></div><p class="project-version-note">每次保存都会自动留下版本，可随时查看；所有者和管理员可以恢复。</p><div v-if="projectVersions.length" class="project-versions"><article v-for="version in projectVersions" :key="version.id" class="project-version" :class="{ 'is-current': version.version === projectDetail?.revision }"><div class="project-version-dot"></div><div class="project-version-copy"><div><strong>v{{ version.version }}</strong><span>{{ version.label || '未命名版本' }}</span></div><p>{{ version.changeSummary || '未填写修改摘要' }}</p><time>{{ formatDate(version.createdAt) }}</time><div class="project-version-actions"><button type="button" class="project-restore-button" @click="projectVersionPreview = projectVersionPreview?.id === version.id ? null : version"><FileText :size="13" />{{ projectVersionPreview?.id === version.id ? '收起快照' : '查看快照' }}</button><button v-if="projectSkillStatus?.canManage" type="button" class="project-restore-button" :disabled="version.version === projectDetail?.revision || projectRestoringVersion === version.version" @click="restoreProject(version)"><RotateCcw :size="13" />{{ projectRestoringVersion === version.version ? '恢复中' : version.version === projectDetail?.revision ? '当前版本' : '恢复此版本' }}</button></div><pre v-if="projectVersionPreview?.id === version.id" class="project-version-snapshot">{{ formatProjectSnapshot(version.snapshot) }}</pre></div></article></div><div v-else class="project-steps-empty"><History :size="20" /><span>暂无版本历史</span></div></aside>
           </div>
         </section>
       </div>
@@ -405,7 +443,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } f
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Archive, ArchiveRestore, ArrowUp, AudioLines, BadgeCheck, Blend, Bot, BriefcaseBusiness, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Code2, Copy, FileText, FileType2, Folder,
+  Archive, ArchiveRestore, ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Bot, BriefcaseBusiness, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Code2, Copy, FileText, FileType2, Folder,
   Download, Globe2, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip, Presentation,
   History, Languages, LoaderCircle, Maximize2, MessageCircleDashed, MessageSquare, Mic, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Sparkles, Square, Table2, ThumbsDown, ThumbsUp, Trash2, Upload, Video, WandSparkles, X,
 } from 'lucide-vue-next'
@@ -420,10 +458,11 @@ import CapabilitySelector from '../components/CapabilitySelector.vue'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
-import type { CodeArtifact, GenerationRun, Message, PluginCapability, Project, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
+import type { CodeArtifact, GenerationRun, Message, MessageWebSearch, PluginCapability, Project, ProjectSkillCandidate, ProjectSkillStatus, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
 import { api } from '../services/api'
-import { consumeImagePrompt } from '../utils/prompt-transfer'
+import { consumeCreationPrompt, type PendingCreationPrompt } from '../utils/prompt-transfer'
 import { createClientId } from '../utils/client-id'
+import { createFollowUpSuggestions } from '../utils/follow-up-suggestions'
 
 interface Inspiration {
   id: string
@@ -531,6 +570,9 @@ const chatModeOptions = computed<Array<{ label: string; icon: typeof Sparkles; n
       { label: '工作任务 Pro', icon: Bot, note: '', badge: '升级' },
     ])
 const activeChatMode = ref('快速')
+const webSearchPreferenceKey = 'xinyue:chat:web-search'
+const webSearchEnabled = ref(window.localStorage.getItem(webSearchPreferenceKey) === 'true')
+const expandedSearchMessages = ref<string[]>([])
 const chatModeMenuOpen = ref(false)
 const chatMoreMenuOpen = ref(false)
 const draft = ref('')
@@ -570,6 +612,16 @@ const projectDetailError = ref('')
 const projectDetail = ref<Project | null>(null)
 const projectVersions = ref<ProjectVersion[]>([])
 const projectVersionPreview = ref<ProjectVersion | null>(null)
+const projectMemberEmail = ref('')
+const projectMemberRole = ref<'ADMIN' | 'MEMBER'>('MEMBER')
+const projectMemberBusy = ref('')
+const projectSkillStatus = ref<ProjectSkillStatus | null>(null)
+const projectSkillCandidate = ref<ProjectSkillCandidate | null>(null)
+const projectSkillName = ref('')
+const projectSkillContent = ref('')
+const projectSkillConversationId = ref('')
+const projectSkillSummaryRequest = ref('')
+const projectSkillBusy = ref(false)
 const projectWorkflowStatus = ref<ProjectWorkflowStatus>('PLANNING')
 const projectDefaultModel = ref('')
 const projectDefaultAssistantId = ref('')
@@ -590,6 +642,24 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const voiceTarget = ref<'chat' | 'creation'>('chat')
+watch(webSearchEnabled, (enabled) => window.localStorage.setItem(webSearchPreferenceKey, String(enabled)))
+function toggleWebSearch() {
+  webSearchEnabled.value = !webSearchEnabled.value
+  chatModeMenuOpen.value = false
+  chatMoreMenuOpen.value = false
+}
+function searchSourcesExpanded(messageId: string) { return expandedSearchMessages.value.includes(messageId) }
+function toggleSearchSources(messageId: string) {
+  expandedSearchMessages.value = searchSourcesExpanded(messageId) ? expandedSearchMessages.value.filter((id) => id !== messageId) : [...expandedSearchMessages.value, messageId]
+}
+function webSearchSummary(search: MessageWebSearch) {
+  if (search.status === 'searching') return '正在联网搜索'
+  if (search.status === 'failed') return '联网搜索未完成'
+  return `搜索 ${search.queries.length} 个关键词，参考 ${search.sources.length} 篇资料`
+}
+function sourceDomain(value: string) {
+  try { return new URL(value).hostname.replace(/^www\./, '') } catch { return value }
+}
 function useChatShortcut(item: ChatShortcut) {
   chatModeMenuOpen.value = false
   chatMoreMenuOpen.value = false
@@ -600,6 +670,7 @@ function useChatShortcut(item: ChatShortcut) {
 function useChatSuggestion(suggestion: { title: string; prompt: string; targetUrl?: string }) {
   if (suggestion.targetUrl) { openConfiguredDestination(suggestion.targetUrl); return }
   draft.value = suggestion.prompt || suggestion.title
+  if (/联网搜索/.test(draft.value)) webSearchEnabled.value = true
   void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
 }
 function openConfiguredDestination(target: string) {
@@ -844,15 +915,58 @@ watch(() => store.openingConversationId, (conversationId, previousConversationId
 watch(assistantId, (id) => { const assistant = assistants.value.find((item) => item.id === id); if (assistant?.defaultModel) model.value = assistant.defaultModel })
 watch(messageJumps, (messages) => { if (!messages.some((message) => message.id === activeMessageJumpId.value)) activeMessageJumpId.value = messages.at(-1)?.id || ''; void nextTick(syncMessageNavigator) })
 watch(() => route.query.generation, () => { void syncGenerationRoute() })
+watch([activeMode, () => route.query.prompt], () => { void syncTransferredPrompt() })
 watch(() => store.generations.map((generation) => `${generation.id}:${generation.status}:${generation.assets.length}`).join('|'), () => { if (activeMode.value === 'chat') void scrollThreadToBottom() })
 watch(() => store.messages.map((message) => `${message.id}:${message.content.length}`).join('|'), () => { if (activeMode.value === 'chat' && store.isGenerating) void scrollThreadToBottom('auto') })
 watch(generationPrompt, () => { void nextTick().then(resizeGenerationInput) })
+
+let promptTransferSequence = 0
+async function syncTransferredPrompt() {
+  const sequence = ++promptTransferSequence
+  const transferType = activeMode.value === 'images' ? 'IMAGE' : activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'chat' ? 'TEXT' : null
+  if (!transferType) return
+
+  const promptId = typeof route.query.prompt === 'string' ? route.query.prompt : ''
+  const statePrompt = window.history.state?.promptTransfer as PendingCreationPrompt | undefined
+  let pendingPrompt: PendingCreationPrompt | null = null
+  if (promptId) {
+    try {
+      const item = await api<{ promptType: 'IMAGE' | 'VIDEO' | 'TEXT'; prompt: string; title: string; sourceName: string }>(`/prompt-library/items/${encodeURIComponent(promptId)}`)
+      if (item.promptType === transferType) pendingPrompt = { type: item.promptType, prompt: item.prompt, title: item.title, sourceName: item.sourceName }
+    } catch { /* A removed prompt should not block opening the workspace. */ }
+  }
+  if (sequence !== promptTransferSequence) return
+  if (!pendingPrompt) pendingPrompt = statePrompt?.type === transferType ? statePrompt : consumeCreationPrompt(transferType)
+  if (pendingPrompt) {
+    consumeCreationPrompt(transferType)
+    if (transferType === 'TEXT') draft.value = pendingPrompt.prompt
+    else generationPrompt.value = pendingPrompt.prompt
+  }
+  if (statePrompt?.type === transferType) {
+    const nextState = { ...window.history.state }
+    delete nextState.promptTransfer
+    window.history.replaceState(nextState, '')
+  }
+  if (promptId) {
+    const { prompt: _prompt, ...query } = route.query
+    await router.replace({ query })
+  }
+  await nextTick()
+  if (transferType === 'TEXT') {
+    resizeComposer()
+    composerInput.value?.focus({ preventScroll: true })
+  }
+  else {
+    resizeGenerationInput()
+    generationInput.value?.focus({ preventScroll: true })
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('xinyue:close-popovers', closeWorkspacePopovers)
   document.addEventListener('pointerdown', closeChatComposerPopoversOnOutside)
   document.addEventListener('keydown', closeChatComposerPopoversOnEscape)
-  const pendingPrompt = activeMode.value === 'images' ? consumeImagePrompt() : null
-  if (pendingPrompt) generationPrompt.value = pendingPrompt.prompt
+  await syncTransferredPrompt()
   const inspirationLoad = activeMode.value === 'images' ? Promise.all([loadInspirations('IMAGE'), loadImageTools()]) : activeMode.value === 'videos' ? Promise.all([loadInspirations('VIDEO'), loadImageTools()]) : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
   await Promise.all([catalog.load(), inspirationLoad, loadModelCatalog({ applyDefaults: true, force: true }), auth.isAuthenticated ? loadAssistants() : Promise.resolve()])
   if (auth.isAuthenticated) {
@@ -1008,7 +1122,7 @@ function toggleModelMenu() {
   chatMoreMenuOpen.value = false
   if (modelOpen.value) void loadModelCatalog({ force: true })
 }
-function openPromptLibrary() { attachmentOpen.value = false; void router.push('/prompts') }
+function openPromptLibrary(type?: 'IMAGE' | 'VIDEO' | 'TEXT') { attachmentOpen.value = false; void router.push(type ? { path: '/prompts', query: { type: type.toLowerCase() } } : '/prompts') }
 async function togglePromptTemplates() {
   promptTemplatesOpen.value = !promptTemplatesOpen.value
   if (!promptTemplatesOpen.value || promptTemplates.value.length) return
@@ -1118,15 +1232,9 @@ function copyMessage(message: { id: string; content: string }) {
   window.setTimeout(() => { if (copiedMessageId.value === message.id) copiedMessageId.value = '' }, 1600)
 }
 function followUpsForMessage(message: Message) {
-  if (message.suggestions?.length) return message.suggestions.slice(0, 3)
   const index = store.messages.findIndex((item) => item.id === message.id)
   const prompt = store.messages.slice(0, index).reverse().find((item) => item.role === 'user')?.content || ''
-  const topic = prompt.replace(/https?:\/\/\S+/g, ' ').replace(/[\r\n#*_`>\[\](){}]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28).replace(/[，。！？,.!?；;：:]$/, '')
-  const normalized = `${prompt}\n${message.content}`.toLowerCase()
-  if (/代码|编程|接口|api|报错|bug|typescript|javascript|python|java|vue|react|nest/.test(normalized)) return ['请给出一份完整可运行的实现示例', '这个方案有哪些边界情况和常见错误？', '应该如何测试并确认实现正确？']
-  if (/方案|选择|对比|区别|架构|框架|产品/.test(normalized)) return ['请按成本、效果和实施难度做一个对比', '你更推荐哪一种方案？为什么？', '请把推荐方案拆成可执行步骤']
-  if (/写|文案|文章|邮件|报告|总结|改写|翻译/.test(normalized)) return ['请再提供一个更简洁的版本', '能换一种更自然的表达风格吗？', '请整理成可以直接使用的最终稿']
-  return [topic ? `能围绕“${topic}”再举一个具体例子吗？` : '能再举一个具体例子吗？', '这件事有哪些容易忽略的注意事项？', '请把上面的内容整理成可执行步骤']
+  return createFollowUpSuggestions(prompt, message.content, message.suggestions)
 }
 function shouldShowFollowUps(message: Message) {
   return message.role === 'assistant' && message.id === latestAssistantMessageId.value && !store.isGenerating && Boolean(followUpsForMessage(message).length)
@@ -1141,14 +1249,14 @@ async function useFollowUpSuggestion(value: string) {
 function openCodeArtifact(artifact: CodeArtifact) { activeArtifact.value = artifact }
 async function saveMessageEdit(messageId: string) {
   if (!editingMessageContent.value.trim()) return
-  try { await store.branchMessage(messageId, editingMessageContent.value, model.value); cancelMessageEdit(); await scrollThreadToBottom() }
+  try { await store.branchMessage(messageId, editingMessageContent.value, model.value, webSearchEnabled.value); cancelMessageEdit(); await scrollThreadToBottom() }
   catch { /* Store exposes the server error in-page. */ }
 }
 async function retryAssistantMessage(assistantMessageId: string) {
   const assistantIndex = store.messages.findIndex((message) => message.id === assistantMessageId)
   const source = store.messages.slice(0, assistantIndex).reverse().find((message) => message.role === 'user')
   if (!source) return
-  try { await store.branchMessage(source.id, source.content, model.value); await scrollThreadToBottom() }
+  try { await store.branchMessage(source.id, source.content, model.value, webSearchEnabled.value); await scrollThreadToBottom() }
   catch { /* Store exposes the server error in-page. */ }
 }
 async function setMessageFeedback(messageId: string, value: 'UP' | 'DOWN') {
@@ -1171,7 +1279,7 @@ async function submitMessage() {
   await nextTick()
   resizeComposer()
   try {
-    await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, pluginId: chatPluginId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id) })
+    await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, pluginId: chatPluginId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id), webSearchEnabled: webSearchEnabled.value })
     await scrollThreadToBottom()
   } catch (reason) {
     if (reason instanceof ChatSendError && reason.restoreDraft) {
@@ -1510,6 +1618,9 @@ function closeProjectDetails() {
   projectDetail.value = null
   projectVersions.value = []
   projectVersionPreview.value = null
+  projectSkillStatus.value = null
+  projectSkillCandidate.value = null
+  projectMemberEmail.value = ''
   projectDetailError.value = ''
 }
 function formatProjectSnapshot(snapshot: ProjectVersion['snapshot']) { return JSON.stringify(snapshot, null, 2) }
@@ -1531,12 +1642,80 @@ async function openProjectDetails(project: Project) {
   projectDetailError.value = ''
   try {
     const assistantPromise = assistants.value.length ? Promise.resolve() : loadAssistants()
-    const [detail, versions] = await Promise.all([store.loadProjectDetail(project.id), store.loadProjectVersions(project.id), assistantPromise])
+    const [detail, versions, skillStatus] = await Promise.all([store.loadProjectDetail(project.id), store.loadProjectVersions(project.id), api<ProjectSkillStatus>(`/projects/${project.id}/skill`), assistantPromise])
     fillProjectEditor(detail)
     projectVersions.value = versions
+    applyProjectSkillStatus(skillStatus)
   } catch (reason) {
     projectDetailError.value = reason instanceof Error ? reason.message : '项目详情加载失败'
   } finally { projectDetailLoading.value = false }
+}
+function applyProjectSkillStatus(status: ProjectSkillStatus) {
+  projectSkillStatus.value = status
+  projectSkillName.value = status.active?.name || ''
+  projectSkillContent.value = status.active?.content || ''
+}
+async function refreshProjectDetail() {
+  if (!projectDetail.value) return
+  const [detail, skillStatus] = await Promise.all([store.loadProjectDetail(projectDetail.value.id), api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)])
+  fillProjectEditor(detail)
+  applyProjectSkillStatus(skillStatus)
+}
+async function addProjectMember() {
+  if (!projectDetail.value || !projectMemberEmail.value || projectMemberBusy.value) return
+  projectMemberBusy.value = 'add'; projectDetailError.value = ''
+  try { await api(`/projects/${projectDetail.value.id}/members`, { method: 'POST', body: JSON.stringify({ email: projectMemberEmail.value, role: projectMemberRole.value }) }); projectMemberEmail.value = ''; await refreshProjectDetail() }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员添加失败' }
+  finally { projectMemberBusy.value = '' }
+}
+async function updateProjectMemberRole(userId: string, role: 'ADMIN' | 'MEMBER') {
+  if (!projectDetail.value || projectMemberBusy.value) return
+  projectMemberBusy.value = userId
+  try { await api(`/projects/${projectDetail.value.id}/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }); await refreshProjectDetail() }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员角色更新失败' }
+  finally { projectMemberBusy.value = '' }
+}
+async function removeProjectMember(userId: string) {
+  if (!projectDetail.value || projectMemberBusy.value || !window.confirm('确认将该用户移出项目？')) return
+  projectMemberBusy.value = userId
+  try { await api(`/projects/${projectDetail.value.id}/members/${userId}`, { method: 'DELETE' }); await refreshProjectDetail() }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员移除失败' }
+  finally { projectMemberBusy.value = '' }
+}
+async function saveProjectSkill() {
+  if (!projectDetail.value || projectSkillBusy.value) return
+  projectSkillBusy.value = true; projectDetailError.value = ''
+  try { await api(`/projects/${projectDetail.value.id}/skill/manual`, { method: 'POST', body: JSON.stringify({ name: projectSkillName.value, content: projectSkillContent.value }) }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能保存失败' }
+  finally { projectSkillBusy.value = false }
+}
+async function disableProjectSkill() {
+  if (!projectDetail.value || projectSkillBusy.value) return
+  projectSkillBusy.value = true
+  try { await api(`/projects/${projectDetail.value.id}/skill`, { method: 'DELETE' }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能停用失败' }
+  finally { projectSkillBusy.value = false }
+}
+async function summarizeProjectSkill() {
+  if (!projectDetail.value || !projectSkillConversationId.value || projectSkillBusy.value) return
+  projectSkillBusy.value = true; projectSkillCandidate.value = null
+  try { projectSkillCandidate.value = await api<ProjectSkillCandidate>(`/projects/${projectDetail.value.id}/skill/summarize`, { method: 'POST', body: JSON.stringify({ conversationId: projectSkillConversationId.value, request: projectSkillSummaryRequest.value }) }) }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能总结失败' }
+  finally { projectSkillBusy.value = false }
+}
+async function activateProjectSkillCandidate() {
+  if (!projectDetail.value || !projectSkillCandidate.value || projectSkillBusy.value) return
+  projectSkillBusy.value = true
+  try { const candidate = projectSkillCandidate.value; await api(`/projects/${projectDetail.value.id}/skill/activate-summary`, { method: 'POST', body: JSON.stringify({ name: candidate.name, content: candidate.content, changeSummary: candidate.changeSummary, sourceConversationId: candidate.sourceConversation.id }) }); projectSkillCandidate.value = null; applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能启用失败' }
+  finally { projectSkillBusy.value = false }
+}
+async function restoreProjectSkill(version: number) {
+  if (!projectDetail.value || projectSkillBusy.value) return
+  projectSkillBusy.value = true
+  try { await api(`/projects/${projectDetail.value.id}/skill/versions/${version}/restore`, { method: 'POST' }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
+  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能恢复失败' }
+  finally { projectSkillBusy.value = false }
 }
 function addProjectStep() { projectSteps.value.push({ id: createClientId(), title: '', description: '', status: 'TODO', sortOrder: projectSteps.value.length }) }
 function removeProjectStep(index: number) { projectSteps.value.splice(index, 1); projectSteps.value.forEach((step, stepIndex) => { step.sortOrder = stepIndex }) }

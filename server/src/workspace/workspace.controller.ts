@@ -58,6 +58,8 @@ class ReviewToolApprovalDto {
 class OfficeExportDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) conversationId?: string
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) agentTaskId?: string
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) messageId?: string
+  @IsOptional() @IsIn(['docx', 'xlsx', 'pptx', 'md']) format?: 'docx' | 'xlsx' | 'pptx' | 'md'
 }
 
 @Controller()

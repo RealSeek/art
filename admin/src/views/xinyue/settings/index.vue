@@ -28,6 +28,16 @@
                 v-model.trim="settings.siteLogoUrl"
                 :placeholder="xt('留空使用默认品牌标识')" /></ElFormItem></ElForm></ElCard
         ><ElCard v-if="settings" shadow="never"
+          ><template #header><strong>{{ xt('用户端导航') }}</strong></template
+          ><div class="toggle-grid"
+            ><ToggleRow v-model="settings.sidebarCreationEnabled" :title="xt('AI 创作')" :note="xt('图片与视频创作入口')" />
+            <ToggleRow v-model="settings.sidebarCommerceEnabled" :title="xt('电商中心')" :note="xt('商品视觉与电商内容入口')" />
+            <ToggleRow v-model="settings.sidebarOfficeEnabled" :title="xt('办公中心')" :note="xt('文档、表格和 Agent 任务入口')" />
+            <ToggleRow v-model="settings.sidebarPromptsEnabled" :title="xt('提示词库')" :note="xt('图片和视频灵感入口')" />
+            <ToggleRow v-model="settings.sidebarPluginsEnabled" :title="xt('能力中心')" :note="xt('助手、技能、工具和知识库入口')" />
+            <ToggleRow v-model="settings.sidebarProjectsEnabled" :title="xt('项目')" :note="xt('项目与协作工作区入口')" />
+            <ToggleRow v-model="settings.sidebarAssetsEnabled" :title="xt('文件库')" :note="xt('用户文件和生成结果入口')" /></div></ElCard
+        ><ElCard v-if="settings" shadow="never"
           ><template #header
             ><strong>{{ xt('商业能力开关') }}</strong></template
           ><div class="toggle-grid"
@@ -440,6 +450,13 @@
     'siteName',
     'siteLogoUrl',
     'supportUrl',
+    'sidebarCreationEnabled',
+    'sidebarCommerceEnabled',
+    'sidebarOfficeEnabled',
+    'sidebarPromptsEnabled',
+    'sidebarPluginsEnabled',
+    'sidebarProjectsEnabled',
+    'sidebarAssetsEnabled',
     'registrationEnabled',
     'emailLoginEnabled',
     'emailVerifyEnabled',

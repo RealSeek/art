@@ -43,7 +43,7 @@ export class AgentTasksService {
         project: { select: { id: true, name: true } },
         steps: { orderBy: { position: 'asc' } },
         generationJob: { select: { id: true, status: true, creditCost: true, errorMessage: true } },
-        conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
+        conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT', deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
         runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 30 } } },
         schedule: { select: { id: true, title: true, enabled: true, cronExpression: true, timezone: true, nextRunAt: true } },
       },
@@ -143,7 +143,7 @@ export class AgentTasksService {
         assistant: { select: { id: true, name: true } },
         project: { select: { id: true, name: true } },
         steps: { orderBy: { position: 'asc' } },
-        conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
+        conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT', deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
         runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 100 } } },
         schedule: { select: { id: true, title: true, enabled: true, cronExpression: true, timezone: true, nextRunAt: true } },
       },
@@ -269,7 +269,7 @@ export class AgentTasksService {
   private async assertRelations(userId: string, input: CreateAgentTaskInput) {
     const attachmentIds = [...new Set(input.attachmentIds || [])]
     const [project, assistant, assets] = await Promise.all([
-      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, userId, archivedAt: null }, select: { id: true } }) : null,
+      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, archivedAt: null, OR: [{ userId }, { members: { some: { userId } } }] }, select: { id: true } }) : null,
       input.assistantId ? this.prisma.assistant.findFirst({ where: { id: input.assistantId, enabled: true, visibility: 'PUBLIC' }, select: { id: true } }) : null,
       attachmentIds.length ? this.prisma.asset.count({ where: { id: { in: attachmentIds }, userId, deletedAt: null } }) : 0,
     ])

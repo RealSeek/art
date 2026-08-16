@@ -25,12 +25,13 @@ export class GenerationsService {
     const moderationSource = input.kind === 'CHAT' ? 'CHAT' : input.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE'
     await this.moderation.inspect(userId, moderationSource, input.prompt, { conversationId: input.conversationId || null, projectId: input.projectId || null, kind: input.kind })
     const [project, conversation] = await Promise.all([
-      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, userId }, select: { id: true } }) : null,
+      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, archivedAt: null, OR: [{ userId }, { members: { some: { userId } } }] }, select: { id: true, instructions: true, activeSkillVersion: { select: { id: true, version: true, name: true, content: true, enabled: true } } } }) : null,
       input.conversationId ? this.prisma.conversation.findFirst({ where: { id: input.conversationId, userId }, select: { id: true, projectId: true } }) : null,
     ])
     if (input.projectId && !project) throw new NotFoundException('项目不存在')
     if (input.conversationId && !conversation) throw new NotFoundException('对话不存在')
     if (input.projectId && conversation?.projectId !== input.projectId) throw new NotFoundException('对话不属于该项目')
+    if (input.kind === 'CHAT' && conversation?.projectId && !input.projectId) throw new BadRequestException('项目对话必须携带项目标识')
     const [subscription, privacy, freePlan, account] = await Promise.all([
       this.prisma.userSubscription.findFirst({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] }, OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gt: new Date() } }] }, orderBy: { createdAt: 'desc' }, include: { plan: true } }),
       this.prisma.userSettings.findUnique({ where: { userId }, select: { trainingOptOut: true, shareUsageAnalytics: true } }),
@@ -57,11 +58,13 @@ export class GenerationsService {
     if (creationToolId && !creationTool) throw new NotFoundException('图片工具不存在或已停用')
     const requestedModel = creationTool?.model || input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
     const resolved = await this.providers.resolve(userId, requestedModel, capability, input.options)
-    const normalizedOptions = input.kind === 'IMAGE' || input.kind === 'COMMERCE'
+    const projectSkillSnapshot = input.kind === 'CHAT' && project?.activeSkillVersion?.enabled ? { id: project.activeSkillVersion.id, version: project.activeSkillVersion.version, name: project.activeSkillVersion.name, content: project.activeSkillVersion.content } : undefined
+    const projectInstructions = input.kind === 'CHAT' ? project?.instructions.trim() || undefined : undefined
+    const normalizedOptions: Record<string, unknown> = input.kind === 'IMAGE' || input.kind === 'COMMERCE'
       ? { ...input.options, ...(creationTool ? { creationTool: { id: creationTool.id, title: creationTool.title, instruction: creationTool.prompt, options: creationTool.options } } : {}), ...normalizeImageOptions(input.options, resolved.imageCapabilities) }
       : input.kind === 'VIDEO'
         ? { ...input.options, ...normalizeVideoOptions(input.options, resolved.videoCapabilities) }
-        : input.options
+        : { ...input.options, ...(projectSkillSnapshot ? { projectSkill: projectSkillSnapshot } : {}), ...(projectInstructions ? { projectInstructions } : {}) }
     if (input.kind === 'IMAGE' || input.kind === 'COMMERCE') await this.assertImageAssets(userId, normalizedOptions)
     const quantity = input.kind === 'COMMERCE' ? Math.max(1, Math.min(Number(normalizedOptions.modules || 8), 12)) : input.kind === 'IMAGE' ? Math.max(1, Math.min(Number(normalizedOptions.count || 1), 10)) : 1
     let unitCreditCost = Math.max(0, resolved.creditCost)
@@ -78,7 +81,7 @@ export class GenerationsService {
     }
     const baseCreditCost = Math.max(0, unitCreditCost * quantity)
     const maxOutputTokens = input.kind === 'CHAT' ? Math.max(1, Math.min(32768, Number(normalizedOptions.maxOutputTokens || 4096))) : 0
-    const inputMessages = input.kind === 'CHAT' && input.conversationId ? await this.prisma.message.findMany({ where: { conversationId: input.conversationId }, orderBy: { createdAt: 'asc' }, take: 80, select: { content: true } }) : []
+    const inputMessages = input.kind === 'CHAT' && input.conversationId ? await this.prisma.message.findMany({ where: { conversationId: input.conversationId, deletedAt: null }, orderBy: { createdAt: 'asc' }, take: 80, select: { content: true } }) : []
     const estimatedInputTokens = inputMessages.reduce((total, message) => total + message.content.length, 0)
     const reservedTokenCredits = input.kind === 'CHAT' ? Math.ceil(estimatedInputTokens * resolved.inputCreditsPerMillion / 1_000_000) + Math.ceil(maxOutputTokens * resolved.outputCreditsPerMillion / 1_000_000) : 0
     const creditCost = baseCreditCost + reservedTokenCredits
@@ -124,8 +127,8 @@ export class GenerationsService {
   async get(userId: string, id: string) {
     const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } } } })
     if (!job) throw new NotFoundException('任务不存在')
-    const streamMessage = job.kind === 'CHAT' && job.conversationId ? await this.prisma.message.findFirst({ where: { conversationId: job.conversationId, metadata: { path: ['jobId'], equals: job.id } }, select: { id: true, content: true, model: true } }) : null
-    return { ...job, errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage), stream: streamMessage ? { messageId: streamMessage.id, content: streamMessage.content, model: streamMessage.model } : null, outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })) }
+    const streamMessage = job.kind === 'CHAT' && job.conversationId ? await this.prisma.message.findFirst({ where: { conversationId: job.conversationId, deletedAt: null, metadata: { path: ['jobId'], equals: job.id } }, select: { id: true, content: true, model: true, metadata: true } }) : null
+    return { ...job, errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage), stream: streamMessage ? { messageId: streamMessage.id, content: streamMessage.content, model: streamMessage.model, metadata: streamMessage.metadata } : null, outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })) }
   }
   async list(userId: string, kind?: JobKind) {
     const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } } } })

@@ -624,8 +624,22 @@
       >
     </ElDrawer>
 
-    <ElDrawer v-model="sourceVisible" :title="xt('提示词库来源')" size="720px" destroy-on-close>
+    <ElDrawer
+      v-model="sourceVisible"
+      :title="xt('提示词库来源')"
+      size="min(960px, 96vw)"
+      destroy-on-close
+    >
+      <ElAlert
+        class="source-cache-notice"
+        type="info"
+        :closable="false"
+        :title="
+          xt('图片与视频提示词均从本地缓存读取，系统每 6 小时自动检查更新，也可单独手动刷新。')
+        "
+      />
       <ElTable v-loading="sourceLoading" :data="promptSources" row-key="id">
+        <ElTableColumn :label="xt('类型')" prop="promptTypeLabel" width="72" />
         <ElTableColumn :label="xt('来源')" min-width="180"
           ><template #default="{ row }"
             ><ElInput v-model.trim="row.displayName" maxlength="100" /><small class="source-meta">{{
@@ -645,16 +659,23 @@
         <ElTableColumn :label="xt('启用')" width="90"
           ><template #default="{ row }"><ElSwitch v-model="row.enabled" /></template
         ></ElTableColumn>
-        <ElTableColumn :label="xt('同步状态')" min-width="160"
+        <ElTableColumn :label="xt('缓存状态')" min-width="180"
           ><template #default="{ row }"
-            ><ElTag :type="row.lastError ? 'danger' : 'success'">{{
-              row.lastError ? xt('同步异常') : xt('正常')
+            ><ElTag :type="row.refreshing ? 'warning' : row.lastError ? 'danger' : 'success'">{{
+              row.refreshing ? xt('同步中') : row.lastError ? xt('同步异常') : xt('缓存完整')
             }}</ElTag
-            ><small v-if="row.lastError" class="source-error">{{ row.lastError }}</small></template
+            ><small v-if="row.fetchedAt" class="source-meta"
+              >{{ xt('更新于') }} {{ formatDate(row.fetchedAt) }}</small
+            ><small v-if="row.lastError && !row.refreshing" class="source-error">{{
+              row.lastError
+            }}</small></template
           ></ElTableColumn
         >
-        <ElTableColumn :label="xt('操作')" width="90" align="right"
+        <ElTableColumn :label="xt('操作')" width="138" align="right"
           ><template #default="{ row }"
+            ><ElButton link :loading="row._refreshing" @click="refreshPromptSource(row)">{{
+              xt('更新缓存')
+            }}</ElButton
             ><ElButton link type="primary" @click="savePromptSource(row)">{{
               xt('保存')
             }}</ElButton></template
@@ -1231,6 +1252,12 @@
           allowCreate: true
         },
         { key: 'coverUrl', label: '展示图片地址', maxlength: 2000 },
+        {
+          key: 'previewVideoUrl',
+          label: '视频预览地址',
+          maxlength: 2000,
+          placeholder: '视频提示词可填写 MP4 或 WebM 地址'
+        },
         { key: 'enabled', label: '前台展示', type: 'switch' }
       ]
     },
@@ -1821,11 +1848,12 @@
     },
     promptLibrary: {
       title: '提示词库',
-      description: '集中管理外部来源、分类和提示词内容',
+      description: '集中管理图片与视频提示词来源和展示内容',
       icon: 'ri:book-open-line',
       endpoint: '/v1/admin/prompt-library/items?page=1&pageSize=5000',
       columns: [
         { key: 'coverUrl', label: '预览', width: 118, type: 'image' },
+        { key: 'promptTypeLabel', label: '类型', width: 82 },
         { key: 'title', label: '名称', minWidth: 220 },
         { key: 'sourceName', label: '来源', minWidth: 150 },
         { key: 'tags', label: '标签', minWidth: 170 },
@@ -2693,7 +2721,7 @@
     await request.post({
       url: '/v1/admin/prompt-library/refresh',
       params: {},
-      timeout: 120000,
+      timeout: 600000,
       showSuccessMessage: true
     })
     await load()
@@ -2716,6 +2744,21 @@
     })
     await openPromptSources()
     await load()
+  }
+  async function refreshPromptSource(row: Row) {
+    row._refreshing = true
+    try {
+      await request.post({
+        url: `/v1/admin/prompt-library/sources/${row.id}/refresh`,
+        params: {},
+        timeout: 600000,
+        showSuccessMessage: true
+      })
+      await openPromptSources()
+      await load()
+    } finally {
+      row._refreshing = false
+    }
   }
   async function openModerationPolicy() {
     policyVisible.value = true
@@ -3264,6 +3307,10 @@
     font-size: 11px;
     line-height: 1.5;
     color: var(--art-gray-500);
+  }
+
+  .source-cache-notice {
+    margin-bottom: 16px;
   }
 
   .source-meta {

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { randomBytes } from 'node:crypto'
 import { AuthGuard } from '../auth/auth.guard'
@@ -30,7 +31,7 @@ export class ConversationsController {
   @Get('export') async exportData(@CurrentUser() user: AuthenticatedUser) {
     const [account, conversations, projects, assets] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: user.id }, select: { id: true, email: true, displayName: true, createdAt: true, settings: true } }),
-      this.prisma.conversation.findMany({ where: { userId: user.id, temporary: false }, orderBy: { createdAt: 'asc' }, include: { messages: { orderBy: { createdAt: 'asc' }, select: { id: true, role: true, content: true, model: true, metadata: true, createdAt: true } } } }),
+      this.prisma.conversation.findMany({ where: { userId: user.id, temporary: false }, orderBy: { createdAt: 'asc' }, include: { messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true, role: true, content: true, model: true, metadata: true, createdAt: true } } } }),
       this.prisma.project.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' }, select: { id: true, name: true, description: true, instructions: true, archivedAt: true, createdAt: true, updatedAt: true } }),
       this.prisma.asset.findMany({ where: { userId: user.id, deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true, projectId: true, kind: true, name: true, mimeType: true, size: true, width: true, height: true, metadata: true, createdAt: true } }),
     ])
@@ -42,7 +43,7 @@ export class ConversationsController {
   }
   @Post() async create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateConversationDto) {
     if (body.projectId) {
-      const project = await this.prisma.project.findFirst({ where: { id: body.projectId, userId: user.id }, select: { id: true } })
+      const project = await this.prisma.project.findFirst({ where: { id: body.projectId, archivedAt: null, OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }] }, select: { id: true } })
       if (!project) throw new NotFoundException('项目不存在')
     }
     const [settings, userSettings] = await Promise.all([
@@ -54,11 +55,13 @@ export class ConversationsController {
     return this.prisma.conversation.create({ data: { userId: user.id, projectId: body.projectId, title: body.title?.trim() || '新对话', model: body.model?.trim() || process.env.AI_CHAT_MODEL || 'gpt-4.1', temporary, expiresAt: temporary ? new Date(Date.now() + retentionHours * 3_600_000) : null } })
   }
   @Get(':id') async get(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id }, include: { messages: { orderBy: { createdAt: 'asc' }, include: { attachments: { include: { asset: true } } } }, jobs: { where: { kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { orderBy: { position: 'asc' }, include: { asset: true } } } } } })
+    const conversation = await this.prisma.conversation.findFirst({ where: this.readableConversationWhere(user.id, id), include: { project: { select: { userId: true } }, messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, displayName: true, email: true } }, attachments: { include: { asset: true } } } }, jobs: { where: { kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { orderBy: { position: 'asc' }, include: { asset: true } } } } } })
     if (!conversation) throw new NotFoundException('对话不存在')
-    const { jobs, ...detail } = conversation
+    const auditReadOnly = conversation.userId !== user.id && conversation.project?.userId === user.id
+    const { jobs, project: _project, ...detail } = conversation
     return {
       ...detail,
+      auditReadOnly,
       messages: conversation.messages.map((message) => ({
         ...message,
         attachments: message.attachments.map((attachment) => ({
@@ -82,7 +85,7 @@ export class ConversationsController {
       if (count !== body.assetIds.length) throw new NotFoundException('附件不存在')
     }
     return this.prisma.$transaction(async (tx) => {
-      const message = await tx.message.create({ data: { conversationId: id, role: 'USER', content: body.content, attachments: body.assetIds?.length ? { create: body.assetIds.map((assetId) => ({ assetId })) } : undefined }, include: { attachments: true } })
+      const message = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content: body.content, attachments: body.assetIds?.length ? { create: body.assetIds.map((assetId) => ({ assetId })) } : undefined }, include: { attachments: true } })
       await tx.conversation.update({ where: { id }, data: { updatedAt: new Date() } })
       return message
     })
@@ -91,10 +94,10 @@ export class ConversationsController {
   async branchMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string, @Body() body: BranchMessageDto) {
     const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id }, select: { id: true } })
     if (!conversation) throw new NotFoundException('对话不存在')
-    const messages = await this.prisma.message.findMany({ where: { conversationId: id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true } })
+    const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true, authorId: true } })
     const messageIndex = messages.findIndex((message) => message.id === messageId)
     const target = messages[messageIndex]
-    if (!target || target.role !== 'USER') throw new NotFoundException('用户消息不存在')
+    if (!target || target.role !== 'USER' || (target.authorId && target.authorId !== user.id)) throw new NotFoundException('用户消息不存在')
     const content = body.content?.trim() || target.content
     await this.moderation.inspect(user.id, 'CHAT', content, { conversationId: id, messageId, entry: 'branch' })
     const followingIds = messages.slice(messageIndex + 1).map((message) => message.id)
@@ -105,9 +108,24 @@ export class ConversationsController {
       return updated
     })
   }
+  @Delete(':id/messages/:messageId')
+  async softDeleteMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string) {
+    const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id, projectId: { not: null }, project: { OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }] } }, select: { id: true } })
+    if (!conversation) throw new ForbiddenException('只有项目成员可以删除自己的提问')
+    const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, authorId: true } })
+    const index = messages.findIndex((message) => message.id === messageId && message.role === 'USER' && (!message.authorId || message.authorId === user.id))
+    if (index < 0) throw new NotFoundException('提问不存在或已删除')
+    const relatedIds = [messages[index].id]
+    for (const message of messages.slice(index + 1)) {
+      if (message.role === 'USER') break
+      relatedIds.push(message.id)
+    }
+    await this.prisma.message.updateMany({ where: { id: { in: relatedIds }, conversationId: id, deletedAt: null }, data: { deletedAt: new Date(), deletedById: user.id } })
+    return { id: messageId, deleted: true, deletedCount: relatedIds.length }
+  }
   @Patch(':id/messages/:messageId/feedback')
   async feedback(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string, @Body() body: MessageFeedbackDto) {
-    const message = await this.prisma.message.findFirst({ where: { id: messageId, conversationId: id, role: 'ASSISTANT', conversation: { userId: user.id } }, select: { id: true, metadata: true } })
+    const message = await this.prisma.message.findFirst({ where: { id: messageId, conversationId: id, role: 'ASSISTANT', deletedAt: null, conversation: { userId: user.id } }, select: { id: true, metadata: true } })
     if (!message) throw new NotFoundException('助手消息不存在')
     const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata) ? message.metadata as Record<string, unknown> : {}
     await this.prisma.message.update({ where: { id: message.id }, data: { metadata: { ...metadata, feedback: body.value || null } } })
@@ -137,6 +155,10 @@ export class ConversationsController {
     if (!result.count) throw new NotFoundException('对话不存在')
     return { deleted: true }
   }
+
+  private readableConversationWhere(userId: string, id: string): Prisma.ConversationWhereInput {
+    return { id, OR: [{ userId }, { project: { userId } }] }
+  }
 }
 
 @Controller('shares')
@@ -151,7 +173,7 @@ export class ConversationSharesController {
         model: true,
         createdAt: true,
         sharedAt: true,
-        messages: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true, model: true, createdAt: true } },
+        messages: { where: { deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true, model: true, createdAt: true } },
       },
     })
     if (!conversation) throw new NotFoundException('共享对话不存在或已停止共享')

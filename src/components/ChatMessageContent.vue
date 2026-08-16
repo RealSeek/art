@@ -33,7 +33,12 @@ const blocks = computed<RenderBlock[]>(() => {
     result.push({
       key: `markdown-${blockIndex++}`,
       kind: 'markdown',
-      html: DOMPurify.sanitize(String(html), { USE_PROFILES: { html: true } }),
+      html: DOMPurify.sanitize(String(html), {
+        USE_PROFILES: { html: true },
+        ADD_TAGS: ['img'],
+        ADD_ATTR: ['src', 'alt', 'title', 'width', 'height', 'loading'],
+        ALLOW_DATA_ATTR: false,
+      }),
     })
     markdownTokens = []
   }

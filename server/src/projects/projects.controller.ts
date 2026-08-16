@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -15,6 +17,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsEmail,
   IsIn,
   IsOptional,
   IsString,
@@ -102,6 +105,15 @@ class CreateVersionDto {
   @IsOptional() @IsString() @MaxLength(500) changeSummary?: string;
 }
 
+class ProjectMemberDto {
+  @IsEmail() email!: string;
+  @IsOptional() @IsIn(["ADMIN", "MEMBER"]) role?: "ADMIN" | "MEMBER";
+}
+
+class ProjectMemberRoleDto {
+  @IsIn(["ADMIN", "MEMBER"]) role!: "ADMIN" | "MEMBER";
+}
+
 type ProjectSnapshotSource = {
   name: string;
   description: string;
@@ -119,23 +131,35 @@ export class ProjectsController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  list(
+  async list(
     @CurrentUser() user: AuthenticatedUser,
     @Query("archived") archived?: string,
     @Query("q") query?: string,
   ) {
-    return this.prisma.project.findMany({
+    const projects = await this.prisma.project.findMany({
       where: {
-        userId: user.id,
+        OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }],
         archivedAt: archived === "true" ? { not: null } : null,
         name: query ? { contains: query, mode: "insensitive" } : undefined,
       },
       orderBy: { updatedAt: "desc" },
       include: {
+        user: { select: { id: true, displayName: true, email: true } },
+        members: { where: { userId: user.id }, select: { role: true } },
+        conversations: { where: { userId: user.id, archivedAt: null }, select: { id: true } },
+        assets: { where: { userId: user.id, deletedAt: null }, select: { id: true } },
         _count: {
           select: { assets: true, conversations: true, versions: true },
         },
       },
+    });
+    return projects.map(({ conversations, assets, members, ...project }) => {
+      const accessRole = project.userId === user.id ? "OWNER" : members[0]?.role || "MEMBER";
+      return {
+        ...project,
+        accessRole,
+        _count: accessRole === "OWNER" ? project._count : { ...project._count, conversations: conversations.length, assets: assets.length },
+      };
     });
   }
 
@@ -174,7 +198,7 @@ export class ProjectsController {
   @Get(":id")
   async get(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     const project = await this.prisma.project.findFirst({
-      where: { id, userId: user.id },
+      where: { id, OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }] },
       include: {
         assets: {
           where: { deletedAt: null },
@@ -185,7 +209,11 @@ export class ProjectsController {
           where: { archivedAt: null },
           orderBy: { updatedAt: "desc" },
           take: 30,
+          include: { user: { select: { id: true, displayName: true, email: true } } },
         },
+        user: { select: { id: true, displayName: true, email: true } },
+        members: { include: { user: { select: { id: true, displayName: true, email: true, avatarUrl: true } } }, orderBy: { joinedAt: "asc" } },
+        activeSkillVersion: true,
         defaultAssistant: {
           select: {
             id: true,
@@ -198,14 +226,51 @@ export class ProjectsController {
       },
     });
     if (!project) throw new NotFoundException("项目不存在");
+    const member = project.members.find((item) => item.userId === user.id);
+    const accessRole = project.userId === user.id ? "OWNER" : member?.role || "MEMBER";
+    const visibleConversations = accessRole === "OWNER" ? project.conversations : project.conversations.filter((conversation) => conversation.userId === user.id);
+    const visibleAssets = accessRole === "OWNER" ? project.assets : project.assets.filter((asset) => asset.userId === user.id);
     return {
       ...project,
-      assets: project.assets.map((asset) => ({
+      accessRole,
+      conversations: visibleConversations,
+      assets: visibleAssets.map((asset) => ({
         ...asset,
         size: Number(asset.size),
         contentUrl: `/v1/assets/${asset.id}/content`,
       })),
+      _count: { ...project._count, assets: visibleAssets.length, conversations: visibleConversations.length },
     };
+  }
+
+  @Post(":id/members")
+  async addMember(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: ProjectMemberDto) {
+    const project = await this.findOwnedProject(user.id, id);
+    const member = await this.prisma.user.findUnique({ where: { email: body.email.trim().toLowerCase() }, select: { id: true, email: true, displayName: true, avatarUrl: true } });
+    if (!member) throw new NotFoundException("该邮箱尚未注册");
+    if (member.id === project.userId) throw new BadRequestException("项目所有者无需重复加入");
+    return this.prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId: id, userId: member.id } },
+      update: { role: body.role || "MEMBER" },
+      create: { projectId: id, userId: member.id, role: body.role || "MEMBER" },
+      include: { user: { select: { id: true, email: true, displayName: true, avatarUrl: true } } },
+    });
+  }
+
+  @Patch(":id/members/:userId")
+  async updateMemberRole(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Param("userId") memberUserId: string, @Body() body: ProjectMemberRoleDto) {
+    await this.findOwnedProject(user.id, id);
+    const result = await this.prisma.projectMember.updateMany({ where: { projectId: id, userId: memberUserId }, data: { role: body.role } });
+    if (!result.count) throw new NotFoundException("项目成员不存在");
+    return { updated: true };
+  }
+
+  @Delete(":id/members/:userId")
+  async removeMember(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Param("userId") memberUserId: string) {
+    await this.findOwnedProject(user.id, id);
+    const result = await this.prisma.projectMember.deleteMany({ where: { projectId: id, userId: memberUserId } });
+    if (!result.count) throw new NotFoundException("项目成员不存在");
+    return { removed: true };
   }
 
   @Patch(":id")
@@ -214,7 +279,7 @@ export class ProjectsController {
     @Param("id") id: string,
     @Body() body: UpdateProjectDto,
   ) {
-    const current = await this.findOwnedProject(user.id, id);
+    const current = await this.findManageableProject(user.id, id);
     await this.assertAssistant(body.defaultAssistantId);
     const { archived, changeSummary, versionLabel, workflowConfig, ...fields } =
       body;
@@ -259,7 +324,7 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
   ) {
-    const project = await this.findOwnedProject(user.id, id);
+    const project = await this.findAccessibleProject(user.id, id);
     return { ...project, ...this.workflowResponse(project) };
   }
 
@@ -269,7 +334,7 @@ export class ProjectsController {
     @Param("id") id: string,
     @Body() body: WorkflowDto,
   ) {
-    const current = await this.findOwnedProject(user.id, id);
+    const current = await this.findManageableProject(user.id, id);
     await this.assertAssistant(body.defaultAssistantId);
     const project = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.project.update({
@@ -303,7 +368,7 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
   ) {
-    await this.findOwnedProject(user.id, id);
+    await this.findAccessibleProject(user.id, id);
     return this.prisma.projectVersion.findMany({
       where: { projectId: id },
       orderBy: { version: "desc" },
@@ -317,7 +382,7 @@ export class ProjectsController {
     @Param("id") id: string,
     @Body() body: CreateVersionDto,
   ) {
-    const current = await this.findOwnedProject(user.id, id);
+    const current = await this.findManageableProject(user.id, id);
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.update({
         where: { id },
@@ -343,7 +408,7 @@ export class ProjectsController {
     @Param("id") id: string,
     @Param("version") versionParam: string,
   ) {
-    const current = await this.findOwnedProject(user.id, id);
+    const current = await this.findManageableProject(user.id, id);
     const version = Number.parseInt(versionParam, 10);
     const source = Number.isInteger(version)
       ? await this.prisma.projectVersion.findFirst({
@@ -402,6 +467,18 @@ export class ProjectsController {
       where: { id, userId },
     });
     if (!project) throw new NotFoundException("项目不存在");
+    return project;
+  }
+
+  private async findAccessibleProject(userId: string, id: string) {
+    const project = await this.prisma.project.findFirst({ where: { id, OR: [{ userId }, { members: { some: { userId } } }] } });
+    if (!project) throw new NotFoundException("项目不存在");
+    return project;
+  }
+
+  private async findManageableProject(userId: string, id: string) {
+    const project = await this.prisma.project.findFirst({ where: { id, OR: [{ userId }, { members: { some: { userId, role: "ADMIN" } } }] } });
+    if (!project) throw new ForbiddenException("只有项目所有者或管理员可以修改项目设置");
     return project;
   }
 

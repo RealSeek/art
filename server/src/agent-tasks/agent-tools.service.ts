@@ -131,7 +131,7 @@ export class AgentToolsService {
   private async projectContext(task: ToolExecutionTask) {
     if (!task.projectId) return { project: null, message: '当前任务未关联项目' }
     const project = await this.prisma.project.findFirst({
-      where: { id: task.projectId, userId: task.userId, archivedAt: null },
+      where: { id: task.projectId, archivedAt: null, OR: [{ userId: task.userId }, { members: { some: { userId: task.userId } } }] },
       select: {
         id: true,
         name: true,

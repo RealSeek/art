@@ -3,7 +3,7 @@
     <div class="page-title"
       ><div
         ><h1>{{ xt('上游渠道') }}</h1
-        ><p>{{ xt('统一管理 OpenAI、NewAPI、Sub2API 与兼容接口') }}</p></div
+        ><p>{{ xt('统一管理 OpenAI、NewAPI、Sub2API、兼容接口与无密钥图片渠道') }}</p></div
       ><ElSpace
         ><ElButton :loading="checkingAll" @click="checkAll"
           ><ArtSvgIcon icon="ri:pulse-line" />{{ xt('批量检测') }}</ElButton
@@ -31,7 +31,8 @@
           ><template #default="{ row }"
             ><strong>{{ row.name }}</strong
             ><small class="block-note"
-              >{{ xt(typeText[row.type]) }} · {{ row.apiKeyHint || xt('未配置密钥') }}</small
+              >{{ xt(typeText[row.type]) }} ·
+              {{ row.type === 'POLLINATIONS' ? xt('无需密钥') : row.apiKeyHint || xt('未配置密钥') }}</small
             ></template
           ></ElTableColumn
         >
@@ -90,6 +91,7 @@
           ><ElCol :span="12"
             ><ElFormItem :label="xt('渠道类型')"
               ><ElSelect v-model="editor.type" class="w-full"
+                @change="onProviderTypeChange"
                 ><ElOption
                   v-for="(label, value) in typeText"
                   :key="value"
@@ -98,8 +100,18 @@
         ><ElFormItem label="API Base URL"
           ><ElInput
             v-model.trim="editor.baseUrl"
-            placeholder="https://api.example.com/v1" /></ElFormItem
-        ><ElFormItem :label="xt('API 密钥')"
+            :placeholder="
+              editor.type === 'POLLINATIONS'
+                ? 'https://image.pollinations.ai'
+                : 'https://api.example.com/v1'
+            " /></ElFormItem
+        ><ElAlert
+          v-if="editor.type === 'POLLINATIONS'"
+          type="info"
+          :closable="false"
+          :title="xt('该渠道使用图片接口，无需 API 密钥；启用前请确认上游服务条款与可用性。')"
+          class="provider-note" />
+        <ElFormItem v-if="editor.type !== 'POLLINATIONS'" :label="xt('API 密钥')"
           ><ElInput
             v-model="editor.apiKey"
             type="password"
@@ -108,7 +120,7 @@
               editor.id ? `${xt('留空保留')} ${editor.apiKeyHint || xt('现有密钥')}` : 'sk-...'
             " /></ElFormItem
         ><ElRow :gutter="14"
-          ><ElCol :span="8"
+          ><ElCol v-if="editor.type !== 'POLLINATIONS'" :span="8"
             ><ElFormItem :label="xt('认证方式')"
               ><ElSelect v-model="editor.authType" class="w-full"
                 ><ElOption label="Bearer" value="BEARER" /><ElOption
@@ -116,10 +128,10 @@
                   value="X_API_KEY" /><ElOption
                   :label="xt('两者同时')"
                   value="BOTH" /></ElSelect></ElFormItem></ElCol
-          ><ElCol :span="8"
+          ><ElCol :span="editor.type === 'POLLINATIONS' ? 12 : 8"
             ><ElFormItem :label="xt('优先级')"
               ><ElInputNumber v-model="editor.priority" class="w-full" /></ElFormItem></ElCol
-          ><ElCol :span="8"
+          ><ElCol :span="editor.type === 'POLLINATIONS' ? 12 : 8"
             ><ElFormItem :label="xt('权重')"
               ><ElInputNumber
                 v-model="editor.weight"
@@ -127,7 +139,7 @@
                 class="w-full" /></ElFormItem></ElCol></ElRow
         ><ElSpace
           ><ElCheckbox v-model="editor.enabled">{{ xt('启用渠道') }}</ElCheckbox
-          ><ElCheckbox v-model="editor.allowUserKeys">{{ xt('允许用户密钥') }}</ElCheckbox></ElSpace
+          ><ElCheckbox v-if="editor.type !== 'POLLINATIONS'" v-model="editor.allowUserKeys">{{ xt('允许用户密钥') }}</ElCheckbox></ElSpace
         ></ElForm
       >
       <template #footer
@@ -149,7 +161,8 @@
     OPENAI: 'OpenAI 官方',
     NEW_API: 'NewAPI',
     SUB2API: 'Sub2API',
-    OPENAI_COMPATIBLE: 'OpenAI 兼容'
+    OPENAI_COMPATIBLE: 'OpenAI 兼容',
+    POLLINATIONS: 'Pollinations 图片'
   }
   const emptyEditor = () => ({
     id: '',
@@ -197,6 +210,13 @@
     Object.assign(editor, emptyEditor(), row, { apiKey: '' })
     dialog.value = true
   }
+  function onProviderTypeChange(value: ProviderType) {
+    if (value === 'POLLINATIONS') {
+      if (!editor.baseUrl) editor.baseUrl = 'https://image.pollinations.ai'
+      editor.apiKey = ''
+      editor.allowUserKeys = false
+    }
+  }
   async function save() {
     if (!editor.name || !editor.baseUrl) return ElMessage.warning(xt('请填写渠道名称和 API 地址'))
     saving.value = true
@@ -210,7 +230,7 @@
         priority: editor.priority,
         weight: editor.weight,
         timeoutMs: editor.timeoutMs,
-        allowUserKeys: editor.allowUserKeys,
+        allowUserKeys: editor.type === 'POLLINATIONS' ? false : editor.allowUserKeys,
         ...(editor.apiKey ? { apiKey: editor.apiKey } : {})
       }
       await xinyueApi.saveProvider(body, editor.id || undefined)
@@ -259,6 +279,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+  }
+  .provider-note {
+    margin-bottom: 16px;
   }
 
   .page-title {

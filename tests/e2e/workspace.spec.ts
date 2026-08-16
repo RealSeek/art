@@ -7,13 +7,17 @@ test.beforeEach(async ({ page }) => {
 
 test('提示词库展示预览图并只将完整提示词带入图片生成', async ({ page }) => {
   const prompt = ['主题：自然光下的极简商品主视觉', ...Array.from({ length: 18 }, (_, index) => `画面要求 ${index + 1}：保持包装文字准确，保留真实材质细节，并为标题和商品卖点预留清晰区域。`)].join('\n')
-  await page.route('**/v1/prompt-library?**', (route) => {
-    const requestedPage = Number(new URL(route.request().url()).searchParams.get('page') || 1)
+  await page.route('**/v1/prompt-library**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.includes('/prompt-library/items/')) {
+      return route.fulfill({ json: { id: 'source:e2e-1', sourceId: 'source', sourceName: '创意视觉精选', promptType: 'IMAGE', title: '极简商品主视觉', prompt, description: '适合商品首页主视觉', tags: ['商品摄影', '极简'], author: 'E2E', imageModel: 'gpt-image-2', coverUrl: '/assets/inspiration-1.jpg', previewVideoUrl: '' } })
+    }
+    const requestedPage = Number(url.searchParams.get('page') || 1)
     return route.fulfill({ json: {
       items: requestedPage === 1
-        ? [{ id: 'source:e2e-1', sourceId: 'source', sourceName: '创意视觉精选', title: '极简商品主视觉', prompt, description: '适合商品首页主视觉', tags: ['商品摄影', '极简'], author: 'E2E', imageModel: 'gpt-image-2', coverUrl: '/assets/inspiration-1.jpg' }]
-        : [{ id: 'source:e2e-2', sourceId: 'source', sourceName: '创意视觉精选', title: '第二页提示词', prompt: '第二页完整提示词', description: '分页结果', tags: ['海报'], author: '', imageModel: 'gpt-image-2', coverUrl: '/assets/inspiration-2.jpg' }],
-      total: 48, page: requestedPage, pageSize: 24, sources: [{ id: 'source', name: '创意视觉精选', count: 48 }], tags: [{ name: '商品摄影', count: 1 }], partial: false,
+        ? [{ id: 'source:e2e-1', sourceId: 'source', sourceName: '创意视觉精选', promptType: 'IMAGE', title: '极简商品主视觉', prompt, description: '适合商品首页主视觉', tags: ['商品摄影', '极简'], author: 'E2E', imageModel: 'gpt-image-2', coverUrl: '/assets/inspiration-1.jpg', previewVideoUrl: '' }]
+        : [{ id: 'source:e2e-2', sourceId: 'source', sourceName: '创意视觉精选', promptType: 'IMAGE', title: '第二页提示词', prompt: '第二页完整提示词', description: '分页结果', tags: ['海报'], author: '', imageModel: 'gpt-image-2', coverUrl: '/assets/inspiration-2.jpg', previewVideoUrl: '' }],
+      total: 48, page: requestedPage, pageSize: 24, sources: [{ id: 'source', name: '创意视觉精选', count: 48 }], tags: [{ name: '商品摄影', count: 1 }], partial: false, promptType: 'IMAGE',
     } })
   })
   await page.goto('/prompts')
@@ -377,7 +381,7 @@ test('浅色工作台关键页面保持可读且浮层不遮挡内容', async ({
   await expect(page.locator('html')).toHaveAttribute('data-studio-theme', 'light')
   await expect(page.locator('.workspace-main')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
   await expect(page.locator('.creation-composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-  await expect(page.getByRole('heading', { name: '生成图片', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '灵感中心', exact: true })).toBeVisible()
   const inspirationHeaderBox = await page.locator('.inspiration-section > header').boundingBox()
   const inspirationCardBox = await page.locator('.inspiration-card').first().boundingBox()
   const previousInspirationButton = page.getByRole('button', { name: '上一组', exact: true })
@@ -416,7 +420,7 @@ test('浅色工作台关键页面保持可读且浮层不遮挡内容', async ({
   await expect(page.locator('.creation-more-button')).toHaveClass(/is-active/)
   await expect(page.locator('.creation-more-panel').getByRole('button', { name: /^自动背景$/ })).toBeVisible()
   const mobileOptionsBox = await page.locator('.creation-more-panel').boundingBox()
-  const mobileInspirationHeadingBox = await page.getByRole('heading', { name: '生成图片', exact: true }).boundingBox()
+  const mobileInspirationHeadingBox = await page.getByRole('heading', { name: '灵感中心', exact: true }).boundingBox()
   expect(mobileOptionsBox).not.toBeNull()
   expect(mobileInspirationHeadingBox).not.toBeNull()
   expect(mobileOptionsBox!.y + mobileOptionsBox!.height).toBeLessThanOrEqual(mobileInspirationHeadingBox!.y)
@@ -697,6 +701,77 @@ test('文件库视图、筛选、图片缩放和下载按钮可用', async ({ pa
   expect((await downloadPromise).suggestedFilename()).not.toBe('')
   await preview.getByRole('button', { name: '关闭预览' }).click()
   await expect(preview).toHaveCount(0)
+})
+
+test('知识库可以编辑并管理文件资料', async ({ page }) => {
+  const suffix = Date.now()
+  const originalName = `e2e-knowledge-${suffix}`
+  const updatedName = `${originalName}-updated`
+  const assetName = `e2e-knowledge-${suffix}.txt`
+  let assetId = ''
+  let knowledgeBaseId = ''
+  const consoleErrors: string[] = []
+  const failedRequests: string[] = []
+  page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()) })
+  page.on('response', (response) => {
+    if (response.status() === 401 || response.status() >= 500) failedRequests.push(`${response.status()} ${response.url()}`)
+  })
+
+  try {
+    const upload = await page.request.post('/v1/assets/uploads?kind=FILE', {
+      multipart: {
+        file: {
+          name: assetName,
+          mimeType: 'text/plain',
+          buffer: Buffer.from('Xinyue AI knowledge base browser regression content.'),
+        },
+      },
+    })
+    expect(upload.ok()).toBeTruthy()
+    assetId = (await upload.json() as { id: string }).id
+
+    await page.goto('/capabilities')
+    await page.getByRole('button', { name: /^知识库/ }).click()
+    await page.getByRole('button', { name: '新建知识库', exact: true }).click()
+    const createDialog = page.locator('.connector-dialog').filter({ hasText: '新建知识库' })
+    await createDialog.getByLabel('名称').fill(originalName)
+    await createDialog.getByLabel('说明').fill('浏览器自动化创建的知识库')
+    await createDialog.getByRole('button', { name: '创建', exact: true }).click()
+    await expect(page.getByText(originalName, { exact: true })).toBeVisible()
+
+    const knowledgeRows = await (await page.request.get('/v1/knowledge-bases')).json() as Array<{ id: string; name: string }>
+    knowledgeBaseId = knowledgeRows.find((item) => item.name === originalName)?.id || ''
+    expect(knowledgeBaseId).not.toBe('')
+
+    await page.getByRole('button', { name: `查看${originalName}`, exact: true }).click()
+    const detailDialog = page.getByRole('dialog', { name: `管理知识库 ${originalName}` })
+    await expect(detailDialog).toBeVisible()
+    await detailDialog.getByLabel('名称').fill(updatedName)
+    await detailDialog.getByLabel('说明').fill('已验证编辑、文件挂载和移除流程')
+    await detailDialog.getByRole('button', { name: '保存修改', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: `管理知识库 ${updatedName}` })).toBeVisible()
+
+    const updatedDialog = page.getByRole('dialog', { name: `管理知识库 ${updatedName}` })
+    await updatedDialog.getByLabel('选择知识库文件').selectOption(assetId)
+    await updatedDialog.getByRole('button', { name: '添加', exact: true }).click()
+    await expect(updatedDialog.getByText(assetName, { exact: true })).toBeVisible()
+    await expect(updatedDialog.locator('.knowledge-detail-stats').getByText('1', { exact: true }).first()).toBeVisible()
+
+    await updatedDialog.getByRole('button', { name: `从知识库移除${assetName}`, exact: true }).click()
+    await expect(updatedDialog.locator('.knowledge-assets-list')).toHaveCount(0)
+    await expect(updatedDialog.getByText('尚未绑定资料', { exact: true })).toBeVisible()
+    await assertNoPageOverflow(page)
+
+    page.once('dialog', (dialog) => dialog.accept())
+    await updatedDialog.getByRole('button', { name: '删除知识库', exact: true }).click()
+    await expect(page.getByText(updatedName, { exact: true })).toHaveCount(0)
+  } finally {
+    if (knowledgeBaseId) await page.request.delete(`/v1/knowledge-bases/${knowledgeBaseId}`).catch(() => undefined)
+    if (assetId) await page.request.delete(`/v1/assets/${assetId}`).catch(() => undefined)
+  }
+
+  expect(failedRequests, failedRequests.join('\n')).toEqual([])
+  expect(consoleErrors, consoleErrors.join('\n')).toEqual([])
 })
 
 test('核心工作区页面均可加载且没有前端错误或横向溢出', async ({ page }) => {

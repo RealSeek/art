@@ -10,6 +10,85 @@
         ></ElSpace
       ></header
     >
+    <ElCard shadow="never" class="tgmeng-card">
+      <template #header
+        ><div class="tgmeng-card__header"
+          ><div class="channel-name"
+            ><span class="provider-icon tgmeng"><ArtSvgIcon icon="ri:fire-line" /></span
+            ><div
+              ><strong>糖果梦实时热榜</strong><small>首页推荐数据源与通用搜索最终保底</small></div
+            ></div
+          ><ElSpace
+            ><ElTag
+              :type="
+                tgmeng.lastHealthStatus === 'healthy'
+                  ? 'success'
+                  : tgmeng.lastHealthStatus === 'unhealthy'
+                    ? 'danger'
+                    : 'info'
+              "
+              >{{
+                tgmeng.lastHealthStatus === 'healthy'
+                  ? '连接正常'
+                  : tgmeng.lastHealthStatus === 'unhealthy'
+                    ? '连接异常'
+                    : '尚未检测'
+              }}</ElTag
+            ><ElButton :loading="tgmengChecking" @click="checkTgmeng">检测</ElButton
+            ><ElButton :loading="tgmengRefreshing" @click="refreshTgmeng">立即刷新</ElButton
+            ><ElButton type="primary" :loading="tgmengSaving" @click="saveTgmeng"
+              >保存配置</ElButton
+            ></ElSpace
+          ></div
+        ></template
+      >
+      <ElRow :gutter="16">
+        <ElCol :xs="24" :md="8"
+          ><ElFormItem label="通用密钥"
+            ><ElInput
+              v-model="tgmengLicense"
+              type="password"
+              show-password
+              :placeholder="
+                tgmeng.hasLicense ? `留空保留 ${tgmeng.licenseHint}` : '输入糖果梦通用密钥'
+              " /></ElFormItem
+        ></ElCol>
+        <ElCol :xs="12" :md="4"
+          ><ElFormItem label="推荐数量"
+            ><ElInputNumber
+              v-model="tgmeng.recommendationLimit"
+              :min="3"
+              :max="12"
+              class="wide" /></ElFormItem
+        ></ElCol>
+        <ElCol :xs="12" :md="4"
+          ><ElFormItem label="缓存分钟"
+            ><ElInputNumber
+              v-model="tgmeng.cacheMinutes"
+              :min="1"
+              :max="1440"
+              class="wide" /></ElFormItem
+        ></ElCol>
+        <ElCol :xs="12" :md="4"
+          ><ElFormItem label="首页推荐"
+            ><ElSwitch v-model="tgmeng.recommendationEnabled" active-text="启用" /></ElFormItem
+        ></ElCol>
+        <ElCol :xs="12" :md="4"
+          ><ElFormItem label="搜索保底"
+            ><ElSwitch v-model="tgmeng.fallbackEnabled" active-text="启用" /></ElFormItem
+        ></ElCol>
+      </ElRow>
+      <ElFormItem label="首页推荐根分类">
+        <ElCheckboxGroup v-model="tgmeng.rootCategories" class="category-options"
+          ><ElCheckbox v-for="category in tgmeng.categories" :key="category" :value="category">{{
+            category
+          }}</ElCheckbox></ElCheckboxGroup
+        >
+        <small class="help"
+          >分类之间为 OR；不选择表示读取全部实时热点。普通搜索保底不受这里的分类限制。</small
+        >
+      </ElFormItem>
+    </ElCard>
     <ElAlert
       v-if="summary"
       :title="`检测完成：${summary.healthy}/${summary.checked} 个渠道正常`"
@@ -203,6 +282,21 @@
     checking = ref(''),
     checkingAll = ref(false),
     summary = ref<Row | null>(null)
+  const tgmeng = reactive<Row>({
+    categories: [],
+    rootCategories: [],
+    recommendationEnabled: false,
+    fallbackEnabled: false,
+    recommendationLimit: 6,
+    cacheMinutes: 10,
+    hasLicense: false,
+    licenseHint: '',
+    lastHealthStatus: null
+  })
+  const tgmengLicense = ref('')
+  const tgmengSaving = ref(false)
+  const tgmengChecking = ref(false)
+  const tgmengRefreshing = ref(false)
   const form = reactive(emptyForm())
   function providerTone(type: string) {
     return `provider-icon ${type.toLowerCase()}`
@@ -224,9 +318,64 @@
   async function load() {
     loading.value = true
     try {
-      rows.value = await request.get<Row[]>({ url: '/v1/admin/web-search-channels' })
+      const [channels, tgmengSettings] = await Promise.all([
+        request.get<Row[]>({ url: '/v1/admin/web-search-channels' }),
+        request.get<Row>({ url: '/v1/admin/web-search-channels/tgmeng' })
+      ])
+      rows.value = channels
+      Object.assign(tgmeng, tgmengSettings)
+      tgmengLicense.value = ''
     } finally {
       loading.value = false
+    }
+  }
+  async function saveTgmeng() {
+    if (!tgmeng.hasLicense && !tgmengLicense.value.trim())
+      return ElMessage.warning('请填写糖果梦通用密钥')
+    tgmengSaving.value = true
+    try {
+      const value = await request.request<Row>({
+        url: '/v1/admin/web-search-channels/tgmeng',
+        method: 'PUT',
+        showSuccessMessage: true,
+        data: {
+          license: tgmengLicense.value || undefined,
+          recommendationEnabled: tgmeng.recommendationEnabled,
+          fallbackEnabled: tgmeng.fallbackEnabled,
+          rootCategories: tgmeng.rootCategories,
+          recommendationLimit: tgmeng.recommendationLimit,
+          cacheMinutes: tgmeng.cacheMinutes
+        }
+      })
+      Object.assign(tgmeng, value)
+      tgmengLicense.value = ''
+    } finally {
+      tgmengSaving.value = false
+    }
+  }
+  async function checkTgmeng() {
+    tgmengChecking.value = true
+    try {
+      await request.post({
+        url: '/v1/admin/web-search-channels/tgmeng/check',
+        params: {},
+        showSuccessMessage: true
+      })
+      Object.assign(tgmeng, await request.get<Row>({ url: '/v1/admin/web-search-channels/tgmeng' }))
+    } finally {
+      tgmengChecking.value = false
+    }
+  }
+  async function refreshTgmeng() {
+    tgmengRefreshing.value = true
+    try {
+      await request.post({
+        url: '/v1/admin/web-search-channels/tgmeng/refresh',
+        params: {},
+        showSuccessMessage: true
+      })
+    } finally {
+      tgmengRefreshing.value = false
     }
   }
   function openEditor(row?: Row) {
@@ -339,6 +488,25 @@
     overflow: hidden;
   }
 
+  .tgmeng-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .provider-icon.tgmeng {
+    color: #b45309;
+    background: #fff7ed;
+  }
+  .category-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+  }
+  .category-options :deep(.el-checkbox) {
+    margin-right: 0;
+  }
+
   .table-card :deep(.el-card__body) {
     height: 100%;
     min-height: 0;
@@ -402,6 +570,10 @@
     .page-title {
       flex-direction: column;
       align-items: flex-start;
+    }
+    .tgmeng-card__header {
+      align-items: flex-start;
+      flex-direction: column;
     }
   }
 </style>

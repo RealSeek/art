@@ -4,9 +4,25 @@ export interface PluginCategory { id: string; name: string; slug: string; descri
 export interface Plugin { id: string; name: string; slug: string; description: string; instruction: string; icon: string; version: string; categoryId?: string | null; capabilities: PluginCapability[]; recommendedModel: string; outputRequirements: string; visibility: 'OFFICIAL' | 'PRIVATE'; status: 'DRAFT' | 'PUBLISHED' | 'DISABLED'; featured: boolean; priceCredits: number; installCount: number; usageCount: number; errorCount: number; installed?: boolean; owned?: boolean; category?: PluginCategory | null }
 export interface AssistantProfile { id: string; name: string; description: string; defaultModel: string; templateIds?: string[]; tools?: Array<{ toolId: string }> }
 export interface CapabilityTool { id: string; key: string; name: string; description: string; icon?: string; kind?: 'BUILT_IN' | 'CONNECTOR'; authType?: 'NONE' | 'API_KEY'; documentationUrl?: string; credentialFields?: Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean }>; requiresApproval: boolean; scopes?: string[]; enabled?: boolean; connection?: { status: string; credentialHints?: Record<string, string>; connectedAt: string } | null }
-export interface KnowledgeBaseSummary { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; _count?: { assets: number; assistants: number } }
+export interface KnowledgeBaseAssetLink { assetId: string; chunkCount: number; asset: { id: string; name: string; mimeType: string; createdAt: string } }
+export interface KnowledgeBaseSummary { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; assets?: KnowledgeBaseAssetLink[]; _count?: { assets: number; assistants: number } }
 
 export type AssetKind = 'image' | 'video' | 'text' | 'product-pack'
+
+export interface WebSearchSource {
+  title: string
+  url: string
+  content?: string
+  publishedAt?: string
+}
+
+export interface MessageWebSearch {
+  enabled: boolean
+  status: 'searching' | 'completed' | 'failed'
+  queries: string[]
+  sources: WebSearchSource[]
+  error?: string
+}
 
 export interface Message {
   id: string
@@ -17,6 +33,7 @@ export interface Message {
   model?: string
   feedback?: 'UP' | 'DOWN' | null
   suggestions?: string[]
+  webSearch?: MessageWebSearch
 }
 
 export interface CodeArtifact {
@@ -77,6 +94,49 @@ export interface Project {
   defaultModel: string
   defaultAssistantId?: string | null
   revision: number
+  accessRole: 'OWNER' | 'ADMIN' | 'MEMBER'
+  owner?: { id: string; displayName: string; email?: string | null }
+  members: ProjectMember[]
+  activeSkillVersion?: ProjectSkillVersion | null
+}
+
+export interface ProjectMember {
+  projectId: string
+  userId: string
+  role: 'ADMIN' | 'MEMBER'
+  joinedAt: string
+  user: { id: string; displayName: string; email?: string | null; avatarUrl?: string | null }
+}
+
+export interface ProjectSkillVersion {
+  id: string
+  projectId: string
+  version: number
+  name: string
+  content: string
+  enabled: boolean
+  changeType: 'MANUAL' | 'SUMMARY' | 'RESTORE' | 'DISABLE'
+  changeSummary: string
+  sourceConversationId?: string | null
+  createdAt: string
+  active?: boolean
+  createdBy?: { id: string; displayName: string; email?: string | null }
+  sourceConversation?: { id: string; title: string } | null
+}
+
+export interface ProjectSkillStatus {
+  canManage: boolean
+  activeVersionId?: string | null
+  active?: ProjectSkillVersion | null
+  versions: ProjectSkillVersion[]
+}
+
+export interface ProjectSkillCandidate {
+  name: string
+  content: string
+  changeSummary: string
+  basedOnVersion?: number | null
+  sourceConversation: { id: string; title: string }
 }
 
 export type ProjectWorkflowStatus = 'PLANNING' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED' | 'ARCHIVED'

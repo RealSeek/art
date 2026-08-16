@@ -3,6 +3,13 @@ import { api } from '../services/api'
 
 export interface PublicCatalogSettings {
   siteName: string
+  sidebarCreationEnabled: boolean
+  sidebarCommerceEnabled: boolean
+  sidebarOfficeEnabled: boolean
+  sidebarPromptsEnabled: boolean
+  sidebarPluginsEnabled: boolean
+  sidebarProjectsEnabled: boolean
+  sidebarAssetsEnabled: boolean
   chatUiPreset: 'gpt' | 'doubao' | 'qianwen' | 'kimi'
   chatHomeContent: ChatHomeContent
   registrationEnabled: boolean
@@ -26,6 +33,7 @@ export interface ChatHomeContent {
   qianwenBanners: Array<{ title: string; description: string; buttonText: string; imageUrl: string; targetUrl: string }>
   kimiProject: { label: string; targetUrl: string }
 }
+type RecommendationResponse = { enabled?: boolean; items?: Array<{ title: string; prompt: string; targetUrl?: string }> }
 
 const defaultChatHomeContent: ChatHomeContent = {
   doubaoRecommendations: [
@@ -43,6 +51,13 @@ const defaultChatHomeContent: ChatHomeContent = {
 
 const emptySettings: PublicCatalogSettings = {
   siteName: 'Xinyue AI',
+  sidebarCreationEnabled: true,
+  sidebarCommerceEnabled: true,
+  sidebarOfficeEnabled: true,
+  sidebarPromptsEnabled: true,
+  sidebarPluginsEnabled: true,
+  sidebarProjectsEnabled: true,
+  sidebarAssetsEnabled: true,
   chatUiPreset: 'gpt',
   chatHomeContent: defaultChatHomeContent,
   registrationEnabled: false,
@@ -96,6 +111,7 @@ export const useCatalogStore = defineStore('catalog', {
             kimiProject: rawKimiProject && typeof rawKimiProject === 'object' ? { ...defaultChatHomeContent.kimiProject, ...rawKimiProject } : defaultChatHomeContent.kimiProject,
           }
         }
+        void this.refreshRecommendations()
       } catch {
         this.settings = { ...emptySettings }
       } finally {
@@ -104,6 +120,11 @@ export const useCatalogStore = defineStore('catalog', {
         this.loading = false
       }
       return this.settings
+    },
+    async refreshRecommendations() {
+      const result = await api<RecommendationResponse>('/catalog/recommendations').catch(() => ({ items: [] }))
+      const items = Array.isArray(result.items) ? result.items.filter((item) => item && typeof item.title === 'string' && item.title.trim()) : []
+      if (items.length) this.settings.chatHomeContent.doubaoRecommendations = items
     },
   },
 })

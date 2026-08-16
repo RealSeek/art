@@ -143,6 +143,12 @@
                 <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
               </div>
             </span>
+            <span class="office-control-anchor">
+              <button class="office-mode-button" type="button" :aria-expanded="formatMenuOpen" title="选择交付文件格式" @click="toggleFormatMenu"><FileSpreadsheet v-if="exportFormat === 'xlsx'" :size="15" /><Presentation v-else-if="exportFormat === 'pptx'" :size="15" /><FileText v-else :size="15" />{{ exportFormatLabel }}<ChevronDown :size="13" /></button>
+              <div v-if="formatMenuOpen" class="office-mode-menu">
+                <button v-for="item in exportFormats" :key="item.value" type="button" :class="{ active: exportFormat === item.value }" @click="exportFormat = item.value; formatMenuOpen = false"><component :is="item.icon" :size="16" /><span><strong>{{ item.label }}</strong><small>{{ item.note }}</small></span><Check v-if="exportFormat === item.value" :size="15" /></button>
+              </div>
+            </span>
             <button class="office-skill-button" :class="{ active: skillPanelOpen }" type="button" :aria-expanded="skillPanelOpen" @click="toggleSkillPanel"><LayoutGrid :size="16" />更多</button>
             <button v-if="taskMode === 'agent'" class="office-web-button" :class="{ active: webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" title="联网搜索" @click="webSearchEnabled = !webSearchEnabled"><Globe2 :size="16" />联网</button>
           </div>
@@ -152,7 +158,7 @@
           </span>
         </footer>
       </form>
-      <input ref="fileInput" type="file" accept="image/*,.txt,.md,.markdown,.csv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.sql,.log,text/*,application/json" multiple hidden @change="handleFiles" />
+      <input ref="fileInput" type="file" accept="image/*,.docx,.xlsx,.xlsm,.txt,.md,.markdown,.csv,.json,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.sql,.log,text/*,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple hidden @change="handleFiles" />
       <p v-if="error" class="office-error" role="alert">{{ error }}</p>
     </section>
   </main>
@@ -176,6 +182,7 @@ import type { Plugin, StudioAsset } from '../types'
 import { createClientId } from '../utils/client-id'
 
 type TaskMode = 'fast' | 'expert' | 'agent'
+type OfficeExportFormat = 'auto' | 'docx' | 'xlsx' | 'pptx' | 'md'
 type OfficeSkill = { id: string; name: string; category: string; description: string; shortDescription: string; placeholder: string; color: string; icon: LucideIcon; assistantId?: string; pluginId?: string }
 type CatalogModel = { key: string; displayName: string; description?: string; capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; enabled?: boolean; isDefault: boolean }
 type ServerConversation = { id: string }
@@ -239,11 +246,13 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const taskInput = ref<HTMLTextAreaElement | null>(null)
 const resultThread = ref<HTMLElement | null>(null)
 const taskMode = ref<TaskMode>('fast')
+const exportFormat = ref<OfficeExportFormat>('auto')
 const webSearchEnabled = ref(true)
 const selectedSkill = ref<OfficeSkill>(builtInSkills[0])
 const skillPanelOpen = ref(false)
 const modeMenuOpen = ref(false)
 const modelMenuOpen = ref(false)
+const formatMenuOpen = ref(false)
 const skillQuery = ref('')
 const selectedCategory = ref('全部')
 const model = ref('')
@@ -273,6 +282,14 @@ const filteredSkills = computed(() => allSkills.value.filter((skill) => {
   return categoryMatches && (!query || `${skill.name} ${skill.description}`.toLowerCase().includes(query))
 }))
 const modeLabel = computed(() => taskMode.value === 'fast' ? '快速' : taskMode.value === 'expert' ? '专家' : '任务')
+const exportFormats = [
+  { value: 'auto' as const, label: '自动格式', note: '根据办公技能选择文件类型', icon: FileText },
+  { value: 'docx' as const, label: 'Word', note: '可编辑的 DOCX 文档', icon: FileText },
+  { value: 'xlsx' as const, label: 'Excel', note: '可编辑的 XLSX 工作簿', icon: FileSpreadsheet },
+  { value: 'pptx' as const, label: 'PowerPoint', note: '可编辑的 PPTX 演示文稿', icon: Presentation },
+  { value: 'md' as const, label: 'Markdown', note: '适合继续编辑的纯文本文件', icon: Code2 },
+]
+const exportFormatLabel = computed(() => exportFormats.find((item) => item.value === exportFormat.value)?.label || '自动格式')
 const deliverableFormat = computed(() => deliverable.value?.name.split('.').pop()?.toUpperCase() || 'OFFICE')
 const deliverableIcon = computed(() => deliverable.value?.name.toLowerCase().endsWith('.pptx') ? Presentation : deliverable.value?.name.toLowerCase().endsWith('.xlsx') ? FileSpreadsheet : FileText)
 const pendingToolCalls = computed(() => activeAgentTask.value?.agentRun?.toolCalls.filter((call) => call.requiresApproval && call.approvalStatus === 'PENDING') || [])
@@ -309,12 +326,21 @@ function toggleModeMenu() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
   modeMenuOpen.value = !modeMenuOpen.value
   modelMenuOpen.value = false
+  formatMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function toggleModelMenu() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
   modelMenuOpen.value = !modelMenuOpen.value
   modeMenuOpen.value = false
+  formatMenuOpen.value = false
+  skillPanelOpen.value = false
+}
+function toggleFormatMenu() {
+  document.dispatchEvent(new Event('xinyue:close-popovers'))
+  formatMenuOpen.value = !formatMenuOpen.value
+  modeMenuOpen.value = false
+  modelMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function toggleSkillPanel() {
@@ -322,10 +348,12 @@ function toggleSkillPanel() {
   skillPanelOpen.value = !skillPanelOpen.value
   modeMenuOpen.value = false
   modelMenuOpen.value = false
+  formatMenuOpen.value = false
 }
 function closeOfficePopovers() {
   modeMenuOpen.value = false
   modelMenuOpen.value = false
+  formatMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function collapseOfficePopovers() {
@@ -609,7 +637,8 @@ async function createDeliverable() {
   if ((!conversationId.value && !activeAgentTaskId.value) || exporting.value || deliverable.value) return
   exporting.value = true
   try {
-    const target = activeAgentTaskId.value ? { agentTaskId: activeAgentTaskId.value } : { conversationId: conversationId.value }
+    const target: Record<string, string> = activeAgentTaskId.value ? { agentTaskId: activeAgentTaskId.value } : { conversationId: conversationId.value }
+    if (exportFormat.value !== 'auto') target.format = exportFormat.value
     deliverable.value = await api<OfficeDeliverable>('/office/exports', { method: 'POST', body: JSON.stringify(target) })
     error.value = ''
     await studio.refreshAssets()

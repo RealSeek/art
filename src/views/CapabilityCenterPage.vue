@@ -24,7 +24,7 @@
             <article v-for="item in filteredAssistants" :key="item.id" class="connector-card capability-directory-item">
               <span class="connector-card__brand"><Bot :size="19" /></span>
               <div><header><strong>{{ item.name }}</strong><em>助手</em></header><p>{{ item.description || '由平台配置的专业 AI 助手' }}</p><small>{{ item.defaultModel || '跟随当前模型' }} · {{ item.tools?.length || 0 }} 个工具</small></div>
-              <button type="button" :aria-label="`查看${item.name}`" @click="selectedAssistant = item"><ChevronRight :size="17" /></button>
+              <button type="button" :aria-label="`查看${item.name}`" @click="selectedAssistant = item"><span>查看</span><ChevronRight :size="15" /></button>
             </article>
           </div>
           <div v-else class="capability-empty"><Bot :size="28" /><strong>暂无可用助手</strong></div>
@@ -44,8 +44,8 @@
             <article v-for="item in filteredTools" :key="item.id" class="connector-card">
               <span class="connector-card__brand"><img v-if="connectorIconUrl(item)" :src="connectorIconUrl(item)" alt="" @error="markIconFailed(item)" /><template v-else>{{ connectorMark(item.name) }}</template></span>
               <div><header><strong>{{ item.name }}</strong><em v-if="item.kind === 'CONNECTOR'">连接器</em><em v-if="item.connection" class="connected-dot"><Check :size="11" />已连接</em></header><p>{{ item.description || '平台工具能力' }}</p><small v-if="item.connection">连接于 {{ formatConnectedAt(item.connection.connectedAt) }}</small><small v-else-if="item.kind === 'CONNECTOR' && !item.enabled">等待管理员完成接口配置</small><small v-else-if="item.kind === 'CONNECTOR'">由你授权账户后使用</small><small v-else>{{ item.requiresApproval ? '每次调用前需要你的确认' : '可直接用于任务和技能流程' }}</small></div>
-              <button v-if="item.kind === 'CONNECTOR'" type="button" :class="{ connected: item.connection, unavailable: !item.enabled }" :aria-label="item.connection ? `管理${item.name}` : `连接${item.name}`" @click="openTool(item)"><Settings2 v-if="item.connection" :size="17" /><Plus v-else :size="19" /></button>
-              <button v-else type="button" :aria-label="`查看${item.name}`" @click="openTool(item)"><ChevronRight :size="17" /></button>
+              <button v-if="item.kind === 'CONNECTOR'" type="button" :class="{ connected: item.connection, unavailable: !item.enabled }" :aria-label="item.connection ? `管理${item.name}` : `连接${item.name}`" @click="openTool(item)"><Settings2 v-if="item.connection" :size="15" /><Plus v-else :size="16" /><span>{{ item.connection ? '管理' : '连接' }}</span></button>
+              <button v-else type="button" :aria-label="`查看${item.name}`" @click="openTool(item)"><span>查看</span><ChevronRight :size="15" /></button>
             </article>
           </div>
           <div v-else class="capability-empty"><Link2 v-if="toolSection === 'connectors'" :size="28" /><Wrench v-else :size="28" /><strong>{{ toolSection === 'connectors' ? '暂无可授权连接器' : '暂无可用内置工具' }}</strong></div>
@@ -58,7 +58,7 @@
             <article v-for="item in filteredKnowledgeBases" :key="item.id" class="connector-card capability-directory-item">
               <span class="connector-card__brand"><Database :size="19" /></span>
               <div><header><strong>{{ item.name }}</strong><em>知识库</em></header><p>{{ item.description || '尚未填写知识库说明' }}</p><small>{{ item.documentCount }} 个文档 · {{ item.chunkCount }} 个内容片段</small></div>
-              <button type="button" :aria-label="`查看${item.name}`"><ChevronRight :size="17" /></button>
+              <button type="button" :aria-label="`查看${item.name}`" @click="openKnowledgeBase(item)"><span>查看</span><ChevronRight :size="15" /></button>
             </article>
           </div>
           <div v-else class="capability-empty"><Database :size="28" /><strong>还没有知识库</strong><p>创建后可绑定到助手和 Agent 任务。</p></div>
@@ -119,6 +119,25 @@
       </div>
     </Teleport>
     <Teleport to="body"><div v-if="knowledgeEditor" class="plugin-dialog-layer" @mousedown.self="knowledgeEditor = false"><form class="connector-dialog" @submit.prevent="createKnowledgeBase"><header><div><strong>新建知识库</strong><small>用于助手和任务检索专属资料</small></div><button type="button" aria-label="关闭" @click="knowledgeEditor = false"><X :size="18" /></button></header><label>名称<input v-model.trim="knowledgeDraft.name" required maxlength="100" /></label><label>说明<textarea v-model.trim="knowledgeDraft.description" rows="4" maxlength="2000" /></label><footer><button type="button" @click="knowledgeEditor = false">取消</button><button class="primary" type="submit" :disabled="saving">{{ saving ? '创建中' : '创建' }}</button></footer></form></div></Teleport>
+    <Teleport to="body">
+      <div v-if="selectedKnowledge" class="plugin-dialog-layer" @mousedown.self="selectedKnowledge = null">
+        <form class="connector-dialog knowledge-detail-dialog" role="dialog" aria-modal="true" :aria-label="`管理知识库 ${selectedKnowledge.name}`" @submit.prevent="saveKnowledgeBase">
+          <header><div><strong>知识库设置</strong><small>维护说明和可检索资料</small></div><button type="button" aria-label="关闭知识库设置" @click="selectedKnowledge = null"><X :size="18" /></button></header>
+          <div class="knowledge-detail-stats"><span><strong>{{ selectedKnowledge.documentCount }}</strong><small>文档</small></span><span><strong>{{ selectedKnowledge.chunkCount }}</strong><small>内容片段</small></span><span><strong>{{ selectedKnowledge._count?.assistants || 0 }}</strong><small>已绑定助手</small></span></div>
+          <label>名称<input v-model.trim="knowledgeDetailDraft.name" required maxlength="100" /></label>
+          <label>说明<textarea v-model.trim="knowledgeDetailDraft.description" rows="3" maxlength="2000" /></label>
+          <section class="knowledge-assets-section">
+            <div class="knowledge-assets-heading"><div><strong>检索资料</strong><small>当前支持文本与 JSON 文件</small></div><button v-if="!knowledgeAssetOptions.length" type="button" @click="goToAssets">前往文件库</button></div>
+            <div v-if="selectedKnowledge.assets?.length" class="knowledge-assets-list">
+              <article v-for="link in selectedKnowledge.assets" :key="link.assetId"><FileText :size="17" /><div><strong>{{ link.asset.name }}</strong><small>{{ link.asset.mimeType }} · {{ link.chunkCount }} 个片段</small></div><button type="button" :aria-label="`从知识库移除${link.asset.name}`" :disabled="saving" @click="detachKnowledgeAsset(link.assetId)"><X :size="15" /></button></article>
+            </div>
+            <div v-else class="knowledge-assets-empty">尚未绑定资料</div>
+            <div v-if="knowledgeAssetOptions.length" class="knowledge-asset-picker"><select v-model="selectedKnowledgeAssetId" aria-label="选择知识库文件"><option value="">选择文件库中的资料</option><option v-for="asset in knowledgeAssetOptions" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select><button type="button" :disabled="saving || !selectedKnowledgeAssetId" @click="attachKnowledgeAsset"><Plus :size="15" />添加</button></div>
+          </section>
+          <footer class="knowledge-detail-footer"><button class="danger" type="button" :disabled="saving" @click="deleteKnowledgeBase">删除知识库</button><span></span><button type="button" @click="selectedKnowledge = null">关闭</button><button class="primary" type="submit" :disabled="saving || !knowledgeDetailDraft.name">{{ saving ? '保存中' : '保存修改' }}</button></footer>
+        </form>
+      </div>
+    </Teleport>
     <Teleport to="body"><div v-if="selectedAssistant" class="plugin-dialog-layer" @mousedown.self="selectedAssistant = null"><section class="connector-dialog"><header><span class="connector-card__brand"><Bot :size="20" /></span><div><strong>{{ selectedAssistant.name }}</strong><small>专业 AI 助手</small></div><button type="button" aria-label="关闭" @click="selectedAssistant = null"><X :size="18" /></button></header><p>{{ selectedAssistant.description || '由平台配置的专业 AI 助手' }}</p><div class="assistant-detail"><span>默认模型<strong>{{ selectedAssistant.defaultModel || '跟随当前模型' }}</strong></span><span>可用工具<strong>{{ selectedAssistant.tools?.length || 0 }} 个</strong></span></div><footer><button type="button" @click="selectedAssistant = null">关闭</button><button class="primary" type="button" @click="useAssistant(selectedAssistant)">开始对话</button></footer></section></div></Teleport>
   </main>
 </template>
@@ -126,7 +145,7 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, Blocks, Check, ChevronRight, CircleAlert, Database, FolderOpen, Link2, LoaderCircle, Plus, Search, Settings2, ShieldCheck, Wrench, X } from 'lucide-vue-next'
+import { Bot, Blocks, Check, ChevronRight, CircleAlert, Database, FileText, FolderOpen, Link2, LoaderCircle, Plus, Search, Settings2, ShieldCheck, Wrench, X } from 'lucide-vue-next'
 import PluginMarketPage from './PluginMarketPage.vue'
 import { api } from '../services/api'
 import { useAuthStore } from '../stores/auth'
@@ -152,6 +171,10 @@ const selectedAssistant = ref<AssistantProfile | null>(null)
 const credentialDraft = reactive<Record<string, string>>({})
 const knowledgeEditor = ref(false)
 const knowledgeDraft = reactive({ name: '', description: '' })
+const selectedKnowledge = ref<KnowledgeBaseSummary | null>(null)
+const knowledgeDetailDraft = reactive({ name: '', description: '' })
+const selectedKnowledgeAssetId = ref('')
+const knowledgeAssets = ref<Array<{ id: string; name: string; mimeType: string }>>([])
 const sections = computed(() => [
   { id: 'assistants' as const, label: '助手', icon: markRaw(Bot), count: assistants.value.length },
   { id: 'skills' as const, label: '技能', icon: markRaw(Blocks), count: skillCount.value },
@@ -166,10 +189,14 @@ const connectorCategoryMap: Record<string, string> = { stripe: '电商营销', h
 const connectorCategories = ['全部', '电商营销', '出行生活', '内容创作', '开发工具', '搜索与数据']
 const filteredTools = computed(() => (toolSection.value === 'connectors' ? connectorTools.value.filter((item) => connectorCategory.value === '全部' || connectorCategoryMap[item.key] === connectorCategory.value) : builtInTools.value).filter((item) => matches(item.name, item.description)))
 const filteredKnowledgeBases = computed(() => knowledgeBases.value.filter((item) => matches(item.name, item.description)))
+const knowledgeAssetOptions = computed(() => {
+  const linked = new Set((selectedKnowledge.value?.assets || []).map((item) => item.assetId))
+  return knowledgeAssets.value.filter((item) => !linked.has(item.id) && (item.mimeType.startsWith('text/') || item.mimeType === 'application/json'))
+})
 
 async function load() {
   loading.value = true; error.value = ''
-  try { const [assistantRows, toolRows, knowledgeRows, skillRows] = await Promise.all([api<AssistantProfile[]>('/assistants'), api<CapabilityTool[]>('/assistants/tools'), api<KnowledgeBaseSummary[]>('/knowledge-bases'), api<Plugin[]>('/plugins/market')]); assistants.value = assistantRows; tools.value = toolRows; knowledgeBases.value = knowledgeRows; skillCount.value = skillRows.length }
+  try { const [assistantRows, toolRows, knowledgeRows, skillRows, assetRows] = await Promise.all([api<AssistantProfile[]>('/assistants'), api<CapabilityTool[]>('/assistants/tools'), api<KnowledgeBaseSummary[]>('/knowledge-bases'), api<Plugin[]>('/plugins/market'), api<Array<{ id: string; name: string; mimeType: string }>>('/assets')]); assistants.value = assistantRows; tools.value = toolRows; knowledgeBases.value = knowledgeRows; skillCount.value = skillRows.length; knowledgeAssets.value = assetRows; if (selectedKnowledge.value) selectedKnowledge.value = knowledgeRows.find((item) => item.id === selectedKnowledge.value?.id) || null }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '能力中心加载失败' }
   finally { loading.value = false }
 }
@@ -209,6 +236,36 @@ async function createKnowledgeBase() {
   catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库创建失败' }
   finally { saving.value = false }
 }
+function openKnowledgeBase(item: KnowledgeBaseSummary) { selectedKnowledge.value = item; knowledgeDetailDraft.name = item.name; knowledgeDetailDraft.description = item.description || ''; selectedKnowledgeAssetId.value = '' }
+async function saveKnowledgeBase() {
+  if (!selectedKnowledge.value) return
+  saving.value = true; error.value = ''
+  try { await api(`/knowledge-bases/${selectedKnowledge.value.id}`, { method: 'PATCH', body: JSON.stringify(knowledgeDetailDraft) }); await load(); if (selectedKnowledge.value) openKnowledgeBase(selectedKnowledge.value) }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库保存失败' }
+  finally { saving.value = false }
+}
+async function attachKnowledgeAsset() {
+  if (!selectedKnowledge.value || !selectedKnowledgeAssetId.value) return
+  saving.value = true; error.value = ''
+  try { await api(`/knowledge-bases/${selectedKnowledge.value.id}/assets`, { method: 'POST', body: JSON.stringify({ assetId: selectedKnowledgeAssetId.value }) }); selectedKnowledgeAssetId.value = ''; await load() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库文件添加失败' }
+  finally { saving.value = false }
+}
+async function detachKnowledgeAsset(assetId: string) {
+  if (!selectedKnowledge.value) return
+  saving.value = true; error.value = ''
+  try { await api(`/knowledge-bases/${selectedKnowledge.value.id}/assets/${assetId}`, { method: 'DELETE' }); await load() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库文件移除失败' }
+  finally { saving.value = false }
+}
+async function deleteKnowledgeBase() {
+  if (!selectedKnowledge.value || !window.confirm(`删除知识库“${selectedKnowledge.value.name}”？`)) return
+  saving.value = true; error.value = ''
+  try { await api(`/knowledge-bases/${selectedKnowledge.value.id}`, { method: 'DELETE' }); selectedKnowledge.value = null; await load() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库删除失败' }
+  finally { saving.value = false }
+}
+function goToAssets() { selectedKnowledge.value = null; void router.push('/assets') }
 watch(section, () => { query.value = '' })
 onMounted(() => { if (!auth.isAuthenticated) void router.replace('/login?redirect=/capabilities'); else void load() })
 </script>

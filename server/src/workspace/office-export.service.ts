@@ -41,7 +41,7 @@ const officegen = require('officegen') as OfficegenFactory
 
 type OfficeFormat = 'pptx' | 'xlsx' | 'docx' | 'md'
 type MarkdownSection = { title: string; lines: string[] }
-type OfficeExportInput = { conversationId?: string; agentTaskId?: string }
+type OfficeExportInput = { conversationId?: string; agentTaskId?: string; messageId?: string; format?: OfficeFormat }
 
 const skillFormats: Record<string, OfficeFormat> = {
   ppt: 'pptx',
@@ -148,9 +148,14 @@ export class OfficeExportService {
     if (!conversationId) throw new BadRequestException('办公任务尚未建立可导出的会话')
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
-      select: { id: true, title: true, messages: { where: { role: 'ASSISTANT' }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } },
+      select: { id: true, title: true, messages: { where: { role: 'ASSISTANT', deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } },
     })
     if (!conversation) throw new NotFoundException('办公任务不存在')
+    const requestedMessage = input.messageId ? await this.prisma.message.findFirst({
+      where: { id: input.messageId, conversationId, role: 'ASSISTANT', deletedAt: null },
+      select: { id: true, content: true },
+    }) : null
+    if (input.messageId && !requestedMessage) throw new NotFoundException('要导出的回答不存在')
     const agentTask = requestedAgentTask || await this.prisma.agentTask.findFirst({
       where: { userId, conversationId, status: 'SUCCEEDED' },
       include: { runs: { where: { status: 'SUCCEEDED' }, orderBy: { completedAt: 'desc' }, take: 1 } },
@@ -166,15 +171,15 @@ export class OfficeExportService {
       return typeof options.officeSkill === 'string' || typeof options.agentTaskId === 'string'
     })
     const job = officeJob || jobs[0]
-    const message = job ? await this.prisma.message.findFirst({ where: { conversationId, metadata: { path: ['jobId'], equals: job.id } }, select: { content: true } }) : null
-    const content = agentTask?.runs[0]?.finalAnswer || message?.content || conversation.messages[0]?.content || ''
+    const message = job ? await this.prisma.message.findFirst({ where: { conversationId, deletedAt: null, metadata: { path: ['jobId'], equals: job.id } }, select: { content: true } }) : null
+    const content = requestedMessage?.content || agentTask?.runs[0]?.finalAnswer || message?.content || conversation.messages[0]?.content || ''
     if (!content.trim()) throw new BadRequestException('办公任务尚未生成可导出的内容')
     const options = job?.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
     const configuredSkill = agentTask?.skillId || String(options.officeSkill || '')
     const intent = agentTask?.goal || job?.prompt || conversation.title
     const skillId = configuredSkill && configuredSkill !== 'daily' ? configuredSkill : inferSkillFromIntent(`${conversation.title}\n${intent}`)
-    const format = skillId.startsWith('assistant:') ? 'docx' : skillFormats[skillId] || 'docx'
-    const sourceId = agentTask?.runs[0]?.id || job?.id || conversation.id
+    const format = input.format || (skillId.startsWith('assistant:') ? 'docx' : skillFormats[skillId] || 'docx')
+    const sourceId = requestedMessage?.id || agentTask?.runs[0]?.id || job?.id || conversation.id
     const matchesFormat = { metadata: { path: ['officeFormat'], equals: format } }
     const existing = await this.prisma.asset.findFirst({
       where: {
@@ -182,6 +187,7 @@ export class OfficeExportService {
         deletedAt: null,
         OR: [
           { AND: [{ metadata: { path: ['officeConversationId'], equals: conversation.id } }, matchesFormat] },
+          ...(requestedMessage ? [{ AND: [{ metadata: { path: ['officeMessageId'], equals: sourceId } }, matchesFormat] }] : []),
           { AND: [{ metadata: { path: ['officeJobId'], equals: sourceId } }, matchesFormat] },
           { AND: [{ metadata: { path: ['agentRunId'], equals: sourceId } }, matchesFormat] },
         ],
@@ -200,7 +206,7 @@ export class OfficeExportService {
       name,
       mimeType: mimeTypes[format],
       kind: AssetKind.FILE,
-      metadata: { purpose: 'generated', ...(agentTask?.runs[0] ? { agentRunId: sourceId } : job ? { officeJobId: sourceId } : {}), officeSourceId: sourceId, officeConversationId: conversation.id, officeSkill: skillId, officeFormat: format },
+      metadata: { purpose: 'generated', ...(requestedMessage ? { officeMessageId: sourceId } : agentTask?.runs[0] ? { agentRunId: sourceId } : job ? { officeJobId: sourceId } : {}), officeSourceId: sourceId, officeConversationId: conversation.id, officeSkill: skillId, officeFormat: format },
     })
     if (agentTask?.runs[0]) {
       await this.attachArtifact(agentTask.runs[0].id, agentTask.runs[0].artifactIds, asset.id)

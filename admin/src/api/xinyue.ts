@@ -141,7 +141,12 @@ export type UserGroup = {
   }>
   _count: { members: number; campaigns: number; modelAccess: number }
 }
-export type ProviderType = 'OPENAI' | 'NEW_API' | 'SUB2API' | 'OPENAI_COMPATIBLE'
+export type ProviderType =
+  | 'OPENAI'
+  | 'NEW_API'
+  | 'SUB2API'
+  | 'OPENAI_COMPATIBLE'
+  | 'POLLINATIONS'
 export type Provider = {
   id: string
   name: string
@@ -324,6 +329,13 @@ export type SystemSettings = {
   siteName: string
   siteLogoUrl: string
   supportUrl: string
+  sidebarCreationEnabled: boolean
+  sidebarCommerceEnabled: boolean
+  sidebarOfficeEnabled: boolean
+  sidebarPromptsEnabled: boolean
+  sidebarPluginsEnabled: boolean
+  sidebarProjectsEnabled: boolean
+  sidebarAssetsEnabled: boolean
   registrationEnabled: boolean
   emailLoginEnabled: boolean
   emailVerifyEnabled: boolean

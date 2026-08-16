@@ -43,11 +43,14 @@
           <label v-if="recentSearchOpen" class="workspace-recent__search-field"><Search :size="14" /><input v-model="conversationSearch" aria-label="搜索对话" placeholder="搜索对话" /></label>
           <div v-for="conversation in filteredConversations" :key="conversation.id" class="workspace-recent-row" :class="{ 'is-active': activeMode === 'chat' && conversation.id === studio.currentConversationId }">
             <form v-if="renamingConversationId === conversation.id" class="workspace-recent-rename" @submit.prevent="saveConversationRename(conversation.id)">
-              <input v-model="conversationRename" maxlength="120" aria-label="对话名称" autofocus @keydown.esc="cancelConversationRename" />
+              <input v-model="conversationRename" maxlength="120" aria-label="对话名称" autofocus :disabled="conversationRenameBusy" @keydown.esc="cancelConversationRename" />
+              <button type="submit" aria-label="保存重命名" title="保存" :disabled="conversationRenameBusy || !conversationRename.trim()"><LoaderCircle v-if="conversationRenameBusy" :size="14" /><Check v-else :size="14" /></button>
+              <button type="button" aria-label="取消重命名" title="取消" :disabled="conversationRenameBusy" @click="cancelConversationRename"><X :size="14" /></button>
             </form>
             <template v-else>
-              <button class="workspace-recent-item" type="button" @click="openConversation(conversation.id)">{{ conversation.title }}</button>
+              <button class="workspace-recent-item" type="button" :title="conversation.title" @click="openConversation(conversation.id)" @dblclick.prevent="startConversationRename(conversation)">{{ conversation.title }}</button>
               <span v-if="conversation.pinnedAt" class="workspace-recent-pin" :title="`已置顶：${conversation.title}`"><Pin :size="12" /></span>
+              <button class="workspace-recent-edit" type="button" :aria-label="`重命名“${conversation.title}”`" title="重命名" @click.stop="startConversationRename(conversation)"><Pencil :size="14" /></button>
               <button class="workspace-recent-more" type="button" :aria-label="`打开“${conversation.title}”的对话选项`" :aria-expanded="conversationMenuId === conversation.id" @click.stop="openConversationMenu($event, conversation)"><MoreHorizontal :size="17" /></button>
             </template>
           </div>
@@ -295,6 +298,7 @@ import {
   ChevronUp,
   CircleGauge,
   CirclePlus,
+  Check,
   CheckCircle2,
   CreditCard,
   Download,
@@ -358,6 +362,7 @@ const conversationMenuPosition = reactive({ left: 0, top: 0 })
 const conversationActionBusy = ref(false)
 const renamingConversationId = ref('')
 const conversationRename = ref('')
+const conversationRenameBusy = ref(false)
 const settingsOpen = ref(false)
 const upgradeOpen = ref(false)
 const pricingMode = ref<'personal' | 'team'>('personal')
@@ -432,7 +437,20 @@ const apiCredentials = ref<ApiCredential[]>([])
 const credentialEditor = ref<CredentialEditor | null>(null)
 const credentialSaving = ref(false)
 const credentialError = ref('')
-const publicSettings = reactive({ userByokEnabled: true, rechargeEnabled: false, subscriptionsEnabled: true, trialEnabled: false, currency: 'CNY' })
+const publicSettings = reactive({
+  userByokEnabled: true,
+  rechargeEnabled: false,
+  subscriptionsEnabled: true,
+  trialEnabled: false,
+  currency: 'CNY',
+  sidebarCreationEnabled: true,
+  sidebarCommerceEnabled: true,
+  sidebarOfficeEnabled: true,
+  sidebarPromptsEnabled: true,
+  sidebarPluginsEnabled: true,
+  sidebarProjectsEnabled: true,
+  sidebarAssetsEnabled: true,
+})
 const rechargePackages = ref<RechargePackage[]>([])
 const rechargeOrders = ref<RechargeOrder[]>([])
 const rechargeMessage = ref('')
@@ -1091,11 +1109,24 @@ function startConversationRename(conversation: { id: string; title: string }) {
   renamingConversationId.value = conversation.id
   conversationRename.value = conversation.title
 }
-function cancelConversationRename() { renamingConversationId.value = ''; conversationRename.value = '' }
+function cancelConversationRename() {
+  if (conversationRenameBusy.value) return
+  renamingConversationId.value = ''
+  conversationRename.value = ''
+}
 async function saveConversationRename(conversationId: string) {
-  if (!conversationRename.value.trim()) return
-  await studio.renameConversation(conversationId, conversationRename.value).catch(() => undefined)
-  cancelConversationRename()
+  if (!conversationRename.value.trim() || conversationRenameBusy.value) return
+  conversationRenameBusy.value = true
+  try {
+    await studio.renameConversation(conversationId, conversationRename.value)
+    renamingConversationId.value = ''
+    conversationRename.value = ''
+    message.success('对话名称已更新')
+  } catch (reason) {
+    message.error(reason instanceof Error ? reason.message : '对话重命名失败')
+  } finally {
+    conversationRenameBusy.value = false
+  }
 }
 async function archiveConversation(conversationId: string) {
   closeConversationMenu()
@@ -1144,13 +1175,13 @@ async function logout() {
 const externalIconMap: Record<string, Component> = { code: Code2, 'book-open': BookOpen, webhook: Webhook, 'key-round': KeyRound, 'life-buoy': LifeBuoy, 'external-link': ExternalLink }
 const navItems = computed<WorkspaceNavItem[]>(() => [
   { key: 'chat', mode: 'chat', label: t('workspace.newChat'), icon: SquarePen, to: '/chat', external: false, openNewTab: false },
-  { key: 'creation', mode: 'images', activeModes: ['images', 'videos'], label: t('workspace.creation'), icon: ImageIcon, to: '/image', external: false, openNewTab: false },
-  { key: 'commerce', mode: 'commerce', label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false },
-  { key: 'office', mode: 'office', label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false },
-  { key: 'prompts', mode: 'prompts', label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false },
-  { key: 'plugins', mode: 'plugins', label: '能力中心', icon: Blocks, to: '/capabilities', external: false, openNewTab: false },
-  { key: 'projects', mode: 'projects', label: t('workspace.projects'), icon: Folder, to: '/projects', external: false, openNewTab: false },
-  { key: 'assets', mode: 'assets', label: t('workspace.assets'), icon: Files, to: '/files', external: false, openNewTab: false },
+  ...(publicSettings.sidebarCreationEnabled ? [{ key: 'creation', mode: 'images' as const, activeModes: ['images', 'videos'] as StudioMode[], label: t('workspace.creation'), icon: ImageIcon, to: '/image', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarCommerceEnabled ? [{ key: 'commerce', mode: 'commerce' as const, label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarOfficeEnabled ? [{ key: 'office', mode: 'office' as const, label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarPromptsEnabled ? [{ key: 'prompts', mode: 'prompts' as const, label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarPluginsEnabled ? [{ key: 'plugins', mode: 'plugins' as const, label: '能力中心', icon: Blocks, to: '/capabilities', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarProjectsEnabled ? [{ key: 'projects', mode: 'projects' as const, label: t('workspace.projects'), icon: Folder, to: '/projects', external: false, openNewTab: false }] : []),
+  ...(publicSettings.sidebarAssetsEnabled ? [{ key: 'assets', mode: 'assets' as const, label: t('workspace.assets'), icon: Files, to: '/files', external: false, openNewTab: false }] : []),
   ...externalLinks.value.map((item) => ({ key: `external-${item.key}`, mode: 'api' as const, label: item.name, icon: externalIconMap[item.icon] || ExternalLink, to: item.url, external: true, openNewTab: item.openNewTab })),
 ])
 </script>
