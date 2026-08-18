@@ -20,10 +20,10 @@
       <div class="canvas-editor-header-actions">
         <button type="button" class="canvas-icon-button" :disabled="!history.length" aria-label="撤销" title="撤销 Ctrl+Z" @click="undo"><Undo2 :size="18" /></button>
         <button type="button" class="canvas-icon-button" :disabled="!future.length" aria-label="重做" title="重做 Ctrl+Shift+Z" @click="redo"><Redo2 :size="18" /></button>
-        <button type="button" class="canvas-agent-header-button" :class="{ 'is-active': agentSidebarOpen }" :disabled="!agentAvailable" aria-label="画布 Agent" :title="agentAvailable ? '打开画布 Agent' : '暂无可用 Agent 模型'" @click="openAgentPanel"><Bot :size="17" /><span>Agent</span></button>
-        <button type="button" class="canvas-icon-button" aria-label="适应画布" title="适应画布" @click="void fitView({ padding: 0.18, duration: 260 })"><Scan :size="18" /></button>
-        <button type="button" class="canvas-icon-button" aria-label="导入画布" title="导入画布" @click="importInput?.click()"><Upload :size="18" /></button>
-        <button type="button" class="canvas-icon-button" aria-label="导出画布" title="导出画布" @click="exportCanvas"><Download :size="18" /></button>
+        <button type="button" class="canvas-agent-header-button" :class="{ 'is-active': agentSidebarOpen }" aria-label="画布 Agent" :title="agentAvailable ? '打开画布 Agent' : '打开画布 Agent 配置'" @click="openAgentPanel"><Bot :size="17" /><span>Agent</span></button>
+        <button type="button" class="canvas-icon-button canvas-header-fit" aria-label="适应画布" title="适应画布" @click="void fitView({ padding: 0.18, duration: 260 })"><Scan :size="18" /></button>
+        <button type="button" class="canvas-icon-button canvas-header-import" aria-label="导入画布" title="导入画布" @click="importInput?.click()"><Upload :size="18" /></button>
+        <button type="button" class="canvas-icon-button canvas-header-export" aria-label="导出画布" title="导出画布" @click="exportCanvas"><Download :size="18" /></button>
         <span class="canvas-header-divider" aria-hidden="true" />
         <button type="button" class="canvas-header-stat" aria-label="查看创作点余额" title="查看创作点余额" @click="openWorkspaceSettings('credits')"><Sparkles :size="15" /><strong>{{ studio.credits }}</strong></button>
         <button type="button" class="canvas-icon-button canvas-header-badge-button" aria-label="通知中心" title="通知中心" @click="openWorkspaceSettings('notifications')"><Bell :size="17" /><span v-if="unreadNotifications" class="canvas-header-badge">{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span></button>
@@ -78,7 +78,7 @@
         @selection-drag-start="checkpoint"
         @viewport-change-end="updateViewport"
         @pane-click="closeInspector"
-        @node-click="openNodeSettings($event.node.id); presetMenuOpen = false"
+        @node-click="selectCanvasNode($event.node.id); presetMenuOpen = false"
         @node-double-click="openNodeSettings($event.node.id)"
         @pane-context-menu="openCanvasContextMenu"
         @dblclick.capture="openNodeCreateMenu"
@@ -117,7 +117,7 @@
           <button v-else type="button" class="is-active" @click="productionSidebarOpen = false"><ChartNoAxesGantt :size="16" />短剧制作台</button>
         </nav>
 
-        <nav v-if="workspacePanel === 'agent'" class="canvas-agent-dock-tabs" aria-label="画布 Agent 视图"><div><button type="button" :class="{ 'is-active': agentDockView === 'connect' }" @click="agentDockView = 'connect'">连接</button><button type="button" :class="{ 'is-active': agentDockView === 'create' }" @click="agentDockView = 'create'">对话</button><button type="button" :class="{ 'is-active': agentDockView === 'history' }" @click="agentDockView = 'history'; void loadAgentHistory()"><History :size="15" />历史 <span>{{ agentHistory.length }}</span></button><button type="button" :class="{ 'is-active': agentDockView === 'logs' }" @click="agentDockView = 'logs'; void loadAgentHistory()">日志</button></div><button class="canvas-agent-new-chat" type="button" @click="agentDockView = 'create'; agentGoal = ''"><Plus :size="15" />新建对话</button></nav>
+        <nav v-if="workspacePanel === 'agent'" class="canvas-agent-dock-tabs" aria-label="画布 Agent 视图"><div><button type="button" :class="{ 'is-active': agentDockView === 'create' || agentDockView === 'connect' }" @click="agentDockView = agentAvailable ? 'create' : 'connect'">对话</button><button type="button" :class="{ 'is-active': agentDockView === 'history' }" @click="agentDockView = 'history'; void loadAgentHistory()"><History :size="15" />历史 <span>{{ agentHistory.length }}</span></button><button type="button" :class="{ 'is-active': agentDockView === 'logs' }" @click="agentDockView = 'logs'; void loadAgentHistory()">日志</button></div><button class="canvas-agent-new-chat" type="button" @click="agentDockView = 'create'; agentGoal = ''"><Plus :size="15" />新建对话</button></nav>
 
         <section v-if="workspacePanel === 'agent'" class="canvas-agent-dock">
           <section v-if="agentDockView === 'connect'" class="canvas-agent-connect" aria-live="polite"><div class="canvas-agent-connect-status"><span class="canvas-agent-status-dot" :class="{ 'is-ready': agentAvailable }" /><div><strong>{{ agentAvailable ? 'Agent 已就绪' : 'Agent 未配置' }}</strong><small>{{ agentAvailable ? `${agentModelsCount} 个可用模型，可直接执行画布计划` : '管理端尚未配置可用 Agent 模型' }}</small></div></div><div class="canvas-agent-connect-detail"><span>运行方式</span><strong>工作台 Agent 服务</strong><small>当前画布会随任务提交到已配置的服务，结果需确认后才会写回节点。</small></div><button type="button" class="canvas-agent-connect-link" @click="openWorkspaceSettings('api')">查看模型与服务配置 <ArrowRight :size="14" /></button></section>
@@ -278,7 +278,7 @@
       </section>
 
       <div class="canvas-navigation-dock canvas-bottom-bar" aria-label="画布导航">
-        <button type="button" title="缩小" aria-label="缩小" @click="zoomCanvas(-0.15)"><Minus :size="17" /></button><output>{{ Math.round(viewport.zoom * 100) }}%</output><button type="button" title="放大" aria-label="放大" @click="zoomCanvas(0.15)"><Plus :size="17" /></button><button type="button" title="适应画布" aria-label="适应画布" @click="void fitView({ padding: 0.18, duration: 260 })"><Scan :size="16" /></button>
+        <button type="button" title="缩小" aria-label="缩小" @click="zoomCanvas(-0.15)"><Minus :size="17" /></button><input class="canvas-zoom-slider" type="range" min="5" max="400" step="1" :value="Math.round(viewport.zoom * 100)" aria-label="放大/缩小画布" @input="setZoomFromControl" /><output>{{ Math.round(viewport.zoom * 100) }}%</output><button type="button" title="放大" aria-label="放大" @click="zoomCanvas(0.15)"><Plus :size="17" /></button><button type="button" title="适应画布" aria-label="适应画布" @click="void fitView({ padding: 0.18, duration: 260 })"><Scan :size="16" /></button>
       </div>
 
       <div v-if="canvasContextMenu" class="canvas-context-menu" :style="{ left: `${canvasContextMenu.x}px`, top: `${canvasContextMenu.y}px` }" role="menu">
@@ -589,6 +589,12 @@ async function loadCanvas() {
     await nextTick()
     await setViewport(record.document?.viewport || { x: 0, y: 0, zoom: 1 })
     void loadAgentHistory()
+    // The reference canvas opens with the Agent workspace visible. Keep the
+    // connection state in the real panel so an unconfigured Agent is still
+    // actionable rather than presenting a dead button.
+    agentSidebarOpen.value = true
+    workspacePanel.value = 'agent'
+    agentDockView.value = agentAvailable.value ? 'create' : 'connect'
     dirty.value = false
     saveState.value = 'saved'
     hydrated.value = true
@@ -1055,6 +1061,15 @@ function openAgentPanel() {
   nodeConfigOpen.value = false
 }
 
+function selectCanvasNode(id: string) {
+  if (!nodes.value.some((node) => node.id === id)) return
+  nodeCreateMenu.value = null
+  canvasContextMenu.value = null
+  nodes.value.forEach((node) => { node.selected = node.id === id })
+  nodeConfigOpen.value = false
+  workspacePanel.value = 'agent'
+}
+
 function openWorkspaceSettings(section: 'account' | 'api' | 'credits' | 'notifications') {
   void router.push({ path: '/chat', query: { settings: section } })
 }
@@ -1192,6 +1207,13 @@ function deriveNode(sourceId: string, targetKind: CanvasGenerationKind) {
 
 function zoomCanvas(delta: number) {
   const zoom = Math.min(4, Math.max(0.05, viewport.value.zoom + delta))
+  const next = { ...viewport.value, zoom }
+  viewport.value = next
+  void setViewport(next)
+}
+
+function setZoomFromControl(event: Event) {
+  const zoom = Math.min(4, Math.max(0.05, Number((event.target as HTMLInputElement).value) / 100))
   const next = { ...viewport.value, zoom }
   viewport.value = next
   void setViewport(next)

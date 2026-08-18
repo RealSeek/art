@@ -1,5 +1,5 @@
 <template>
-  <article class="canvas-flow-node" :class="[`is-${data.kind.toLowerCase()}`, { 'is-selected': selected }]" @click="openConfigurationFromContent" @contextmenu.prevent="emit('context', $event)">
+  <article class="canvas-flow-node" :class="[`is-${data.kind.toLowerCase()}`, { 'is-selected': selected }]" @contextmenu.prevent="emit('context', $event)">
     <NodeResizer
       :is-visible="selected"
       :min-width="data.kind === 'GROUP' ? 280 : 180"
@@ -81,7 +81,7 @@
     </div>
 
     <div v-if="selected && (data.kind === 'IMAGE' || data.kind === 'VIDEO')" class="canvas-node-prompt-composer nodrag nowheel" @mousedown.stop @pointerdown.stop>
-      <textarea :value="data.prompt || ''" rows="2" :placeholder="data.kind === 'IMAGE' ? '描述要生成的图片内容' : '描述要生成的视频内容'" aria-label="生成提示词" @focus="emit('checkpoint')" @input="updatePrompt" />
+      <textarea :value="data.prompt || ''" rows="3" :placeholder="data.kind === 'IMAGE' ? '描述要生成的图片内容' : '描述要生成的视频内容'" aria-label="生成提示词" @focus="emit('checkpoint')" @input="updatePrompt" />
       <div class="canvas-node-prompt-actions">
         <label class="canvas-node-model-select" data-canvas-no-zoom>
           <select :value="selectedModel" :disabled="!modelOptions.length" aria-label="选择生成模型" @change="updateModel">
@@ -139,11 +139,6 @@ function updatePrompt(event: Event) {
 
 function updateModel(event: Event) {
   emit('update', { model: (event.target as HTMLSelectElement).value, generationOptions: {} })
-}
-
-function openConfigurationFromContent(event: MouseEvent) {
-  if ((event.target as Element).closest('button, input, select, textarea, audio, video')) return
-  emit('configure')
 }
 
 function handleResizeEnd(event: OnResizeStart) {

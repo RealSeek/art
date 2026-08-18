@@ -1031,6 +1031,22 @@ html[data-studio-theme="light"] {
 .canvas-icon-button.is-active { background: var(--canvas-accent-soft); color: var(--canvas-accent); }
 .canvas-flow { left: 0; right: 0; }
 .canvas-editor-page.is-sidebar-open .canvas-flow { right: var(--canvas-sidebar-width); }
+
+@media (max-width: 680px) {
+  .canvas-editor-page.is-sidebar-open .canvas-workspace-sidebar {
+    bottom: 0;
+    border-left: 0;
+    border-top: 1px solid var(--studio-border);
+    height: min(58vh, 480px);
+    left: 0;
+    right: 0;
+    top: auto;
+    width: auto;
+  }
+  .canvas-editor-page.is-sidebar-open .canvas-flow { right: 0; }
+  .canvas-editor-page.is-sidebar-open .canvas-tool-dock { bottom: calc(min(58vh, 480px) + 12px); left: 50%; }
+  .canvas-editor-page.is-sidebar-open .canvas-navigation-dock { bottom: calc(min(58vh, 480px) + 12px); left: 12px; }
+}
 .canvas-editor-page.is-assets-open .canvas-flow { left: var(--canvas-assets-width, 292px); }
 .canvas-assets-panel { background: color-mix(in srgb, var(--canvas-panel) 98%, transparent); border-right: 1px solid var(--canvas-border); bottom: 0; box-sizing: border-box; display: grid; grid-template-rows: auto auto minmax(0, 1fr); left: 0; overflow: hidden; position: absolute; top: 54px; width: var(--canvas-assets-width, 292px); z-index: 29; }
 .canvas-editor-page.is-short-drama .canvas-assets-panel { top: 108px; }
@@ -1125,9 +1141,12 @@ html[data-studio-theme="light"] {
 .canvas-node-prompt-composer {
   background: #fff;
   border-color: #e1e6ed;
-  border-radius: 22px;
-  box-shadow: 0 18px 46px rgba(43, 56, 73, .16);
-  padding: 14px;
+  border-radius: 18px;
+  box-shadow: 0 18px 42px rgba(43, 56, 73, .14);
+  padding: 12px;
+  top: calc(100% + 16px);
+  width: min(500px, calc(100vw - 32px));
+  z-index: 70;
 }
 .canvas-node-prompt-composer textarea { background: #f5f7fa; border-color: #edf0f3; border-radius: 14px; }
 .canvas-node-model-select { display: inline-flex; max-width: 190px; }
@@ -1258,6 +1277,37 @@ html[data-studio-theme="light"] {
 .canvas-node-panel-list > button > svg { color: var(--studio-muted); margin-left: auto; transform: rotate(-90deg); }
 .canvas-node-panel-list > button > .canvas-node-panel-check { color: var(--canvas-accent); transform: none; }
 .canvas-node-panel-icon { align-items: center; background: var(--canvas-accent-soft); border-radius: 6px; color: var(--canvas-accent); display: inline-flex; flex: 0 0 auto; height: 28px; justify-content: center; width: 28px; }
+
+/* The reference canvas keeps nodes visually quiet. Metadata and destructive
+   actions live in the selection toolbar or right inspector, while the node
+   itself is reserved for content. */
+.canvas-flow-node:not(.is-group) .canvas-node-header { display: none; }
+.canvas-flow-node:not(.is-group) .canvas-node-body { height: 100%; }
+.canvas-flow-node.is-text .canvas-node-body { padding-top: 28px; }
+.canvas-flow-node.is-image,
+.canvas-flow-node.is-video,
+.canvas-flow-node.is-audio { border-radius: 18px; }
+
+/* Match the live canvas chrome when the Agent workspace is docked. */
+.canvas-editor-page.is-sidebar-open .canvas-agent-header-button,
+.canvas-editor-page.is-sidebar-open .canvas-header-fit,
+.canvas-editor-page.is-sidebar-open .canvas-header-import,
+.canvas-editor-page.is-sidebar-open .canvas-header-export { display: none; }
+/* Keep the real Agent toggle in the accessibility tree for keyboard and
+   automation users while the open dock owns the visible header space. */
+.canvas-editor-page.is-sidebar-open .canvas-agent-header-button {
+  display: inline-flex;
+  height: 34px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  position: absolute;
+  right: 8px;
+  width: 34px;
+}
+.canvas-zoom-slider { accent-color: var(--canvas-accent); min-width: 88px; width: 100px; }
+.canvas-navigation-dock { gap: 4px; padding: 5px 8px; }
+.canvas-navigation-dock output { border: 0; min-width: 42px; }
 
 @media (max-width: 900px) {
   .canvas-header-divider, .canvas-header-stat, .canvas-account-button { display: none; }
