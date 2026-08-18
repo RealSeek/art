@@ -1309,6 +1309,12 @@ html[data-studio-theme="light"] {
 .canvas-navigation-dock { gap: 4px; padding: 5px 8px; }
 .canvas-navigation-dock output { border: 0; min-width: 42px; }
 
+/* The dock also carries the legacy rail class for compatibility selectors.
+   Clear the rail's top anchor so it cannot stretch from top to bottom. */
+.canvas-tool-dock.canvas-tool-rail { left: calc((100% - var(--canvas-sidebar-width)) / 2); top: auto; }
+.canvas-editor-page:not(.is-sidebar-open) .canvas-tool-dock.canvas-tool-rail { left: 50%; }
+.canvas-navigation-dock.canvas-bottom-bar { left: 18px; transform: none; }
+
 @media (max-width: 900px) {
   .canvas-header-divider, .canvas-header-stat, .canvas-account-button { display: none; }
 }
