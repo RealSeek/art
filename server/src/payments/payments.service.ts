@@ -5,6 +5,7 @@ import { CreditsService } from '../credits/credits.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { SubscriptionsService } from '../subscriptions/subscriptions.service'
+import { ReferralService } from '../commercial/referral.service'
 import { PAYMENT_METHODS, PAYMENT_METHODS_BY_PROVIDER, PAYMENT_PROVIDERS, type PaymentMethod, type PaymentProvider } from './payment.constants'
 
 type ChannelInput = {
@@ -32,7 +33,7 @@ type StripeCheckoutEvent = { id?: string; type?: string; data?: { object?: { pay
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly subscriptions: SubscriptionsService, private readonly credits: CreditsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly subscriptions: SubscriptionsService, private readonly credits: CreditsService, private readonly referrals: ReferralService) {}
 
   async methods() {
     const rows = await this.prisma.paymentChannel.findMany({ where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }] })
@@ -206,12 +207,14 @@ export class PaymentsService {
           await tx.paymentTransaction.update({ where: { id: refund.transactionId }, data: { status: 'REFUNDED' } })
           if (refund.transaction.subscriptionOrderId) {
             await tx.subscriptionOrder.update({ where: { id: refund.transaction.subscriptionOrderId }, data: { status: 'REFUNDED' } })
+            await tx.couponRedemption.updateMany({ where: { orderId: refund.transaction.subscriptionOrderId, status: 'REDEEMED' }, data: { status: 'REFUNDED', refundedAt: new Date() } })
             await tx.userSubscription.updateMany({ where: { userId: refund.userId, metadata: { path: ['orderId'], equals: refund.transaction.subscriptionOrderId }, status: { in: ['ACTIVE', 'TRIALING'] } }, data: { status: 'CANCELLED', cancelledAt: new Date(), endedAt: new Date() } })
           }
           if (refund.transaction.rechargeOrderId) await tx.rechargeOrder.update({ where: { id: refund.transaction.rechargeOrderId }, data: { status: 'REFUNDED' } })
         }
         await tx.notification.create({ data: { userId: refund.userId, type: NotificationType.CREDIT, title: '退款处理完成', body: `退款 ¥${(refund.amountCents / 100).toFixed(2)} 已处理${creditsToReclaim ? `，回收 ${creditsToReclaim} 创作点` : ''}`, metadata: { refundId: refund.id, transactionId: refund.transactionId } as Prisma.InputJsonValue } })
       })
+      await this.referrals.handleRefund(refund.transactionId, totalRefunded).catch(() => undefined)
       return this.prisma.paymentRefund.findUniqueOrThrow({ where: { id: refund.id } })
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : '退款处理失败'
@@ -290,6 +293,7 @@ export class PaymentsService {
       else if (transaction.orderType === 'RECHARGE' && transaction.rechargeOrderId) await this.completeRecharge(transaction.rechargeOrderId)
       else throw new BadRequestException('支付交易没有关联业务订单')
       transaction = await this.prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: 'COMPLETED', completedAt: new Date() } })
+      await this.referrals.onPaymentCompleted(transaction.id).catch(() => undefined)
       return this.publicTransaction(transaction)
     } catch (reason) {
       await this.prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: 'PAID', failureReason: reason instanceof Error ? reason.message : '权益发放失败' } })

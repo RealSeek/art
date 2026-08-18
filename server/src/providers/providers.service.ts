@@ -1,12 +1,16 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ModelCapability, Prisma, ProviderAuthType, ProviderType, SystemSetting } from '@prisma/client'
 import { isIP } from 'node:net'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from './credential-crypto.service'
+import { normalizeSiteContent } from './site-content'
+import { CapabilityRegistryService } from './capability-registry.service'
+import { DiscoveredModel, ModelDiscoveryService } from './model-discovery.service'
 
 type ProviderInput = {
   name: string
+  templateId?: string | null
   type: ProviderType
   baseUrl: string
   apiKey?: string
@@ -20,15 +24,57 @@ type ProviderInput = {
   metadata?: Record<string, unknown>
 }
 
+type ModelVendorInput = {
+  key: string
+  name: string
+  icon?: string
+  websiteUrl?: string
+  enabled?: boolean
+  sortOrder?: number
+}
+
+type ProviderTemplateInput = {
+  key: string
+  name: string
+  description?: string
+  vendorId?: string | null
+  type: ProviderType
+  baseUrl?: string
+  authType?: ProviderAuthType
+  apiProtocol?: 'openai' | 'anthropic' | 'gemini'
+  nativeSearchProvider?: 'openai' | 'anthropic' | 'gemini' | 'xai' | 'qwen' | 'doubao' | 'disabled'
+  customHeaders?: Record<string, string>
+  supportsDiscovery?: boolean
+  enabled?: boolean
+  sortOrder?: number
+}
+
 type CredentialInput = {
   name: string
+  templateId?: string
   providerType: ProviderType
   baseUrl: string
   apiKey?: string
   authType?: ProviderAuthType
   enabled?: boolean
   isDefault?: boolean
+  priority?: number
+  weight?: number
   customHeaders?: Record<string, string>
+  expiresAt?: string | null
+}
+
+type UserModelInput = {
+  displayName: string
+  description?: string
+  vendorId?: string
+  capability: ModelCapability
+  apiProtocol?: 'openai' | 'anthropic' | 'gemini'
+  routingStrategy?: 'PRIORITY' | 'WEIGHTED' | 'ROUND_ROBIN'
+  enabled?: boolean
+  isDefault?: boolean
+  options?: Record<string, unknown>
+  routes: Array<{ credentialId: string; upstreamModel: string; enabled?: boolean; priority?: number; weight?: number }>
 }
 
 type SystemSettingsInput = Partial<{
@@ -63,14 +109,23 @@ type SystemSettingsInput = Partial<{
   defaultLanguage: string
   chatUiPreset: string
   chatHomeContent: Record<string, unknown>
+  siteContent: Record<string, unknown>
   defaultChatModelKey: string
   defaultImageModelKey: string
   userByokEnabled: boolean
   inviteRewardCredits: number
+  referralEnabled: boolean
+  referralCoolingDays: number
+  referralMinimumPaidCents: number
+  referralMonthlyRewardLimit: number
+  referralAutoApprove: boolean
   rechargeEnabled: boolean
   minRechargeCents: number
   currency: string
   creditValueMicros: number
+  modelImportMarkupPercent: number
+  modelPriceCatalogUrl: string
+  modelPriceCatalogRefreshHours: number
   subscriptionsEnabled: boolean
   trialEnabled: boolean
   defaultTrialPlanId: string
@@ -91,7 +146,7 @@ type SystemSettingsInput = Partial<{
 }>
 
 export type ResolvedProvider = {
-  source: 'user' | 'admin' | 'environment' | 'demo'
+  source: 'user' | 'admin' | 'environment'
   providerId?: string
   credentialId?: string
   routeId?: string
@@ -116,6 +171,7 @@ export type ResolvedProvider = {
   videoCapabilities?: Record<string, unknown>
   creditRatePercent: number
   apiProtocol: 'openai' | 'anthropic' | 'gemini'
+  nativeSearchProvider?: 'openai' | 'anthropic' | 'gemini' | 'xai' | 'qwen' | 'doubao'
 }
 
 type ResolvedPreset = {
@@ -138,18 +194,56 @@ type VideoCapabilityRoute = {
 }
 
 const DEFAULT_CHAT_HOME_CONTENT = {
-  doubaoRecommendations: [
-    { title: '热点：北语教授刘宗迪称《山海经》并非怪物图鉴', prompt: '请介绍这个热点，并说明相关观点和背景。', targetUrl: '' },
-    { title: '语言模型的训练数据如何影响 AI 回答的准确性和多样性？', prompt: '语言模型的训练数据如何影响 AI 回答的准确性和多样性？', targetUrl: '' },
-    { title: '长期喝全糖饮品对身体有哪些影响？', prompt: '长期喝全糖饮品对身体有哪些影响？', targetUrl: '' },
-    { title: '有哪些训练方法能让猫听懂指令？', prompt: '有哪些训练方法能让猫听懂指令？', targetUrl: '' },
-  ],
+  doubaoRecommendations: [],
   qianwenBanners: [
     { title: 'Xinyue 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
-    { title: 'Xinyue 输入法 App 全新上线', description: '说话即成稿，支持多种语言', buttonText: '立即下载体验', imageUrl: '', targetUrl: '/office' },
-    { title: '一键生成录音纪要', description: '纪要自动整理，重要内容清晰呈现', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
+    { title: '多格式办公文件交付', description: '生成可继续编辑的 PPTX、DOCX 与 XLSX 文件', buttonText: '开始办公任务', imageUrl: '', targetUrl: '/office' },
+    { title: '会议材料整理', description: '根据会议文字或文档提炼议题、结论与待办', buttonText: '整理会议材料', imageUrl: '', targetUrl: '/office?tool=meeting' },
   ],
-  kimiProject: { label: '选择项目', targetUrl: '/projects' },
+  kimiProject: { label: '选择项目', targetUrl: '/workspace?tab=projects' },
+  composerControls: {
+    gpt: { modeEnabled: false, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: false },
+    doubao: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
+    qianwen: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
+    kimi: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
+  },
+  quickActions: {
+    gpt: [],
+    doubao: [
+      { id: 'doubao-video', label: '视频生成', icon: 'video', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/video', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
+      { id: 'doubao-music', label: '音乐创作方案', icon: 'music', placement: 'BAR', actionType: 'PROMPT', prompt: '请根据以下描述策划音乐风格、结构、歌词方向与制作方案：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
+      { id: 'doubao-image', label: '图像生成', icon: 'image', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
+      { id: 'doubao-podcast', label: 'AI 播客', icon: 'podcast', placement: 'BAR', actionType: 'PROMPT', prompt: '请策划一份 AI 播客脚本：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
+      { id: 'doubao-table', label: 'AI 表格', icon: 'table', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'spreadsheet', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
+      { id: 'doubao-writing', label: '帮我写作', icon: 'writing', placement: 'BAR', actionType: 'OFFICE', prompt: '请帮我撰写：', target: 'writing', modelKey: '', webSearch: false, enabled: true, sortOrder: 60 },
+      { id: 'doubao-transcribe', label: '会议纪要', icon: 'transcribe', placement: 'BAR', actionType: 'OFFICE', prompt: '请根据我提供的会议文字或文档整理会议纪要：', target: 'meeting', modelKey: '', webSearch: false, enabled: true, sortOrder: 70 },
+      { id: 'doubao-ppt', label: 'PPT 生成', icon: 'ppt', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
+      { id: 'doubao-translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译以下内容：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
+      { id: 'doubao-research', label: '深入研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 30 },
+      { id: 'doubao-answer', label: '解题答疑', icon: 'answer', placement: 'MORE', actionType: 'PROMPT', prompt: '请分步解答以下问题：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
+      { id: 'doubao-analysis', label: '数据分析', icon: 'table', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'analysis', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
+    ],
+    qianwen: [
+      { id: 'qianwen-office', label: '办公助理', icon: 'office', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'daily', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
+      { id: 'qianwen-ppt', label: 'PPT 创作', icon: 'ppt', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
+      { id: 'qianwen-video', label: 'AI 生视频', icon: 'video', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/video', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
+      { id: 'qianwen-image', label: 'AI 生图', icon: 'image', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
+      { id: 'qianwen-code', label: '代码', icon: 'code', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'development', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
+      { id: 'qianwen-translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译以下内容：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
+      { id: 'qianwen-writing', label: 'AI 写作', icon: 'writing', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'writing', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
+      { id: 'qianwen-research', label: '研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 40 },
+      { id: 'qianwen-meeting', label: '会议纪要', icon: 'transcribe', placement: 'MORE', actionType: 'OFFICE', prompt: '请根据我提供的会议文字或文档整理会议纪要：', target: 'meeting', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
+    ],
+    kimi: [
+      { id: 'kimi-ppt', label: 'PPT', icon: 'ppt', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
+      { id: 'kimi-agent', label: '集群', icon: 'office', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'daily', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
+      { id: 'kimi-research', label: '深度研究', icon: 'research', placement: 'BAR', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 30 },
+      { id: 'kimi-document', label: '文档', icon: 'document', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'report', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
+      { id: 'kimi-website', label: '网站', icon: 'website', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'development', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
+      { id: 'kimi-table', label: '表格', icon: 'table', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'spreadsheet', modelKey: '', webSearch: false, enabled: true, sortOrder: 60 },
+      { id: 'kimi-design', label: '设计', icon: 'design', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 70 },
+    ],
+  },
 }
 
 const DEFAULT_PRESETS = [
@@ -221,13 +315,47 @@ const DEFAULT_PRESETS = [
   { key: 'commerce-gpt-image-2', displayName: 'GPT Image 2', upstreamModel: 'gpt-image-2', capability: ModelCapability.COMMERCE, sortOrder: 10, isDefault: true },
 ]
 
+const DEFAULT_VENDORS = [
+  { key: 'openai', name: 'OpenAI', websiteUrl: 'https://openai.com', sortOrder: 10 },
+  { key: 'anthropic', name: 'Anthropic', websiteUrl: 'https://anthropic.com', sortOrder: 20 },
+  { key: 'google', name: 'Google Gemini', websiteUrl: 'https://ai.google.dev', sortOrder: 30 },
+  { key: 'xai', name: 'xAI', websiteUrl: 'https://x.ai', sortOrder: 40 },
+  { key: 'deepseek', name: 'DeepSeek', websiteUrl: 'https://deepseek.com', sortOrder: 50 },
+  { key: 'qwen', name: 'Qwen', websiteUrl: 'https://bailian.console.aliyun.com', sortOrder: 60 },
+  { key: 'doubao', name: 'Doubao', websiteUrl: 'https://www.volcengine.com/product/ark', sortOrder: 70 },
+  { key: 'other', name: 'Other', websiteUrl: '', sortOrder: 999 },
+] as const
+
+const DEFAULT_PROVIDER_TEMPLATES = [
+  { key: 'openai', name: 'OpenAI', vendorKey: 'openai', type: ProviderType.OPENAI, baseUrl: 'https://api.openai.com/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', nativeSearchProvider: 'openai', sortOrder: 10 },
+  { key: 'anthropic', name: 'Anthropic', vendorKey: 'anthropic', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://api.anthropic.com/v1', authType: ProviderAuthType.X_API_KEY, apiProtocol: 'anthropic', nativeSearchProvider: 'anthropic', sortOrder: 20 },
+  { key: 'gemini', name: 'Google Gemini', vendorKey: 'google', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://generativelanguage.googleapis.com/v1beta', authType: ProviderAuthType.X_API_KEY, apiProtocol: 'gemini', nativeSearchProvider: 'gemini', supportsDiscovery: false, sortOrder: 30 },
+  { key: 'xai', name: 'xAI', vendorKey: 'xai', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://api.x.ai/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', nativeSearchProvider: 'xai', sortOrder: 40 },
+  { key: 'deepseek', name: 'DeepSeek', vendorKey: 'deepseek', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://api.deepseek.com/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 50 },
+  { key: 'qwen', name: '阿里云百炼', vendorKey: 'qwen', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', nativeSearchProvider: 'qwen', sortOrder: 60 },
+  { key: 'doubao', name: '火山方舟', vendorKey: 'doubao', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', nativeSearchProvider: 'doubao', supportsDiscovery: false, sortOrder: 70 },
+  { key: 'newapi', name: 'NewAPI', vendorKey: 'other', type: ProviderType.NEW_API, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 80 },
+  { key: 'sub2api', name: 'Sub2API', vendorKey: 'other', type: ProviderType.SUB2API, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 90 },
+  { key: 'openrouter', name: 'OpenRouter', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://openrouter.ai/api/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 100 },
+  { key: 'litellm', name: 'LiteLLM', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 110 },
+  { key: 'ollama', name: 'Ollama / OpenAI Compatible', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 120 },
+  { key: 'local-worker', name: 'Xinyue Local Worker', vendorKey: 'other', type: ProviderType.LOCAL_WORKER, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', supportsDiscovery: true, sortOrder: 130 },
+] as const
+
 @Injectable()
 export class ProvidersService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly modelDiscovery: ModelDiscoveryService) {}
 
   async onModuleInit() {
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
-    await this.prisma.modelPreset.createMany({ data: DEFAULT_PRESETS, skipDuplicates: true })
+    for (const vendor of DEFAULT_VENDORS) await this.prisma.modelVendor.upsert({ where: { key: vendor.key }, update: {}, create: vendor })
+    const vendors = new Map((await this.prisma.modelVendor.findMany()).map((vendor) => [vendor.key, vendor.id]))
+    for (const template of DEFAULT_PROVIDER_TEMPLATES) {
+      const { vendorKey, ...data } = template
+      await this.prisma.providerTemplate.upsert({ where: { key: data.key }, update: {}, create: { ...data, vendorId: vendors.get(vendorKey) } })
+    }
+    await this.prisma.modelPreset.createMany({ data: DEFAULT_PRESETS.map((preset) => ({ ...preset, enabled: false, isDefault: false })), skipDuplicates: true })
+    await this.prisma.modelPreset.updateMany({ where: { enabled: true, providerId: null, providerRoutes: { none: {} } }, data: { enabled: false, isDefault: false } })
   }
 
   normalizeBaseUrl(input: string, type?: ProviderType) {
@@ -239,12 +367,22 @@ export class ProvidersService implements OnModuleInit {
     url.pathname = url.pathname.replace(/\/(chat\/completions|responses|images\/generations|videos(?:\/[^/]+(?:\/content)?)?|models)\/?$/i, '').replace(/\/+$/, '')
     const pollinations = type === ProviderType.POLLINATIONS || url.hostname.toLowerCase().endsWith('pollinations.ai')
     if (pollinations) url.pathname = url.pathname.replace(/\/v1$/i, '') || '/'
-    else if (!url.pathname.toLowerCase().endsWith('/v1')) url.pathname = `${url.pathname}/v1`.replace(/\/{2,}/g, '/')
+    else if (!/\/(?:api\/)?v\d+(?:beta\d*)?$/i.test(url.pathname)) url.pathname = `${url.pathname}/v1`.replace(/\/{2,}/g, '/')
     return url.toString().replace(/\/$/, '')
   }
 
   private providerReady(provider: { type: ProviderType; encryptedApiKey: string }) {
-    return provider.type === ProviderType.POLLINATIONS || Boolean(provider.encryptedApiKey)
+    return provider.type === ProviderType.POLLINATIONS || provider.type === ProviderType.LOCAL_WORKER || Boolean(provider.encryptedApiKey)
+  }
+
+  private providerPublished(provider: { type: ProviderType; encryptedApiKey: string; enabled: boolean; lastHealthStatus?: string | null; cooldownUntil?: Date | null } | null | undefined) {
+    return Boolean(provider?.enabled
+      && this.providerReady(provider)
+      && (!provider.cooldownUntil || provider.cooldownUntil.getTime() <= Date.now()))
+  }
+
+  private providerHealthy(provider: { type: ProviderType; encryptedApiKey: string; enabled: boolean; lastHealthStatus?: string | null; cooldownUntil?: Date | null } | null | undefined) {
+    return Boolean(this.providerPublished(provider) && provider?.lastHealthStatus === 'healthy')
   }
 
   buildPollinationsImageUrl(baseUrl: string, prompt: string, options: { model: string; width: number; height: number; seed: number }) {
@@ -276,6 +414,10 @@ export class ProvidersService implements OnModuleInit {
       if (typeof item === 'string' && !['authorization', 'x-api-key', 'x-goog-api-key', 'host'].includes(key.toLowerCase())) result[key] = item
     }
     return result
+  }
+
+  private jsonObject(value: Prisma.JsonValue | null | undefined) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   }
 
   private videoRouteCapabilities(value: Prisma.JsonValue | null | undefined) {
@@ -382,6 +524,23 @@ export class ProvidersService implements OnModuleInit {
     return override ? { ...(fallback || {}), ...override } : fallback
   }
 
+  private nativeSearchProvider(baseUrl: string, apiProtocol: ResolvedProvider['apiProtocol'], ...settings: unknown[]): ResolvedProvider['nativeSearchProvider'] {
+    for (const setting of settings) {
+      if (!setting || typeof setting !== 'object' || Array.isArray(setting)) continue
+      const configured = String((setting as Record<string, unknown>).nativeSearchProvider || '').trim().toLowerCase()
+      if (['openai', 'anthropic', 'gemini', 'xai', 'qwen', 'doubao'].includes(configured)) return configured as ResolvedProvider['nativeSearchProvider']
+      if (configured === 'none' || configured === 'disabled') return undefined
+    }
+    const host = (() => { try { return new URL(baseUrl).hostname.toLowerCase() } catch { return '' } })()
+    if (apiProtocol === 'anthropic' || host.endsWith('anthropic.com')) return 'anthropic'
+    if (apiProtocol === 'gemini' || host.includes('generativelanguage.googleapis.com')) return 'gemini'
+    if (host.endsWith('api.openai.com')) return 'openai'
+    if (host.endsWith('api.x.ai')) return 'xai'
+    if (host.includes('dashscope.aliyuncs.com')) return 'qwen'
+    if (host.includes('volces.com')) return 'doubao'
+    return undefined
+  }
+
   publicProvider<T extends { encryptedApiKey: string }>(provider: T) {
     const { encryptedApiKey, ...safe } = provider
     return { ...safe, hasApiKey: Boolean(encryptedApiKey) }
@@ -389,16 +548,100 @@ export class ProvidersService implements OnModuleInit {
 
   publicCredential<T extends { encryptedApiKey: string }>(credential: T) {
     const { encryptedApiKey, ...safe } = credential
-    return { ...safe, hasApiKey: Boolean(encryptedApiKey) }
+    const output = { ...safe } as Record<string, unknown>
+    if (typeof output.inputTokens === 'bigint') output.inputTokens = output.inputTokens.toString()
+    if (typeof output.outputTokens === 'bigint') output.outputTokens = output.outputTokens.toString()
+    return { ...output, hasApiKey: Boolean(encryptedApiKey) }
+  }
+
+  listModelVendors(includeDisabled = false) {
+    return this.prisma.modelVendor.findMany({ where: includeDisabled ? {} : { enabled: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] })
+  }
+
+  listProviderTemplates(includeDisabled = false) {
+    return this.prisma.providerTemplate.findMany({ where: includeDisabled ? {} : { enabled: true, type: { notIn: [ProviderType.POLLINATIONS, ProviderType.LOCAL_WORKER] } }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], include: { vendor: true, _count: { select: { providerChannels: true, userCredentials: true } } } })
+  }
+
+  async createModelVendor(input: ModelVendorInput) {
+    return this.prisma.modelVendor.create({ data: {
+      key: input.key.trim().toLowerCase(), name: input.name.trim(), icon: input.icon?.trim() || '', websiteUrl: input.websiteUrl?.trim() || '', enabled: input.enabled ?? true, sortOrder: input.sortOrder ?? 0,
+    } })
+  }
+
+  async updateModelVendor(id: string, input: Partial<ModelVendorInput>) {
+    const existing = await this.prisma.modelVendor.findUnique({ where: { id } })
+    if (!existing) throw new NotFoundException('模型厂商不存在')
+    return this.prisma.modelVendor.update({ where: { id }, data: {
+      ...(input.key !== undefined ? { key: input.key.trim().toLowerCase() } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.icon !== undefined ? { icon: input.icon.trim() } : {}),
+      ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl.trim() } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    } })
+  }
+
+  async deleteModelVendor(id: string) {
+    const vendor = await this.prisma.modelVendor.findUnique({ where: { id }, include: { _count: { select: { providerTemplates: true, modelPresets: true, userModels: true } } } })
+    if (!vendor) throw new NotFoundException('模型厂商不存在')
+    const references = vendor._count.providerTemplates + vendor._count.modelPresets + vendor._count.userModels
+    if (references) throw new BadRequestException(`该厂商仍被 ${references} 项配置引用，请先迁移引用`)
+    await this.prisma.modelVendor.delete({ where: { id } })
+    return { success: true }
+  }
+
+  private async assertTemplateVendor(vendorId?: string | null) {
+    if (!vendorId) return
+    if (!await this.prisma.modelVendor.count({ where: { id: vendorId } })) throw new BadRequestException('模型厂商不存在')
+  }
+
+  async createProviderTemplate(input: ProviderTemplateInput) {
+    await this.assertTemplateVendor(input.vendorId)
+    return this.prisma.providerTemplate.create({ data: {
+      key: input.key.trim().toLowerCase(), name: input.name.trim(), description: input.description?.trim() || '', vendorId: input.vendorId || null, type: input.type, baseUrl: input.baseUrl?.trim() || '', authType: input.authType ?? ProviderAuthType.BEARER, apiProtocol: input.apiProtocol ?? 'openai', nativeSearchProvider: input.nativeSearchProvider ?? 'disabled', customHeaders: input.customHeaders as Prisma.InputJsonValue, supportsDiscovery: input.supportsDiscovery ?? true, enabled: input.enabled ?? true, sortOrder: input.sortOrder ?? 0,
+    }, include: { vendor: true, _count: { select: { providerChannels: true, userCredentials: true } } } })
+  }
+
+  async updateProviderTemplate(id: string, input: Partial<ProviderTemplateInput>) {
+    if (!await this.prisma.providerTemplate.count({ where: { id } })) throw new NotFoundException('渠道模板不存在')
+    if (input.vendorId !== undefined) await this.assertTemplateVendor(input.vendorId)
+    return this.prisma.providerTemplate.update({ where: { id }, data: {
+      ...(input.key !== undefined ? { key: input.key.trim().toLowerCase() } : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.description !== undefined ? { description: input.description.trim() } : {}),
+      ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl.trim() } : {}),
+      ...(input.authType !== undefined ? { authType: input.authType } : {}),
+      ...(input.apiProtocol !== undefined ? { apiProtocol: input.apiProtocol } : {}),
+      ...(input.nativeSearchProvider !== undefined ? { nativeSearchProvider: input.nativeSearchProvider } : {}),
+      ...(input.customHeaders !== undefined ? { customHeaders: input.customHeaders as Prisma.InputJsonValue } : {}),
+      ...(input.supportsDiscovery !== undefined ? { supportsDiscovery: input.supportsDiscovery } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    }, include: { vendor: true, _count: { select: { providerChannels: true, userCredentials: true } } } })
+  }
+
+  async deleteProviderTemplate(id: string) {
+    const template = await this.prisma.providerTemplate.findUnique({ where: { id }, include: { _count: { select: { providerChannels: true, userCredentials: true } } } })
+    if (!template) throw new NotFoundException('渠道模板不存在')
+    const references = template._count.providerChannels + template._count.userCredentials
+    if (references) throw new BadRequestException(`该模板仍被 ${references} 个渠道或用户密钥引用，请先迁移引用`)
+    await this.prisma.providerTemplate.delete({ where: { id } })
+    return { success: true }
   }
 
   listProviders() {
-    return this.prisma.providerChannel.findMany({ orderBy: [{ enabled: 'desc' }, { priority: 'desc' }, { createdAt: 'asc' }], include: { _count: { select: { modelPresets: true, modelRoutes: true } } } }).then((rows) => rows.map((row) => this.publicProvider(row)))
+    return this.prisma.providerChannel.findMany({ orderBy: [{ enabled: 'desc' }, { priority: 'desc' }, { createdAt: 'asc' }], include: { template: { select: { id: true, name: true, apiProtocol: true, nativeSearchProvider: true } }, _count: { select: { modelPresets: true, modelRoutes: true } } } }).then((rows) => rows.map((row) => this.publicProvider(row)))
   }
 
   async createProvider(input: ProviderInput) {
+    const template = input.templateId ? await this.prisma.providerTemplate.findUnique({ where: { id: input.templateId } }) : null
+    if (input.templateId && !template) throw new BadRequestException('渠道模板不存在')
+    const metadata = { ...(template ? { apiProtocol: template.apiProtocol, nativeSearchProvider: template.nativeSearchProvider } : {}), ...(input.metadata || {}) }
+    const providerType = template?.type ?? input.type
     const row = await this.prisma.providerChannel.create({ data: {
-      name: input.name.trim(), type: input.type, baseUrl: this.normalizeBaseUrl(input.baseUrl, input.type), encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: input.type === ProviderType.POLLINATIONS ? false : input.allowUserKeys, customHeaders: input.customHeaders as Prisma.InputJsonValue, metadata: input.metadata as Prisma.InputJsonValue,
+      name: input.name.trim(), templateId: input.templateId || null, type: providerType, baseUrl: this.normalizeBaseUrl(input.baseUrl || template?.baseUrl || '', providerType), encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: template?.authType ?? input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: providerType !== ProviderType.POLLINATIONS && providerType !== ProviderType.LOCAL_WORKER && input.allowUserKeys, customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue, metadata: metadata as Prisma.InputJsonValue,
     } })
     return this.publicProvider(row)
   }
@@ -406,21 +649,28 @@ export class ProvidersService implements OnModuleInit {
   async updateProvider(id: string, input: Partial<ProviderInput>) {
     const existing = await this.prisma.providerChannel.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException('上游渠道不存在')
-    const nextType = input.type ?? existing.type
+    const template = input.templateId ? await this.prisma.providerTemplate.findUnique({ where: { id: input.templateId } }) : null
+    if (input.templateId && !template) throw new BadRequestException('渠道模板不存在')
+    const nextType = template?.type ?? input.type ?? existing.type
+    const existingMetadata = this.jsonObject(existing.metadata)
+    const metadata = input.templateId !== undefined
+      ? { ...existingMetadata, ...(template ? { apiProtocol: template.apiProtocol, nativeSearchProvider: template.nativeSearchProvider } : {}), ...(input.metadata || {}) }
+      : input.metadata
     const row = await this.prisma.providerChannel.update({ where: { id }, data: {
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-      ...(input.type !== undefined ? { type: input.type } : {}),
+      ...(input.templateId !== undefined ? { templateId: input.templateId || null } : {}),
+      ...(input.type !== undefined || template ? { type: nextType } : {}),
       ...(input.baseUrl !== undefined || input.type !== undefined ? { baseUrl: this.normalizeBaseUrl(input.baseUrl ?? existing.baseUrl, nextType) } : {}),
-      ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey) } : {}),
+      ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), lastRotatedAt: new Date(), lastHealthStatus: null, lastHealthMessage: '密钥已轮换，等待重新检测', cooldownUntil: null } : {}),
       ...(input.apiKey === '' ? { encryptedApiKey: '', apiKeyHint: '' } : {}),
-      ...(input.authType !== undefined ? { authType: input.authType } : {}),
+      ...(input.authType !== undefined || template ? { authType: template?.authType ?? input.authType } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       ...(input.weight !== undefined ? { weight: input.weight } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-      ...(nextType === ProviderType.POLLINATIONS ? { allowUserKeys: false } : input.allowUserKeys !== undefined ? { allowUserKeys: input.allowUserKeys } : {}),
-      ...(input.customHeaders !== undefined ? { customHeaders: input.customHeaders as Prisma.InputJsonValue } : {}),
-      ...(input.metadata !== undefined ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
+      ...(nextType === ProviderType.POLLINATIONS || nextType === ProviderType.LOCAL_WORKER ? { allowUserKeys: false } : input.allowUserKeys !== undefined ? { allowUserKeys: input.allowUserKeys } : {}),
+      ...(input.customHeaders !== undefined || template ? { customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue } : {}),
+      ...(metadata !== undefined ? { metadata: metadata as Prisma.InputJsonValue } : {}),
     } })
     return this.publicProvider(row)
   }
@@ -449,7 +699,7 @@ export class ProvidersService implements OnModuleInit {
     const provider = await this.prisma.providerChannel.findUnique({ where: { id } })
     if (!provider) throw new NotFoundException('上游渠道不存在')
     const apiKey = this.crypto.decrypt(provider.encryptedApiKey)
-    if (!apiKey && provider.type !== ProviderType.POLLINATIONS) throw new BadRequestException('请先配置渠道 API 密钥')
+    if (!apiKey && provider.type !== ProviderType.POLLINATIONS && provider.type !== ProviderType.LOCAL_WORKER) throw new BadRequestException('请先配置渠道 API 密钥')
     const startedAt = Date.now()
     try {
       if (provider.type === ProviderType.POLLINATIONS) {
@@ -464,20 +714,207 @@ export class ProvidersService implements OnModuleInit {
         if (bytes.length < 64 || bytes.length > 5 * 1024 * 1024 || !this.hasSupportedImageSignature(bytes)) throw new Error('渠道返回的图片数据无效')
         const models = ['flux']
         await this.prisma.providerChannel.update({ where: { id }, data: { lastHealthStatus: 'healthy', lastHealthMessage: `图片接口正常，${Date.now() - startedAt}ms`, lastHealthAt: new Date() } })
-        return { models, latencyMs: Date.now() - startedAt }
+        const candidates = await this.describeDiscoveredModels(models)
+        return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
+      }
+      if (provider.type === ProviderType.LOCAL_WORKER) {
+        const headers = this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey)
+        const health = await fetch(`${provider.baseUrl}/health`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        if (!health.ok) throw new Error(`Worker 健康检查返回 HTTP ${health.status}: ${(await health.text()).slice(0, 300)}`)
+        const response = await fetch(`${provider.baseUrl}/models`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const raw = await response.text()
+        if (!response.ok) throw new Error(`Worker 模型目录返回 HTTP ${response.status}: ${raw.slice(0, 300)}`)
+        const parsed = JSON.parse(raw) as { data?: Array<string | { id?: string }>; models?: Array<string | { id?: string; name?: string }> }
+        const source: Array<string | { id?: string; name?: string }> = parsed.data || parsed.models || []
+        const models = [...new Set(source.map((item) => typeof item === 'string' ? item : item.id || item.name).filter((item): item is string => Boolean(item)))].sort()
+        if (!models.length) throw new Error('Worker 未发布任何可用能力')
+        await this.prisma.providerChannel.update({ where: { id }, data: { lastHealthStatus: 'healthy', lastHealthMessage: `Worker 正常，发现 ${models.length} 个能力，${Date.now() - startedAt}ms`, lastHealthAt: new Date() } })
+        const candidates = await this.describeDiscoveredModels(parsed)
+        return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
       }
       const response = await fetch(`${provider.baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
       const raw = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
-      const parsed = JSON.parse(raw) as { data?: Array<string | { id?: string }> }
-      const models = (parsed.data || []).map((item) => typeof item === 'string' ? item : item.id).filter((item): item is string => Boolean(item)).sort()
+      const parsed = JSON.parse(raw) as unknown
+      const candidates = await this.describeDiscoveredModels(parsed)
+      const models = candidates.map((item) => item.id)
+      if (!models.length) throw new Error('渠道未返回可识别的模型列表')
       await this.prisma.providerChannel.update({ where: { id }, data: { lastHealthStatus: 'healthy', lastHealthMessage: `发现 ${models.length} 个模型，${Date.now() - startedAt}ms`, lastHealthAt: new Date() } })
-      return { models, latencyMs: Date.now() - startedAt }
+      return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
     } catch (error) {
       const message = error instanceof Error ? error.message : '连接失败'
       await this.prisma.providerChannel.update({ where: { id }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message, lastHealthAt: new Date() } })
       throw new BadRequestException(message)
     }
+  }
+
+  private async describeDiscoveredModels(payload: unknown, markupPercent?: number) {
+    const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { creditValueMicros: true, modelImportMarkupPercent: true, modelPriceCatalogUrl: true, modelPriceCatalogRefreshHours: true } })
+    return this.modelDiscovery.discover(payload, {
+      creditValueMicros: settings?.creditValueMicros ?? 10_000,
+      markupPercent: markupPercent ?? settings?.modelImportMarkupPercent ?? 130,
+      catalogUrl: settings?.modelPriceCatalogUrl,
+      refreshHours: settings?.modelPriceCatalogRefreshHours,
+    })
+  }
+
+  private async adminDiscoveryStatus(providerId: string, candidates: DiscoveredModel[]) {
+    const ids = candidates.map((item) => item.id)
+    const existing = await this.prisma.modelPreset.findMany({
+      where: { OR: [{ upstreamModel: { in: ids } }, { providerRoutes: { some: { providerId, upstreamModelOverride: { in: ids } } } }] },
+      select: { id: true, key: true, upstreamModel: true, providerRoutes: { where: { providerId }, select: { upstreamModelOverride: true } } },
+    })
+    const status = new Map<string, { id: string; key: string }>()
+    for (const model of existing) {
+      status.set(model.upstreamModel, { id: model.id, key: model.key })
+      for (const route of model.providerRoutes) if (route.upstreamModelOverride) status.set(route.upstreamModelOverride, { id: model.id, key: model.key })
+    }
+    return candidates.map((candidate) => ({ ...candidate, existingPreset: status.get(candidate.id) || null }))
+  }
+
+  private importedModelKey(modelId: string) {
+    return modelId.toLowerCase().replace(/^models\//, '').replace(/[^a-z0-9._:-]+/g, '-').replace(/^-|-$/g, '').slice(0, 96) || `model-${Date.now().toString(36)}`
+  }
+
+  private discoveredModelOptions(candidate: DiscoveredModel, apiProtocol = 'openai') {
+    const discovery = { source: candidate.pricingSource, confidence: candidate.confidence, contextWindow: candidate.contextWindow, maxOutputTokens: candidate.maxOutputTokens, features: candidate.features, importedAt: new Date().toISOString() }
+    if (candidate.capability === ModelCapability.IMAGE) return {
+      apiProtocol,
+      discovery,
+      imageCapabilities: { sizes: ['1024x1024'], qualities: ['medium'], outputFormats: ['png'], backgrounds: ['opaque'], maxCount: 1, defaultSize: '1024x1024', defaultQuality: 'medium', supportsReference: false, supportsMask: false, resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) } },
+    }
+    if (candidate.capability === ModelCapability.VIDEO) {
+      const perSecond = Math.max(1, candidate.flatCreditCost || 1)
+      return {
+        apiProtocol,
+        discovery,
+        videoCapabilities: { resolutions: ['720p'], durations: [5, 10], aspectRatios: ['16:9', '9:16', '1:1'], defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9', pricing: { '720p:5': perSecond * 5, '720p:10': perSecond * 10 }, createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content', pollIntervalMs: 3000, maxPollSeconds: 600 },
+      }
+    }
+    return { apiProtocol, discovery, agentEnabled: candidate.agentCapabilities?.eligible !== false, agentCapabilities: candidate.agentCapabilities }
+  }
+
+  async agentModelProfile(userId: string, requestedModel: string) {
+    const normalized = requestedModel.trim()
+    const models = await this.listModelsForUser(userId, ModelCapability.CHAT)
+    const model = models.find((item) => item.key === normalized || item.displayName === normalized || item.upstreamModel === normalized)
+    if (!model) throw new BadRequestException('当前账户不能使用这个 Agent 模型，请重新选择')
+    const options = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? model.options as Record<string, unknown> : {}
+    const capabilities = options.agentCapabilities && typeof options.agentCapabilities === 'object' && !Array.isArray(options.agentCapabilities)
+      ? options.agentCapabilities as Record<string, unknown>
+      : {}
+    const discovery = options.discovery && typeof options.discovery === 'object' && !Array.isArray(options.discovery)
+      ? options.discovery as Record<string, unknown>
+      : {}
+    const contextWindow = Number(capabilities.contextWindow ?? discovery.contextWindow ?? 0) || null
+    const explicitlyEnabled = options.agentEnabled
+    const eligible = explicitlyEnabled !== false && (explicitlyEnabled === true || !contextWindow || contextWindow >= 8192) && capabilities.eligible !== false
+    const reason = String(capabilities.reason || (eligible ? '可用于 Xinyue Agent 服务端编排' : '模型已被管理员停用 Agent 能力'))
+    if (!eligible) throw new BadRequestException(`模型“${model.displayName}”不适合 Agent 任务：${reason}`)
+    return {
+      key: model.key,
+      displayName: model.displayName,
+      source: model.source,
+      contextWindow,
+      maxOutputTokens: Number(capabilities.maxOutputTokens ?? discovery.maxOutputTokens ?? 0) || null,
+      supportsTools: capabilities.supportsTools === true,
+      supportsStructuredOutput: capabilities.supportsStructuredOutput === true,
+      supportsReasoning: capabilities.supportsReasoning === true,
+      reason,
+    }
+  }
+
+  async importProviderModels(providerId: string, input: { modelIds?: string[]; importAll?: boolean; markupPercent?: number; overwritePricing?: boolean }) {
+    const provider = await this.prisma.providerChannel.findUnique({ where: { id: providerId }, include: { template: true } })
+    if (!provider) throw new NotFoundException('上游渠道不存在')
+    const discovered = await this.fetchRemoteModels(providerId)
+    const selected = new Set((input.importAll ? discovered.candidates.filter((item) => item.importable).map((item) => item.id) : input.modelIds || []).map((item) => item.trim()))
+    if (!selected.size) throw new BadRequestException('请选择需要导入的模型')
+    const candidates = input.markupPercent === undefined
+      ? discovered.candidates
+      : await this.describeDiscoveredModels(discovered.candidates.map((item) => ({ id: item.id })), input.markupPercent)
+    const importable = candidates.filter((item) => selected.has(item.id) && item.importable && item.capability)
+    if (!importable.length) throw new BadRequestException('选择的模型不属于当前可导入能力')
+    const defaultCapabilities = new Set((await this.prisma.modelPreset.findMany({ where: { isDefault: true }, select: { capability: true } })).map((item) => item.capability))
+    const result: Array<{ id: string; key: string; modelId: string; action: 'created' | 'routed' | 'updated' }> = []
+    for (const candidate of importable) {
+      const capability = candidate.capability!
+      const vendor = await this.prisma.modelVendor.upsert({
+        where: { key: candidate.vendorKey },
+        update: {},
+        create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 },
+      })
+      const baseKey = this.importedModelKey(candidate.id)
+      let model = await this.prisma.modelPreset.findFirst({ where: { capability, OR: [{ key: baseKey }, { upstreamModel: candidate.id }] } })
+      let action: 'created' | 'routed' | 'updated' = 'routed'
+      if (!model) {
+        let key = baseKey
+        if (await this.prisma.modelPreset.count({ where: { key } })) key = `${candidate.vendorKey}-${baseKey}`.slice(0, 100)
+        const isDefault = !defaultCapabilities.has(capability)
+        model = await this.createModel({
+          key,
+          displayName: candidate.displayName,
+          description: `${candidate.vendorName} · 自动发现`,
+          vendorId: vendor.id,
+          upstreamModel: candidate.id,
+          capability,
+          enabled: true,
+          isDefault,
+          allowUserKey: true,
+          sortOrder: 500,
+          flatCreditCost: candidate.flatCreditCost,
+          inputCreditsPerMillion: candidate.inputCreditsPerMillion,
+          outputCreditsPerMillion: candidate.outputCreditsPerMillion,
+          inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion,
+          outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion,
+          imageCostMicros: candidate.imageCostMicros,
+          videoCostMicros: candidate.videoCostMicros,
+          badge: candidate.pricingSource === 'none' ? '待定价' : '自动定价',
+          options: this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai')),
+        })
+        defaultCapabilities.add(capability)
+        action = 'created'
+      } else if (input.overwritePricing) {
+        model = await this.updateModel(model.id, {
+          inputCreditsPerMillion: candidate.inputCreditsPerMillion,
+          outputCreditsPerMillion: candidate.outputCreditsPerMillion,
+          inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion,
+          outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion,
+          imageCostMicros: candidate.imageCostMicros,
+          videoCostMicros: candidate.videoCostMicros,
+          ...(candidate.flatCreditCost ? { flatCreditCost: candidate.flatCreditCost } : {}),
+        })
+        action = 'updated'
+      }
+      const routeOptions = candidate.capability === ModelCapability.VIDEO
+        ? { videoCapabilities: (this.discoveredModelOptions(candidate) as Record<string, unknown>).videoCapabilities } as Prisma.InputJsonValue
+        : undefined
+      await this.prisma.modelProviderRoute.upsert({
+        where: { modelPresetId_providerId: { modelPresetId: model.id, providerId } },
+        update: { upstreamModelOverride: candidate.id, enabled: true, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion || null, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion || null, imageCostMicros: candidate.imageCostMicros || null, videoCostMicros: candidate.videoCostMicros || null, ...(routeOptions ? { options: routeOptions } : {}) },
+        create: { modelPresetId: model.id, providerId, upstreamModelOverride: candidate.id, enabled: true, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion || null, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion || null, imageCostMicros: candidate.imageCostMicros || null, videoCostMicros: candidate.videoCostMicros || null, ...(routeOptions ? { options: routeOptions } : {}) },
+      })
+      result.push({ id: model.id, key: model.key, modelId: candidate.id, action })
+    }
+    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: result.length, models: result }
+  }
+
+  async cancelLocalWorkerTask(providerChannelId: string, taskId: string) {
+    const provider = await this.prisma.providerChannel.findUnique({ where: { id: providerChannelId } })
+    if (!provider || provider.type !== ProviderType.LOCAL_WORKER) return { requested: false, reason: 'not-local-worker' }
+    const apiKey = this.crypto.decrypt(provider.encryptedApiKey)
+    let response: Response
+    try {
+      response = await fetch(`${provider.baseUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+        method: 'POST',
+        headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey),
+        signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 5_000)),
+      })
+    } catch (error) {
+      throw new ServiceUnavailableException(`本地 Worker 取消请求失败：${error instanceof Error ? error.message : '网络错误'}`)
+    }
+    if (!response.ok && response.status !== 404 && response.status !== 409) throw new ServiceUnavailableException(`本地 Worker 取消请求返回 ${response.status}`)
+    return { requested: true, acknowledged: response.ok, status: response.status }
   }
 
   async checkAllProviders() {
@@ -501,15 +938,22 @@ export class ProvidersService implements OnModuleInit {
 
   async listModels(capability?: ModelCapability, includeDisabled = false) {
     if (includeDisabled) {
-      return this.prisma.modelPreset.findMany({ where: { ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { orderBy: { createdAt: 'asc' }, include: { provider: { select: { id: true, name: true, type: true, enabled: true, priority: true, weight: true, cooldownUntil: true } } } } } })
+      return this.prisma.modelPreset.findMany({ where: { ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { vendor: true, provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { orderBy: { createdAt: 'asc' }, include: { provider: { select: { id: true, name: true, type: true, enabled: true, priority: true, weight: true, cooldownUntil: true } } } } } })
     }
-    const models = await this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true } }, providerRoutes: { where: { enabled: true }, orderBy: { createdAt: 'asc' }, include: { provider: { select: { id: true, name: true, type: true, enabled: true, priority: true, weight: true, cooldownUntil: true, encryptedApiKey: true } } } } } })
-    return models.map(({ provider, providerRoutes, ...model }) => ({
-      ...model,
-      options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider) : model.options,
-      provider: provider ? this.publicProvider(provider) : null,
-      providerRoutes: providerRoutes.map(({ provider: routeProvider, ...route }) => ({ ...route, provider: this.publicProvider(routeProvider) })),
-    }))
+    const models = await this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { vendor: true, provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } }, providerRoutes: { where: { enabled: true }, orderBy: { createdAt: 'asc' }, include: { provider: { select: { id: true, name: true, type: true, enabled: true, priority: true, weight: true, cooldownUntil: true, encryptedApiKey: true, lastHealthStatus: true } } } } } })
+    return models.filter((model) => this.providerPublished(model.provider) || model.providerRoutes.some((route) => this.providerPublished(route.provider))).map(({ provider, providerRoutes, ...model }) => {
+      const routeCount = Number(this.providerPublished(provider)) + providerRoutes.filter((route) => this.providerPublished(route.provider)).length
+      const healthyRouteCount = Number(this.providerHealthy(provider)) + providerRoutes.filter((route) => this.providerHealthy(route.provider)).length
+      return {
+        ...model,
+        availability: healthyRouteCount ? 'AVAILABLE' : 'DEGRADED',
+        healthyRouteCount,
+        routeCount,
+        options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider) : model.options,
+        provider: provider ? this.publicProvider(provider) : null,
+        providerRoutes: providerRoutes.map(({ provider: routeProvider, ...route }) => ({ ...route, provider: this.publicProvider(routeProvider) })),
+      }
+    })
   }
 
   async userPolicy(userId: string) {
@@ -532,10 +976,15 @@ export class ProvidersService implements OnModuleInit {
 
   async listModelsForUser(userId: string, capability?: ModelCapability) {
     const policy = await this.userPolicy(userId)
-    const models = await this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}), ...(policy.restrictModels ? { id: { in: policy.allowedModelIds } } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true } }, providerRoutes: { where: { enabled: true }, select: { id: true, providerId: true, options: true, provider: { select: { type: true, enabled: true, encryptedApiKey: true } } } } } })
-    return models.map((model) => {
+    const [models, privateModels] = await Promise.all([
+      this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}), ...(policy.restrictModels ? { id: { in: policy.allowedModelIds } } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { vendor: true, provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } }, providerRoutes: { where: { enabled: true }, select: { id: true, providerId: true, options: true, provider: { select: { type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
+      this.prisma.userModel.findMany({ where: { userId, enabled: true, ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }], include: { vendor: true, routes: { where: { enabled: true }, include: { credential: { select: { enabled: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
+    ])
+    const platformModels = models.filter((model) => this.providerPublished(model.provider) || model.providerRoutes.some((route) => this.providerPublished(route.provider))).map((model) => {
       const override = policy.costOverrides.get(model.id)
       const effectiveCreditCost = override ?? Math.ceil(model.flatCreditCost * policy.creditRatePercent / 100)
+      const routeCount = Number(this.providerPublished(model.provider)) + model.providerRoutes.filter((route) => this.providerPublished(route.provider)).length
+      const healthyRouteCount = Number(this.providerHealthy(model.provider)) + model.providerRoutes.filter((route) => this.providerHealthy(route.provider)).length
       const options = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? structuredClone(model.options) as Record<string, unknown> : {}
       if (model.capability === ModelCapability.VIDEO) Object.assign(options, this.effectiveVideoOptions(model.options, model.providerRoutes, model.provider))
       const image = options.imageCapabilities && typeof options.imageCapabilities === 'object' && !Array.isArray(options.imageCapabilities) ? options.imageCapabilities as Record<string, unknown> : undefined
@@ -553,17 +1002,45 @@ export class ProvidersService implements OnModuleInit {
       const { provider, providerRoutes, ...safeModel } = model
       return {
         ...safeModel,
+        source: 'PLATFORM',
         provider: provider ? this.publicProvider(provider) : null,
         providerRoutes: providerRoutes.map(({ provider: _provider, ...route }) => route),
         options,
         effectiveCreditCost,
+        availability: healthyRouteCount ? 'AVAILABLE' : 'DEGRADED',
+        healthyRouteCount,
+        routeCount,
       }
     })
+    const now = Date.now()
+    const userModels = privateModels.map(({ routes, ...model }) => {
+      const healthyRoutes = routes.filter((route) => route.credential.enabled && (!route.cooldownUntil || route.cooldownUntil.getTime() <= now) && route.lastHealthStatus !== 'unhealthy' && route.credential.lastHealthStatus !== 'unhealthy')
+      return {
+        ...model,
+        source: 'USER',
+        upstreamModel: routes[0]?.upstreamModel || '',
+        flatCreditCost: 0,
+        effectiveCreditCost: 0,
+        inputCreditsPerMillion: 0,
+        outputCreditsPerMillion: 0,
+        badge: '我的模型',
+        healthyRouteCount: healthyRoutes.length,
+        routeCount: routes.length,
+        availability: healthyRoutes.length ? 'AVAILABLE' : routes.length ? 'DEGRADED' : 'UNCONFIGURED',
+        provider: null,
+        providerRoutes: [],
+      }
+    })
+    return [...platformModels, ...userModels]
   }
 
   async createModel(input: Prisma.ModelPresetUncheckedCreateInput) {
     if (input.isDefault) await this.prisma.modelPreset.updateMany({ where: { capability: input.capability }, data: { isDefault: false } })
-    return this.prisma.modelPreset.create({ data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
+    return this.prisma.$transaction(async (tx) => {
+      const model = await tx.modelPreset.create({ data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
+      await tx.modelPriceVersion.create({ data: { modelPresetId: model.id, version: 1, ...this.modelPricing(model) } })
+      return model
+    })
   }
 
   async updateModel(id: string, input: Prisma.ModelPresetUncheckedUpdateInput) {
@@ -571,7 +1048,18 @@ export class ProvidersService implements OnModuleInit {
     if (!existing) throw new NotFoundException('模型预设不存在')
     const capability = typeof input.capability === 'string' ? input.capability : existing.capability
     if (input.isDefault === true) await this.prisma.modelPreset.updateMany({ where: { capability, id: { not: id } }, data: { isDefault: false } })
-    return this.prisma.modelPreset.update({ where: { id }, data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
+    return this.prisma.$transaction(async (tx) => {
+      const model = await tx.modelPreset.update({ where: { id }, data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
+      if (JSON.stringify(this.modelPricing(existing)) !== JSON.stringify(this.modelPricing(model))) {
+        const latest = await tx.modelPriceVersion.aggregate({ where: { modelPresetId: id }, _max: { version: true } })
+        await tx.modelPriceVersion.create({ data: { modelPresetId: id, version: (latest._max.version || 0) + 1, ...this.modelPricing(model) } })
+      }
+      return model
+    })
+  }
+
+  private modelPricing(model: { flatCreditCost: number; inputCreditsPerMillion: number; outputCreditsPerMillion: number; inputCostMicrosPerMillion: number; outputCostMicrosPerMillion: number; imageCostMicros: number; videoCostMicros: number }) {
+    return { flatCreditCost: model.flatCreditCost, inputCreditsPerMillion: model.inputCreditsPerMillion, outputCreditsPerMillion: model.outputCreditsPerMillion, inputCostMicrosPerMillion: model.inputCostMicrosPerMillion, outputCostMicrosPerMillion: model.outputCostMicrosPerMillion, imageCostMicros: model.imageCostMicros, videoCostMicros: model.videoCostMicros }
   }
 
   async replaceModelRoutes(modelPresetId: string, routes: Array<{ providerId: string; upstreamModelOverride?: string; enabled?: boolean; priority?: number | null; weight?: number | null; inputCostMicrosPerMillion?: number | null; outputCostMicrosPerMillion?: number | null; imageCostMicros?: number | null; videoCostMicros?: number | null; options?: Record<string, unknown> | null }>) {
@@ -589,6 +1077,11 @@ export class ProvidersService implements OnModuleInit {
       if (normalizedRoutes.length) await tx.modelProviderRoute.createMany({ data: normalizedRoutes.map((route) => ({ modelPresetId, providerId: route.providerId, upstreamModelOverride: route.upstreamModelOverride?.trim() || null, enabled: route.enabled ?? true, priority: route.priority ?? null, weight: route.weight ?? null, inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? null, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? null, imageCostMicros: route.imageCostMicros ?? null, videoCostMicros: route.videoCostMicros ?? null, options: (route.options ?? undefined) as Prisma.InputJsonValue | undefined })) })
     })
     return this.prisma.modelPreset.findUniqueOrThrow({ where: { id: modelPresetId }, include: { providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true, priority: true, weight: true } } } } } })
+  }
+
+  async modelPriceVersions(modelPresetId: string) {
+    if (!await this.prisma.modelPreset.count({ where: { id: modelPresetId } })) throw new NotFoundException('模型预设不存在')
+    return this.prisma.modelPriceVersion.findMany({ where: { modelPresetId }, orderBy: { version: 'desc' }, take: 100 })
   }
 
   async deleteModel(id: string) {
@@ -613,9 +1106,12 @@ export class ProvidersService implements OnModuleInit {
       sub2apiUserInfoUrl: _sub2apiUserInfoUrl,
       ...safe
     } = row
+    const chatHomeContent = this.chatHomeContent(row.chatHomeContent)
     if (admin) return {
       ...safe,
-      chatHomeContent: this.chatHomeContent(row.chatHomeContent),
+      chatHomeContent,
+      quickActionRegistry: await this.capabilities.snapshot(chatHomeContent.quickActions),
+      siteContent: normalizeSiteContent(row.siteContent),
       hasSmtpPassword: Boolean(encryptedSmtpPassword),
       hasLinuxDoClientSecret: Boolean(encryptedLinuxDoClientSecret),
     }
@@ -641,7 +1137,11 @@ export class ProvidersService implements OnModuleInit {
       defaultTheme: row.defaultTheme,
       defaultLanguage: row.defaultLanguage,
       chatUiPreset: row.chatUiPreset,
-      chatHomeContent: this.chatHomeContent(row.chatHomeContent),
+      chatHomeContent: {
+        ...chatHomeContent,
+        quickActions: await this.capabilities.filterPublished(chatHomeContent.quickActions),
+      },
+      siteContent: normalizeSiteContent(row.siteContent),
       userByokEnabled: row.userByokEnabled,
       rechargeEnabled: row.rechargeEnabled,
       currency: row.currency,
@@ -653,9 +1153,10 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async updateSystemSettings(input: SystemSettingsInput) {
-    const { smtpPassword, linuxDoClientSecret, chatHomeContent, ...settings } = input
+    const { smtpPassword, linuxDoClientSecret, chatHomeContent, siteContent, ...settings } = input
     const data: Prisma.SystemSettingUpdateInput = { ...settings }
     if (chatHomeContent) data.chatHomeContent = this.chatHomeContent(chatHomeContent) as Prisma.InputJsonValue
+    if (siteContent) data.siteContent = normalizeSiteContent(siteContent) as unknown as Prisma.InputJsonValue
     if (smtpPassword) {
       data.encryptedSmtpPassword = this.crypto.encrypt(smtpPassword)
       data.smtpPasswordHint = this.crypto.hint(smtpPassword)
@@ -677,31 +1178,97 @@ export class ProvidersService implements OnModuleInit {
   private chatHomeContent(value: Prisma.JsonValue | Record<string, unknown> | null | undefined) {
     const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
     const text = (item: unknown, fallback = '', max = 500) => typeof item === 'string' ? item.trim().slice(0, max) : fallback
+    const legacyRoutes: Record<string, string> = {
+      '/agents': '/office',
+      '/files': '/workspace?tab=files',
+      '/plugins': '/capabilities?tab=skills',
+      '/projects': '/workspace?tab=projects',
+      '/studio': '/chat',
+    }
     const destination = (item: unknown, fallback: string) => {
       const value = text(item, fallback, 1000)
-      if (value.startsWith('/')) return value
+      if (value.startsWith('/')) return legacyRoutes[value] || value
       try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.toString() : fallback } catch { return fallback }
     }
-    const defaultRecommendations = DEFAULT_CHAT_HOME_CONTENT.doubaoRecommendations
+    const defaultRecommendations = DEFAULT_CHAT_HOME_CONTENT.doubaoRecommendations as Array<{ title: string; prompt: string; targetUrl: string }>
     const recommendations = Array.isArray(input.doubaoRecommendations) ? input.doubaoRecommendations : defaultRecommendations
     const defaultBanners = DEFAULT_CHAT_HOME_CONTENT.qianwenBanners
     const banners = Array.isArray(input.qianwenBanners) ? input.qianwenBanners : defaultBanners
     const rawProject = input.kimiProject && typeof input.kimiProject === 'object' && !Array.isArray(input.kimiProject) ? input.kimiProject as Record<string, unknown> : DEFAULT_CHAT_HOME_CONTENT.kimiProject
+    const rawControls = input.composerControls && typeof input.composerControls === 'object' && !Array.isArray(input.composerControls) ? input.composerControls as Record<string, unknown> : {}
+    const rawActions = input.quickActions && typeof input.quickActions === 'object' && !Array.isArray(input.quickActions) ? input.quickActions as Record<string, unknown> : {}
+    const presets = ['gpt', 'doubao', 'qianwen', 'kimi'] as const
+    const bool = (item: unknown, fallback: boolean) => typeof item === 'boolean' ? item : fallback
+    const integer = (item: unknown, fallback: number) => typeof item === 'number' && Number.isFinite(item) ? Math.max(-10000, Math.min(10000, Math.trunc(item))) : fallback
+    const composerControls = Object.fromEntries(presets.map((preset) => {
+      const fallback = DEFAULT_CHAT_HOME_CONTENT.composerControls[preset]
+      const row = rawControls[preset] && typeof rawControls[preset] === 'object' && !Array.isArray(rawControls[preset]) ? rawControls[preset] as Record<string, unknown> : {}
+      return [preset, {
+        modeEnabled: bool(row.modeEnabled, fallback.modeEnabled),
+        webSearchEnabled: bool(row.webSearchEnabled, fallback.webSearchEnabled),
+        modelSelectorEnabled: bool(row.modelSelectorEnabled, fallback.modelSelectorEnabled),
+        moreEnabled: bool(row.moreEnabled, fallback.moreEnabled),
+      }]
+    }))
+    const quickActions = Object.fromEntries(presets.map((preset) => {
+      const fallback = DEFAULT_CHAT_HOME_CONTENT.quickActions[preset]
+      const rows = Array.isArray(rawActions[preset]) ? rawActions[preset] : fallback
+      const seen = new Set<string>()
+      const actions = rows.slice(0, 30).map((item, index) => {
+        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+        const fallbackRow = fallback[index % Math.max(1, fallback.length)] as Record<string, unknown> | undefined
+        const baseId = text(row.id, text(fallbackRow?.id, `${preset}-action-${index + 1}`, 80), 80).replace(/[^a-zA-Z0-9_-]/g, '-')
+        let id = baseId || `${preset}-action-${index + 1}`
+        while (seen.has(id)) id = `${baseId}-${index + 1}`
+        seen.add(id)
+        const actionType = ['PROMPT', 'OFFICE', 'ROUTE'].includes(String(row.actionType)) ? String(row.actionType) : text(fallbackRow?.actionType, 'PROMPT', 20)
+        const placement = ['BAR', 'MORE'].includes(String(row.placement)) ? String(row.placement) : text(fallbackRow?.placement, 'MORE', 20)
+        const action = {
+          id,
+          label: text(row.label, text(fallbackRow?.label, '', 60), 60),
+          icon: text(row.icon, text(fallbackRow?.icon, 'sparkles', 30), 30).toLowerCase(),
+          placement,
+          actionType,
+          prompt: text(row.prompt, text(fallbackRow?.prompt, '', 4000), 4000),
+          target: actionType === 'ROUTE' ? destination(row.target, text(fallbackRow?.target, '/', 1000)) : text(row.target, text(fallbackRow?.target, '', 120), 120),
+          modelKey: text(row.modelKey, text(fallbackRow?.modelKey, '', 100), 100),
+          webSearch: bool(row.webSearch, Boolean(fallbackRow?.webSearch)),
+          enabled: bool(row.enabled, fallbackRow ? Boolean(fallbackRow.enabled) : true),
+          sortOrder: integer(row.sortOrder, typeof fallbackRow?.sortOrder === 'number' ? fallbackRow.sortOrder : (index + 1) * 10),
+        }
+        if (action.id === 'doubao-music' && action.label === '音乐生成') {
+          action.label = '音乐创作方案'
+          action.prompt = '请根据以下描述策划音乐风格、结构、歌词方向与制作方案：'
+        }
+        if (action.id === 'doubao-transcribe' && action.label === '录音转写') {
+          action.label = '会议纪要'
+          action.prompt = '请根据我提供的会议文字或文档整理会议纪要：'
+        }
+        if (action.id === 'qianwen-meeting' && action.label === '录音纪要') {
+          action.label = '会议纪要'
+          action.prompt ||= '请根据我提供的会议文字或文档整理会议纪要：'
+        }
+        return action
+      }).filter((item) => item.label)
+      return [preset, actions]
+    }))
     return {
       doubaoRecommendations: recommendations.slice(0, 12).map((item, index) => {
         const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
-        const fallback = defaultRecommendations[index % defaultRecommendations.length]
-        return { title: text(row.title, fallback.title, 160), prompt: text(row.prompt, fallback.prompt, 2000), targetUrl: destination(row.targetUrl, fallback.targetUrl) }
+        const fallback = defaultRecommendations.length ? defaultRecommendations[index % defaultRecommendations.length] : undefined
+        return { title: text(row.title, fallback?.title || '', 160), prompt: text(row.prompt, fallback?.prompt || '', 2000), targetUrl: destination(row.targetUrl, fallback?.targetUrl || '') }
       }).filter((item) => item.title),
       qianwenBanners: banners.slice(0, 8).map((item, index) => {
         const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
         const fallback = defaultBanners[index % defaultBanners.length]
-        return {
-          title: text(row.title, fallback.title, 120), description: text(row.description, fallback.description, 240),
-          buttonText: text(row.buttonText, fallback.buttonText, 40), imageUrl: destination(row.imageUrl, ''), targetUrl: destination(row.targetUrl, fallback.targetUrl),
-        }
+        const title = text(row.title, fallback.title, 120)
+        if (title === 'Xinyue 输入法 App 全新上线') return DEFAULT_CHAT_HOME_CONTENT.qianwenBanners[1]
+        if (title === '一键生成录音纪要') return DEFAULT_CHAT_HOME_CONTENT.qianwenBanners[2]
+        return { title, description: text(row.description, fallback.description, 240), buttonText: text(row.buttonText, fallback.buttonText, 40), imageUrl: destination(row.imageUrl, ''), targetUrl: destination(row.targetUrl, fallback.targetUrl) }
       }).filter((item) => item.title),
       kimiProject: { label: text(rawProject.label, DEFAULT_CHAT_HOME_CONTENT.kimiProject.label, 60), targetUrl: destination(rawProject.targetUrl, DEFAULT_CHAT_HOME_CONTENT.kimiProject.targetUrl) },
+      composerControls,
+      quickActions,
     }
   }
 
@@ -761,13 +1328,14 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async createCredential(userId: string, input: CredentialInput) {
+    if (input.providerType === ProviderType.LOCAL_WORKER) throw new BadRequestException('本地 Worker 只能由管理员配置')
     if (!input.apiKey?.trim()) throw new BadRequestException('请输入 API 密钥')
     const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' } })
     if (!settings?.userByokEnabled) throw new BadRequestException('管理员未开放用户 API 密钥')
     if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
     const baseUrl = this.assertUserProviderUrl(input.baseUrl)
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId }, data: { isDefault: false } })
-    const row = await this.prisma.userApiCredential.create({ data: { userId, name: input.name.trim(), providerType: input.providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: input.authType, enabled: input.enabled, isDefault: input.isDefault, customHeaders: input.customHeaders as Prisma.InputJsonValue } })
+    const row = await this.prisma.userApiCredential.create({ data: { userId, name: input.name.trim(), templateId: input.templateId || null, providerType: input.providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: input.authType, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, customHeaders: input.customHeaders as Prisma.InputJsonValue, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
     return this.publicCredential(row)
   }
 
@@ -775,23 +1343,190 @@ export class ProvidersService implements OnModuleInit {
     const existing = await this.prisma.userApiCredential.findFirst({ where: { id, userId } })
     if (!existing) throw new NotFoundException('API 凭据不存在')
     if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
+    if (input.providerType === ProviderType.LOCAL_WORKER || existing.providerType === ProviderType.LOCAL_WORKER) throw new BadRequestException('本地 Worker 只能由管理员配置')
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId, id: { not: id } }, data: { isDefault: false } })
     const row = await this.prisma.userApiCredential.update({ where: { id }, data: {
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.templateId !== undefined ? { templateId: input.templateId || null } : {}),
       ...(input.providerType !== undefined ? { providerType: input.providerType } : {}),
       ...(input.baseUrl !== undefined ? { baseUrl: this.assertUserProviderUrl(input.baseUrl) } : {}),
       ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey) } : {}),
       ...(input.authType !== undefined ? { authType: input.authType } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.weight !== undefined ? { weight: input.weight } : {}),
       ...(input.customHeaders !== undefined ? { customHeaders: input.customHeaders as Prisma.InputJsonValue } : {}),
+      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
     } })
     return this.publicCredential(row)
+  }
+
+  async rotateCredential(userId: string, id: string, apiKey: string, expiresAt?: string | null) {
+    if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
+    const row = await this.prisma.userApiCredential.findFirst({ where: { id, userId } })
+    if (!row) throw new NotFoundException('API 凭据不存在')
+    const updated = await this.prisma.userApiCredential.update({ where: { id }, data: {
+      encryptedApiKey: this.crypto.encrypt(apiKey), apiKeyHint: this.crypto.hint(apiKey), lastRotatedAt: new Date(),
+      expiresAt: expiresAt ? new Date(expiresAt) : expiresAt === null ? null : row.expiresAt,
+      lastHealthStatus: null, lastHealthMessage: '密钥已轮换，等待重新检测', lastHealthAt: null, cooldownUntil: null,
+    } })
+    return this.publicCredential(updated)
+  }
+
+  async credentialUsage(userId: string, id?: string) {
+    const rows = await this.prisma.userApiCredential.findMany({ where: { userId, ...(id ? { id } : {}) }, orderBy: [{ lastUsedAt: 'desc' }, { createdAt: 'asc' }] })
+    if (id && !rows.length) throw new NotFoundException('API 凭据不存在')
+    const since = new Date(Date.now() - 30 * 86_400_000)
+    const jobs = await this.prisma.generationJob.groupBy({ by: ['userCredentialId', 'status'], where: { userId, userCredentialId: { in: rows.map((row) => row.id) }, createdAt: { gte: since } }, _count: { _all: true }, _sum: { inputTokens: true, outputTokens: true, upstreamCostMicros: true } })
+    return rows.map((row) => ({ ...this.publicCredential(row), usage30d: jobs.filter((job) => job.userCredentialId === row.id).reduce((summary, job) => ({ requests: summary.requests + job._count._all, succeeded: summary.succeeded + (job.status === 'SUCCEEDED' ? job._count._all : 0), failed: summary.failed + (job.status === 'FAILED' ? job._count._all : 0), inputTokens: summary.inputTokens + Number(job._sum.inputTokens || 0), outputTokens: summary.outputTokens + Number(job._sum.outputTokens || 0) }), { requests: 0, succeeded: 0, failed: 0, inputTokens: 0, outputTokens: 0 }) }))
+  }
+
+  adminByokSummary() {
+    const since = new Date(Date.now() - 30 * 86_400_000)
+    return Promise.all([
+      this.prisma.userApiCredential.count(),
+      this.prisma.userApiCredential.count({ where: { enabled: true } }),
+      this.prisma.userApiCredential.count({ where: { OR: [{ expiresAt: { lte: new Date(Date.now() + 14 * 86_400_000) } }, { lastHealthStatus: 'unhealthy' }] } }),
+      this.prisma.generationJob.aggregate({ where: { userCredentialId: { not: null }, createdAt: { gte: since } }, _count: { _all: true }, _sum: { inputTokens: true, outputTokens: true } }),
+      this.prisma.userApiCredential.findMany({ orderBy: [{ lastUsedAt: 'desc' }, { createdAt: 'desc' }], take: 200, include: { user: { select: { id: true, displayName: true, email: true } }, _count: { select: { generationJobs: true, modelRoutes: true } } } }),
+    ]).then(([total, enabled, attention, usage, credentials]) => ({ total, enabled, attention, usage: { requests: usage._count._all, inputTokens: Number(usage._sum.inputTokens || 0), outputTokens: Number(usage._sum.outputTokens || 0) }, credentials: credentials.map((row) => this.publicCredential(row)) }))
   }
 
   async deleteCredential(userId: string, id: string) {
     const result = await this.prisma.userApiCredential.deleteMany({ where: { id, userId } })
     if (!result.count) throw new NotFoundException('API 凭据不存在')
+    return { success: true }
+  }
+
+  async discoverCredentialModels(userId: string, id: string) {
+    const credential = await this.prisma.userApiCredential.findFirst({ where: { id, userId }, include: { template: true } })
+    if (!credential) throw new NotFoundException('API 凭据不存在')
+    if (credential.template && !credential.template.supportsDiscovery) throw new BadRequestException('该渠道不提供模型列表，请手动填写模型 ID 后执行最小调用验证')
+    const startedAt = Date.now()
+    try {
+      const apiKey = this.crypto.decrypt(credential.encryptedApiKey)
+      const response = await fetch(`${credential.baseUrl}/models`, {
+        headers: this.applyAuth(this.headers(credential.customHeaders), credential.authType, apiKey),
+        signal: AbortSignal.timeout(30_000),
+      })
+      const raw = await response.text()
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
+      const parsed = JSON.parse(raw) as unknown
+      const candidates = await this.describeDiscoveredModels(parsed)
+      const models = candidates.map((item) => item.id)
+      if (!models.length) throw new Error('渠道未返回可识别的模型列表')
+      const latencyMs = Date.now() - startedAt
+      await this.prisma.userApiCredential.update({ where: { id }, data: { lastHealthStatus: 'healthy', lastHealthMessage: `发现 ${models.length} 个模型，${latencyMs}ms`, lastHealthAt: new Date(), lastSuccessAt: new Date(), cooldownUntil: null } })
+      return { models, candidates, latencyMs }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '连接失败'
+      await this.prisma.userApiCredential.update({ where: { id }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), lastHealthAt: new Date(), lastFailureAt: new Date() } })
+      throw new BadRequestException(message)
+    }
+  }
+
+  async importCredentialModels(userId: string, credentialId: string, input: { modelIds?: string[]; importAll?: boolean }) {
+    if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
+    const credential = await this.prisma.userApiCredential.findFirst({ where: { id: credentialId, userId }, include: { template: true } })
+    if (!credential) throw new NotFoundException('API 凭据不存在')
+    const discovered = await this.discoverCredentialModels(userId, credentialId)
+    const selected = new Set((input.importAll ? discovered.candidates.filter((item) => item.importable).map((item) => item.id) : input.modelIds || []).map((item) => item.trim()))
+    if (!selected.size) throw new BadRequestException('请选择需要导入的模型')
+    const candidates = discovered.candidates.filter((item) => selected.has(item.id) && item.importable && item.capability)
+    if (!candidates.length) throw new BadRequestException('选择的模型不属于当前可导入能力')
+    const defaultCapabilities = new Set((await this.prisma.userModel.findMany({ where: { userId, isDefault: true }, select: { capability: true } })).map((item) => item.capability))
+    const models = []
+    for (const candidate of candidates) {
+      const capability = candidate.capability!
+      const vendor = await this.prisma.modelVendor.upsert({ where: { key: candidate.vendorKey }, update: {}, create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 } })
+      let model = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
+      if (!model) {
+        const isDefault = !defaultCapabilities.has(capability)
+        model = await this.prisma.userModel.create({ data: {
+          userId,
+          vendorId: vendor.id,
+          key: this.privateModelKey(userId, candidate.id),
+          displayName: candidate.displayName,
+          description: `${candidate.vendorName} · 由 ${credential.name} 自动识别`,
+          capability,
+          apiProtocol: credential.template?.apiProtocol || 'openai',
+          routingStrategy: 'PRIORITY',
+          enabled: true,
+          isDefault,
+          options: { ...this.discoveredModelOptions(candidate, credential.template?.apiProtocol || 'openai'), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
+        } })
+        defaultCapabilities.add(capability)
+      }
+      await this.prisma.userModelRoute.upsert({
+        where: { userModelId_credentialId_upstreamModel: { userModelId: model.id, credentialId, upstreamModel: candidate.id } },
+        update: { enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date(), cooldownUntil: null },
+        create: { userModelId: model.id, credentialId, upstreamModel: candidate.id, enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date() },
+      })
+      models.push({ id: model.id, key: model.key, modelId: candidate.id })
+    }
+    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: models.length, models }
+  }
+
+  listPrivateModels(userId: string) {
+    return this.prisma.userModel.findMany({ where: { userId }, orderBy: [{ capability: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }], include: { vendor: true, routes: { include: { credential: { select: { id: true, name: true, apiKeyHint: true, enabled: true, lastHealthStatus: true } } } } } })
+  }
+
+  private privateModelKey(userId: string, displayName: string) {
+    const slug = displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'model'
+    return `private:${userId.slice(-6)}:${slug}:${Date.now().toString(36)}`
+  }
+
+  private async validatePrivateRoutes(userId: string, routes: UserModelInput['routes']) {
+    if (!routes.length) throw new BadRequestException('私有模型至少需要绑定一个 API 密钥')
+    const normalized = routes.map((route) => ({ ...route, credentialId: route.credentialId.trim(), upstreamModel: route.upstreamModel.trim(), priority: route.priority ?? 0, weight: Math.max(1, route.weight ?? 100), enabled: route.enabled ?? true }))
+    if (normalized.some((route) => !route.credentialId || !route.upstreamModel)) throw new BadRequestException('密钥和上游模型 ID 不能为空')
+    const ids = [...new Set(normalized.map((route) => route.credentialId))]
+    if (await this.prisma.userApiCredential.count({ where: { userId, id: { in: ids } } }) !== ids.length) throw new ForbiddenException('包含不属于当前用户的 API 密钥')
+    return [...new Map(normalized.map((route) => [`${route.credentialId}:${route.upstreamModel}`, route])).values()]
+  }
+
+  async createPrivateModel(userId: string, input: UserModelInput) {
+    if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
+    const routes = await this.validatePrivateRoutes(userId, input.routes)
+    if (input.isDefault) await this.prisma.userModel.updateMany({ where: { userId, capability: input.capability }, data: { isDefault: false } })
+    return this.prisma.userModel.create({ data: {
+      userId, key: this.privateModelKey(userId, input.displayName), displayName: input.displayName.trim(), description: input.description?.trim() || '', vendorId: input.vendorId || null, capability: input.capability, apiProtocol: input.apiProtocol || 'openai', routingStrategy: input.routingStrategy || 'PRIORITY', enabled: input.enabled ?? true, isDefault: input.isDefault ?? false, options: input.options as Prisma.InputJsonValue,
+      routes: { create: routes },
+    }, include: { vendor: true, routes: { include: { credential: { select: { id: true, name: true, apiKeyHint: true, enabled: true, lastHealthStatus: true } } } } } })
+  }
+
+  async updatePrivateModel(userId: string, id: string, input: Partial<Omit<UserModelInput, 'routes'>>) {
+    const existing = await this.prisma.userModel.findFirst({ where: { id, userId } })
+    if (!existing) throw new NotFoundException('私有模型不存在')
+    const capability = input.capability || existing.capability
+    if (input.isDefault) await this.prisma.userModel.updateMany({ where: { userId, capability, id: { not: id } }, data: { isDefault: false } })
+    return this.prisma.userModel.update({ where: { id }, data: {
+      ...(input.displayName !== undefined ? { displayName: input.displayName.trim() } : {}),
+      ...(input.description !== undefined ? { description: input.description.trim() } : {}),
+      ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
+      ...(input.capability !== undefined ? { capability: input.capability } : {}),
+      ...(input.apiProtocol !== undefined ? { apiProtocol: input.apiProtocol } : {}),
+      ...(input.routingStrategy !== undefined ? { routingStrategy: input.routingStrategy } : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+      ...(input.options !== undefined ? { options: input.options as Prisma.InputJsonValue } : {}),
+    }, include: { vendor: true, routes: { include: { credential: { select: { id: true, name: true, apiKeyHint: true, enabled: true, lastHealthStatus: true } } } } } })
+  }
+
+  async replacePrivateModelRoutes(userId: string, id: string, routesInput: UserModelInput['routes']) {
+    if (!await this.prisma.userModel.count({ where: { id, userId } })) throw new NotFoundException('私有模型不存在')
+    const routes = await this.validatePrivateRoutes(userId, routesInput)
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userModelRoute.deleteMany({ where: { userModelId: id } })
+      await tx.userModelRoute.createMany({ data: routes.map((route) => ({ userModelId: id, ...route })) })
+    })
+    return this.prisma.userModel.findUniqueOrThrow({ where: { id }, include: { vendor: true, routes: { include: { credential: { select: { id: true, name: true, apiKeyHint: true, enabled: true, lastHealthStatus: true } } } } } })
+  }
+
+  async deletePrivateModel(userId: string, id: string) {
+    const result = await this.prisma.userModel.deleteMany({ where: { id, userId } })
+    if (!result.count) throw new NotFoundException('私有模型不存在')
     return { success: true }
   }
 
@@ -821,7 +1556,36 @@ export class ProvidersService implements OnModuleInit {
     return { preset, model, creditCost, policy, settings }
   }
 
+  private async resolvePrivateCandidates(userId: string, requestedModel: string | undefined, capability: ModelCapability): Promise<ResolvedProvider[] | null> {
+    const [settings, policy] = await Promise.all([this.prisma.systemSetting.findUnique({ where: { id: 'global' } }), this.userPolicy(userId)])
+    if (!settings?.userByokEnabled || !policy.allowUserByok) return null
+    const requested = requestedModel?.trim()
+    const model = await this.prisma.userModel.findFirst({
+      where: { userId, capability, enabled: true, ...(requested ? { OR: [{ key: requested }, { displayName: requested }] } : { isDefault: true }) },
+      include: { routes: { where: { enabled: true }, include: { credential: true } } },
+    })
+    if (!model) return null
+    const now = Date.now()
+    const available = model.routes.filter((route) => route.credential.enabled && (!route.credential.expiresAt || route.credential.expiresAt.getTime() > now) && (!route.cooldownUntil || route.cooldownUntil.getTime() <= now) && (!route.credential.cooldownUntil || route.credential.cooldownUntil.getTime() <= now))
+    if (!available.length) throw new BadRequestException('私有模型没有可用密钥，请检测密钥或调整路由')
+    const weighted = available.map((route) => ({ route, priority: route.priority || route.credential.priority, weight: Math.max(1, route.weight || route.credential.weight), random: Math.random() }))
+    if (model.routingStrategy === 'WEIGHTED') weighted.sort((a, b) => (b.random ** (1 / b.weight)) - (a.random ** (1 / a.weight)))
+    else weighted.sort((a, b) => b.priority - a.priority || a.route.createdAt.getTime() - b.route.createdAt.getTime())
+    if (model.routingStrategy === 'ROUND_ROBIN' && weighted.length > 1) {
+      const offset = Math.floor(Date.now() / 1000) % weighted.length
+      weighted.push(...weighted.splice(0, offset))
+    }
+    const apiProtocol: ResolvedProvider['apiProtocol'] = model.apiProtocol === 'anthropic' || model.apiProtocol === 'gemini' ? model.apiProtocol : 'openai'
+    return weighted.map(({ route }) => ({
+      source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, creditValueMicros: settings.creditValueMicros, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: 0, outputCreditsPerMillion: 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
+      imageCapabilities: model.options && typeof model.options === 'object' && !Array.isArray(model.options) && typeof (model.options as Record<string, unknown>).imageCapabilities === 'object' ? (model.options as Record<string, Record<string, unknown>>).imageCapabilities : undefined,
+      videoCapabilities: model.options && typeof model.options === 'object' && !Array.isArray(model.options) && typeof (model.options as Record<string, unknown>).videoCapabilities === 'object' ? (model.options as Record<string, Record<string, unknown>>).videoCapabilities : undefined,
+    }))
+  }
+
   async resolveCandidates(userId: string, requestedModel: string | undefined, capability: ModelCapability, requirements: Record<string, unknown> = {}): Promise<ResolvedProvider[]> {
+    const privateCandidates = await this.resolvePrivateCandidates(userId, requestedModel, capability)
+    if (privateCandidates) return privateCandidates
     const { preset, model, creditCost, policy, settings } = await this.resolvePreset(userId, requestedModel, capability)
     const candidates: ResolvedProvider[] = []
     const presetOptions = preset?.options && typeof preset.options === 'object' && !Array.isArray(preset.options) ? preset.options as Record<string, unknown> : {}
@@ -842,10 +1606,10 @@ export class ProvidersService implements OnModuleInit {
     }
 
     if (settings?.userByokEnabled && policy.allowUserByok && preset?.allowUserKey !== false && (preset?.provider?.allowUserKeys ?? true)) {
-      const credentials = await this.prisma.userApiCredential.findMany({ where: { userId, enabled: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
+      const credentials = await this.prisma.userApiCredential.findMany({ where: { userId, enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
       const compatibleTypes = new Set([preset?.provider?.type, ...(preset?.providerRoutes || []).map((route) => route.provider.type)].filter(Boolean))
       const ordered = [...credentials].sort((a, b) => Number(compatibleTypes.has(b.providerType)) - Number(compatibleTypes.has(a.providerType)))
-      for (const credential of ordered) candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0 })
+      for (const credential of ordered) candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(credential.baseUrl, apiProtocol, presetOptions), inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0 })
     }
 
     const now = Date.now()
@@ -857,17 +1621,17 @@ export class ProvidersService implements OnModuleInit {
     const routes = (readyRoutes.length ? readyRoutes : configuredRoutes)
       .map((route) => ({ route, priority: route.priority ?? route.provider.priority, weight: Math.max(1, route.weight ?? route.provider.weight), random: Math.random() }))
       .sort((a, b) => b.priority - a.priority || (b.random ** (1 / b.weight)) - (a.random ** (1 / a.weight)))
-    for (const { route } of routes) candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
+    for (const { route } of routes) candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(route.provider.baseUrl, apiProtocol, route.options, presetOptions, route.provider.metadata), videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
 
     if (!allConfiguredRoutes.length && preset?.provider?.enabled && this.providerReady(preset.provider)) {
-      candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing })
+      candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(preset.provider.baseUrl, apiProtocol, presetOptions, preset.provider.metadata) })
     }
 
     const envKey = this.config.get<string>('AI_PROVIDER_API_KEY') || ''
     const envBase = this.config.get<string>('AI_PROVIDER_BASE_URL') || 'https://api.openai.com/v1'
-    if (envKey) candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: this.normalizeBaseUrl(envBase), apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing })
+    if (envKey) candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: this.normalizeBaseUrl(envBase), apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(envBase, apiProtocol, presetOptions) })
     if (!candidates.length && capability === ModelCapability.VIDEO && allConfiguredRoutes.length && !configuredRoutes.length) throw new BadRequestException('当前视频规格没有可用上游渠道，请调整分辨率、时长或画面比例')
-    if (!candidates.length) candidates.push({ source: 'demo', label: '演示模式', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: '', apiKey: '', authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0 })
+    if (!candidates.length) throw new ServiceUnavailableException('模型未绑定可用渠道，请在管理端配置并通过渠道检测，或在设置中添加可用的个人 API 密钥')
     return candidates
   }
 
@@ -886,6 +1650,31 @@ export class ProvidersService implements OnModuleInit {
     const failures = provider.consecutiveFailures + 1
     const cooldownSeconds = failures >= 3 ? Math.min(300, 15 * 2 ** Math.min(failures - 3, 5)) : 0
     await this.prisma.providerChannel.update({ where: { id: providerId }, data: { consecutiveFailures: failures, lastFailureAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), cooldownUntil: cooldownSeconds ? new Date(Date.now() + cooldownSeconds * 1000) : null } })
+  }
+
+  async recordCandidateResult(candidate: Pick<ResolvedProvider, 'providerId' | 'credentialId' | 'routeId'>, success: boolean, message = '') {
+    await this.recordProviderResult(candidate.providerId, success, message)
+    if (!candidate.credentialId) return
+    const now = new Date()
+    if (success) {
+      await Promise.all([
+        this.prisma.userApiCredential.updateMany({ where: { id: candidate.credentialId }, data: { lastHealthStatus: 'healthy', lastHealthMessage: message || '最近调用成功', lastHealthAt: now, lastSuccessAt: now, lastUsedAt: now, cooldownUntil: null, totalRequests: { increment: 1 } } }),
+        candidate.routeId ? this.prisma.userModelRoute.updateMany({ where: { id: candidate.routeId }, data: { lastHealthStatus: 'healthy', lastHealthMessage: message || '最近调用成功', lastHealthAt: now, consecutiveFailures: 0, cooldownUntil: null } }) : Promise.resolve(),
+      ])
+      return
+    }
+    const route = candidate.routeId ? await this.prisma.userModelRoute.findUnique({ where: { id: candidate.routeId }, select: { consecutiveFailures: true } }) : null
+    const failures = (route?.consecutiveFailures || 0) + 1
+    const cooldownSeconds = Math.min(300, 15 * 2 ** Math.min(4, Math.max(0, failures - 1)))
+    await Promise.all([
+      this.prisma.userApiCredential.updateMany({ where: { id: candidate.credentialId }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), lastHealthAt: now, lastFailureAt: now, lastUsedAt: now, cooldownUntil: new Date(Date.now() + cooldownSeconds * 1000), totalRequests: { increment: 1 }, totalFailures: { increment: 1 } } }),
+      candidate.routeId ? this.prisma.userModelRoute.updateMany({ where: { id: candidate.routeId }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), lastHealthAt: now, consecutiveFailures: failures, cooldownUntil: new Date(Date.now() + cooldownSeconds * 1000) } }) : Promise.resolve(),
+    ])
+  }
+
+  recordCredentialUsage(credentialId: string | undefined, inputTokens: number, outputTokens: number) {
+    if (!credentialId || (!inputTokens && !outputTokens)) return Promise.resolve()
+    return this.prisma.userApiCredential.updateMany({ where: { id: credentialId }, data: { inputTokens: { increment: BigInt(Math.max(0, inputTokens)) }, outputTokens: { increment: BigInt(Math.max(0, outputTokens)) }, lastUsedAt: new Date() } }).then(() => undefined)
   }
 
   buildRequestHeaders(provider: ResolvedProvider, protocol: 'openai' | 'claude' | 'gemini' = 'openai', contentType: string | undefined = 'application/json') {

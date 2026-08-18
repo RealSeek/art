@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
-import { PlanBillingCycle, Prisma } from '@prisma/client'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { PlanBillingCycle, Prisma, RenewalAttemptStatus } from '@prisma/client'
 import { IsBoolean, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
 import type { FastifyRequest } from 'fastify'
 import { AdminGuard } from '../admin/admin.guard'
@@ -53,9 +53,10 @@ class UpdatePlanDto {
   @IsOptional() @IsInt() @Min(-10000) @Max(10000) sortOrder?: number
   @IsOptional() @IsObject() capabilities?: Record<string, unknown>
 }
-class CreateOrderDto { @IsString() planId!: string; @IsIn(PAYMENT_METHODS) paymentMethod!: PaymentMethod }
+class CreateOrderDto { @IsString() planId!: string; @IsIn(PAYMENT_METHODS) paymentMethod!: PaymentMethod; @IsOptional() @IsString() userCouponId?: string }
 class TrialDto { @IsOptional() @IsString() planId?: string }
 class GrantSubscriptionDto { @IsString() userId!: string; @IsString() planId!: string; @IsOptional() @IsInt() @Min(1) @Max(3650) days?: number }
+class RenewalSettingsDto { @IsBoolean() enabled!: boolean; @IsOptional() @IsString() channelId?: string }
 
 @Controller('subscriptions')
 @UseGuards(AuthGuard)
@@ -64,9 +65,13 @@ export class SubscriptionsController {
   @Get('plans') plans() { return this.subscriptions.listPlans() }
   @Get('me') current(@CurrentUser() user: AuthenticatedUser) { return this.subscriptions.current(user.id) }
   @Get('orders') orders(@CurrentUser() user: AuthenticatedUser) { return this.subscriptions.orders(user.id) }
-  @Post('orders') createOrder(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateOrderDto) { return this.subscriptions.createOrder(user.id, body.planId, body.paymentMethod) }
+  @Post('orders') createOrder(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateOrderDto) { return this.subscriptions.createOrder(user.id, body.planId, body.paymentMethod, body.userCouponId) }
+  @Delete('orders/:id') cancelOrder(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.subscriptions.cancelOwnOrder(user.id, id) }
   @Post('trial') trial(@CurrentUser() user: AuthenticatedUser, @Body() body: TrialDto) { return this.subscriptions.startTrial(user.id, body.planId) }
   @Post('cancel') cancel(@CurrentUser() user: AuthenticatedUser) { return this.subscriptions.cancel(user.id) }
+  @Get('renewal') renewal(@CurrentUser() user: AuthenticatedUser) { return this.subscriptions.renewalOptions(user.id) }
+  @Patch('renewal') configureRenewal(@CurrentUser() user: AuthenticatedUser, @Body() body: RenewalSettingsDto) { return this.subscriptions.configureRenewal(user.id, body.enabled, body.channelId) }
+  @Get('renewal-attempts') renewalAttempts(@CurrentUser() user: AuthenticatedUser) { return this.subscriptions.renewalAttempts(user.id) }
 }
 
 @Controller('admin/subscriptions')
@@ -79,6 +84,8 @@ export class AdminSubscriptionsController {
   @Delete('plans/:id') remove(@Param('id') id: string) { return this.subscriptions.deletePlan(id) }
   @Get('orders') orders() { return this.subscriptions.adminOrders() }
   @Get('active') active() { return this.subscriptions.adminSubscriptions() }
+  @Get('renewal-attempts') renewalAttempts(@Query('status') status?: RenewalAttemptStatus) { return this.subscriptions.adminRenewalAttempts(status) }
+  @Post('renewal-attempts/:id/retry') async retryRenewal(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) { const result = await this.subscriptions.retryRenewalAttempt(id); await this.audit(admin.id, request, 'subscription.renewal.retry', id, result); return result }
   @Post('grant') async grant(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: GrantSubscriptionDto) { const result = await this.subscriptions.grant(body.userId, body.planId, body.days); await this.audit(admin.id, request, 'subscription.grant', result.id, result); return result }
   @Post(':id/terminate') async terminate(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) { const result = await this.subscriptions.terminate(id); await this.audit(admin.id, request, 'subscription.terminate', id, result); return result }
   @Post('orders/:id/mark-paid') async markPaid(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) { const result = await this.subscriptions.markPaid(id); await this.audit(admin.id, request, 'subscription.order.mark_paid', id, result); return result }

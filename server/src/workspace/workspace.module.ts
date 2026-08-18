@@ -3,6 +3,9 @@ import { WorkspaceController, AdminWorkspaceController } from './workspace.contr
 import { AssetsModule } from '../assets/assets.module'
 import { OfficeExportService } from './office-export.service'
 import { ProvidersModule } from '../providers/providers.module'
+import { TeamService } from './team.service'
+import { AuthModule } from '../auth/auth.module'
+import { CreditsModule } from '../credits/credits.module'
 
-@Module({ imports: [AssetsModule, ProvidersModule], controllers: [WorkspaceController, AdminWorkspaceController], providers: [OfficeExportService] })
+@Module({ imports: [AssetsModule, ProvidersModule, AuthModule, CreditsModule], controllers: [WorkspaceController, AdminWorkspaceController], providers: [OfficeExportService, TeamService], exports: [OfficeExportService] })
 export class WorkspaceModule {}

@@ -6,11 +6,13 @@ const StudioPage = () => import('./views/StudioPage.vue')
 const OfficeCenterPage = () => import('./views/OfficeCenterPage.vue')
 const PromptLibraryPage = () => import('./views/PromptLibraryPage.vue')
 const CapabilityCenterPage = () => import('./views/CapabilityCenterPage.vue')
+const WorksPage = () => import('./views/WorksPage.vue')
+const CanvasLibraryPage = () => import('./views/CanvasLibraryPage.vue')
+const CanvasEditorPage = () => import('./views/CanvasEditorPage.vue')
 const WorkspaceLayout = () => import('./components/WorkspaceLayout.vue')
 const ApiLandingPage = () => import('./views/ApiLandingPage.vue')
 const LegalPage = () => import('./views/LegalPage.vue')
 const SharedConversationPage = () => import('./views/SharedConversationPage.vue')
-const InstallPage = () => import('./views/InstallPage.vue')
 const AdminRedirect = { render: () => null }
 
 export const router = createRouter({
@@ -18,7 +20,6 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'landing', component: LandingPage, meta: { title: 'Xinyue AI' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: '登录' } },
-    { path: '/install', name: 'install', component: InstallPage, meta: { title: '首次安装' } },
     {
       path: '/workspace',
       component: WorkspaceLayout,
@@ -28,12 +29,12 @@ export const router = createRouter({
         { path: '/video', name: 'videos', component: StudioPage, meta: { title: '视频创作' } },
         { path: '/commerce', name: 'commerce', component: StudioPage, meta: { title: '商品视觉' } },
         { path: '/office', name: 'office', component: OfficeCenterPage, meta: { title: '办公中心' } },
-        { path: '/agents', redirect: '/office' },
         { path: '/prompts', name: 'prompts', component: PromptLibraryPage, meta: { title: '提示词库' } },
-        { path: '/capabilities', name: 'plugins', component: CapabilityCenterPage, meta: { title: '能力中心' } },
-        { path: '/plugins', redirect: '/capabilities' },
-        { path: '/projects', name: 'projects', component: StudioPage, meta: { title: '项目' } },
-        { path: '/files', name: 'assets', component: StudioPage, meta: { title: '文件库' } },
+        { path: '/capabilities', name: 'capabilities', component: CapabilityCenterPage, meta: { title: '能力中心' } },
+        { path: '/works', name: 'works', component: WorksPage, meta: { title: '作品中心' } },
+        { path: '/canvases', name: 'canvases', component: CanvasLibraryPage, meta: { title: '画布' } },
+        { path: '/canvas/:id', name: 'canvas', component: CanvasEditorPage, meta: { title: '画布编辑器' } },
+        { path: '', name: 'workspace', component: StudioPage, meta: { title: '工作空间' } },
       ],
     },
     { path: '/api', name: 'api', component: ApiLandingPage, meta: { title: 'API' } },
@@ -50,16 +51,8 @@ export const router = createRouter({
         return false
       },
     },
-    { path: '/studio/:mode?', redirect: (to) => `/${to.params.mode === 'images' ? 'image' : to.params.mode || 'chat'}` },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-})
-
-router.beforeEach(async (to) => {
-  const { installationStatus } = await import('./services/installation')
-  const status = await installationStatus()
-  if (status && (!status.installed || status.restartRequired) && to.name !== 'install') return { name: 'install' }
-  if (status?.installed && !status.restartRequired && to.name === 'install') return { name: 'landing' }
 })
 
 router.afterEach((to) => {

@@ -21,6 +21,7 @@ class UpdateUserProfileDto {
   @IsOptional() @IsString() @MaxLength(4000) adminNote?: string
 }
 class ReplaceUserGroupsDto { @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) groupIds!: string[] }
+class MigrateAssetsDto { @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number }
 
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
@@ -326,6 +327,26 @@ export class AdminController {
       environment: process.env.NODE_ENV || 'development',
       checkedAt: new Date().toISOString(),
     }
+  }
+
+  @Get('storage/migration')
+  storageMigration() { return this.assets.migrationStatus() }
+
+  @Post('storage/migration')
+  async migrateStorage(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: MigrateAssetsDto) {
+    const result = await this.assets.migrateToActive(body.limit || 25)
+    await this.audit(admin.id, request, 'storage.migrate.batch', 'storage', `${result.target.driver}:${result.target.bucket}`, undefined, { attempted: result.attempted, migrated: result.migrated, failed: result.failed.length, warnings: result.warnings.length })
+    return result
+  }
+
+  @Get('storage/lifecycle')
+  storageLifecycle() { return this.assets.lifecycleStatus() }
+
+  @Post('storage/lifecycle')
+  async applyStorageLifecycle(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest) {
+    const result = await this.assets.applyLifecycle()
+    await this.audit(admin.id, request, 'storage.lifecycle.apply', 'storage', result.driver === 's3' ? result.bucket : result.driver, undefined, result)
+    return result
   }
 
   @Post('users/:id/credits')

@@ -7,6 +7,7 @@ import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { ModerationService } from '../moderation/moderation.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { publicGenerationError } from '../generations/generation-errors'
+import { ResourceAccessService } from '../common/resource-access.service'
 
 class CreateConversationDto { @IsOptional() @IsString() @MinLength(1) @MaxLength(100) projectId?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(160) model?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(120) title?: string; @IsOptional() @IsBoolean() temporary?: boolean }
 class AddMessageDto { @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(50_000) content!: string; @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @IsNotEmpty({ each: true }) assetIds?: string[] }
@@ -21,7 +22,7 @@ class UpdateConversationDto {
 @Controller('conversations')
 @UseGuards(AuthGuard)
 export class ConversationsController {
-  constructor(private readonly prisma: PrismaService, private readonly moderation: ModerationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly moderation: ModerationService, private readonly access: ResourceAccessService) {}
   @Get() async list(@CurrentUser() user: AuthenticatedUser) {
     const settings = await this.prisma.userSettings.findUnique({ where: { userId: user.id }, select: { dataRetentionDays: true } })
     await this.prisma.conversation.deleteMany({ where: { userId: user.id, temporary: true, expiresAt: { lt: new Date() } } })
@@ -43,7 +44,7 @@ export class ConversationsController {
   }
   @Post() async create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateConversationDto) {
     if (body.projectId) {
-      const project = await this.prisma.project.findFirst({ where: { id: body.projectId, archivedAt: null, OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }] }, select: { id: true } })
+      const project = await this.prisma.project.findFirst({ where: { id: body.projectId, archivedAt: null, ...this.access.projectWhere(user.id) }, select: { id: true } })
       if (!project) throw new NotFoundException('项目不存在')
     }
     const [settings, userSettings] = await Promise.all([
@@ -57,7 +58,7 @@ export class ConversationsController {
   @Get(':id') async get(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const conversation = await this.prisma.conversation.findFirst({ where: this.readableConversationWhere(user.id, id), include: { project: { select: { userId: true } }, messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, displayName: true, email: true } }, attachments: { include: { asset: true } } } }, jobs: { where: { kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { orderBy: { position: 'asc' }, include: { asset: true } } } } } })
     if (!conversation) throw new NotFoundException('对话不存在')
-    const auditReadOnly = conversation.userId !== user.id && conversation.project?.userId === user.id
+    const auditReadOnly = conversation.userId !== user.id
     const { jobs, project: _project, ...detail } = conversation
     return {
       ...detail,
@@ -81,7 +82,7 @@ export class ConversationsController {
     const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id } })
     if (!conversation) throw new NotFoundException('对话不存在')
     if (body.assetIds?.length) {
-      const count = await this.prisma.asset.count({ where: { id: { in: body.assetIds }, userId: user.id, deletedAt: null } })
+      const count = await this.prisma.asset.count({ where: { id: { in: body.assetIds }, deletedAt: null, ...this.access.assetWhere(user.id) } })
       if (count !== body.assetIds.length) throw new NotFoundException('附件不存在')
     }
     return this.prisma.$transaction(async (tx) => {
@@ -110,7 +111,7 @@ export class ConversationsController {
   }
   @Delete(':id/messages/:messageId')
   async softDeleteMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string) {
-    const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id, projectId: { not: null }, project: { OR: [{ userId: user.id }, { members: { some: { userId: user.id } } }] } }, select: { id: true } })
+    const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id, projectId: { not: null }, project: { is: this.access.projectWhere(user.id) } }, select: { id: true } })
     if (!conversation) throw new ForbiddenException('只有项目成员可以删除自己的提问')
     const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, authorId: true } })
     const index = messages.findIndex((message) => message.id === messageId && message.role === 'USER' && (!message.authorId || message.authorId === user.id))
@@ -157,7 +158,7 @@ export class ConversationsController {
   }
 
   private readableConversationWhere(userId: string, id: string): Prisma.ConversationWhereInput {
-    return { id, OR: [{ userId }, { project: { userId } }] }
+    return { id, OR: [{ userId }, { project: { is: this.access.projectWhere(userId) } }] }
   }
 }
 

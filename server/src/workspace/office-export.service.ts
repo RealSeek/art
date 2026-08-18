@@ -140,8 +140,8 @@ export class OfficeExportService {
   async create(userId: string, input: OfficeExportInput) {
     if (!input.conversationId && !input.agentTaskId) throw new BadRequestException('缺少办公任务标识')
     const requestedAgentTask = input.agentTaskId ? await this.prisma.agentTask.findFirst({
-      where: { id: input.agentTaskId, userId, status: 'SUCCEEDED' },
-      include: { runs: { where: { status: 'SUCCEEDED' }, orderBy: { completedAt: 'desc' }, take: 1 } },
+      where: { id: input.agentTaskId, userId, status: { in: ['RUNNING', 'SUCCEEDED', 'PARTIAL'] } },
+      include: { runs: { where: { status: { in: ['RUNNING', 'SUCCEEDED', 'PARTIAL'] } }, orderBy: { createdAt: 'desc' }, take: 1 } },
     }) : null
     if (input.agentTaskId && !requestedAgentTask) throw new BadRequestException('办公任务尚未完成或不存在')
     const conversationId = requestedAgentTask?.conversationId || input.conversationId
@@ -157,8 +157,8 @@ export class OfficeExportService {
     }) : null
     if (input.messageId && !requestedMessage) throw new NotFoundException('要导出的回答不存在')
     const agentTask = requestedAgentTask || await this.prisma.agentTask.findFirst({
-      where: { userId, conversationId, status: 'SUCCEEDED' },
-      include: { runs: { where: { status: 'SUCCEEDED' }, orderBy: { completedAt: 'desc' }, take: 1 } },
+      where: { userId, conversationId, status: { in: ['RUNNING', 'SUCCEEDED', 'PARTIAL'] } },
+      include: { runs: { where: { status: { in: ['RUNNING', 'SUCCEEDED', 'PARTIAL'] } }, orderBy: { createdAt: 'desc' }, take: 1 } },
     })
     const jobs = await this.prisma.generationJob.findMany({
       where: { userId, conversationId, kind: 'CHAT', status: 'SUCCEEDED' },

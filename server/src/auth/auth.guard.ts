@@ -12,7 +12,7 @@ export class AuthGuard implements CanActivate {
     const tokenHash = createHash('sha256').update(token).digest('hex')
     const session = await this.prisma.session.findFirst({ where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: true } })
     if (!session || session.user.status !== 'ACTIVE') throw new UnauthorizedException('登录状态已失效')
-    request.user = { id: session.user.id, email: session.user.email, username: session.user.username, displayName: session.user.displayName, authMethod: session.authMethod, role: session.user.role }
+    request.user = { id: session.user.id, email: session.user.email, username: session.user.username, displayName: session.user.displayName, authMethod: session.authMethod, role: session.user.role, adminRoleId: session.user.adminRoleId, mfaEnabled: Boolean(session.user.adminMfaEnabledAt), mfaVerifiedAt: session.mfaVerifiedAt }
     request.sessionId = session.id
     return true
   }

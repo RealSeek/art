@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, ForbiddenException, Injectabl
 import { ModelCapability, Prisma, ProjectSkillChangeType } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ProvidersService, ResolvedProvider } from '../providers/providers.service'
+import { ResourceAccessService } from '../common/resource-access.service'
 
 type ActivateSkillInput = {
   name: string
@@ -13,7 +14,7 @@ type ActivateSkillInput = {
 
 @Injectable()
 export class ProjectSkillsService {
-  constructor(private readonly prisma: PrismaService, private readonly providers: ProvidersService) {}
+  constructor(private readonly prisma: PrismaService, private readonly providers: ProvidersService, private readonly access: ResourceAccessService) {}
 
   async status(userId: string, projectId: string) {
     const project = await this.accessibleProject(userId, projectId)
@@ -131,7 +132,7 @@ export class ProjectSkillsService {
 
   private accessibleProject(userId: string, projectId: string) {
     return this.prisma.project.findFirst({
-      where: { id: projectId, OR: [{ userId }, { members: { some: { userId } } }] },
+      where: { id: projectId, ...this.access.projectWhere(userId) },
       select: {
         id: true,
         userId: true,
@@ -139,6 +140,7 @@ export class ProjectSkillsService {
         activeSkillVersionId: true,
         activeSkillVersion: true,
         members: { where: { userId }, select: { role: true } },
+        team: { select: { ownerId: true, members: { where: { userId }, select: { role: true } } } },
       },
     }).then((project) => {
       if (!project) throw new NotFoundException('项目不存在')
@@ -147,7 +149,7 @@ export class ProjectSkillsService {
   }
 
   private canManage(project: Awaited<ReturnType<ProjectSkillsService['accessibleProject']>>, userId: string) {
-    return project.userId === userId || project.members.some((member) => member.role === 'ADMIN')
+    return project.userId === userId || project.members.some((member) => member.role === 'ADMIN') || project.team?.ownerId === userId || project.team?.members.some((member) => member.role === 'ADMIN')
   }
 
   private manageableProject(userId: string, projectId: string) {
@@ -169,14 +171,12 @@ export class ProjectSkillsService {
     let lastError: unknown
     for (const provider of candidates) {
       try {
-        const content = provider.source === 'demo'
-          ? JSON.stringify({ name: '项目协作技能', content: '围绕项目目标工作，优先给出明确、可执行、可复用并且便于验收的结果。', changeSummary: '建立项目通用协作规范' })
-          : await this.requestProvider(provider, prompt)
-        await this.providers.recordProviderResult(provider.providerId, true)
+        const content = await this.requestProvider(provider, prompt)
+        await this.providers.recordCandidateResult(provider, true)
         return this.parseCandidate(content)
       } catch (error) {
         lastError = error
-        await this.providers.recordProviderResult(provider.providerId, false, error instanceof Error ? error.message : '技能总结失败')
+        await this.providers.recordCandidateResult(provider, false, error instanceof Error ? error.message : '技能总结失败')
       }
     }
     throw new BadGatewayException(lastError instanceof Error ? lastError.message : '技能总结失败')

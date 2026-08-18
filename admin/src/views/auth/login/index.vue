@@ -6,8 +6,8 @@
       <div class="auth-right-wrap">
         <div class="form">
           <span class="login-kicker">XINYUE AI CONSOLE</span>
-          <h3 class="title">{{ xt('管理后台登录') }}</h3>
-          <p class="sub-title">{{ xt('使用管理员账户进入运营控制台') }}</p>
+          <h3 class="title">{{ mfaRequired ? xt('安全验证') : xt('管理后台登录') }}</h3>
+          <p class="sub-title">{{ mfaRequired ? xt('输入身份验证器中的动态验证码，或使用一枚恢复码') : xt('使用管理员账户进入运营控制台') }}</p>
           <ElForm
             ref="formRef"
             :model="formData"
@@ -15,6 +15,7 @@
             style="margin-top: 30px"
             @keyup.enter="handleSubmit"
           >
+            <template v-if="!mfaRequired">
             <ElFormItem prop="email">
               <ElInput
                 v-model.trim="formData.email"
@@ -38,8 +39,15 @@
                 <template #prefix><ArtSvgIcon icon="ri:lock-password-line" /></template>
               </ElInput>
             </ElFormItem>
+            </template>
+            <ElFormItem v-else prop="mfaCode">
+              <ElInput v-model.trim="formData.mfaCode" class="custom-height mfa-input" autocomplete="one-time-code" maxlength="32" :placeholder="xt('6 位动态验证码或恢复码')">
+                <template #prefix><ArtSvgIcon icon="ri:shield-keyhole-line" /></template>
+              </ElInput>
+            </ElFormItem>
             <div class="flex-cb mt-2 text-sm">
-              <ElCheckbox v-model="formData.rememberPassword">{{ xt('保持登录状态') }}</ElCheckbox>
+              <ElCheckbox v-if="!mfaRequired" v-model="formData.rememberPassword">{{ xt('保持登录状态') }}</ElCheckbox>
+              <ElButton v-else link type="primary" @click="resetMfaStep">{{ xt('返回密码登录') }}</ElButton>
               <span class="login-security"><i />{{ xt('安全会话') }}</span>
             </div>
             <ElButton
@@ -47,7 +55,7 @@
               type="primary"
               :loading="loading"
               @click="handleSubmit"
-              >{{ xt('进入管理后台') }}</ElButton
+              >{{ mfaRequired ? xt('验证并登录') : xt('进入管理后台') }}</ElButton
             >
           </ElForm>
           <p class="login-note">{{ xt('管理员账户由系统初始化或现有超级管理员创建。') }}</p>
@@ -60,7 +68,7 @@
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElNotification } from 'element-plus'
-  import { fetchLogin } from '@/api/auth'
+  import { fetchLogin, fetchVerifyAdminMfa } from '@/api/auth'
   import { HOME_PAGE_PATH } from '@/router'
   import { useUserStore } from '@/store/modules/user'
   import { xinyueText as xt } from '@/locales/xinyue'
@@ -72,21 +80,35 @@
   const userStore = useUserStore()
   const router = useRouter()
   const route = useRoute()
-  const formData = reactive({ email: '', password: '', rememberPassword: true })
+  const formData = reactive({ email: '', password: '', mfaCode: '', rememberPassword: true })
+  const mfaRequired = ref(false)
+  const mfaTicket = ref('')
   const rules: FormRules = {
     email: [
       { required: true, message: xt('请输入管理员邮箱'), trigger: 'blur' },
       { type: 'email', message: xt('邮箱格式不正确'), trigger: 'blur' }
     ],
-    password: [{ required: true, min: 8, message: xt('请输入至少 8 位密码'), trigger: 'blur' }]
+    password: [{ required: true, min: 8, message: xt('请输入至少 8 位密码'), trigger: 'blur' }],
+    mfaCode: [{ required: true, min: 6, message: xt('请输入动态验证码或恢复码'), trigger: 'blur' }]
   }
 
   async function handleSubmit() {
     if (!formRef.value || !(await formRef.value.validate().catch(() => false))) return
     loading.value = true
     try {
-      const { token } = await fetchLogin({ email: formData.email, password: formData.password })
-      userStore.setToken(token)
+      if (mfaRequired.value) {
+        await fetchVerifyAdminMfa({ ticket: mfaTicket.value, code: formData.mfaCode })
+      } else {
+        const result = await fetchLogin({ email: formData.email, password: formData.password })
+        if ('mfaRequired' in result) {
+          mfaRequired.value = true
+          mfaTicket.value = result.ticket
+          formData.mfaCode = ''
+          await nextTick(() => formRef.value?.clearValidate())
+          return
+        }
+      }
+      userStore.setToken('cookie-session')
       userStore.setLoginStatus(true)
       ElNotification({
         title: xt('登录成功'),
@@ -104,6 +126,14 @@
     } finally {
       loading.value = false
     }
+  }
+
+  function resetMfaStep() {
+    mfaRequired.value = false
+    mfaTicket.value = ''
+    formData.mfaCode = ''
+    formData.password = ''
+    void nextTick(() => formRef.value?.clearValidate())
   }
 </script>
 
@@ -145,4 +175,6 @@
     line-height: 1.7;
     color: var(--art-gray-500);
   }
+
+  .mfa-input :deep(input) { letter-spacing: 0; }
 </style>

@@ -1,8 +1,64 @@
 import { expect, test } from '@playwright/test'
 import { adminEmail, adminPassword, assertNoPageOverflow, loginAdminByApi } from './helpers'
 
+const testModels = [
+  {
+    key: 'gpt-5.5',
+    displayName: 'GPT Test',
+    upstreamModel: 'gpt-5.5',
+    capability: 'CHAT',
+    enabled: true,
+    isDefault: true,
+    flatCreditCost: 1,
+  },
+  {
+    key: 'gpt-image-2',
+    displayName: 'GPT Image 2',
+    upstreamModel: 'gpt-image-2',
+    capability: 'IMAGE',
+    enabled: true,
+    isDefault: true,
+    flatCreditCost: 1,
+    options: {
+      imageCapabilities: {
+        sizes: ['1024x1024', '1536x1024', '1024x1536'],
+        qualities: ['low', 'medium', 'high'],
+        outputFormats: ['png', 'jpeg', 'webp'],
+        backgrounds: ['auto', 'opaque', 'transparent'],
+        maxCount: 4,
+        defaultSize: '1024x1024',
+        defaultQuality: 'medium',
+        supportsReference: true,
+      },
+    },
+  },
+  {
+    key: 'commerce-gpt-image-2',
+    displayName: 'GPT Image 2',
+    upstreamModel: 'gpt-image-2',
+    capability: 'COMMERCE',
+    enabled: true,
+    isDefault: true,
+    flatCreditCost: 1,
+  },
+]
+
 test.beforeEach(async ({ page }) => {
   await loginAdminByApi(page)
+  await page.route('**/v1/users/me/models**', (route) => route.fulfill({ json: testModels }))
+})
+
+test('未配置专用图片工具时仍显示系统工具并写入可编辑提示词', async ({ page }) => {
+  await page.route('**/v1/inspirations?mode=IMAGE_TOOL', (route) => route.fulfill({ json: [] }))
+  await page.goto('/image')
+
+  const tools = page.locator('.creation-tools > button')
+  await expect(tools).toHaveCount(5)
+  await tools.filter({ hasText: 'AI 擦除' }).click()
+
+  const input = page.getByLabel('创作描述', { exact: true })
+  await expect(input).toHaveValue(/只移除蒙版标记区域/)
+  await assertNoPageOverflow(page)
 })
 
 test('提示词库展示预览图并只将完整提示词带入图片生成', async ({ page }) => {
@@ -470,7 +526,7 @@ test('聊天设置可切换浅色模式，模型菜单显示后台信息', async
   await page.locator('.settings-close').click()
 
   await page.goto('/image')
-  await page.getByRole('button', { name: /模型 GPT Image 2/ }).click()
+  await page.getByRole('button', { name: /^模型\s+\S+/ }).click()
   await expect(page.locator('.creation-options-menu')).toBeVisible()
   await expect(page.locator('.creation-options-menu button').first()).toBeVisible()
   await assertNoPageOverflow(page)
@@ -510,7 +566,7 @@ test('最近对话可以重命名并归档', async ({ page }) => {
 test('图片输出格式与背景选项会保持有效组合', async ({ page }) => {
   await page.goto('/image')
   const composer = page.locator('.creation-composer')
-  for (const buttonName of [/模型 GPT Image 2/, /比例 自动/]) {
+  for (const buttonName of [/^模型\s+\S+/, /比例 自动/]) {
     const trigger = page.getByRole('button', { name: buttonName })
     await trigger.click()
     const menuBox = await page.locator('.creation-options-menu').boundingBox()
@@ -650,7 +706,7 @@ test('项目页面可创建、归档、恢复并删除项目', async ({ page }) 
   let projectId = ''
   const staleProjects = await (await page.request.get('/v1/projects')).json() as Array<{ id: string; name: string }>
   await Promise.all(staleProjects.filter((project) => project.name.startsWith('e2e-ui-project-')).map((project) => page.request.delete(`/v1/projects/${project.id}`)))
-  await page.goto('/projects')
+  await page.goto('/workspace?tab=projects')
   try {
     await page.getByRole('button', { name: '新建', exact: true }).click()
     await expect(page.getByRole('dialog', { name: '创建项目' })).toBeVisible()
@@ -678,7 +734,7 @@ test('项目页面可创建、归档、恢复并删除项目', async ({ page }) 
 })
 
 test('文件库视图、筛选、图片缩放和下载按钮可用', async ({ page }) => {
-  await page.goto('/files')
+  await page.goto('/workspace?tab=files')
   const firstAsset = page.locator('.asset-card').first()
   const firstVisualAsset = page.locator('.asset-card').filter({ has: page.locator('.asset-card__preview img') }).first()
   await expect(firstAsset).toBeVisible()
@@ -783,8 +839,8 @@ test('核心工作区页面均可加载且没有前端错误或横向溢出', as
     ['/office', '.office-center'],
     ['/prompts', '.prompt-library-page'],
     ['/capabilities', '.capability-page'],
-    ['/projects', '.projects-page'],
-    ['/files', '.library-page'],
+    ['/workspace?tab=projects', '.projects-page'],
+    ['/workspace?tab=files', '.library-page'],
   ] as const
   const consoleErrors: string[] = []
   const failedRequests: string[] = []

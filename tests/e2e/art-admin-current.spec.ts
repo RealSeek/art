@@ -1,8 +1,31 @@
 import { expect, test, type Page } from '@playwright/test'
+import { createHmac } from 'node:crypto'
 
 const adminUrl = 'http://localhost:5174/admin/'
 const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@flux.local'
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
+
+function totp(secret: string, now = Date.now()) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = 0
+  let buffer = 0
+  const bytes: number[] = []
+  for (const character of secret.toUpperCase().replace(/=+$/, '')) {
+    const index = alphabet.indexOf(character)
+    if (index < 0) continue
+    buffer = (buffer << 5) | index
+    bits += 5
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255)
+      bits -= 8
+    }
+  }
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(now / 30_000)))
+  const digest = createHmac('sha1', Buffer.from(bytes)).update(counter).digest()
+  const offset = digest[digest.length - 1] & 0x0f
+  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0')
+}
 
 const businessPages = [
   ['enterprise/customers/credits', '额度流水'],
@@ -71,7 +94,7 @@ test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ 
   }
 
   await page.goto(`${adminUrl}#/article/article-list`)
-  await expect(page.getByRole('heading', { name: '关于我们', exact: true })).toBeVisible()
+  await expect(page.locator('h1').getByText('关于我们', { exact: true })).toBeVisible()
   await expect(page.locator('.content-card').first()).toBeVisible()
   await assertNoPageOverflow(page)
   await page.locator('.content-card').first().click()
@@ -117,7 +140,19 @@ test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ 
 
 test('用户分组可以创建、编辑策略并删除', async ({ page }) => {
   const groupName = `E2E 分组 ${Date.now()}`
+  let mfaSecret = ''
   await login(page)
+  const statusResponse = await page.request.get('http://localhost:3100/v1/auth/admin/mfa/status')
+  expect(statusResponse.ok()).toBeTruthy()
+  expect((await statusResponse.json() as { enabled: boolean }).enabled).toBeFalsy()
+  const setupResponse = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/setup')
+  expect(setupResponse.ok()).toBeTruthy()
+  const setup = await setupResponse.json() as { ticket: string; secret: string }
+  mfaSecret = setup.secret
+  const enableResponse = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/enable', {
+    data: { ticket: setup.ticket, code: totp(mfaSecret) }
+  })
+  expect(enableResponse.ok()).toBeTruthy()
   await page.goto(`${adminUrl}#/enterprise/customers/groups`)
 
   try {
@@ -151,6 +186,12 @@ test('用户分组可以创建、编辑策略并删除', async ({ page }) => {
     if (groups.ok()) {
       const match = ((await groups.json()) as Array<{ id: string; name: string }>).find((item) => item.name === groupName)
       if (match) await page.request.delete(`http://localhost:3100/v1/admin/groups/${match.id}`).catch(() => undefined)
+    }
+    if (mfaSecret) {
+      const disabled = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/disable', {
+        data: { password: adminPassword, code: totp(mfaSecret) }
+      })
+      expect(disabled.ok()).toBeTruthy()
     }
   }
 })

@@ -23,6 +23,8 @@ Desktop.ini
 
 *.log
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 /*.png
 
 .env

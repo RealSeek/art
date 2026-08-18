@@ -28,7 +28,7 @@ import { $t } from '@/locales'
 // 错误响应接口
 export interface ErrorResponse {
   /** 错误状态码 */
-  code: number
+  code: number | string
   /** 错误消息 */
   msg: string
   message?: string | string[]

@@ -28,14 +28,23 @@ import { WorkspaceModule } from './workspace/workspace.module'
 import { ContentModule } from './content/content.module'
 import { PluginsModule } from './plugins/plugins.module'
 import { AgentTasksModule } from './agent-tasks/agent-tasks.module'
-import { InstallModule } from './install/install.module'
+import { ResourceAccessModule } from './common/resource-access.module'
+import { CommercialModule } from './commercial/commercial.module'
+import { WorksModule } from './works/works.module'
+import { CanvasesModule } from './canvases/canvases.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: Number(process.env.GLOBAL_RATE_LIMIT || 600) }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: Number(process.env.GLOBAL_RATE_LIMIT || 600) }],
+      errorMessage: (context) => context.getHandler().name === 'adminLogin'
+        ? '登录尝试过于频繁，请稍后再试'
+        : '请求过于频繁，请稍后再试',
+    }),
     BullModule.forRoot({ connection: { url: process.env.REDIS_URL || 'redis://localhost:6379' } }),
     PrismaModule,
+    ResourceAccessModule,
     AuthModule,
     UsersModule,
     CreditsModule,
@@ -57,7 +66,9 @@ import { InstallModule } from './install/install.module'
     ContentModule,
     PluginsModule,
     AgentTasksModule,
-    InstallModule,
+    CommercialModule,
+    WorksModule,
+    CanvasesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

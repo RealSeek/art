@@ -1,4 +1,4 @@
-export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'office' | 'prompts' | 'plugins' | 'projects' | 'assets' | 'api'
+export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'office' | 'prompts' | 'plugins' | 'workspace' | 'projects' | 'assets' | 'api'
 export type PluginCapability = 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE' | 'OFFICE'
 export interface PluginCategory { id: string; name: string; slug: string; description: string; icon: string; sortOrder: number; enabled: boolean; _count?: { plugins: number } }
 export interface Plugin { id: string; name: string; slug: string; description: string; instruction: string; icon: string; version: string; categoryId?: string | null; capabilities: PluginCapability[]; recommendedModel: string; outputRequirements: string; visibility: 'OFFICIAL' | 'PRIVATE'; status: 'DRAFT' | 'PUBLISHED' | 'DISABLED'; featured: boolean; priceCredits: number; installCount: number; usageCount: number; errorCount: number; installed?: boolean; owned?: boolean; category?: PluginCategory | null }
@@ -73,6 +73,11 @@ export interface StudioAsset {
   creationType?: string
   platform?: string
   options?: Record<string, unknown>
+  teamId?: string | null
+  team?: { id: string; name: string } | null
+  owner?: { id: string; displayName: string } | null
+  projectId?: string | null
+  canManage?: boolean
 }
 
 export interface Project {
@@ -98,6 +103,8 @@ export interface Project {
   owner?: { id: string; displayName: string; email?: string | null }
   members: ProjectMember[]
   activeSkillVersion?: ProjectSkillVersion | null
+  teamId?: string | null
+  team?: { id: string; name: string } | null
 }
 
 export interface ProjectMember {

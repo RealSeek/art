@@ -57,7 +57,7 @@ export const useAuthStore = defineStore('auth', {
       const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string } }>('/auth/password/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
       this.persistUser(response.user, 'password')
     },
-    async registerPassword(input: { username: string; email?: string; displayName?: string; password: string }) {
+    async registerPassword(input: { username: string; email?: string; displayName?: string; password: string; inviteCode?: string }) {
       const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string } }>('/auth/password/register', { method: 'POST', body: JSON.stringify(input) })
       this.persistUser(response.user, 'password')
     },
@@ -76,7 +76,7 @@ export const useAuthStore = defineStore('auth', {
         return response
       })
     },
-    async completeEmailRegistration(input: { ticket: string; username: string; displayName?: string; password: string }) {
+    async completeEmailRegistration(input: { ticket: string; username: string; displayName?: string; password: string; inviteCode?: string }) {
       const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string } }>('/auth/code/register', {
         method: 'POST',
         body: JSON.stringify(input),

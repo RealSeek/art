@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common'
-import { PlanBillingCycle, Prisma, SubscriptionStatus } from '@prisma/client'
+import { InjectQueue } from '@nestjs/bullmq'
+import { PlanBillingCycle, Prisma, RenewalAttemptStatus, SubscriptionStatus } from '@prisma/client'
+import { Queue } from 'bullmq'
 import { CreditsService } from '../credits/credits.service'
+import { CommerceService } from '../commerce/commerce.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { PrismaService } from '../prisma/prisma.service'
 
 type PlanInput = {
@@ -28,19 +32,28 @@ type PlanInput = {
 
 @Injectable()
 export class SubscriptionsService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly credits: CreditsService,
+    private readonly commerce: CommerceService,
+    private readonly notifications: NotificationsService,
+    @InjectQueue('subscription-lifecycle') private readonly queue: Queue,
+  ) {}
 
   async onModuleInit() {
-    if (await this.prisma.subscriptionPlan.count()) return
-    await this.prisma.subscriptionPlan.createMany({ data: [
-      { code: 'free', name: '免费版', description: '适合体验基础对话和图片创作', billingCycle: 'MONTHLY', priceCents: 0, includedCredits: 0, trialDays: 0, concurrency: 1, allowByok: true, imageAccess: true, commerceAccess: false, sortOrder: 10 },
-      { code: 'plus', name: 'Plus', description: '适合持续创作，包含更高并发和商品视觉', billingCycle: 'MONTHLY', priceCents: 6800, includedCredits: 500, trialDays: 7, concurrency: 3, allowByok: true, imageAccess: true, videoAccess: true, commerceAccess: true, recommended: true, sortOrder: 20 },
-      { code: 'pro', name: 'Pro', description: '面向专业团队和高频生成任务', billingCycle: 'MONTHLY', priceCents: 19800, includedCredits: 2000, trialDays: 0, concurrency: 10, allowByok: true, apiAccess: true, imageAccess: true, videoAccess: true, commerceAccess: true, batchAccess: true, sortOrder: 30 },
-    ] })
+    if (!await this.prisma.subscriptionPlan.count()) {
+      await this.prisma.subscriptionPlan.createMany({ data: [
+        { code: 'free', name: '免费版', description: '适合体验基础对话和图片创作', billingCycle: 'MONTHLY', priceCents: 0, includedCredits: 0, trialDays: 0, concurrency: 1, allowByok: true, imageAccess: true, commerceAccess: false, sortOrder: 10 },
+        { code: 'plus', name: 'Plus', description: '适合持续创作，包含更高并发和商品视觉', billingCycle: 'MONTHLY', priceCents: 6800, includedCredits: 500, trialDays: 7, concurrency: 3, allowByok: true, imageAccess: true, videoAccess: true, commerceAccess: true, recommended: true, sortOrder: 20 },
+        { code: 'pro', name: 'Pro', description: '面向专业团队和高频生成任务', billingCycle: 'MONTHLY', priceCents: 19800, includedCredits: 2000, trialDays: 0, concurrency: 10, allowByok: true, apiAccess: true, imageAccess: true, videoAccess: true, commerceAccess: true, batchAccess: true, sortOrder: 30 },
+      ] })
+    }
+    await this.queue.upsertJobScheduler('subscription-renewal-scan', { every: 15 * 60_000 }, { name: 'scan-renewals', data: {}, opts: { removeOnComplete: 20, removeOnFail: 100 } })
   }
 
-  listPlans(includeDisabled = false) {
-    return this.prisma.subscriptionPlan.findMany({ where: includeDisabled ? {} : { enabled: true }, orderBy: [{ sortOrder: 'asc' }, { priceCents: 'asc' }] })
+  async listPlans(includeDisabled = false) {
+    const plans = await this.prisma.subscriptionPlan.findMany({ where: includeDisabled ? {} : { enabled: true }, orderBy: [{ sortOrder: 'asc' }, { priceCents: 'asc' }] })
+    return includeDisabled ? plans : this.commerce.decoratePlans(plans)
   }
 
   createPlan(input: PlanInput) {
@@ -64,23 +77,39 @@ export class SubscriptionsService implements OnModuleInit {
 
   async current(userId: string) {
     const now = new Date()
-    await this.prisma.userSubscription.updateMany({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] }, currentPeriodEnd: { lt: now } }, data: { status: 'EXPIRED', endedAt: now } })
-    return this.prisma.userSubscription.findFirst({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] } }, orderBy: { createdAt: 'desc' }, include: { plan: true } })
+    await this.prisma.userSubscription.updateMany({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] }, currentPeriodEnd: { lt: now }, OR: [{ cancelAtPeriodEnd: true }, { autoRenewEnabled: false }] }, data: { status: 'EXPIRED', endedAt: now } })
+    await this.prisma.userSubscription.updateMany({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] }, currentPeriodEnd: { lt: now }, autoRenewEnabled: true, cancelAtPeriodEnd: false }, data: { status: 'PAST_DUE', graceEndsAt: new Date(now.getTime() + 3 * 86_400_000) } })
+    await this.prisma.userSubscription.updateMany({ where: { userId, status: 'PAST_DUE', graceEndsAt: { lt: now } }, data: { status: 'EXPIRED', endedAt: now, autoRenewEnabled: false } })
+    return this.prisma.userSubscription.findFirst({ where: { userId, status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] } }, orderBy: { createdAt: 'desc' }, include: { plan: true, renewalChannel: { select: { id: true, name: true, providerKey: true } } } })
   }
 
   orders(userId: string) {
     return this.prisma.subscriptionOrder.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 100, include: { plan: { select: { name: true, billingCycle: true } } } })
   }
 
-  async createOrder(userId: string, planId: string, paymentMethod: string) {
+  async createOrder(userId: string, planId: string, paymentMethod: string, userCouponId?: string) {
     const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' } })
     if (!settings?.subscriptionsEnabled) throw new BadRequestException('订阅购买当前未开放')
-    const plan = await this.prisma.subscriptionPlan.findFirst({ where: { id: planId, enabled: true } })
-    if (!plan) throw new NotFoundException('订阅套餐不存在或已下架')
-    if (plan.priceCents <= 0) throw new BadRequestException('免费套餐无需创建购买订单')
-    const pending = await this.prisma.subscriptionOrder.findFirst({ where: { userId, planId: plan.id, paymentMethod, amountCents: plan.priceCents, currency: plan.currency, status: 'PENDING' }, orderBy: { createdAt: 'desc' }, include: { plan: true } })
-    if (pending) return pending
-    return this.prisma.subscriptionOrder.create({ data: { userId, planId: plan.id, amountCents: plan.priceCents, currency: plan.currency, paymentMethod }, include: { plan: true } })
+    return this.withSerializableRetry(async (tx) => {
+      if (userCouponId) {
+        const existing = await tx.subscriptionOrder.findFirst({ where: { userId, planId, userCouponId, status: 'PENDING' }, orderBy: { createdAt: 'desc' }, include: { plan: true } })
+        if (existing) return existing
+      }
+      const plan = await tx.subscriptionPlan.findFirst({ where: { id: planId, enabled: true } })
+      if (!plan) throw new NotFoundException('订阅套餐不存在或已下架')
+      if (plan.priceCents <= 0) throw new BadRequestException('免费套餐无需创建购买订单')
+      const quote = await this.commerce.quotePlan(tx, userId, plan, userCouponId)
+      const pending = !quote.coupon ? await tx.subscriptionOrder.findFirst({ where: { userId, planId: plan.id, paymentMethod, amountCents: quote.amountCents, currency: plan.currency, status: 'PENDING', userCouponId: null, promotionId: quote.promotion?.id || null }, orderBy: { createdAt: 'desc' }, include: { plan: true } }) : null
+      if (pending) return pending
+      const order = await tx.subscriptionOrder.create({ data: {
+        userId, planId: plan.id, amountCents: quote.amountCents, originalAmountCents: quote.originalAmountCents,
+        promotionDiscountCents: quote.promotionDiscountCents, couponDiscountCents: quote.couponDiscountCents,
+        currency: plan.currency, paymentMethod, promotionId: quote.promotion?.id || null, userCouponId: quote.coupon?.id || null,
+        priceSnapshot: quote as Prisma.InputJsonValue,
+      }, include: { plan: true } })
+      if (quote.coupon) await this.commerce.lockCoupon(tx, quote.coupon.id, order.id)
+      return order
+    })
   }
 
   async startTrial(userId: string, requestedPlanId?: string) {
@@ -110,8 +139,77 @@ export class SubscriptionsService implements OnModuleInit {
   async cancel(userId: string) {
     const subscription = await this.current(userId)
     if (!subscription) throw new NotFoundException('当前没有生效中的套餐')
-    if (subscription.status === SubscriptionStatus.TRIALING) return this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), endedAt: new Date() }, include: { plan: true } })
-    return this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { cancelAtPeriodEnd: true, cancelledAt: new Date() }, include: { plan: true } })
+    if (subscription.status === SubscriptionStatus.TRIALING) return this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), endedAt: new Date(), autoRenewEnabled: false, nextRenewalAt: null }, include: { plan: true } })
+    return this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { cancelAtPeriodEnd: true, cancelledAt: new Date(), autoRenewEnabled: false, nextRenewalAt: null }, include: { plan: true } })
+  }
+
+  async renewalOptions(userId: string) {
+    const subscription = await this.current(userId)
+    const channels = await this.prisma.paymentChannel.findMany({ where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }], select: { id: true, name: true, providerKey: true, supportedMethods: true } })
+    return { subscription, channels, mode: 'PAYMENT_LINK', automaticChargeSupported: false, graceDays: 3, reminderDays: 3 }
+  }
+
+  async configureRenewal(userId: string, enabled: boolean, channelId?: string) {
+    const subscription = await this.current(userId)
+    if (!subscription) throw new NotFoundException('当前没有可续费套餐')
+    if (subscription.plan.priceCents <= 0 || subscription.plan.billingCycle === PlanBillingCycle.ONE_TIME) throw new BadRequestException('当前套餐不支持周期续费')
+    let channel: { id: string } | null = null
+    if (enabled) {
+      channel = channelId
+        ? await this.prisma.paymentChannel.findFirst({ where: { id: channelId, enabled: true }, select: { id: true } })
+        : await this.prisma.paymentChannel.findFirst({ where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }], select: { id: true } })
+      if (!channel) throw new BadRequestException('当前没有可用支付渠道')
+    }
+    const nextRenewalAt = enabled && subscription.currentPeriodEnd ? this.renewalReminderAt(subscription.currentPeriodEnd) : null
+    return this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { autoRenewEnabled: enabled, renewalChannelId: channel?.id || null, nextRenewalAt, cancelAtPeriodEnd: false, cancelledAt: null }, include: { plan: true, renewalChannel: { select: { id: true, name: true, providerKey: true } } } })
+  }
+
+  renewalAttempts(userId: string) {
+    return this.prisma.subscriptionRenewalAttempt.findMany({ where: { subscription: { userId } }, orderBy: { createdAt: 'desc' }, take: 100, include: { subscription: { include: { plan: true } } } })
+  }
+
+  adminRenewalAttempts(status?: RenewalAttemptStatus) {
+    return this.prisma.subscriptionRenewalAttempt.findMany({ where: status ? { status } : undefined, orderBy: { createdAt: 'desc' }, take: 500, include: { subscription: { include: { plan: true, user: { select: { id: true, displayName: true, email: true } } } } } })
+  }
+
+  async processDueRenewals() {
+    const now = new Date()
+    const due = await this.prisma.userSubscription.findMany({ where: { status: { in: ['ACTIVE', 'TRIALING', 'PAST_DUE'] }, autoRenewEnabled: true, cancelAtPeriodEnd: false, nextRenewalAt: { lte: now } }, orderBy: { nextRenewalAt: 'asc' }, take: 100, include: { plan: true, renewalChannel: true } })
+    const results = await Promise.allSettled(due.map((subscription) => this.createRenewalAttempt(subscription.id)))
+    await this.prisma.userSubscription.updateMany({ where: { status: 'PAST_DUE', graceEndsAt: { lt: now } }, data: { status: 'EXPIRED', endedAt: now, autoRenewEnabled: false, nextRenewalAt: null } })
+    return { attempted: due.length, created: results.filter((item) => item.status === 'fulfilled').length }
+  }
+
+  async retryRenewalAttempt(id: string) {
+    const attempt = await this.prisma.subscriptionRenewalAttempt.findUnique({ where: { id }, include: { subscription: true } })
+    if (!attempt) throw new NotFoundException('续费尝试不存在')
+    if (attempt.status !== RenewalAttemptStatus.FAILED && attempt.status !== RenewalAttemptStatus.PAYMENT_REQUIRED) throw new BadRequestException('当前续费状态不能重试')
+    if (attempt.orderId) {
+      const order = await this.prisma.subscriptionOrder.findUnique({ where: { id: attempt.orderId } })
+      if (order?.status === 'PENDING') return attempt
+    }
+    await this.prisma.userSubscription.update({ where: { id: attempt.subscriptionId }, data: { autoRenewEnabled: true, nextRenewalAt: new Date() } })
+    return this.createRenewalAttempt(attempt.subscriptionId)
+  }
+
+  private async createRenewalAttempt(subscriptionId: string) {
+    const subscription = await this.prisma.userSubscription.findUnique({ where: { id: subscriptionId }, include: { plan: true, renewalChannel: true, renewalAttempts: { orderBy: { attemptNumber: 'desc' }, take: 1 } } })
+    if (!subscription || !subscription.autoRenewEnabled || subscription.cancelAtPeriodEnd) throw new BadRequestException('订阅未启用续费')
+    const existing = await this.prisma.subscriptionRenewalAttempt.findFirst({ where: { subscriptionId, status: RenewalAttemptStatus.PAYMENT_REQUIRED, orderId: { not: null } }, orderBy: { createdAt: 'desc' } })
+    if (existing?.orderId && await this.prisma.subscriptionOrder.findFirst({ where: { id: existing.orderId, status: 'PENDING' } })) return existing
+    const channel = subscription.renewalChannel?.enabled ? subscription.renewalChannel : await this.prisma.paymentChannel.findFirst({ where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }] })
+    const attemptNumber = (subscription.renewalAttempts[0]?.attemptNumber || 0) + 1
+    const periodKey = subscription.currentPeriodEnd?.toISOString() || subscription.id
+    const attempt = await this.prisma.subscriptionRenewalAttempt.create({ data: { subscriptionId, attemptNumber, idempotencyKey: `${subscription.id}:${periodKey}:${attemptNumber}`, scheduledAt: new Date(), startedAt: new Date(), status: RenewalAttemptStatus.PROCESSING } })
+    if (!channel?.supportedMethods.length) {
+      await this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { renewalFailureCount: { increment: 1 }, lastRenewalAttemptAt: new Date(), nextRenewalAt: null } })
+      return this.prisma.subscriptionRenewalAttempt.update({ where: { id: attempt.id }, data: { status: RenewalAttemptStatus.FAILED, failureReason: '没有可用支付渠道', completedAt: new Date() } })
+    }
+    const order = await this.prisma.subscriptionOrder.create({ data: { userId: subscription.userId, planId: subscription.planId, amountCents: subscription.plan.priceCents, originalAmountCents: subscription.plan.priceCents, currency: subscription.plan.currency, paymentMethod: channel.supportedMethods[0], metadata: { renewalSubscriptionId: subscription.id, renewalAttemptId: attempt.id }, priceSnapshot: { originalAmountCents: subscription.plan.priceCents, promotionDiscountCents: 0, couponDiscountCents: 0, amountCents: subscription.plan.priceCents, renewal: true } } })
+    const result = await this.prisma.subscriptionRenewalAttempt.update({ where: { id: attempt.id }, data: { status: RenewalAttemptStatus.PAYMENT_REQUIRED, orderId: order.id, completedAt: new Date() } })
+    await this.prisma.userSubscription.update({ where: { id: subscription.id }, data: { lastRenewalAttemptAt: new Date(), renewalChannelId: channel.id, nextRenewalAt: null, ...(subscription.currentPeriodEnd && subscription.currentPeriodEnd <= new Date() ? { status: 'PAST_DUE', graceEndsAt: new Date(Date.now() + 3 * 86_400_000) } : {}) } })
+    await this.notifications.sendCustomToUsers([subscription.userId], '套餐续费待支付', `${subscription.plan.name} 的续费订单已创建，请在套餐与账单中完成支付。`)
+    return result
   }
 
   adminOrders() {
@@ -153,26 +251,56 @@ export class SubscriptionsService implements OnModuleInit {
       const order = await tx.subscriptionOrder.findUnique({ where: { id: orderId }, include: { plan: true } })
       if (!order) throw new NotFoundException('订阅订单不存在')
       if (order.status === 'CANCELLED' || order.status === 'REFUNDED') throw new BadRequestException('该订单当前状态不能确认到账')
+      const renewal = await tx.subscriptionRenewalAttempt.findFirst({ where: { orderId: order.id }, include: { subscription: true } })
+      if (renewal) {
+        if (renewal.status === RenewalAttemptStatus.SUCCEEDED) return { subscription: await tx.userSubscription.findUniqueOrThrow({ where: { id: renewal.subscriptionId }, include: { plan: true } }), order }
+        const now = new Date()
+        const periodStart = renewal.subscription.currentPeriodEnd && renewal.subscription.currentPeriodEnd > now ? renewal.subscription.currentPeriodEnd : now
+        const periodEnd = this.periodEnd(periodStart, order.plan.billingCycle)
+        const subscription = await tx.userSubscription.update({ where: { id: renewal.subscriptionId }, data: {
+          status: 'ACTIVE', currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, endedAt: null,
+          graceEndsAt: null, renewalFailureCount: 0, cancelAtPeriodEnd: false, cancelledAt: null,
+          nextRenewalAt: renewal.subscription.autoRenewEnabled ? this.renewalReminderAt(periodEnd) : null,
+        }, include: { plan: true } })
+        await tx.subscriptionRenewalAttempt.update({ where: { id: renewal.id }, data: { status: RenewalAttemptStatus.SUCCEEDED, transactionId: order.externalOrderId, failureReason: '', completedAt: now } })
+        await this.commerce.redeemCoupon(tx, order.id)
+        await tx.subscriptionOrder.update({ where: { id: order.id }, data: { status: 'PAID', paidAt: order.paidAt || now } })
+        return { subscription, order }
+      }
       const existing = await tx.userSubscription.findFirst({ where: { metadata: { path: ['orderId'], equals: order.id } }, include: { plan: true } })
       if (existing) {
-        if (order.status !== 'PAID') await tx.subscriptionOrder.update({ where: { id: order.id }, data: { status: 'PAID', paidAt: order.paidAt || new Date() } })
+        if (order.status !== 'PAID') { await this.commerce.redeemCoupon(tx, order.id); await tx.subscriptionOrder.update({ where: { id: order.id }, data: { status: 'PAID', paidAt: order.paidAt || new Date() } }) }
         return { subscription: existing, order }
       }
       const now = new Date()
       const periodEnd = this.periodEnd(now, order.plan.billingCycle)
       await tx.userSubscription.updateMany({ where: { userId: order.userId, status: { in: ['ACTIVE', 'TRIALING'] } }, data: { status: 'CANCELLED', endedAt: now } })
       const subscription = await tx.userSubscription.create({ data: { userId: order.userId, planId: order.planId, status: 'ACTIVE', startsAt: now, currentPeriodStart: now, currentPeriodEnd: periodEnd, metadata: { orderId: order.id } }, include: { plan: true } })
+      await this.commerce.redeemCoupon(tx, order.id)
       await tx.subscriptionOrder.update({ where: { id: order.id }, data: { status: 'PAID', paidAt: order.paidAt || now } })
       return { subscription, order }
     })
-    if (result.order.plan.includedCredits > 0) await this.credits.mutate(result.order.userId, result.order.plan.includedCredits, 'PURCHASE', `${result.order.plan.name} 套餐额度`, `subscription:${result.subscription.id}:credits`, { type: 'subscription', id: result.subscription.id })
+    if (result.order.plan.includedCredits > 0) await this.credits.mutate(result.order.userId, result.order.plan.includedCredits, 'PURCHASE', `${result.order.plan.name} 套餐额度`, `subscription-order:${result.order.id}:credits`, { type: 'subscription', id: result.subscription.id })
     return result.subscription
   }
 
   async cancelOrder(orderId: string) {
-    const result = await this.prisma.subscriptionOrder.updateMany({ where: { id: orderId, status: 'PENDING' }, data: { status: 'CANCELLED', cancelledAt: new Date() } })
-    if (!result.count) throw new BadRequestException('只能取消待支付订单')
-    return { cancelled: true }
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.subscriptionOrder.updateMany({ where: { id: orderId, status: 'PENDING' }, data: { status: 'CANCELLED', cancelledAt: new Date() } })
+      if (!result.count) throw new BadRequestException('只能取消待支付订单')
+      await this.commerce.releaseCoupon(tx, orderId)
+      return { cancelled: true }
+    })
+  }
+
+  async cancelOwnOrder(userId: string, orderId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.subscriptionOrder.updateMany({ where: { id: orderId, userId, status: 'PENDING' }, data: { status: 'CANCELLED', cancelledAt: new Date() } })
+      if (!result.count) throw new BadRequestException('只能取消自己的待支付订单')
+      await this.commerce.releaseCoupon(tx, orderId)
+      await tx.subscriptionRenewalAttempt.updateMany({ where: { orderId, status: RenewalAttemptStatus.PAYMENT_REQUIRED }, data: { status: RenewalAttemptStatus.CANCELLED, completedAt: new Date() } })
+      return { cancelled: true }
+    })
   }
 
   private periodEnd(from: Date, cycle: PlanBillingCycle) {
@@ -181,6 +309,10 @@ export class SubscriptionsService implements OnModuleInit {
     else if (cycle === PlanBillingCycle.YEARLY) result.setUTCFullYear(result.getUTCFullYear() + 1)
     else result.setUTCFullYear(result.getUTCFullYear() + 100)
     return result
+  }
+
+  private renewalReminderAt(periodEnd: Date) {
+    return new Date(Math.max(Date.now(), periodEnd.getTime() - 3 * 86_400_000))
   }
 
   private async withSerializableRetry<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) {

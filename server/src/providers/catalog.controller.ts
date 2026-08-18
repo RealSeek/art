@@ -3,10 +3,11 @@ import { ModelCapability } from '@prisma/client'
 import type { FastifyReply } from 'fastify'
 import { assetDisposition, AssetsService } from '../assets/assets.service'
 import { ProvidersService } from './providers.service'
+import { CapabilityRegistryService } from './capability-registry.service'
 
 @Controller('catalog')
 export class CatalogController {
-  constructor(private readonly providers: ProvidersService, private readonly assets: AssetsService) {}
+  constructor(private readonly providers: ProvidersService, private readonly assets: AssetsService, private readonly capabilities: CapabilityRegistryService) {}
 
   @Get('models')
   models(@Query('capability') capability?: string) {
@@ -18,8 +19,17 @@ export class CatalogController {
   @Get('settings')
   settings() { return this.providers.getSystemSettings() }
 
+  @Get('model-vendors')
+  modelVendors() { return this.providers.listModelVendors() }
+
+  @Get('provider-templates')
+  providerTemplates() { return this.providers.listProviderTemplates() }
+
   @Get('external-links')
   externalLinks() { return this.providers.listExternalLinks() }
+
+  @Get('capabilities')
+  capabilitiesList() { return this.capabilities.snapshot() }
 
   @Get('recharge-packages')
   packages() { return this.providers.listRechargePackages() }

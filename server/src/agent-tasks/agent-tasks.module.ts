@@ -13,9 +13,10 @@ import { ProvidersModule } from '../providers/providers.module'
 import { AdminWebSearchController } from './admin-web-search.controller'
 import { WebSearchModule } from './web-search.module'
 import { PublicRecommendationsController } from './public-recommendations.controller'
+import { WorkspaceModule } from '../workspace/workspace.module'
 
 @Module({
-  imports: [BullModule.registerQueue({ name: 'agent-task' }), GenerationsModule, ProvidersModule, WebSearchModule],
+  imports: [BullModule.registerQueue({ name: 'agent-task' }), GenerationsModule, ProvidersModule, WebSearchModule, WorkspaceModule],
   controllers: [AgentTasksController, AdminAgentTasksController, AdminWebSearchController, PublicRecommendationsController],
   providers: [AgentTasksService, AgentSchedulesService, AgentTasksProcessor, AgentModelService, AgentToolsService, AdminGuard],
 })

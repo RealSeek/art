@@ -29,6 +29,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         meta: resource('用户分组', 'ri:group-line', 'groups')
       },
       {
+        path: 'teams',
+        name: 'CustomerTeams',
+        component: '/xinyue/teams',
+        meta: resource('团队与成员', 'ri:team-line', 'teams')
+      },
+      {
         path: 'credits',
         name: 'CreditLedger',
         component: '/xinyue/operations',
@@ -77,6 +83,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
     },
     children: [
       {
+        path: 'pages',
+        name: 'PublicContentPages',
+        component: '/article/list',
+        meta: resource('公开页面', 'ri:article-line', 'contentPages')
+      },
+      {
         path: 'inspirations',
         name: 'InspirationManagement',
         component: '/xinyue/operations',
@@ -99,6 +111,12 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         name: 'PromptLibraryManagement',
         component: '/xinyue/operations',
         meta: resource('提示词库', 'ri:book-open-line', 'promptLibrary')
+      },
+      {
+        path: 'works',
+        name: 'PublishedWorkManagement',
+        component: '/xinyue/works',
+        meta: resource('作品审核', 'ri:gallery-line', 'works')
       }
     ]
   },
@@ -213,6 +231,24 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         name: 'PaymentManagement',
         component: '/xinyue/commerce',
         meta: resource('充值与支付', 'ri:secure-payment-line', 'payments')
+      },
+      {
+        path: 'margins',
+        name: 'FinanceMargins',
+        component: '/xinyue/operations',
+        meta: resource('成本与毛利', 'ri:line-chart-line', 'financeMargins')
+      },
+      {
+        path: 'byok',
+        name: 'ByokOperations',
+        component: '/xinyue/operations',
+        meta: resource('用户密钥运营', 'ri:key-2-line', 'byokOperations')
+      },
+      {
+        path: 'governance',
+        name: 'CommercialGovernance',
+        component: '/xinyue/commercial-governance',
+        meta: resource('商业治理', 'ri:shield-user-line', 'commercialGovernance')
       }
     ]
   },
@@ -231,6 +267,18 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         name: 'AnnouncementManagement',
         component: '/xinyue/operations',
         meta: resource('公告管理', 'ri:notification-3-line', 'announcements')
+      },
+      {
+        path: 'notification-templates',
+        name: 'NotificationTemplates',
+        component: '/xinyue/operations',
+        meta: resource('通知模板', 'ri:mail-settings-line', 'notificationTemplates')
+      },
+      {
+        path: 'notification-deliveries',
+        name: 'NotificationDeliveries',
+        component: '/xinyue/operations',
+        meta: resource('通知投递', 'ri:send-plane-line', 'notificationDeliveries')
       },
       {
         path: 'moderation-rules',

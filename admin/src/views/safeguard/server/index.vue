@@ -103,6 +103,67 @@
       </ElCard>
     </section>
 
+    <ElCard shadow="never" class="art-table-card storage-migration-card">
+      <template #header>
+        <div class="card-heading">
+          <div>
+            <strong>{{ xt('资产存储迁移') }}</strong>
+            <span>{{ xt('将历史资产安全迁移到当前活动存储，支持分批执行和断点续跑') }}</span>
+          </div>
+          <div class="resource-actions">
+            <ElButton v-if="storageMigration?.target.driver === 's3'" :loading="applyingLifecycle" @click="applyLifecycle">
+              <ArtSvgIcon icon="ri:timer-flash-line" />
+              {{ xt('应用生命周期') }}
+            </ElButton>
+            <ElButton type="primary" :loading="migrating" :disabled="!storageMigration?.pending.count" @click="migrateStorage">
+              <ArtSvgIcon icon="ri:database-2-line" />
+              {{ xt('迁移下一批') }}
+            </ElButton>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="storageMigration" class="migration-content">
+        <div class="migration-overview">
+          <div>
+            <span>{{ xt('当前目标') }}</span>
+            <strong>{{ storageTargetLabel }}</strong>
+          </div>
+          <div>
+            <span>{{ xt('资产总数') }}</span>
+            <strong>{{ storageMigration.total.count }}</strong>
+          </div>
+          <div>
+            <span>{{ xt('待迁移') }}</span>
+            <strong>{{ storageMigration.pending.count }}</strong>
+          </div>
+          <div>
+            <span>{{ xt('待迁移容量') }}</span>
+            <strong>{{ formatBytes(storageMigration.pending.bytes) }}</strong>
+          </div>
+        </div>
+        <ElProgress
+          :percentage="migrationPercent"
+          :status="storageMigration.pending.count ? undefined : 'success'"
+        />
+        <div class="storage-location-list">
+          <div v-for="location in storageMigration.locations" :key="`${location.driver}:${location.bucket}`">
+            <span>{{ location.driver.toUpperCase() }}{{ location.bucket ? ` · ${location.bucket}` : '' }}</span>
+            <strong>{{ location.count }} {{ xt('个文件') }} · {{ formatBytes(location.bytes) }}</strong>
+          </div>
+        </div>
+        <ElAlert
+          v-if="migrationMessage"
+          :title="migrationMessage"
+          :type="migrationFailed ? 'warning' : 'success'"
+          show-icon
+          :closable="false"
+        />
+        <ElAlert v-if="storageLifecycle?.supported" :title="`${xt('生命周期规则')}：${storageLifecycle.rules.length} ${xt('条')}`" type="info" show-icon :closable="false" />
+      </div>
+      <ElSkeleton v-else :rows="2" animated />
+    </ElCard>
+
     <footer class="health-footer">
       <span>{{ xt('最后检查') }}: {{ checkedAt ? formatDate(checkedAt) : xt('尚未检查') }}</span>
       <span>{{ xt('环境') }}: {{ system?.environment || xt('未知') }}</span>
@@ -111,6 +172,7 @@
 </template>
 
 <script setup lang="ts">
+  import { ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'
   import request from '@/utils/http'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
@@ -123,7 +185,7 @@
     api: Probe
     database: Probe
     queue: Probe
-    storage: Probe & { driver?: string; directory?: string; writable?: boolean }
+    storage: Probe & { driver?: string; directory?: string; bucket?: string; writable?: boolean }
     runtime?: {
       uptimeSeconds: number
       memoryRssBytes: number
@@ -152,14 +214,27 @@
     lastHealthMessage?: string
     _count?: { modelPresets?: number }
   }
+  type StorageMigration = {
+    target: { driver: 'local' | 's3'; bucket: string }
+    total: { count: number; bytes: number }
+    pending: { count: number; bytes: number }
+    locations: Array<{ driver: string; bucket: string; count: number; bytes: number }>
+  }
+  type StorageLifecycle = { supported: boolean; driver: 'local' | 's3'; bucket?: string; rules: Array<{ id: string; status: string }> }
 
   const router = useRouter()
   const loading = ref(false)
   const checkingProviders = ref(false)
+  const migrating = ref(false)
+  const applyingLifecycle = ref(false)
   const errorMessage = ref('')
   const system = ref<SystemHealth | null>(null)
   const providers = ref<ProviderHealth[]>([])
   const checkedAt = ref('')
+  const storageMigration = ref<StorageMigration | null>(null)
+  const migrationMessage = ref('')
+  const migrationFailed = ref(false)
+  const storageLifecycle = ref<StorageLifecycle | null>(null)
 
   const services = computed(() => [
     {
@@ -227,6 +302,16 @@
       tone: 'purple'
     }
   ])
+  const migrationPercent = computed(() => {
+    const status = storageMigration.value
+    if (!status?.total.count) return 100
+    return Math.round(((status.total.count - status.pending.count) / status.total.count) * 100)
+  })
+  const storageTargetLabel = computed(() => {
+    const target = storageMigration.value?.target
+    if (!target) return xt('未知')
+    return target.driver === 's3' ? `S3 · ${target.bucket}` : xt('本地磁盘')
+  })
 
   const statusText = (status: HealthStatus) =>
     ({ healthy: xt('正常'), unhealthy: xt('异常'), unknown: xt('未知') })[status]
@@ -254,11 +339,15 @@
     loading.value = true
     errorMessage.value = ''
     try {
-      const [health, items] = await Promise.all([
+      const [health, items, migration, lifecycle] = await Promise.all([
         request.get<SystemHealth>({ url: '/v1/admin/system' }),
-        request.get<ProviderRecord[]>({ url: '/v1/admin/providers' })
+        request.get<ProviderRecord[]>({ url: '/v1/admin/providers' }),
+        request.get<StorageMigration>({ url: '/v1/admin/storage/migration' }),
+        request.get<StorageLifecycle>({ url: '/v1/admin/storage/lifecycle' })
       ])
       system.value = health
+      storageMigration.value = migration
+      storageLifecycle.value = lifecycle
       providers.value = items
         .filter((item) => item.enabled)
         .map((item) => ({
@@ -298,6 +387,39 @@
 
   const goProviders = () => router.push('/enterprise/ai/providers')
 
+  const migrateStorage = async () => {
+    if (!storageMigration.value?.pending.count) return
+    await ElMessageBox.confirm(
+      xt('系统会复制并校验文件，更新数据库后再删除旧副本。是否迁移下一批资产？'),
+      xt('确认存储迁移'),
+      { type: 'warning', confirmButtonText: xt('开始迁移'), cancelButtonText: xt('取消') }
+    )
+    migrating.value = true
+    migrationMessage.value = ''
+    try {
+      const result = await request.post<{
+        migrated: number
+        failed: Array<{ id: string; message: string }>
+        warnings: Array<{ id: string; message: string }>
+        status: StorageMigration
+      }>({ url: '/v1/admin/storage/migration', params: { limit: 25 }, showSuccessMessage: true })
+      storageMigration.value = result.status
+      migrationFailed.value = result.failed.length > 0
+      migrationMessage.value = result.failed.length
+        ? `${xt('本批已迁移')} ${result.migrated}，${xt('失败')} ${result.failed.length}`
+        : `${xt('本批已迁移')} ${result.migrated}${result.warnings.length ? `，${xt('旧副本清理警告')} ${result.warnings.length}` : ''}`
+    } finally {
+      migrating.value = false
+    }
+  }
+
+  const applyLifecycle = async () => {
+    await ElMessageBox.confirm(xt('将保留现有规则，并更新 Xinyue 管理的分片上传和历史版本清理规则。'), xt('应用生命周期'), { type: 'warning' })
+    applyingLifecycle.value = true
+    try { storageLifecycle.value = await request.post<StorageLifecycle>({ url: '/v1/admin/storage/lifecycle', params: {}, showSuccessMessage: true }) }
+    finally { applyingLifecycle.value = false }
+  }
+
   onMounted(load)
 </script>
 
@@ -317,6 +439,51 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .migration-content {
+    display: grid;
+    gap: 16px;
+  }
+
+  .migration-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .migration-overview > div,
+  .storage-location-list > div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--art-gray-50);
+    border: 1px solid var(--art-gray-200);
+    border-radius: 6px;
+  }
+
+  .migration-overview span,
+  .storage-location-list span {
+    font-size: 12px;
+    color: var(--art-gray-500);
+  }
+
+  .migration-overview strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 17px;
+    white-space: nowrap;
+  }
+
+  .storage-location-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+
+  .storage-location-list strong {
+    font-size: 13px;
   }
 
   .page-heading {
@@ -528,6 +695,10 @@
     .health-layout {
       grid-template-columns: 1fr;
     }
+
+    .migration-overview {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (width <= 560px) {
@@ -566,6 +737,11 @@
     .health-footer {
       flex-direction: column;
       gap: 4px;
+      align-items: flex-start;
+    }
+
+    .storage-migration-card :deep(.el-card__header) .card-heading {
+      gap: 12px;
       align-items: flex-start;
     }
   }

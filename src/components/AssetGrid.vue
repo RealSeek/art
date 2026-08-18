@@ -55,10 +55,11 @@
           <button v-if="regeneratable && selected.jobId" type="button" aria-label="重新生成" title="重新生成" @click="emitAction('regenerate')"><RefreshCw :size="18" /></button>
           <button v-if="reusable && isVisualAsset(selected)" type="button" aria-label="用作参考" title="用作参考" @click="emitAction('reuse')"><ImagePlus :size="18" /></button>
           <button v-if="reusable && selected.prompt" type="button" aria-label="引用提示词" title="引用提示词" @click="emitAction('quote')"><Quote :size="18" /></button>
+          <button v-if="shareable && selected.canManage !== false" type="button" aria-label="设置团队归属" title="设置团队归属" @click="shareAsset"><UsersRound :size="18" /></button>
           <button type="button" aria-label="下载素材" title="下载素材" @click="downloadAsset"><Download :size="18" /></button>
-          <button v-if="deletable" class="danger" type="button" aria-label="删除素材" title="删除素材" @click="deleteAsset"><Trash2 :size="18" /></button>
+          <button v-if="deletable && selected.canManage !== false" class="danger" type="button" aria-label="删除素材" title="删除素材" @click="deleteAsset"><Trash2 :size="18" /></button>
         </div>
-        <footer><p>{{ selected.prompt }}</p><div><span v-for="tag in selected.tags" :key="tag">{{ tag }}</span></div></footer>
+        <footer><p>{{ selected.prompt }}</p><div><span v-if="selected.team">团队 · {{ selected.team.name }}</span><span v-for="tag in selected.tags" :key="tag">{{ tag }}</span></div></footer>
       </section>
     </div>
   </Teleport>
@@ -66,12 +67,12 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Download, FileText, Hand, ImagePlus, Maximize2, MousePointer2, Play, Quote, RefreshCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { Download, FileText, Hand, ImagePlus, Maximize2, MousePointer2, Play, Quote, RefreshCw, Trash2, UsersRound, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { useAssetPreviewTransform } from '../composables/useAssetPreviewTransform'
 import type { StudioAsset } from '../types'
 
-withDefaults(defineProps<{ assets: StudioAsset[]; deletable?: boolean; reusable?: boolean; regeneratable?: boolean; variant?: 'cards' | 'gallery' | 'list' }>(), { deletable: false, reusable: false, regeneratable: false, variant: 'cards' })
-const emit = defineEmits<{ delete: [assetId: string]; reuse: [asset: StudioAsset]; quote: [asset: StudioAsset]; regenerate: [asset: StudioAsset] }>()
+withDefaults(defineProps<{ assets: StudioAsset[]; deletable?: boolean; reusable?: boolean; regeneratable?: boolean; shareable?: boolean; variant?: 'cards' | 'gallery' | 'list' }>(), { deletable: false, reusable: false, regeneratable: false, shareable: false, variant: 'cards' })
+const emit = defineEmits<{ delete: [assetId: string]; reuse: [asset: StudioAsset]; quote: [asset: StudioAsset]; regenerate: [asset: StudioAsset]; share: [asset: StudioAsset] }>()
 
 const selected = ref<StudioAsset | null>(null)
 
@@ -140,6 +141,12 @@ async function downloadAsset() {
 function deleteAsset() {
   if (!selected.value || !window.confirm(`确认删除“${selected.value.title}”？`)) return
   const assetId = selected.value.id; closePreview(); emit('delete', assetId)
+}
+function shareAsset() {
+  if (!selected.value) return
+  const asset = selected.value
+  closePreview()
+  emit('share', asset)
 }
 function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape' && selected.value) closePreview() }
 onMounted(() => window.addEventListener('keydown', handleKeydown))

@@ -9,6 +9,9 @@ import { PrismaService } from '../prisma/prisma.service'
 import { assetDisposition, AssetsService, resolveRasterImageMime } from '../assets/assets.service'
 import { OfficeExportService } from './office-export.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
+import { TeamService } from './team.service'
+import { ResourceAccessService } from '../common/resource-access.service'
+import { CreditsService } from '../credits/credits.service'
 
 class AssistantDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -22,14 +25,19 @@ class AssistantDto {
   @IsOptional() @IsInt() @Min(0) @Max(100000) sortOrder?: number
 }
 
-class KnowledgeBaseDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string }
+class KnowledgeBaseDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string; @IsOptional() @IsString() @MaxLength(100) teamId?: string | null }
 class KnowledgeBaseAssetDto { @IsString() @MinLength(1) @MaxLength(100) assetId!: string }
 class ToolCallDto { @IsOptional() @IsObject() input?: Record<string, unknown>; @IsOptional() @IsString() approvalRequestId?: string }
 class ConnectorCredentialDto { @IsObject() credentials!: Record<string, string> }
 class ToolApprovalRequestDto { @IsOptional() @IsString() @MaxLength(1000) reason?: string }
-class TeamDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string }
+class TeamDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string; @IsOptional() @IsInt() @Min(1) @Max(10000) seatLimit?: number }
 class TeamMemberDto { @IsEmail() email!: string; @IsOptional() @IsIn(['ADMIN', 'MEMBER']) role?: string }
 class TeamRoleDto { @IsIn(['ADMIN', 'MEMBER']) role!: string }
+class TeamTransferDto { @IsString() @MinLength(1) targetUserId!: string }
+class TeamBillingDto { @IsBoolean() enabled!: boolean }
+class TeamQuotaDto { @IsOptional() @IsInt() @Min(0) @Max(100000000) monthlyCreditLimit?: number | null }
+class TeamCreditAdjustmentDto { @IsInt() @Min(-100000000) @Max(100000000) amount!: number; @IsString() @MinLength(2) @MaxLength(500) reason!: string }
+class AdminTeamDto { @IsOptional() @IsString() @MinLength(1) @MaxLength(100) name?: string; @IsOptional() @IsInt() @Min(1) @Max(10000) seatLimit?: number; @IsOptional() @IsIn(['ACTIVE', 'SUSPENDED']) status?: string; @IsOptional() @IsBoolean() billingEnabled?: boolean }
 class ToolDto {
   @IsString() @MinLength(2) @MaxLength(80) key!: string
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -65,7 +73,7 @@ class OfficeExportDto {
 @Controller()
 @UseGuards(AuthGuard)
 export class WorkspaceController {
-  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly officeExports: OfficeExportService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly officeExports: OfficeExportService, private readonly crypto: CredentialCryptoService, private readonly teamService: TeamService, private readonly access: ResourceAccessService) {}
 
   @Post('office/exports')
   exportOffice(@CurrentUser() user: AuthenticatedUser, @Body() body: OfficeExportDto) { return this.officeExports.create(user.id, body) }
@@ -108,32 +116,44 @@ export class WorkspaceController {
   }
 
   @Get('knowledge-bases')
-  knowledgeBases(@CurrentUser() user: AuthenticatedUser) { return this.prisma.knowledgeBase.findMany({ where: { creatorId: user.id }, orderBy: { updatedAt: 'desc' }, include: { assets: { orderBy: { createdAt: 'desc' }, include: { asset: { select: { id: true, name: true, mimeType: true, createdAt: true } } } }, _count: { select: { assets: true, assistants: true } } } }) }
+  knowledgeBases(@CurrentUser() user: AuthenticatedUser) { return this.prisma.knowledgeBase.findMany({ where: this.access.knowledgeBaseWhere(user.id), orderBy: { updatedAt: 'desc' }, include: { creator: { select: { id: true, displayName: true } }, team: { select: { id: true, name: true } }, assets: { orderBy: { createdAt: 'desc' }, include: { asset: { select: { id: true, name: true, mimeType: true, createdAt: true } } } }, _count: { select: { assets: true, assistants: true } } } }) }
 
   @Post('knowledge-bases')
-  createKnowledgeBase(@CurrentUser() user: AuthenticatedUser, @Body() body: KnowledgeBaseDto) { return this.prisma.knowledgeBase.create({ data: { creatorId: user.id, name: body.name.trim(), description: body.description?.trim() || '' } }) }
+  async createKnowledgeBase(@CurrentUser() user: AuthenticatedUser, @Body() body: KnowledgeBaseDto) {
+    const teamId = body.teamId || null
+    if (teamId) await this.access.assertTeamManager(teamId, user.id)
+    const row = await this.prisma.knowledgeBase.create({ data: { creatorId: user.id, teamId, name: body.name.trim(), description: body.description?.trim() || '' }, include: { team: { select: { id: true, name: true } } } })
+    if (teamId) await this.access.auditTeamResource(teamId, user.id, 'knowledge_base.created', 'knowledge_base', row.id, { name: row.name })
+    return row
+  }
 
   @Patch('knowledge-bases/:id')
   async updateKnowledgeBase(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: KnowledgeBaseDto) {
-    const result = await this.prisma.knowledgeBase.updateMany({ where: { id, creatorId: user.id }, data: { name: body.name.trim(), description: body.description?.trim() || '' } })
-    if (!result.count) throw new NotFoundException('知识库不存在')
-    return this.prisma.knowledgeBase.findUniqueOrThrow({ where: { id } })
+    const current = await this.access.assertKnowledgeBaseManager(user.id, id)
+    const teamId = body.teamId === undefined ? current.teamId : body.teamId || null
+    if (teamId) await this.access.assertTeamManager(teamId, user.id)
+    const row = await this.prisma.knowledgeBase.update({ where: { id }, data: { name: body.name.trim(), description: body.description?.trim() || '', teamId }, include: { team: { select: { id: true, name: true } } } })
+    if (current.teamId && current.teamId !== teamId) await this.access.auditTeamResource(current.teamId, user.id, 'knowledge_base.unassigned', 'knowledge_base', id, { nextTeamId: teamId })
+    if (teamId && current.teamId !== teamId) await this.access.auditTeamResource(teamId, user.id, 'knowledge_base.assigned', 'knowledge_base', id, { previousTeamId: current.teamId })
+    return row
   }
 
   @Delete('knowledge-bases/:id')
   async deleteKnowledgeBase(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const result = await this.prisma.knowledgeBase.deleteMany({ where: { id, creatorId: user.id } })
-    if (!result.count) throw new NotFoundException('知识库不存在')
+    const current = await this.access.assertKnowledgeBaseManager(user.id, id)
+    await this.prisma.knowledgeBase.delete({ where: { id } })
+    if (current.teamId) await this.access.auditTeamResource(current.teamId, user.id, 'knowledge_base.deleted', 'knowledge_base', id)
     return { deleted: true }
   }
 
   @Post('knowledge-bases/:id/assets')
   async attachAsset(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: KnowledgeBaseAssetDto) {
     const [knowledgeBase, asset] = await Promise.all([
-      this.prisma.knowledgeBase.findFirst({ where: { id, creatorId: user.id }, select: { id: true } }),
-      this.prisma.asset.findFirst({ where: { id: body.assetId, userId: user.id, deletedAt: null }, select: { id: true } }),
+      this.access.assertKnowledgeBaseManager(user.id, id),
+      this.access.assertAssetReadable(user.id, body.assetId),
     ])
-    if (!knowledgeBase || !asset) throw new NotFoundException('知识库或文件不存在')
+    if (knowledgeBase.teamId && asset.teamId !== knowledgeBase.teamId) throw new BadRequestException('团队知识库只能加入同一团队的共享文件')
+    if (!knowledgeBase.teamId && asset.userId !== user.id) throw new BadRequestException('个人知识库只能加入自己的文件')
     const existing = await this.prisma.knowledgeBaseAsset.findUnique({ where: { knowledgeBaseId_assetId: { knowledgeBaseId: id, assetId: body.assetId } } })
     if (existing) return { attached: true, alreadyAttached: true }
     let extractedText = ''
@@ -151,8 +171,7 @@ export class WorkspaceController {
 
   @Delete('knowledge-bases/:id/assets/:assetId')
   async detachAsset(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('assetId') assetId: string) {
-    const knowledgeBase = await this.prisma.knowledgeBase.findFirst({ where: { id, creatorId: user.id }, select: { id: true } })
-    if (!knowledgeBase) throw new NotFoundException('知识库不存在')
+    await this.access.assertKnowledgeBaseManager(user.id, id)
     const asset = await this.prisma.knowledgeBaseAsset.findUnique({ where: { knowledgeBaseId_assetId: { knowledgeBaseId: id, assetId } }, select: { chunkCount: true } })
     const result = await this.prisma.knowledgeBaseAsset.deleteMany({ where: { knowledgeBaseId: id, assetId } })
     if (result.count) {
@@ -162,65 +181,72 @@ export class WorkspaceController {
   }
 
   @Get('teams')
-  teams(@CurrentUser() user: AuthenticatedUser) { return this.prisma.team.findMany({ where: { OR: [{ ownerId: user.id }, { members: { some: { userId: user.id } } }] }, orderBy: { updatedAt: 'desc' }, include: { members: { include: { user: { select: { id: true, email: true, displayName: true, avatarUrl: true } } } } } }) }
+  teams(@CurrentUser() user: AuthenticatedUser) { return this.teamService.list(user.id) }
+
+  @Get('team-invitations')
+  teamInvitations(@CurrentUser() user: AuthenticatedUser) { return this.teamService.pendingInvitations(user.email) }
+
+  @Post('team-invitations/:token/accept')
+  acceptTeamInvitation(@CurrentUser() user: AuthenticatedUser, @Param('token') token: string) { return this.teamService.accept(token, user) }
+
+  @Post('team-invitations/:id/accept-pending')
+  acceptPendingTeamInvitation(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.teamService.acceptPending(id, user) }
 
   @Post('teams')
   async createTeam(@CurrentUser() user: AuthenticatedUser, @Body() body: TeamDto) {
-    const slug = `${body.name.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '').slice(0, 54) || 'team'}-${Math.random().toString(36).slice(2, 8)}`
-    return this.prisma.team.create({ data: { ownerId: user.id, name: body.name.trim(), slug, description: body.description?.trim() || '', members: { create: { userId: user.id, role: 'OWNER' } } }, include: { members: true } })
+    return this.teamService.create(user.id, body)
   }
+
+  @Post('teams/:id/invitations')
+  inviteMember(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: TeamMemberDto) { return this.teamService.invite(id, user.id, body) }
+
+  @Delete('teams/:id/invitations/:invitationId')
+  cancelInvitation(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('invitationId') invitationId: string) { return this.teamService.cancelInvitation(id, invitationId, user.id) }
 
   @Post('teams/:id/members')
   async addMember(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: TeamMemberDto) {
-    const team = await this.prisma.team.findFirst({ where: { id, ownerId: user.id }, select: { id: true } })
-    if (!team) throw new ForbiddenException('只有团队所有者可以管理成员')
-    const member = await this.prisma.user.findUnique({ where: { email: body.email.trim().toLowerCase() }, select: { id: true, email: true, displayName: true } })
-    if (!member) throw new NotFoundException('该邮箱尚未注册')
-    if (member.id === user.id) throw new BadRequestException('所有者已经在团队中')
-    return this.prisma.teamMember.upsert({ where: { teamId_userId: { teamId: id, userId: member.id } }, update: { role: body.role || 'MEMBER' }, create: { teamId: id, userId: member.id, role: body.role || 'MEMBER' }, include: { user: { select: { id: true, email: true, displayName: true, avatarUrl: true } } } })
+    return this.teamService.invite(id, user.id, body)
   }
 
   @Patch('teams/:id')
   async updateTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: TeamDto) {
-    const team = await this.prisma.team.findFirst({ where: { id, ownerId: user.id }, select: { id: true } })
-    if (!team) throw new ForbiddenException('只有团队所有者可以编辑团队')
-    return this.prisma.team.update({ where: { id }, data: { name: body.name.trim(), description: body.description?.trim() || '' }, include: { members: { include: { user: { select: { id: true, email: true, displayName: true, avatarUrl: true } } } } } })
+    return this.teamService.update(id, user.id, body)
   }
 
   @Delete('teams/:id')
   async deleteTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const result = await this.prisma.team.deleteMany({ where: { id, ownerId: user.id } })
-    if (!result.count) throw new NotFoundException('团队不存在')
-    return { deleted: true }
+    return this.teamService.remove(id, user.id)
   }
 
   @Patch('teams/:id/members/:userId')
   async updateMemberRole(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('userId') userId: string, @Body() body: TeamRoleDto) {
-    const team = await this.prisma.team.findFirst({ where: { id, ownerId: user.id }, select: { id: true } })
-    if (!team) throw new ForbiddenException('只有团队所有者可以管理成员')
-    const member = await this.prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: id, userId } } })
-    if (!member) throw new NotFoundException('团队成员不存在')
-    if (member.role === 'OWNER') throw new BadRequestException('不能修改所有者角色')
-    return this.prisma.teamMember.update({ where: { teamId_userId: { teamId: id, userId } }, data: { role: body.role } })
+    return this.teamService.updateRole(id, userId, user.id, body.role)
   }
+
+  @Patch('teams/:id/billing')
+  updateTeamBilling(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: TeamBillingDto) { return this.teamService.updateBilling(id, user.id, body.enabled) }
+
+  @Patch('teams/:id/members/:userId/quota')
+  updateTeamMemberQuota(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('userId') targetUserId: string, @Body() body: TeamQuotaDto) { return this.teamService.updateMemberQuota(id, targetUserId, user.id, body.monthlyCreditLimit ?? null) }
 
   @Delete('teams/:id/members/:userId')
   async removeMember(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('userId') userId: string) {
-    const team = await this.prisma.team.findFirst({ where: { id, ownerId: user.id }, select: { id: true } })
-    if (!team) throw new ForbiddenException('只有团队所有者可以管理成员')
-    const result = await this.prisma.teamMember.deleteMany({ where: { teamId: id, userId, role: { not: 'OWNER' } } })
-    return { removed: result.count > 0 }
+    return this.teamService.removeMember(id, userId, user.id)
   }
 
   @Post('teams/:id/leave')
   async leaveTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const team = await this.prisma.team.findUnique({ where: { id }, select: { ownerId: true } })
-    if (!team) throw new NotFoundException('团队不存在')
-    if (team.ownerId === user.id) throw new BadRequestException('所有者不能退出团队，请先删除团队')
-    const result = await this.prisma.teamMember.deleteMany({ where: { teamId: id, userId: user.id } })
-    if (!result.count) throw new NotFoundException('你不是该团队成员')
-    return { left: true }
+    return this.teamService.leave(id, user.id)
   }
+
+  @Post('teams/:id/transfer-ownership')
+  transferTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: TeamTransferDto) { return this.teamService.transfer(id, body.targetUserId, user.id) }
+
+  @Get('teams/:id/audit-logs')
+  teamAuditLogs(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.teamService.auditLogs(id, user.id) }
+
+  @Get('teams/:id/resources')
+  teamResources(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.teamService.resources(id, user.id) }
 
   @Get('tool-approvals')
   toolApprovals(@CurrentUser() user: AuthenticatedUser) {
@@ -266,7 +292,59 @@ export class WorkspaceController {
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminWorkspaceController {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly assets: AssetsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly assets: AssetsService, private readonly credits: CreditsService) {}
+
+  @Get('teams')
+  teams() { return this.prisma.team.findMany({ orderBy: { updatedAt: 'desc' }, include: { owner: { select: { id: true, email: true, displayName: true } }, creditAccount: { select: { balance: true, updatedAt: true } }, members: { orderBy: { joinedAt: 'asc' }, include: { user: { select: { id: true, email: true, displayName: true } } } }, invitations: { where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, select: { id: true, email: true, role: true, expiresAt: true, createdAt: true } }, _count: { select: { members: true, invitations: true, auditLogs: true, projects: true, assets: true, knowledgeBases: true } } } }) }
+
+  @Patch('teams/:id')
+  async updateTeam(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Body() body: AdminTeamDto) {
+    const current = await this.prisma.team.findUnique({ where: { id }, include: { _count: { select: { members: true } } } })
+    if (!current) throw new NotFoundException('团队不存在')
+    if (body.seatLimit !== undefined && body.seatLimit < current._count.members) throw new BadRequestException(`席位数不能少于当前成员数 ${current._count.members}`)
+    const row = await this.prisma.team.update({ where: { id }, data: { ...(body.name !== undefined ? { name: body.name.trim() } : {}), ...(body.seatLimit !== undefined ? { seatLimit: body.seatLimit } : {}), ...(body.status !== undefined ? { status: body.status } : {}), ...(body.billingEnabled !== undefined ? { billingEnabled: body.billingEnabled } : {}) }, include: { owner: { select: { id: true, email: true, displayName: true } }, creditAccount: { select: { balance: true, updatedAt: true } }, _count: { select: { members: true, invitations: true, auditLogs: true, projects: true, assets: true, knowledgeBases: true } } } })
+    await Promise.all([
+      this.audit(admin.id, request, 'team.admin_update', id, { name: row.name, seatLimit: row.seatLimit, status: row.status }),
+      this.prisma.teamAuditLog.create({ data: { teamId: id, actorId: admin.id, action: 'team.admin_updated', targetType: 'team', targetId: id, metadata: { name: row.name, seatLimit: row.seatLimit, status: row.status } as Prisma.InputJsonValue } }),
+    ])
+    return row
+  }
+
+  @Post('teams/:id/credits')
+  async adjustTeamCredits(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Body() body: TeamCreditAdjustmentDto) {
+    if (!body.amount) throw new BadRequestException('调整点数不能为 0')
+    const entry = await this.credits.mutateTeam(id, admin.id, body.amount, 'ADJUST', body.reason.trim(), `admin-team:${admin.id}:${id}:${Date.now()}`, { type: 'admin_team_adjustment', id })
+    await this.audit(admin.id, request, 'team.credits_adjust', id, { amount: body.amount, reason: body.reason.trim() })
+    return entry
+  }
+
+  @Patch('teams/:id/members/:userId/quota')
+  async updateTeamMemberQuota(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Param('userId') userId: string, @Body() body: TeamQuotaDto) {
+    const member = await this.prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: id, userId } }, select: { monthlyCreditLimit: true } })
+    if (!member) throw new NotFoundException('团队成员不存在')
+    const monthlyCreditLimit = body.monthlyCreditLimit ?? null
+    const row = await this.prisma.teamMember.update({ where: { teamId_userId: { teamId: id, userId } }, data: { monthlyCreditLimit } })
+    await Promise.all([
+      this.audit(admin.id, request, 'team.member_quota_update', id, { userId, before: member.monthlyCreditLimit, after: monthlyCreditLimit }),
+      this.prisma.teamAuditLog.create({ data: { teamId: id, actorId: admin.id, action: 'member.quota_updated_by_admin', targetType: 'user', targetId: userId, metadata: { before: member.monthlyCreditLimit, after: monthlyCreditLimit } as Prisma.InputJsonValue } }),
+    ])
+    return row
+  }
+
+  @Get('teams/:id/audit-logs')
+  teamAuditLogs(@Param('id') id: string) { return this.prisma.teamAuditLog.findMany({ where: { teamId: id }, orderBy: { createdAt: 'desc' }, take: 500, include: { actor: { select: { id: true, displayName: true, email: true } } } }) }
+
+  @Get('teams/:id/resources')
+  async teamResources(@Param('id') id: string) {
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { id: true } })
+    if (!team) throw new NotFoundException('团队不存在')
+    const [projects, assets, knowledgeBases] = await Promise.all([
+      this.prisma.project.findMany({ where: { teamId: id }, orderBy: { updatedAt: 'desc' }, take: 200, select: { id: true, name: true, workflowStatus: true, archivedAt: true, updatedAt: true, user: { select: { id: true, displayName: true, email: true } }, _count: { select: { assets: true, conversations: true } } } }),
+      this.prisma.asset.findMany({ where: { teamId: id, deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 200, select: { id: true, name: true, kind: true, mimeType: true, size: true, createdAt: true, user: { select: { id: true, displayName: true, email: true } } } }),
+      this.prisma.knowledgeBase.findMany({ where: { teamId: id }, orderBy: { updatedAt: 'desc' }, take: 200, select: { id: true, name: true, status: true, documentCount: true, chunkCount: true, updatedAt: true, creator: { select: { id: true, displayName: true, email: true } } } }),
+    ])
+    return { projects, assets: assets.map((asset) => ({ ...asset, size: Number(asset.size) })), knowledgeBases }
+  }
 
   @Get('assistants')
   assistants() { return this.prisma.assistant.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }], include: { tools: { select: { toolId: true } }, knowledgeBases: { select: { knowledgeBaseId: true } }, _count: { select: { knowledgeBases: true, tools: true } } } }) }
@@ -347,7 +425,7 @@ export class AdminWorkspaceController {
   }
 
   @Get('knowledge-bases')
-  knowledgeBases() { return this.prisma.knowledgeBase.findMany({ orderBy: { updatedAt: 'desc' }, include: { creator: { select: { id: true, email: true, displayName: true } }, assets: { orderBy: { createdAt: 'desc' }, include: { asset: { select: { id: true, name: true, mimeType: true, createdAt: true } } } }, assistants: { include: { assistant: { select: { id: true, name: true, enabled: true } } } }, _count: { select: { assets: true, assistants: true } } } }) }
+  knowledgeBases() { return this.prisma.knowledgeBase.findMany({ orderBy: { updatedAt: 'desc' }, include: { creator: { select: { id: true, email: true, displayName: true } }, team: { select: { id: true, name: true } }, assets: { orderBy: { createdAt: 'desc' }, include: { asset: { select: { id: true, name: true, mimeType: true, createdAt: true } } } }, assistants: { include: { assistant: { select: { id: true, name: true, enabled: true } } } }, _count: { select: { assets: true, assistants: true } } } }) }
 
   @Get('tool-calls')
   toolCalls() { return this.prisma.toolCallAudit.findMany({ orderBy: { createdAt: 'desc' }, take: 200, include: { user: { select: { email: true, displayName: true } }, tool: { select: { key: true, name: true } }, assistant: { select: { name: true } } } }) }

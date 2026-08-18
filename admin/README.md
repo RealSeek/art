@@ -45,7 +45,7 @@ Code Standards: Eslint, Prettier, Stylelint, Husky, Lint-staged, cz-git
 
 ## Quick Access
 
-[Live Demo](https://www.artd.pro) | [Official Documentation](https://www.artd.pro/docs) | [Changelog](./CHANGELOG.en.md)
+[Live Demo](https://www.artd.pro) | [Official Documentation](https://www.artd.pro/docs) | [Changelog](./CHANGELOG.md)
 
 ## Installation & Setup
 

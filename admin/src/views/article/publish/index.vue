@@ -97,11 +97,11 @@
   const isEdit = computed(() => Boolean(id.value))
   const loading = ref(false)
   const saving = ref(false)
-  const categories = ['关于我们', '服务条款', '隐私说明', '使用帮助', '品牌资料']
+  const categories = ['法律与品牌', '产品公告', '使用帮助', '品牌资料']
   const form = reactive({
     title: '',
     slug: `content-${Date.now()}`,
-    category: '关于我们',
+    category: '法律与品牌',
     summary: '',
     contentHtml: '',
     coverUrl: '',

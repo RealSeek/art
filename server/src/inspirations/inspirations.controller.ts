@@ -9,7 +9,9 @@ export class InspirationsController {
 
   @Get()
   async list(@Query('mode') mode: InspirationMode = InspirationMode.IMAGE) {
-    const rows = await this.prisma.inspiration.findMany({ where: { mode, enabled: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] })
+    // The client needs disabled IMAGE_TOOL records to suppress a matching system fallback card.
+    // Other inspiration categories remain public-only when enabled.
+    const rows = await this.prisma.inspiration.findMany({ where: mode === InspirationMode.IMAGE_TOOL ? { mode } : { mode, enabled: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] })
     return rows.map((item) => {
       const options = this.record(item.options)
       const externalImages = Array.isArray(options.previewImages) ? options.previewImages.filter((value): value is string => typeof value === 'string') : []

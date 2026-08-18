@@ -81,8 +81,7 @@ const fastEnterConfig: FastEnterConfig = {
     { name: '生成任务', enabled: true, order: 2, routeName: 'GenerationJobs' },
     { name: '内容审核', enabled: true, order: 3, routeName: 'ModerationEvents' },
     { name: '审计日志', enabled: true, order: 4, routeName: 'AuditLogs' },
-    { name: '业务系统配置', enabled: true, order: 5, routeName: 'XinyueSystemSettings' },
-    { name: '更新日志', enabled: true, order: 6, routeName: 'ChangeLog' }
+    { name: '业务系统配置', enabled: true, order: 5, routeName: 'XinyueSystemSettings' }
   ]
 }
 

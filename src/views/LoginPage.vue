@@ -202,6 +202,7 @@ const { locale } = useI18n()
 
 const mode = ref<LoginMode>('password')
 const isRegister = ref(route.query.register === '1')
+const inviteCode = typeof route.query.invite === 'string' ? route.query.invite.trim().toUpperCase().slice(0, 64) : ''
 const step = ref<AuthStep>('main')
 const identifier = ref('')
 const username = ref('')
@@ -223,7 +224,7 @@ const redirectPath = computed(() =>
     ? route.query.redirect
     : '/chat',
 )
-const linuxDoUrl = computed(() => apiUrl(`/auth/oauth/linuxdo/start?redirect=${encodeURIComponent(redirectPath.value)}`))
+const linuxDoUrl = computed(() => apiUrl(`/auth/oauth/linuxdo/start?redirect=${encodeURIComponent(redirectPath.value)}${inviteCode ? `&invite=${encodeURIComponent(inviteCode)}` : ''}`))
 const availableModes = computed(() => [
   { value: 'email' as const, label: '邮箱' },
   { value: 'password' as const, label: '账户' },
@@ -331,7 +332,7 @@ async function submitPasswordRegister() {
       codeInput.value?.focus()
       return
     }
-    await auth.registerPassword({ username: username.value, email: email.value || undefined, displayName: displayName.value || undefined, password: password.value })
+    await auth.registerPassword({ username: username.value, email: email.value || undefined, displayName: displayName.value || undefined, password: password.value, inviteCode: inviteCode || undefined })
     await finish()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '注册失败'
@@ -374,7 +375,7 @@ async function verifyEmailCode() {
     if (response.registrationRequired && response.ticket) {
       registrationTicket.value = response.ticket
       if (pendingRegistration.value) {
-        await auth.completeEmailRegistration({ ticket: response.ticket, ...pendingRegistration.value })
+        await auth.completeEmailRegistration({ ticket: response.ticket, ...pendingRegistration.value, inviteCode: inviteCode || undefined })
         await finish()
         return
       }
@@ -415,7 +416,7 @@ async function completeEmailRegistration() {
   }
   busy.value = true
   try {
-    await auth.completeEmailRegistration({ ticket: registrationTicket.value, username: username.value, displayName: displayName.value || undefined, password: password.value })
+    await auth.completeEmailRegistration({ ticket: registrationTicket.value, username: username.value, displayName: displayName.value || undefined, password: password.value, inviteCode: inviteCode || undefined })
     await finish()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '注册失败'

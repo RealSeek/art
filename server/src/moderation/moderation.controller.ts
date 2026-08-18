@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
-import { ModerationAction, ModerationEventStatus, ModerationRuleType, ModerationSource } from '@prisma/client'
+import { ModerationAction, ModerationAppealStatus, ModerationEventStatus, ModerationRuleType, ModerationSource } from '@prisma/client'
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator'
 import { AdminGuard } from '../admin/admin.guard'
 import { AuthGuard } from '../auth/auth.guard'
@@ -46,6 +46,25 @@ class ResolveEventDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string
 }
 
+class CreateAppealDto {
+  @IsString() @MinLength(10) @MaxLength(1000) reason!: string
+}
+
+class ReviewAppealDto {
+  @IsEnum(ModerationAppealStatus) status!: ModerationAppealStatus
+  @IsOptional() @IsString() @MaxLength(1000) note?: string
+}
+
+@Controller('moderation')
+@UseGuards(AuthGuard)
+export class UserModerationController {
+  constructor(private readonly moderation: ModerationService) {}
+
+  @Get('cases') cases(@CurrentUser() user: AuthenticatedUser) { return this.moderation.listUserCases(user.id) }
+  @Post('events/:id/appeal') appeal(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: CreateAppealDto) { return this.moderation.createAppeal(user.id, id, body.reason) }
+  @Patch('appeals/:id/cancel') cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.moderation.cancelAppeal(user.id, id) }
+}
+
 @Controller('admin/moderation')
 @UseGuards(AuthGuard, AdminGuard)
 export class ModerationController {
@@ -59,4 +78,5 @@ export class ModerationController {
   @Delete('rules/:id') deleteRule(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.moderation.deleteRule(user.id, id) }
   @Get('events') events(@Query('status') status?: ModerationEventStatus, @Query('source') source?: ModerationSource) { return this.moderation.listEvents(status, source) }
   @Patch('events/:id') resolve(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: ResolveEventDto) { return this.moderation.resolveEvent(user.id, id, body.status, body.note) }
+  @Patch('events/:id/appeal') reviewAppeal(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: ReviewAppealDto) { return this.moderation.reviewAppeal(user.id, id, body.status, body.note) }
 }

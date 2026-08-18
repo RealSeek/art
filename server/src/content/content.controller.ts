@@ -1,9 +1,11 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import sanitizeHtml = require('sanitize-html')
 import { IsBoolean, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator'
 import { AdminGuard } from '../admin/admin.guard'
 import { AuthGuard } from '../auth/auth.guard'
 import { PrismaService } from '../prisma/prisma.service'
+import { AuthenticatedUser, CurrentUser } from '../common/request-user'
 
 class CreateContentPageDto {
   @IsString() @MinLength(1) @MaxLength(160) title!: string
@@ -56,9 +58,13 @@ export class ContentController {
   }
 
   @Post()
-  async create(@Body() body: CreateContentPageDto) {
+  async create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateContentPageDto) {
     try {
-      return await this.prisma.contentPage.create({ data: this.toData(body) as Prisma.ContentPageCreateInput })
+      return await this.prisma.$transaction(async (tx) => {
+        const page = await tx.contentPage.create({ data: this.toData(body) as Prisma.ContentPageCreateInput })
+        await tx.auditLog.create({ data: { actorId: user.id, action: 'content.page.create', targetType: 'content_page', targetId: page.id, after: this.auditSnapshot(page) } })
+        return page
+      })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new BadRequestException('内容路径已存在')
       throw error
@@ -66,9 +72,15 @@ export class ContentController {
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() body: UpdateContentPageDto) {
+  async update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: UpdateContentPageDto) {
     try {
-      return await this.prisma.contentPage.update({ where: { id }, data: this.toData(body) })
+      return await this.prisma.$transaction(async (tx) => {
+        const before = await tx.contentPage.findUnique({ where: { id } })
+        if (!before) throw new BadRequestException('内容不存在')
+        const page = await tx.contentPage.update({ where: { id }, data: this.toData(body) })
+        await tx.auditLog.create({ data: { actorId: user.id, action: 'content.page.update', targetType: 'content_page', targetId: id, before: this.auditSnapshot(before), after: this.auditSnapshot(page) } })
+        return page
+      })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new BadRequestException('内容路径已存在')
       throw error
@@ -76,14 +88,32 @@ export class ContentController {
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    await this.prisma.contentPage.delete({ where: { id } })
+  async remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.contentPage.findUnique({ where: { id } })
+      if (!before) throw new BadRequestException('内容不存在')
+      await tx.contentPage.delete({ where: { id } })
+      await tx.auditLog.create({ data: { actorId: user.id, action: 'content.page.delete', targetType: 'content_page', targetId: id, before: this.auditSnapshot(before) } })
+    })
     return { deleted: true }
   }
 
   private toData(body: CreateContentPageDto | UpdateContentPageDto) {
-    const data = { ...body, title: body.title?.trim(), slug: body.slug?.trim(), category: body.category?.trim(), summary: body.summary?.trim(), coverUrl: body.coverUrl?.trim() }
+    const data = { ...body, title: body.title?.trim(), slug: body.slug?.trim(), category: body.category?.trim(), summary: body.summary?.trim(), contentHtml: body.contentHtml === undefined ? undefined : this.cleanHtml(body.contentHtml), coverUrl: body.coverUrl?.trim() }
     return { ...data, publishedAt: body.published === true ? new Date() : body.published === false ? null : undefined }
+  }
+
+  private cleanHtml(value: string) {
+    return sanitizeHtml(value, {
+      allowedTags: ['h2', 'h3', 'h4', 'p', 'ul', 'ol', 'li', 'strong', 'em', 'blockquote', 'a', 'br', 'hr', 'code', 'pre'],
+      allowedAttributes: { a: ['href', 'target', 'rel'], h2: ['id'], h3: ['id'], code: ['class'] },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      transformTags: { a: (_tagName, attribs) => ({ tagName: 'a', attribs: { ...attribs, rel: 'noopener noreferrer', ...(attribs.target === '_blank' ? { target: '_blank' } : {}) } }) },
+    }).trim()
+  }
+
+  private auditSnapshot(page: { slug: string; title: string; category: string; published: boolean; sortOrder: number; contentHtml: string }) {
+    return { slug: page.slug, title: page.title, category: page.category, published: page.published, sortOrder: page.sortOrder, contentLength: page.contentHtml.length }
   }
 }
 

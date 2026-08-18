@@ -143,6 +143,13 @@
               xt('重试')
             }}</ElButton>
             <ElButton
+              v-if="resourceKey === 'notificationDeliveries' && row.status === 'FAILED' && Number(row.attempts || 0) < 5"
+              link
+              type="primary"
+              @click="retryNotification(row)"
+              >{{ xt('重试') }}</ElButton
+            >
+            <ElButton
               v-if="resourceKey === 'assets'"
               link
               type="danger"
@@ -171,7 +178,7 @@
               >{{ xt('静默') }}</ElButton
             >
             <ElDropdown
-              v-if="resourceKey === 'moderation' && row.status === 'OPEN'"
+              v-if="resourceKey === 'moderation' && row.status === 'OPEN' && !row.appeal"
               @command="(command: string) => resolveModeration(row, command)"
             >
               <ElButton link type="warning"
@@ -183,6 +190,21 @@
                   ><ElDropdownItem command="DISMISSED">{{
                     xt('驳回')
                   }}</ElDropdownItem></ElDropdownMenu
+                ></template
+              >
+            </ElDropdown>
+            <ElDropdown
+              v-if="resourceKey === 'moderation' && ['PENDING', 'IN_REVIEW'].includes(row.appeal?.status)"
+              @command="(command: string) => reviewModerationAppeal(row, command)"
+            >
+              <ElButton link type="primary"
+                >{{ xt('复核申诉') }}<ArtSvgIcon icon="ri:arrow-down-s-line"
+              /></ElButton>
+              <template #dropdown
+                ><ElDropdownMenu
+                  ><ElDropdownItem v-if="row.appeal.status === 'PENDING'" command="IN_REVIEW">{{ xt('开始复核') }}</ElDropdownItem
+                  ><ElDropdownItem command="APPROVED">{{ xt('通过申诉') }}</ElDropdownItem
+                  ><ElDropdownItem command="REJECTED">{{ xt('驳回申诉') }}</ElDropdownItem></ElDropdownMenu
                 ></template
               >
             </ElDropdown>
@@ -1077,7 +1099,7 @@
         { key: 'badge', label: '角标', span: 12, maxlength: 20 },
         {
           key: 'model',
-          label: '指定模型',
+          label: '专用 Worker 模型',
           type: 'select',
           span: 12,
           optionsFrom: 'models',
@@ -1143,13 +1165,53 @@
         prompt: '',
         coverUrl: '',
         model: '',
+        toolKey: 'background-removal',
+        executionMode: 'GENERIC',
+        toolType: 'CUSTOM',
         inputMode: 'REFERENCE',
         placeholder: '',
+        outpaintLeft: 0,
+        outpaintRight: 0,
+        outpaintTop: 0,
+        outpaintBottom: 0,
+        steps: 30,
+        strength: 1,
         sortOrder: 0,
         enabled: true
       },
       fields: [
         { key: 'title', label: '工具名称', required: true, span: 12, maxlength: 80 },
+        {
+          key: 'toolKey',
+          label: '前台工具标识',
+          type: 'select',
+          required: true,
+          span: 12,
+          filterable: true,
+          allowCreate: true,
+          options: [
+            { label: 'AI 抠图', value: 'background-removal' },
+            { label: 'AI 擦除', value: 'erase' },
+            { label: '标记改图', value: 'marked-edit' },
+            { label: 'AI 扩图', value: 'outpaint' },
+            { label: '变清晰', value: 'enhance' },
+            { label: '自定义工具', value: 'custom' }
+          ]
+        },
+        {
+          key: 'toolType',
+          label: '工具类型',
+          type: 'select',
+          required: true,
+          span: 12,
+          options: [
+            { label: '智能抠图', value: 'BACKGROUND_REMOVAL' },
+            { label: '局部擦除 / 重绘', value: 'INPAINT' },
+            { label: '智能扩图', value: 'OUTPAINT' },
+            { label: '清晰放大', value: 'UPSCALE' },
+            { label: '自定义工作流', value: 'CUSTOM' }
+          ]
+        },
         {
           key: 'inputMode',
           label: '素材方式',
@@ -1159,6 +1221,17 @@
           options: [
             { label: '参考图', value: 'REFERENCE' },
             { label: '参考图与蒙版', value: 'MASK' }
+          ]
+        },
+        {
+          key: 'executionMode',
+          label: '执行方式',
+          type: 'select',
+          required: true,
+          span: 12,
+          options: [
+            { label: '通用图像模型回退', value: 'GENERIC' },
+            { label: '专用本地 Worker', value: 'WORKER' }
           ]
         },
         {
@@ -1180,6 +1253,12 @@
           allowCreate: true
         },
         { key: 'coverUrl', label: '外部封面地址', placeholder: 'https://...', maxlength: 1000 },
+        { key: 'outpaintLeft', label: '左侧扩展（像素）', type: 'number', span: 6, min: 0, max: 2048 },
+        { key: 'outpaintRight', label: '右侧扩展（像素）', type: 'number', span: 6, min: 0, max: 2048 },
+        { key: 'outpaintTop', label: '顶部扩展（像素）', type: 'number', span: 6, min: 0, max: 2048 },
+        { key: 'outpaintBottom', label: '底部扩展（像素）', type: 'number', span: 6, min: 0, max: 2048 },
+        { key: 'steps', label: '推理步数', type: 'number', span: 12, min: 1, max: 100 },
+        { key: 'strength', label: '修改强度（0 或 1）', type: 'number', span: 12, min: 0, max: 1 },
         { key: 'sortOrder', label: '排序', type: 'number', span: 12, min: 0 },
         { key: 'enabled', label: '前台展示', type: 'switch', span: 12 }
       ]
@@ -1610,7 +1689,7 @@
       canCreate: true,
       createLabel: '发布公告',
       createUrl: '/v1/admin/announcements',
-      defaults: { title: '', body: '', groupId: '' },
+      defaults: { title: '', body: '', groupId: '', channels: ['IN_APP'] },
       fields: [
         { key: 'title', label: '公告标题', required: true, maxlength: 100 },
         {
@@ -1628,7 +1707,39 @@
           optionsFrom: 'groups',
           placeholder: '留空发送给全部正常用户',
           omitEmpty: true
+        },
+        {
+          key: 'channels',
+          label: '发送渠道',
+          type: 'select',
+          multiple: true,
+          required: true,
+          options: [
+            { label: '站内通知', value: 'IN_APP' },
+            { label: '邮件通知', value: 'EMAIL' }
+          ]
         }
+      ]
+    },
+    notificationTemplates: {
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      createLabel: '新增通知模板',
+      createUrl: '/v1/admin/notifications/templates',
+      updateUrl: (row) => `/v1/admin/notifications/templates/${row.id}`,
+      deleteUrl: (row) => `/v1/admin/notifications/templates/${row.id}`,
+      defaults: { key: '', name: '', description: '', titleTemplate: '', bodyTemplate: '', channels: ['IN_APP'], enabled: true, webhookUrl: '', webhookSecret: '' },
+      fields: [
+        { key: 'key', label: '模板标识', required: true, span: 12, maxlength: 64 },
+        { key: 'name', label: '模板名称', required: true, span: 12, maxlength: 100 },
+        { key: 'description', label: '用途说明', type: 'textarea', rows: 2, maxlength: 500 },
+        { key: 'titleTemplate', label: '标题模板', required: true, maxlength: 300, placeholder: '支持 {{变量名}}' },
+        { key: 'bodyTemplate', label: '正文模板', type: 'textarea', required: true, rows: 8, maxlength: 20000, placeholder: '支持 {{变量名}}' },
+        { key: 'channels', label: '发送渠道', type: 'select', multiple: true, required: true, options: [{ label: '站内通知', value: 'IN_APP' }, { label: '邮件通知', value: 'EMAIL' }, { label: 'Webhook', value: 'WEBHOOK' }] },
+        { key: 'webhookUrl', label: 'Webhook 地址', maxlength: 1000, omitEmpty: true },
+        { key: 'webhookSecret', label: 'Webhook 签名密钥', maxlength: 1000, omitEmpty: true, placeholder: '留空保留现有密钥' },
+        { key: 'enabled', label: '启用', type: 'switch' }
       ]
     },
     moderationRules: {
@@ -1977,6 +2088,67 @@
         { key: 'createdAt', label: '发布时间', width: 175, type: 'date' }
       ]
     },
+    notificationTemplates: {
+      title: '通知模板',
+      description: '配置站内信、邮件和 Webhook 的统一通知内容与渠道',
+      icon: 'ri:mail-settings-line',
+      endpoint: '/v1/admin/notifications/templates',
+      columns: [
+        { key: 'name', label: '模板名称', minWidth: 180 },
+        { key: 'key', label: '标识', minWidth: 160 },
+        { key: 'channels', label: '渠道', minWidth: 180 },
+        { key: 'enabled', label: '状态', width: 100, type: 'status' },
+        { key: 'updatedAt', label: '更新时间', width: 175, type: 'date' }
+      ]
+    },
+    notificationDeliveries: {
+      title: '通知投递',
+      description: '查看站内信、邮件和 Webhook 的发送结果并重试失败任务',
+      icon: 'ri:send-plane-line',
+      endpoint: '/v1/admin/notifications/deliveries',
+      columns: [
+        { key: 'title', label: '标题', minWidth: 210 },
+        { key: 'user.email', label: '用户', minWidth: 190 },
+        { key: 'channel', label: '渠道', width: 110, type: 'status' },
+        { key: 'status', label: '状态', width: 110, type: 'status' },
+        { key: 'attempts', label: '尝试次数', width: 100, type: 'number' },
+        { key: 'lastError', label: '错误', minWidth: 220 },
+        { key: 'createdAt', label: '创建时间', width: 175, type: 'date' }
+      ]
+    },
+    byokOperations: {
+      title: '用户密钥运营',
+      description: '查看用户 BYOK 的健康状态、轮换日期、到期时间和累计用量',
+      icon: 'ri:key-2-line',
+      endpoint: '/v1/admin/byok/summary',
+      columns: [
+        { key: 'user.email', label: '用户', minWidth: 190 },
+        { key: 'name', label: '密钥名称', minWidth: 160 },
+        { key: 'providerType', label: '协议', width: 150 },
+        { key: 'apiKeyHint', label: '密钥提示', width: 130 },
+        { key: 'lastHealthStatus', label: '健康', width: 110, type: 'status' },
+        { key: 'totalRequests', label: '请求', width: 100, type: 'number' },
+        { key: 'totalFailures', label: '失败', width: 90, type: 'number' },
+        { key: 'lastRotatedAt', label: '最近轮换', width: 175, type: 'date' },
+        { key: 'expiresAt', label: '到期时间', width: 175, type: 'date' }
+      ]
+    },
+    financeMargins: {
+      title: '成本与毛利',
+      description: '按模型、任务类型和实际路由核算收入、上游成本与毛利',
+      icon: 'ri:line-chart-line',
+      endpoint: '/v1/admin/finance/margins',
+      columns: [
+        { key: 'kind', label: '任务', width: 110, type: 'status' },
+        { key: 'model', label: '模型', minWidth: 190 },
+        { key: 'provider', label: '路由', minWidth: 160 },
+        { key: 'jobs', label: '任务数', width: 100, type: 'number' },
+        { key: 'revenueMicros', label: '收入（微元）', width: 140, type: 'number' },
+        { key: 'upstreamCostMicros', label: '成本（微元）', width: 140, type: 'number' },
+        { key: 'marginMicros', label: '毛利（微元）', width: 140, type: 'number' },
+        { key: 'marginPercent', label: '毛利率 %', width: 110, type: 'number' }
+      ]
+    },
     moderation: {
       title: '内容审核',
       description: '处理命中敏感词和安全策略的内容事件',
@@ -1987,6 +2159,7 @@
         { key: 'source', label: '来源', width: 110, type: 'status' },
         { key: 'action', label: '处置', width: 110, type: 'status' },
         { key: 'status', label: '状态', width: 110, type: 'status' },
+        { key: 'appeal.status', label: '申诉状态', width: 120, type: 'status' },
         { key: 'contentExcerpt', label: '内容摘要', minWidth: 220 },
         { key: 'matchedRules', label: '命中规则', minWidth: 180 },
         { key: 'createdAt', label: '时间', width: 175, type: 'date' }
@@ -2215,7 +2388,7 @@
 
   function unwrap(payload: any): Row[] {
     if (Array.isArray(payload)) return payload
-    for (const key of ['items', 'rows', 'data', 'tickets', 'events', 'entries'])
+    for (const key of ['items', 'rows', 'data', 'tickets', 'events', 'entries', 'credentials', 'groups'])
       if (Array.isArray(payload?.[key])) return payload[key]
     if (payload && typeof payload === 'object' && resourceKey.value === 'systemHealth')
       return [{ id: 'system', ...payload }]
@@ -2322,6 +2495,7 @@
       DISABLED: '已停用',
       OPEN: '待处理',
       IN_PROGRESS: '处理中',
+      IN_REVIEW: '复核中',
       WAITING_USER: '等待用户',
       ACKNOWLEDGED: '已确认',
       APPROVED: '已批准',
@@ -2434,8 +2608,16 @@
         value = row.options?.previewVideoUrl || ''
       if (row && resourceKey.value === 'imageTools' && field.key === 'inputMode')
         value = row.options?.inputMode || 'REFERENCE'
+      if (row && resourceKey.value === 'imageTools' && field.key === 'toolKey')
+        value = row.options?.toolKey || 'custom'
+      if (row && resourceKey.value === 'imageTools' && field.key === 'executionMode')
+        value = row.options?.executionMode || 'GENERIC'
+      if (row && resourceKey.value === 'imageTools' && field.key === 'toolType')
+        value = row.options?.toolType || ({ 'background-removal': 'BACKGROUND_REMOVAL', erase: 'INPAINT', 'marked-edit': 'INPAINT', outpaint: 'OUTPAINT', enhance: 'UPSCALE' } as Record<string, string>)[String(row.options?.toolKey || '')] || 'CUSTOM'
       if (row && resourceKey.value === 'imageTools' && field.key === 'placeholder')
         value = row.options?.placeholder || ''
+      if (row && resourceKey.value === 'imageTools' && ['outpaintLeft', 'outpaintRight', 'outpaintTop', 'outpaintBottom', 'steps', 'strength'].includes(field.key))
+        value = row.options?.[field.key] ?? editorConfig.value.defaults[field.key]
       if (row && resourceKey.value === 'assistants') {
         if (field.key === 'toolIds') value = (row.tools || []).map((item: Row) => item.toolId)
         if (field.key === 'knowledgeBaseIds')
@@ -2482,11 +2664,29 @@
     if (resourceKey.value === 'imageTools') {
       const options = {
         ...(editingRow.value?.options || {}),
+        toolKey: String(payload.toolKey || 'custom').trim(),
+        toolType: payload.toolType || 'CUSTOM',
         inputMode: payload.inputMode || 'REFERENCE',
-        placeholder: String(payload.placeholder || '').trim()
+        executionMode: payload.executionMode || 'GENERIC',
+        placeholder: String(payload.placeholder || '').trim(),
+        outpaintLeft: Number(payload.outpaintLeft || 0),
+        outpaintRight: Number(payload.outpaintRight || 0),
+        outpaintTop: Number(payload.outpaintTop || 0),
+        outpaintBottom: Number(payload.outpaintBottom || 0),
+        steps: Number(payload.steps || 30),
+        strength: Number(payload.strength ?? 1)
       }
       delete payload.inputMode
+      delete payload.toolType
+      delete payload.toolKey
+      delete payload.executionMode
       delete payload.placeholder
+      delete payload.outpaintLeft
+      delete payload.outpaintRight
+      delete payload.outpaintTop
+      delete payload.outpaintBottom
+      delete payload.steps
+      delete payload.strength
       payload.mode = 'IMAGE_TOOL'
       payload.options = options
     }
@@ -2692,6 +2892,14 @@
     })
     await load()
   }
+  async function retryNotification(row: Row) {
+    await request.post({
+      url: `/v1/admin/notifications/deliveries/${row.id}/retry`,
+      params: {},
+      showSuccessMessage: true
+    })
+    await load()
+  }
   async function removeAsset(row: Row) {
     await ElMessageBox.confirm(`确认删除“${row.name}”？`, '删除资产', { type: 'warning' })
     await request.del({ url: `/v1/admin/assets/${row.id}`, showSuccessMessage: true })
@@ -2825,6 +3033,35 @@
       url: `/v1/admin/moderation/events/${row.id}`,
       method: 'PATCH',
       data: { status, note: value || '' },
+      showSuccessMessage: true
+    })
+    await load()
+  }
+  async function reviewModerationAppeal(row: Row, status: string) {
+    if (status === 'IN_REVIEW') {
+      await request.request({
+        url: `/v1/admin/moderation/events/${row.id}/appeal`,
+        method: 'PATCH',
+        data: { status },
+        showSuccessMessage: true
+      })
+      await load()
+      return
+    }
+    const { value } = await ElMessageBox.prompt(
+      status === 'APPROVED' ? '请说明通过理由和后续处理建议' : '请说明申诉未通过的依据',
+      status === 'APPROVED' ? '通过内容申诉' : '驳回内容申诉',
+      {
+        inputType: 'textarea',
+        inputPlaceholder: '处置说明将通过站内通知发送给用户',
+        inputValidator: (value: string) => value.trim().length > 0 || '必须填写处置说明',
+        confirmButtonText: '确认处置'
+      }
+    )
+    await request.request({
+      url: `/v1/admin/moderation/events/${row.id}/appeal`,
+      method: 'PATCH',
+      data: { status, note: value.trim() },
       showSuccessMessage: true
     })
     await load()

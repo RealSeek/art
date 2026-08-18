@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project will be documented in this file. Contribution rules for the integrated Xinyue repository are in [CONTRIBUTING](../CONTRIBUTING.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -639,7 +639,7 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.
 
 ## Contributing
 
-If you want to contribute to the project, please check [CONTRIBUTING.md](./CONTRIBUTING.md).
+If you want to contribute to the project, please check [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## License
 

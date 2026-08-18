@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { LedgerType, Prisma } from '@prisma/client'
+import { LedgerType, NotificationChannel, Prisma } from '@prisma/client'
 import { ArrayMaxSize, IsArray, IsBoolean, IsHexColor, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
 import { createHash, randomBytes } from 'node:crypto'
 import type { FastifyRequest } from 'fastify'
@@ -8,6 +8,7 @@ import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { CreditsService } from '../credits/credits.service'
 import { GenerationsService } from '../generations/generations.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { AdminGuard } from './admin.guard'
 
 class CreateGroupDto {
@@ -42,12 +43,13 @@ class AnnouncementDto {
   @IsString() @MinLength(1) @MaxLength(100) title!: string
   @IsString() @MinLength(1) @MaxLength(2000) body!: string
   @IsOptional() @IsString() groupId?: string
+  @IsOptional() @IsArray() @ArrayMaxSize(3) @IsIn(Object.values(NotificationChannel), { each: true }) channels?: NotificationChannel[]
 }
 
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminOperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly generations: GenerationsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly generations: GenerationsService, private readonly notifications: NotificationsService) {}
 
   @Get('groups')
   async groups() {
@@ -192,6 +194,22 @@ export class AdminOperationsController {
     return this.prisma.creditLedger.findMany({ where: { type, account: { user: query ? { OR: [{ email: { contains: query, mode: 'insensitive' } }, { displayName: { contains: query, mode: 'insensitive' } }] } : undefined } }, orderBy: { createdAt: 'desc' }, take: 300, include: { account: { select: { user: { select: { id: true, email: true, displayName: true } } } } } })
   }
 
+  @Get('finance/margins')
+  async margins(@Query('days') rawDays?: string) {
+    const days = Math.min(365, Math.max(1, Number(rawDays || 30) || 30))
+    const since = new Date(Date.now() - days * 86_400_000)
+    const [totals, groups] = await Promise.all([
+      this.prisma.generationJob.aggregate({ where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true } }),
+      this.prisma.generationJob.groupBy({ by: ['kind', 'model', 'provider'], where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true }, orderBy: { _sum: { revenueMicros: 'desc' } }, take: 200 }),
+    ])
+    const summarize = (row: { _count: { _all: number }; _sum: { revenueMicros: number | null; upstreamCostMicros: number | null; creditCost: number | null; inputTokens: number | null; outputTokens: number | null } }) => {
+      const revenueMicros = Number(row._sum.revenueMicros || 0), upstreamCostMicros = Number(row._sum.upstreamCostMicros || 0)
+      const marginMicros = revenueMicros - upstreamCostMicros
+      return { jobs: row._count._all, revenueMicros, upstreamCostMicros, marginMicros, marginPercent: revenueMicros > 0 ? Number((marginMicros * 100 / revenueMicros).toFixed(2)) : null, creditCost: Number(row._sum.creditCost || 0), inputTokens: Number(row._sum.inputTokens || 0), outputTokens: Number(row._sum.outputTokens || 0) }
+    }
+    return { days, since, totals: summarize(totals), groups: groups.map((row) => ({ kind: row.kind, model: row.model, provider: row.provider, ...summarize(row) })) }
+  }
+
   @Get('redemption-codes')
   redemptionCodes() {
     return this.prisma.redemptionCode.findMany({ orderBy: { createdAt: 'desc' }, take: 200, select: { id: true, name: true, codePrefix: true, credits: true, maxUses: true, usedCount: true, expiresAt: true, disabledAt: true, createdAt: true } })
@@ -227,13 +245,10 @@ export class AdminOperationsController {
   async createAnnouncement(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: AnnouncementDto) {
     if (body.groupId) await this.prisma.userGroup.findUniqueOrThrow({ where: { id: body.groupId } })
     const users = await this.prisma.user.findMany({ where: { role: 'USER', status: 'ACTIVE', groupMemberships: body.groupId ? { some: { groupId: body.groupId } } : undefined }, select: { id: true } })
-    const campaign = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.announcementCampaign.create({ data: { title: body.title.trim(), body: body.body.trim(), targetGroupId: body.groupId, recipientCount: users.length, createdById: admin.id } })
-      if (users.length) await tx.notification.createMany({ data: users.map((user) => ({ userId: user.id, type: 'SYSTEM', title: body.title.trim(), body: body.body.trim(), metadata: { campaignId: created.id } })) })
-      return created
-    })
+    const campaign = await this.prisma.announcementCampaign.create({ data: { title: body.title.trim(), body: body.body.trim(), targetGroupId: body.groupId, recipientCount: users.length, createdById: admin.id } })
+    const delivery = await this.notifications.sendCustomToUsers(users.map((user) => user.id), body.title.trim(), body.body.trim(), body.channels?.length ? body.channels : [NotificationChannel.IN_APP], { campaignId: campaign.id, templateKey: 'announcement' })
     await this.audit(admin.id, request, 'announcement.send', 'announcement', campaign.id, undefined, { groupId: body.groupId || null, recipients: users.length })
-    return campaign
+    return { ...campaign, delivery }
   }
 
   @Post('jobs/:id/cancel')

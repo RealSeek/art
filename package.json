@@ -21,10 +21,18 @@
     "server:dev": "npm --prefix server run dev",
     "server:build": "npm --prefix server run build",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "setup:dev": "node scripts/setup-dev.cjs",
+    "backup:production": "node scripts/backup-production.cjs",
+    "restore:production": "node scripts/restore-production.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
+    "@vue-flow/background": "^1.3.2",
+    "@vue-flow/controls": "^1.1.3",
+    "@vue-flow/core": "^1.48.2",
+    "@vue-flow/minimap": "^1.5.4",
+    "@vue-flow/node-resizer": "^1.5.1",
     "dompurify": "^3.4.13",
     "highlight.js": "^11.11.2",
     "lucide-vue-next": "^0.539.0",

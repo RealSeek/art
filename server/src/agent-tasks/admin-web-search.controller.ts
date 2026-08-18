@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common'
 import { WebSearchProviderType } from '@prisma/client'
-import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator'
 import { AdminGuard } from '../admin/admin.guard'
 import { AuthGuard } from '../auth/auth.guard'
-import { WebSearchService } from './web-search.service'
+import { DAILY_HOT_SOURCE_IDS, WebSearchService } from './web-search.service'
 
 class CreateWebSearchChannelDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -36,15 +36,26 @@ class UpdateTgmengDto {
   @IsOptional() @IsInt() @Min(3) @Max(12) recommendationLimit?: number
   @IsOptional() @IsInt() @Min(1) @Max(1440) cacheMinutes?: number
 }
+class UpdateDailyHotDto {
+  @IsOptional() @IsUrl({ require_protocol: true, protocols: ['http', 'https'], require_tld: false }) @MaxLength(1000) endpoint?: string
+  @IsOptional() @IsBoolean() recommendationEnabled?: boolean
+  @IsOptional() @IsArray() @ArrayMaxSize(12) @IsIn(DAILY_HOT_SOURCE_IDS, { each: true }) sources?: string[]
+  @IsOptional() @IsInt() @Min(3) @Max(12) recommendationLimit?: number
+  @IsOptional() @IsInt() @Min(5) @Max(1440) cacheMinutes?: number
+}
 
 @Controller('admin/web-search-channels')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminWebSearchController {
   constructor(private readonly search: WebSearchService) {}
+  @Get('dailyhot') dailyHot() { return this.search.dailyHotSettings() }
+  @Put('dailyhot') saveDailyHot(@Body() body: UpdateDailyHotDto) { return this.search.saveDailyHot(body) }
+  @Post('dailyhot/check') checkDailyHot() { return this.search.checkDailyHot() }
+  @Post('dailyhot/refresh') refreshDailyHot() { return this.search.refreshDailyHot() }
   @Get('tgmeng') tgmeng() { return this.search.tgmengSettings() }
   @Put('tgmeng') saveTgmeng(@Body() body: UpdateTgmengDto) { return this.search.saveTgmeng(body) }
   @Post('tgmeng/check') checkTgmeng() { return this.search.checkTgmeng() }
-  @Post('tgmeng/refresh') refreshTgmeng() { return this.search.recommendations(true) }
+  @Post('tgmeng/refresh') refreshTgmeng() { return this.search.refreshTgmeng() }
   @Get() list() { return this.search.list() }
   @Post() create(@Body() body: CreateWebSearchChannelDto) { return this.search.create(body) }
   @Patch(':id') update(@Param('id') id: string, @Body() body: UpdateWebSearchChannelDto) { return this.search.update(id, body) }

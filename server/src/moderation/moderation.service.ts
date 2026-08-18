@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
-import { ModerationAction, ModerationEventStatus, ModerationRule, ModerationSource, Prisma } from '@prisma/client'
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { ModerationAction, ModerationAppealStatus, ModerationEventStatus, ModerationRule, ModerationSource, NotificationType, Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 
 export type ModerationContext = Record<string, string | number | boolean | null | undefined>
@@ -58,7 +58,14 @@ export class ModerationService {
       matchedRules: matched.map((rule) => ({ id: rule.id, name: rule.name, category: rule.category, action: rule.action })) as Prisma.InputJsonValue,
       context: context as Prisma.InputJsonValue,
     } })
-    if (action === 'BLOCK' || action === 'REVIEW') throw new ForbiddenException(action === 'REVIEW' ? '内容已提交安全审核，请修改后重试。' : policy.blockMessage)
+    if (action === 'BLOCK' || action === 'REVIEW') {
+      throw new ForbiddenException({
+        code: action === 'REVIEW' ? 'CONTENT_REVIEW_REQUIRED' : 'CONTENT_BLOCKED',
+        message: action === 'REVIEW' ? '内容已提交安全审核，请修改后重试。' : policy.blockMessage,
+        moderationEventId: event.id,
+        appealAllowed: true,
+      })
+    }
     return { allowed: true, action, matches: matched.map((rule) => rule.id), eventId: event.id }
   }
 
@@ -105,7 +112,7 @@ export class ModerationService {
 
   async listEvents(status?: ModerationEventStatus, source?: ModerationSource) {
     const [events, open, blockedToday] = await Promise.all([
-      this.prisma.moderationEvent.findMany({ where: { status, source }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: { select: { id: true, email: true, displayName: true } } } }),
+      this.prisma.moderationEvent.findMany({ where: { status, source }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: { select: { id: true, email: true, displayName: true } }, appeal: { include: { history: { orderBy: { createdAt: 'asc' }, include: { actor: { select: { id: true, displayName: true } } } } } } } }),
       this.prisma.moderationEvent.count({ where: { status: 'OPEN' } }),
       this.prisma.moderationEvent.count({ where: { action: { in: ['BLOCK', 'REVIEW'] }, createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } } }),
     ])
@@ -114,11 +121,108 @@ export class ModerationService {
 
   async resolveEvent(actorId: string, id: string, status: ModerationEventStatus, resolutionNote = '') {
     if (status === 'OPEN') throw new BadRequestException('请选择已通过或已忽略')
-    const before = await this.prisma.moderationEvent.findUnique({ where: { id } })
+    const before = await this.prisma.moderationEvent.findUnique({ where: { id }, include: { appeal: true } })
     if (!before) throw new NotFoundException('审核事件不存在')
+    if (before.appeal && ['PENDING', 'IN_REVIEW'].includes(before.appeal.status)) throw new BadRequestException('该事件存在待处理申诉，请通过申诉复核入口处置')
     const after = await this.prisma.moderationEvent.update({ where: { id }, data: { status, resolutionNote: resolutionNote.trim(), resolvedById: actorId, resolvedAt: new Date() } })
     await this.audit(actorId, 'moderation.event.resolve', 'moderation_event', id, { status: before.status }, { status: after.status, resolutionNote: after.resolutionNote })
     return after
+  }
+
+  async listUserCases(userId: string) {
+    return this.prisma.moderationEvent.findMany({
+      where: { userId, action: { in: ['BLOCK', 'REVIEW'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        source: true,
+        action: true,
+        status: true,
+        contentExcerpt: true,
+        createdAt: true,
+        appeal: {
+          select: {
+            id: true,
+            status: true,
+            reason: true,
+            reviewNote: true,
+            reviewedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            history: { orderBy: { createdAt: 'asc' }, select: { id: true, status: true, note: true, createdAt: true } },
+          },
+        },
+      },
+    })
+  }
+
+  async createAppeal(userId: string, eventId: string, reasonInput: string) {
+    const reason = reasonInput.trim()
+    const event = await this.prisma.moderationEvent.findFirst({ where: { id: eventId, userId }, include: { appeal: true } })
+    if (!event || !['BLOCK', 'REVIEW'].includes(event.action)) throw new NotFoundException('审核事件不存在或不可申诉')
+    if (event.status !== 'OPEN') throw new BadRequestException('该审核事件已经处置')
+    if (event.appeal) throw new BadRequestException('该审核事件已经提交过申诉')
+    const recent = await this.prisma.moderationAppeal.count({ where: { userId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } } })
+    if (recent >= 5) throw new HttpException('24 小时内最多提交 5 次审核申诉', HttpStatus.TOO_MANY_REQUESTS)
+    return this.prisma.$transaction(async (tx) => {
+      const appeal = await tx.moderationAppeal.create({
+        data: { eventId, userId, reason, history: { create: { actorId: userId, status: 'PENDING', note: '用户提交申诉' } } },
+        include: { history: { orderBy: { createdAt: 'asc' } } },
+      })
+      await tx.auditLog.create({ data: { actorId: userId, action: 'moderation.appeal.create', targetType: 'moderation_appeal', targetId: appeal.id, after: { eventId, reasonLength: reason.length } } })
+      return appeal
+    }).catch((error) => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new BadRequestException('该审核事件已经提交过申诉')
+      throw error
+    })
+  }
+
+  async cancelAppeal(userId: string, appealId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const appeal = await tx.moderationAppeal.findFirst({ where: { id: appealId, userId } })
+      if (!appeal) throw new NotFoundException('申诉不存在')
+      if (appeal.status !== 'PENDING') throw new BadRequestException('只有待处理申诉可以撤回')
+      const updated = await tx.moderationAppeal.update({ where: { id: appealId }, data: { status: 'CANCELLED' } })
+      await tx.moderationAppealHistory.create({ data: { appealId, actorId: userId, status: 'CANCELLED', note: '用户撤回申诉' } })
+      await tx.auditLog.create({ data: { actorId: userId, action: 'moderation.appeal.cancel', targetType: 'moderation_appeal', targetId: appealId, before: { status: appeal.status }, after: { status: updated.status } } })
+      return updated
+    })
+  }
+
+  async reviewAppeal(actorId: string, eventId: string, status: ModerationAppealStatus, noteInput = '') {
+    if (!['IN_REVIEW', 'APPROVED', 'REJECTED'].includes(status)) throw new BadRequestException('无效的申诉处置状态')
+    const note = noteInput.trim()
+    if (['APPROVED', 'REJECTED'].includes(status) && !note) throw new BadRequestException('完成复核时必须填写处置说明')
+    return this.prisma.$transaction(async (tx) => {
+      const event = await tx.moderationEvent.findUnique({ where: { id: eventId }, include: { appeal: true } })
+      if (!event?.appeal) throw new NotFoundException('该事件没有申诉')
+      if (['APPROVED', 'REJECTED', 'CANCELLED'].includes(event.appeal.status)) throw new BadRequestException('该申诉已经结束')
+      const now = new Date()
+      const appeal = await tx.moderationAppeal.update({
+        where: { id: event.appeal.id },
+        data: {
+          status,
+          reviewNote: note || event.appeal.reviewNote,
+          reviewedById: actorId,
+          reviewedAt: status === 'IN_REVIEW' ? null : now,
+        },
+      })
+      await tx.moderationAppealHistory.create({ data: { appealId: appeal.id, actorId, status, note } })
+      if (status !== 'IN_REVIEW') {
+        const eventStatus: ModerationEventStatus = status === 'APPROVED' ? 'APPROVED' : 'DISMISSED'
+        await tx.moderationEvent.update({ where: { id: eventId }, data: { status: eventStatus, resolutionNote: note, resolvedById: actorId, resolvedAt: now } })
+        await tx.notification.create({ data: {
+          userId: appeal.userId,
+          type: NotificationType.SYSTEM,
+          title: status === 'APPROVED' ? '内容审核申诉已通过' : '内容审核申诉未通过',
+          body: note,
+          metadata: { appealId: appeal.id, eventId, status } as Prisma.InputJsonValue,
+        } })
+      }
+      await tx.auditLog.create({ data: { actorId, action: 'moderation.appeal.review', targetType: 'moderation_appeal', targetId: appeal.id, before: { status: event.appeal.status }, after: { status, note } } })
+      return appeal
+    })
   }
 
   private audit(actorId: string, action: string, targetType: string, targetId: string, before: unknown, after: unknown) {

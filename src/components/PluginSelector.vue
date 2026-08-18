@@ -6,11 +6,11 @@
     <Teleport to="body">
       <div v-if="isOpen" ref="popover" class="plugin-selector__popover plugin-selector__popover--floating" :style="popoverStyle">
         <header><span><strong>选择技能</strong><small>只显示支持当前任务的已安装或私有技能</small></span><RouterLink to="/capabilities" @click="setOpen(false)">管理</RouterLink></header>
-        <button type="button" :class="{ 'is-active': !modelValue }" @click="select('')"><span><strong>不使用插件</strong><small>按当前模型和设置直接生成</small></span><Check v-if="!modelValue" :size="15" /></button>
+        <button type="button" :class="{ 'is-active': !modelValue }" @click="select('')"><span><strong>不使用技能</strong><small>按当前模型和设置直接生成</small></span><Check v-if="!modelValue" :size="15" /></button>
         <button v-for="plugin in plugins" :key="plugin.id" type="button" :class="{ 'is-active': modelValue === plugin.id }" @click="select(plugin.id)">
           <span><strong>{{ plugin.name }}<em v-if="plugin.owned">私有</em></strong><small>{{ plugin.description || capabilityLabel }}</small></span><Check v-if="modelValue === plugin.id" :size="15" />
         </button>
-        <p v-if="loading">正在读取可用插件</p>
+        <p v-if="loading">正在读取可用技能</p>
         <p v-else-if="!plugins.length">暂无可用技能，可前往能力中心安装</p>
       </div>
     </Teleport>
@@ -33,7 +33,7 @@ const trigger = ref<HTMLButtonElement | null>(null)
 const popover = ref<HTMLElement | null>(null)
 const popoverStyle = ref<Record<string, string>>({ visibility: 'hidden' })
 const selected = computed(() => plugins.value.find((plugin) => plugin.id === props.modelValue))
-const capabilityLabel = computed(() => ({ CHAT: '对话插件', IMAGE: '图片插件', VIDEO: '视频插件', COMMERCE: '电商插件', OFFICE: '办公插件' }[props.capability]))
+const capabilityLabel = computed(() => ({ CHAT: '对话技能', IMAGE: '图片技能', VIDEO: '视频技能', COMMERCE: '电商技能', OFFICE: '办公技能' }[props.capability]))
 
 async function load() {
   loading.value = true

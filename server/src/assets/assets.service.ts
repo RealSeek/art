@@ -1,12 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import { AssetKind, Prisma } from '@prisma/client'
-import { randomUUID } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
-import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { pipeline } from 'node:stream/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { extname, join } from 'node:path'
 import { PrismaService } from '../prisma/prisma.service'
+import { ResourceAccessService } from '../common/resource-access.service'
+import { ObjectStorageService, type StorageLocation } from './object-storage.service'
 
 type StoredFile = {
   stream: NodeJS.ReadableStream
@@ -14,6 +12,7 @@ type StoredFile = {
   mimeType: string
   kind: AssetKind
   projectId?: string
+  teamId?: string
   metadata?: Record<string, unknown>
 }
 
@@ -48,21 +47,7 @@ export function assetDisposition(mimeType: string, name: string) {
 
 @Injectable()
 export class AssetsService {
-  private readonly uploadRoot: string
-
-  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService) {
-    const configured = this.config.get<string>('UPLOAD_DIR', 'uploads')
-    this.uploadRoot = isAbsolute(configured) ? configured : resolve(process.cwd(), configured)
-  }
-
-  private safePath(objectKey: string) {
-    const target = resolve(this.uploadRoot, objectKey)
-    const withinRoot = relative(this.uploadRoot, target)
-    if (!withinRoot || withinRoot.startsWith(`..${sep}`) || withinRoot === '..') {
-      throw new BadRequestException('文件路径无效')
-    }
-    return target
-  }
+  constructor(private readonly storage: ObjectStorageService, private readonly prisma: PrismaService, private readonly access: ResourceAccessService) {}
 
   private makeObjectKey(userId: string, name: string, generated = false) {
     const extension = extname(name).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12)
@@ -70,64 +55,72 @@ export class AssetsService {
     return join('users', userId, folder, new Date().toISOString().slice(0, 10), `${randomUUID()}${extension}`).replaceAll('\\', '/')
   }
 
-  private async assertProjectAccess(userId: string, projectId?: string) {
-    if (!projectId) return
-    const project = await this.prisma.project.findFirst({ where: { id: projectId, archivedAt: null, OR: [{ userId }, { members: { some: { userId } } }] }, select: { id: true } })
-    if (!project) throw new NotFoundException('项目不存在')
+  private assetLocation(asset: { storageDriver: string; storageBucket: string }): StorageLocation {
+    if (asset.storageDriver !== 'local' && asset.storageDriver !== 's3') throw new ServiceUnavailableException('文件存储驱动无效')
+    return { driver: asset.storageDriver, bucket: asset.storageBucket }
+  }
+
+  private async resolveTeamId(userId: string, projectId?: string, requestedTeamId?: string) {
+    if (projectId) {
+      const project = await this.access.projectAccess(userId, projectId, false)
+      if (requestedTeamId && requestedTeamId !== project.teamId) throw new BadRequestException('文件团队必须与项目团队一致')
+      return project.teamId || undefined
+    }
+    if (requestedTeamId) await this.access.assertTeamMember(requestedTeamId, userId)
+    return requestedTeamId
   }
 
   async storeUpload(userId: string, input: StoredFile) {
     try {
-      await this.assertProjectAccess(userId, input.projectId)
+      input.teamId = await this.resolveTeamId(userId, input.projectId, input.teamId)
     } catch (error) {
       input.stream.resume()
       throw error
     }
     const objectKey = this.makeObjectKey(userId, input.name)
-    const target = this.safePath(objectKey)
-    await mkdir(resolve(target, '..'), { recursive: true })
+    const location = this.storage.activeLocation()
     try {
-      await pipeline(input.stream, createWriteStream(target, { flags: 'wx' }))
-      const fileInfo = await stat(target)
-      if (!fileInfo.size || fileInfo.size > 50 * 1024 * 1024) throw new BadRequestException('文件大小无效')
+      const stored = await this.storage.putStream(objectKey, input.stream, input.mimeType)
       return await this.prisma.asset.create({
         data: {
           userId,
           projectId: input.projectId,
+          teamId: input.teamId,
           objectKey,
+          storageDriver: location.driver,
+          storageBucket: location.bucket,
           name: input.name.slice(0, 255),
           mimeType: input.mimeType,
           kind: input.kind,
-          size: BigInt(fileInfo.size),
+          size: BigInt(stored.size),
+          checksum: stored.checksum,
           metadata: input.metadata as Prisma.InputJsonValue | undefined,
         },
       })
     } catch (error) {
-      await unlink(target).catch(() => undefined)
+      await this.storage.delete(location, objectKey).catch(() => undefined)
       throw error
     }
   }
 
-  async storeGenerated(userId: string, data: Uint8Array, input: { name: string; mimeType: string; kind: AssetKind; projectId?: string; metadata?: Record<string, unknown> }) {
-    await this.assertProjectAccess(userId, input.projectId)
+  async storeGenerated(userId: string, data: Uint8Array, input: { name: string; mimeType: string; kind: AssetKind; projectId?: string; teamId?: string; metadata?: Record<string, unknown> }) {
+    const teamId = await this.resolveTeamId(userId, input.projectId, input.teamId)
     const namedExtension = extname(input.name).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12)
     const extension = input.mimeType === 'image/png' ? '.png' : input.mimeType === 'image/webp' ? '.webp' : input.mimeType === 'image/gif' ? '.gif' : input.mimeType === 'image/avif' ? '.avif' : input.mimeType === 'image/svg+xml' ? '.svg' : input.mimeType === 'video/webm' ? '.webm' : input.mimeType === 'video/quicktime' ? '.mov' : input.mimeType.startsWith('video/') ? '.mp4' : namedExtension || '.bin'
     const fileName = input.name.toLowerCase().endsWith(extension) ? input.name : `${input.name}${extension}`
     const objectKey = this.makeObjectKey(userId, fileName, true)
-    const target = this.safePath(objectKey)
-    await mkdir(resolve(target, '..'), { recursive: true })
-    await writeFile(target, data, { flag: 'wx' })
+    const location = this.storage.activeLocation()
+    const stored = await this.storage.putBytes(objectKey, data, input.mimeType)
     try {
-      return await this.prisma.asset.create({ data: { userId, projectId: input.projectId, objectKey, name: input.name, mimeType: input.mimeType, kind: input.kind, size: BigInt(data.byteLength), metadata: input.metadata as Prisma.InputJsonValue | undefined } })
+      return await this.prisma.asset.create({ data: { userId, projectId: input.projectId, teamId, objectKey, storageDriver: location.driver, storageBucket: location.bucket, name: input.name, mimeType: input.mimeType, kind: input.kind, size: BigInt(stored.size), checksum: stored.checksum, metadata: input.metadata as Prisma.InputJsonValue | undefined } })
     } catch (error) {
-      await unlink(target).catch(() => undefined)
+      await this.storage.delete(location, objectKey).catch(() => undefined)
       throw error
     }
   }
 
   async readForUser(userId: string, id: string) {
-    const asset = await this.prisma.asset.findFirst({ where: { id, userId, deletedAt: null } })
-    if (!asset) throw new NotFoundException('文件不存在')
+    const asset = await this.access.assertAssetReadable(userId, id)
     return this.readAsset(asset)
   }
 
@@ -137,32 +130,116 @@ export class AssetsService {
     return this.readAsset(asset)
   }
 
-  private async readAsset(asset: { objectKey: string; mimeType: string; name: string; kind?: AssetKind }) {
-    const target = this.safePath(asset.objectKey)
-    const file = await readFile(target).catch(() => null)
-    if (!file) throw new NotFoundException('文件内容不存在')
+  private async readAsset(asset: { objectKey: string; storageDriver: string; storageBucket: string; mimeType: string; name: string; kind?: AssetKind }) {
+    const file = await this.storage.read(this.assetLocation(asset), asset.objectKey)
     return { file, mimeType: asset.mimeType, name: asset.name, kind: asset.kind }
   }
 
   async remove(userId: string, id: string) {
-    const asset = await this.prisma.asset.findFirst({ where: { id, userId, deletedAt: null } })
-    if (!asset) throw new NotFoundException('文件不存在')
+    const asset = await this.access.assertAssetManager(userId, id)
     await this.prisma.asset.update({ where: { id }, data: { deletedAt: new Date() } })
-    await unlink(this.safePath(asset.objectKey)).catch(() => undefined)
+    await this.storage.delete(this.assetLocation(asset), asset.objectKey).catch(() => undefined)
     return { deleted: true }
+  }
+
+  async assignTeam(userId: string, id: string, teamId: string | null) {
+    const asset = await this.access.assertAssetManager(userId, id)
+    if (asset.projectId) throw new BadRequestException('项目文件的团队归属由项目统一管理')
+    if (teamId) await this.access.assertTeamManager(teamId, userId)
+    const updated = await this.prisma.asset.update({ where: { id }, data: { teamId } })
+    if (asset.teamId && asset.teamId !== teamId) await this.access.auditTeamResource(asset.teamId, userId, 'asset.unassigned', 'asset', id)
+    if (teamId && teamId !== asset.teamId) await this.access.auditTeamResource(teamId, userId, 'asset.assigned', 'asset', id, { previousTeamId: asset.teamId })
+    return { ...updated, size: Number(updated.size), contentUrl: `/v1/assets/${updated.id}/content` }
   }
 
   async removeAsAdmin(id: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id, deletedAt: null } })
     if (!asset) throw new NotFoundException('文件不存在')
     await this.prisma.asset.update({ where: { id }, data: { deletedAt: new Date() } })
-    await unlink(this.safePath(asset.objectKey)).catch(() => undefined)
+    await this.storage.delete(this.assetLocation(asset), asset.objectKey).catch(() => undefined)
     return { deleted: true }
   }
 
+  async purgePersonalAssets(userId: string) {
+    const assets = await this.prisma.asset.findMany({
+      where: { userId, teamId: null },
+      select: { objectKey: true, storageDriver: true, storageBucket: true },
+    })
+    const results = await Promise.allSettled(assets.map((asset) => this.storage.delete(this.assetLocation(asset), asset.objectKey)))
+    return { total: assets.length, removed: results.filter((item) => item.status === 'fulfilled').length }
+  }
+
   async health() {
-    await mkdir(this.uploadRoot, { recursive: true })
-    const info = await stat(this.uploadRoot)
-    return { driver: 'local', directory: this.uploadRoot, writable: info.isDirectory() }
+    return this.storage.health()
+  }
+
+  lifecycleStatus() { return this.storage.lifecycleStatus() }
+  applyLifecycle() { return this.storage.applyLifecycle() }
+
+  async migrationStatus() {
+    const target = this.storage.activeLocation()
+    const pendingWhere = this.pendingMigrationWhere(target)
+    const [total, pending, locations] = await Promise.all([
+      this.prisma.asset.aggregate({ where: { deletedAt: null }, _count: { _all: true }, _sum: { size: true } }),
+      this.prisma.asset.aggregate({ where: pendingWhere, _count: { _all: true }, _sum: { size: true } }),
+      this.prisma.asset.groupBy({ by: ['storageDriver', 'storageBucket'], where: { deletedAt: null }, _count: { _all: true }, _sum: { size: true }, orderBy: { storageDriver: 'asc' } }),
+    ])
+    return {
+      target,
+      total: { count: total._count._all, bytes: Number(total._sum.size || 0) },
+      pending: { count: pending._count._all, bytes: Number(pending._sum.size || 0) },
+      locations: locations.map((item) => ({ driver: item.storageDriver, bucket: item.storageBucket, count: item._count._all, bytes: Number(item._sum.size || 0) })),
+    }
+  }
+
+  async migrateToActive(limit = 25) {
+    const target = this.storage.activeLocation()
+    await this.storage.health()
+    const assets = await this.prisma.asset.findMany({
+      where: this.pendingMigrationWhere(target),
+      orderBy: { id: 'asc' },
+      take: Math.max(1, Math.min(100, limit)),
+      select: { id: true, objectKey: true, storageDriver: true, storageBucket: true, mimeType: true, name: true, size: true, checksum: true },
+    })
+    const migrated: string[] = []
+    const failed: Array<{ id: string; name: string; message: string }> = []
+    const warnings: Array<{ id: string; message: string }> = []
+
+    for (const asset of assets) {
+      const source = this.assetLocation(asset)
+      try {
+        const data = await this.storage.read(source, asset.objectKey)
+        if (BigInt(data.byteLength) !== asset.size) throw new ConflictException('源文件大小与数据库记录不一致')
+        const checksum = createHash('sha256').update(data).digest('hex')
+        if (asset.checksum && asset.checksum !== checksum) throw new ConflictException('源文件校验和与数据库记录不一致')
+
+        try {
+          const existing = await this.storage.read(target, asset.objectKey)
+          const existingChecksum = createHash('sha256').update(existing).digest('hex')
+          if (existing.byteLength !== data.byteLength || existingChecksum !== checksum) throw new ConflictException('目标存储已存在同名但内容不同的文件')
+        } catch (error) {
+          if (!(error instanceof NotFoundException)) throw error
+          await this.storage.putBytesAt(target, asset.objectKey, data, asset.mimeType)
+        }
+
+        const updated = await this.prisma.asset.updateMany({
+          where: { id: asset.id, storageDriver: asset.storageDriver, storageBucket: asset.storageBucket },
+          data: { storageDriver: target.driver, storageBucket: target.bucket, checksum },
+        })
+        if (!updated.count) throw new ConflictException('资产记录已被其他迁移任务更新')
+        migrated.push(asset.id)
+        try { await this.storage.delete(source, asset.objectKey) } catch (error) {
+          warnings.push({ id: asset.id, message: error instanceof Error ? error.message : '旧文件清理失败' })
+        }
+      } catch (error) {
+        failed.push({ id: asset.id, name: asset.name, message: error instanceof Error ? error.message : '迁移失败' })
+      }
+    }
+
+    return { target, attempted: assets.length, migrated: migrated.length, failed, warnings, status: await this.migrationStatus() }
+  }
+
+  private pendingMigrationWhere(target: StorageLocation): Prisma.AssetWhereInput {
+    return { deletedAt: null, NOT: [{ storageDriver: target.driver, storageBucket: target.bucket }] }
   }
 }

@@ -3,8 +3,8 @@
   --office-composer-surface: #242424;
   --office-composer-control: #292929;
   --office-composer-control-hover: #333;
-  --office-composer-border: #394654;
-  --office-composer-shadow: 0 2px 4px rgba(116, 158, 243, .02), 0 4px 12px rgba(102, 188, 253, .04), 0 8px 24px rgba(95, 178, 255, .12);
+  --office-composer-border: var(--studio-border);
+  --office-composer-shadow: var(--studio-shadow);
   background: var(--studio-bg);
   color: var(--studio-text);
   display: grid;
@@ -88,6 +88,9 @@
 .office-thinking { align-items: center; color: var(--studio-muted); display: flex; font-size: 13px; gap: 9px; }
 .office-thinking svg, .office-spin { animation: office-spin 1s linear infinite; }
 .office-agent-steps { border-left: 1px solid var(--studio-border); display: grid; gap: 11px; list-style: none; margin: 0 0 24px 14px; padding: 1px 0 1px 20px; }
+.office-agent-runtime { align-items: center; border-bottom: 1px solid var(--studio-border); color: var(--studio-muted); display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 18px; max-width: 680px; padding: 0 0 12px; }
+.office-agent-runtime span { align-items: center; display: inline-flex; font-size: 11px; gap: 6px; min-width: 0; }
+.office-agent-runtime strong { color: var(--studio-text); font-weight: 600; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-agent-steps li { align-items: start; display: grid; gap: 9px; grid-template-columns: 18px minmax(0, 1fr); min-height: 25px; }
 .office-agent-steps li > span { align-items: center; background: var(--studio-bg); border: 1px solid var(--studio-border); border-radius: 50%; color: var(--studio-muted); display: flex; height: 18px; justify-content: center; margin-left: -30px; width: 18px; }
 .office-agent-steps li > span > span { background: var(--studio-muted); border-radius: 50%; height: 5px; width: 5px; }
@@ -174,11 +177,16 @@
 .office-control-anchor { display: inline-flex; flex: 0 0 auto; position: relative; }
 .office-mode-menu, .office-model-menu { background: var(--studio-elevated); border: 1px solid var(--office-composer-border); border-radius: 12px; bottom: calc(100% + 9px); box-shadow: var(--office-composer-shadow); display: grid; left: 0; min-width: 250px; padding: 7px; position: absolute; z-index: 24; }
 .office-model-menu { max-height: min(320px, calc(100dvh - 220px)); min-width: 276px; overflow-y: auto; scrollbar-color: var(--studio-muted) transparent; scrollbar-width: thin; }
+.office-model-menu--catalog { background: transparent; border: 0; box-shadow: none; left: auto; max-height: none; min-width: 0; overflow: visible; padding: 0; right: 0; width: min(704px, calc(100vw - 24px)); }
 .office-mode-menu > button, .office-model-menu > button { align-items: center; background: transparent; border: 0; border-radius: 9px; color: var(--studio-text); display: flex; gap: 10px; min-height: 48px; padding: 7px 10px; text-align: left; }
 .office-mode-menu > button:hover, .office-mode-menu > button.active, .office-model-menu > button:hover, .office-model-menu > button.active { background: var(--studio-control); }
 .office-mode-menu > button span, .office-model-menu > button span { display: grid; flex: 1; }
 .office-mode-menu strong, .office-model-menu strong { font-size: 12px; }
 .office-mode-menu small, .office-model-menu small { color: var(--studio-muted); font-size: 10px; margin-top: 2px; }
+
+@media (max-width: 680px) {
+  .office-model-menu--catalog { bottom: 12px; left: 12px; position: fixed; right: 12px; }
+}
 
 .office-skill-panel { background: var(--studio-elevated); border: 1px solid var(--office-composer-border); border-radius: 14px; bottom: calc(100% + 10px); box-shadow: var(--office-composer-shadow); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); left: 0; max-height: min(520px, calc(100dvh - 220px)); overflow: hidden; position: absolute; width: 100%; }
 .office-skill-panel > header { align-items: center; border-bottom: 1px solid var(--studio-border); display: flex; justify-content: space-between; min-height: 52px; padding: 8px 12px 8px 16px; }
@@ -200,9 +208,9 @@
 .office-skill-list small { color: var(--studio-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-error { background: #4a2424; border: 1px solid #733838; border-radius: 6px; color: #ffc7c2; font-size: 11px; margin: 7px 0 0; padding: 8px 10px; }
 
-html[data-studio-theme="light"] .office-center { --office-composer-surface: #fff; --office-composer-control: #f2f3f4; --office-composer-control-hover: #eef0f1; --office-composer-border: #e6ebf3; --office-composer-shadow: 0 2px 4px rgba(116, 158, 243, .02), 0 4px 12px rgba(102, 188, 253, .04), 0 8px 24px rgba(95, 178, 255, .17); }
+html[data-studio-theme="light"] .office-center { --office-composer-surface: #fff; --office-composer-control: var(--studio-control); --office-composer-control-hover: var(--studio-control-hover); --office-composer-border: var(--studio-border); --office-composer-shadow: var(--studio-shadow); }
 html[data-studio-theme="light"] .office-composer, html[data-studio-theme="light"] .office-skill-panel, html[data-studio-theme="light"] .office-mode-menu, html[data-studio-theme="light"] .office-model-menu, html[data-studio-theme="light"] .office-history { background: #fff; box-shadow: var(--office-composer-shadow); }
-html[data-studio-theme="light"] .office-composer:focus-within { border-color: #b9d7ff; }
+html[data-studio-theme="light"] .office-composer:focus-within { border-color: var(--studio-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--studio-focus) 12%, transparent); }
 html[data-studio-theme="light"] .office-user-message { background: #f4f4f5; }
 html[data-studio-theme="light"] .office-composer .office-submit { background: #18181b; color: #fff; }
 html[data-studio-theme="light"] .office-error { background: #fff1f2; border-color: #fecdd3; color: #be123c; }

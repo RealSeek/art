@@ -54,6 +54,7 @@ enum AgentTaskStatus {
   RUNNING
   WAITING_APPROVAL
   SUCCEEDED
+  PARTIAL
   FAILED
   CANCELLED
 }
@@ -84,6 +85,19 @@ enum NotificationType {
   SUPPORT
 }
 
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WEBHOOK
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum InspirationMode {
   IMAGE
   VIDEO
@@ -97,6 +111,7 @@ enum ProviderType {
   SUB2API
   OPENAI_COMPATIBLE
   POLLINATIONS
+  LOCAL_WORKER
 }
 
 enum ProviderAuthType {
@@ -140,6 +155,59 @@ enum SubscriptionOrderStatus {
   REFUNDED
 }
 
+enum CouponDiscountType {
+  FIXED
+  PERCENT
+}
+
+enum UserCouponStatus {
+  AVAILABLE
+  LOCKED
+  REDEEMED
+  EXPIRED
+  REVOKED
+}
+
+enum CouponRedemptionStatus {
+  REDEEMED
+  REFUNDED
+}
+
+enum ReferralStatus {
+  REGISTERED
+  COOLING
+  REVIEW_REQUIRED
+  APPROVED
+  REWARDED
+  REJECTED
+  REVERSED
+}
+
+enum AccountDeletionStatus {
+  REQUESTED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum InvoiceStatus {
+  REQUESTED
+  REVIEWING
+  ISSUED
+  REJECTED
+  CANCELLED
+}
+
+enum RenewalAttemptStatus {
+  SCHEDULED
+  PROCESSING
+  PAYMENT_REQUIRED
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
 enum ModerationRuleType {
   KEYWORD
   REGEX
@@ -157,12 +225,58 @@ enum ModerationSource {
   COMMERCE
   FILE_NAME
   SUPPORT
+  WORK
+}
+
+enum WorkLifecycleStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum WorkVisibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+enum WorkModerationStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  TAKEN_DOWN
+}
+
+enum WorkAuthorDisplay {
+  PROFILE
+  CUSTOM
+  HIDDEN
+}
+
+enum WorkAssetRole {
+  COVER
+  CONTENT
+}
+
+enum WorkReportStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
 }
 
 enum ModerationEventStatus {
   OPEN
   APPROVED
   DISMISSED
+}
+
+enum ModerationAppealStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum SupportTicketStatus {
@@ -206,6 +320,7 @@ enum PluginCapability {
 }
 
 enum WebSearchProviderType {
+  SEARXNG
   TAVILY
   SERPER
   BRAVE
@@ -214,61 +329,125 @@ enum WebSearchProviderType {
 }
 
 model User {
-  id                    String                 @id @default(cuid())
-  email                 String?                @unique
-  username              String?                @unique
-  displayName           String
-  avatarUrl             String?
-  passwordHash          String?
-  company               String                 @default("")
-  phone                 String                 @default("")
-  tags                  String[]               @default([])
-  adminNote             String                 @default("") @db.Text
-  role                  UserRole               @default(USER)
-  status                UserStatus             @default(ACTIVE)
-  emailVerifiedAt       DateTime?
-  lastLoginAt           DateTime?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  sessions              Session[]
-  externalIdentities    ExternalIdentity[]
-  settings              UserSettings?
-  creditAccount         CreditAccount?
-  projects              Project[]
-  projectMemberships    ProjectMember[]
-  projectSkillVersions  ProjectSkillVersion[]
-  conversations         Conversation[]
-  authoredMessages      Message[]              @relation("MessageAuthor")
-  deletedMessages       Message[]              @relation("MessageDeletedBy")
-  assets                Asset[]
-  jobs                  GenerationJob[]
-  notifications         Notification[]
-  auditLogs             AuditLog[]             @relation("ActorAuditLogs")
-  invitations           Invitation[]           @relation("Inviter")
-  invitedBy             Invitation?            @relation("Invitee")
-  groupMemberships      UserGroupMember[]
-  apiCredentials        UserApiCredential[]
-  rechargeOrders        RechargeOrder[]
-  subscriptions         UserSubscription[]
-  subscriptionOrders    SubscriptionOrder[]
-  paymentTransactions   PaymentTransaction[]
-  paymentRefunds        PaymentRefund[]
-  moderationEvents      ModerationEvent[]
-  supportTickets        SupportTicket[]        @relation("SupportTicketRequester")
-  assignedTickets       SupportTicket[]        @relation("SupportTicketAssignee")
-  supportMessages       SupportTicketMessage[] @relation("SupportMessageAuthor")
-  knowledgeBases        KnowledgeBase[]        @relation("KnowledgeBaseCreator")
-  ownedTeams            Team[]                 @relation("TeamOwner")
-  teamMemberships       TeamMember[]
-  toolCallAudits        ToolCallAudit[]
-  toolApprovalRequests  ToolApprovalRequest[]  @relation("ToolApprovalRequester")
-  reviewedToolApprovals ToolApprovalRequest[]  @relation("ToolApprovalReviewer")
-  privatePlugins        Plugin[]               @relation("PluginOwner")
-  pluginInstallations   PluginInstallation[]
-  pluginUsages          PluginUsage[]
-  agentTasks            AgentTask[]
-  agentSchedules        AgentSchedule[]
-  connectorCredentials  ConnectorCredential[]
+  id                      String                    @id @default(cuid())
+  email                   String?                   @unique
+  username                String?                   @unique
+  displayName             String
+  avatarUrl               String?
+  passwordHash            String?
+  adminMfaSecretEncrypted String?
+  adminMfaEnabledAt       DateTime?
+  adminMfaRecoveryHashes  String[]                  @default([])
+  company                 String                    @default("")
+  phone                   String                    @default("")
+  tags                    String[]                  @default([])
+  adminNote               String                    @default("") @db.Text
+  role                    UserRole                  @default(USER)
+  adminRoleId             String?
+  status                  UserStatus                @default(ACTIVE)
+  emailVerifiedAt         DateTime?
+  lastLoginAt             DateTime?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  sessions                Session[]
+  externalIdentities      ExternalIdentity[]
+  settings                UserSettings?
+  creditAccount           CreditAccount?
+  projects                Project[]
+  canvases                CanvasDocument[]
+  projectMemberships      ProjectMember[]
+  projectSkillVersions    ProjectSkillVersion[]
+  conversations           Conversation[]
+  authoredMessages        Message[]                 @relation("MessageAuthor")
+  deletedMessages         Message[]                 @relation("MessageDeletedBy")
+  assets                  Asset[]
+  jobs                    GenerationJob[]
+  notifications           Notification[]
+  notificationDeliveries  NotificationDelivery[]
+  auditLogs               AuditLog[]                @relation("ActorAuditLogs")
+  invitations             Invitation[]              @relation("Inviter")
+  invitedBy               Invitation?               @relation("Invitee")
+  referralCode            ReferralCode?
+  groupMemberships        UserGroupMember[]
+  apiCredentials          UserApiCredential[]
+  privateModels           UserModel[]
+  rechargeOrders          RechargeOrder[]
+  subscriptions           UserSubscription[]
+  subscriptionOrders      SubscriptionOrder[]
+  userCoupons             UserCoupon[]
+  paymentTransactions     PaymentTransaction[]
+  paymentRefunds          PaymentRefund[]
+  moderationEvents        ModerationEvent[]
+  moderationAppeals       ModerationAppeal[]        @relation("ModerationAppealUser")
+  reviewedAppeals         ModerationAppeal[]        @relation("ModerationAppealReviewer")
+  appealHistoryEntries    ModerationAppealHistory[] @relation("ModerationAppealHistoryActor")
+  supportTickets          SupportTicket[]           @relation("SupportTicketRequester")
+  assignedTickets         SupportTicket[]           @relation("SupportTicketAssignee")
+  supportMessages         SupportTicketMessage[]    @relation("SupportMessageAuthor")
+  knowledgeBases          KnowledgeBase[]           @relation("KnowledgeBaseCreator")
+  ownedTeams              Team[]                    @relation("TeamOwner")
+  teamMemberships         TeamMember[]
+  teamInvitationsSent     TeamInvitation[]          @relation("TeamInvitationSender")
+  teamInvitationsAccepted TeamInvitation[]          @relation("TeamInvitationAccepter")
+  teamAuditLogs           TeamAuditLog[]            @relation("TeamAuditActor")
+  toolCallAudits          ToolCallAudit[]
+  toolApprovalRequests    ToolApprovalRequest[]     @relation("ToolApprovalRequester")
+  reviewedToolApprovals   ToolApprovalRequest[]     @relation("ToolApprovalReviewer")
+  privatePlugins          Plugin[]                  @relation("PluginOwner")
+  pluginInstallations     PluginInstallation[]
+  pluginUsages            PluginUsage[]
+  agentTasks              AgentTask[]
+  agentSchedules          AgentSchedule[]
+  connectorCredentials    ConnectorCredential[]
+  teamCreditEntries       TeamCreditLedger[]        @relation("TeamCreditActor")
+  adminRole               AdminRole?                @relation(fields: [adminRoleId], references: [id], onDelete: SetNull)
+  accountDeletionRequests AccountDeletionRequest[]
+  billingProfile          BillingProfile?
+  invoiceRequests         InvoiceRequest[]
+  publishedWorks          PublishedWork[]
+  reviewedWorkVersions    PublishedWorkVersion[]    @relation("WorkVersionReviewer")
+  workLikes               WorkLike[]
+  following               UserFollow[]              @relation("UserFollowing")
+  followers               UserFollow[]              @relation("UserFollowers")
+  workReports             WorkReport[]              @relation("WorkReporter")
+  resolvedWorkReports     WorkReport[]              @relation("WorkReportResolver")
+
+  @@index([adminRoleId])
+}
+
+model AdminRole {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String   @default("") @db.Text
+  permissions String[] @default([])
+  builtIn     Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+
+  @@index([enabled, createdAt])
+}
+
+model AccountDeletionRequest {
+  id             String                @id @default(cuid())
+  userId         String
+  status         AccountDeletionStatus @default(REQUESTED)
+  reason         String                @default("") @db.Text
+  requestedAt    DateTime              @default(now())
+  scheduledAt    DateTime
+  processingAt   DateTime?
+  cancelledAt    DateTime?
+  completedAt    DateTime?
+  failureReason  String                @default("") @db.Text
+  retentionNotes String                @default("") @db.Text
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, status, createdAt])
+  @@index([status, scheduledAt])
 }
 
 model ExternalIdentity {
@@ -318,16 +497,17 @@ model UserGroupMember {
 }
 
 model Session {
-  id         String    @id @default(cuid())
-  userId     String
-  tokenHash  String    @unique
-  ipAddress  String?
-  userAgent  String?
-  authMethod String    @default("email")
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  userId        String
+  tokenHash     String    @unique
+  ipAddress     String?
+  userAgent     String?
+  authMethod    String    @default("email")
+  mfaVerifiedAt DateTime?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
@@ -414,6 +594,7 @@ model CreditLedger {
 model Project {
   id                   String                @id @default(cuid())
   userId               String
+  teamId               String?
   name                 String
   description          String                @default("") @db.Text
   instructions         String                @default("") @db.Text
@@ -428,6 +609,7 @@ model Project {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team                 Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
   defaultAssistant     Assistant?            @relation(fields: [defaultAssistantId], references: [id], onDelete: SetNull)
   conversations        Conversation[]
   assets               Asset[]
@@ -435,11 +617,31 @@ model Project {
   versions             ProjectVersion[]
   agentTasks           AgentTask[]
   members              ProjectMember[]
+  canvases             CanvasDocument[]
   activeSkillVersion   ProjectSkillVersion?  @relation("ProjectActiveSkill", fields: [activeSkillVersionId], references: [id], onDelete: SetNull)
   skillVersions        ProjectSkillVersion[] @relation("ProjectSkillVersions")
 
   @@index([userId, updatedAt])
+  @@index([teamId, updatedAt])
   @@index([defaultAssistantId])
+}
+
+model CanvasDocument {
+  id         String    @id @default(cuid())
+  userId     String
+  projectId  String?
+  title      String
+  kind       String    @default("FREEFORM")
+  document   Json
+  revision   Int       @default(1)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, archivedAt, updatedAt])
+  @@index([projectId, updatedAt])
 }
 
 model ProjectMember {
@@ -551,28 +753,35 @@ model Message {
 }
 
 model Asset {
-  id                String               @id @default(cuid())
-  userId            String
-  projectId         String?
-  kind              AssetKind
-  name              String
-  objectKey         String               @unique
-  mimeType          String
-  size              BigInt
-  width             Int?
-  height            Int?
-  checksum          String?
-  metadata          Json?
-  deletedAt         DateTime?
-  createdAt         DateTime             @default(now())
-  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project           Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  messages          MessageAsset[]
-  outputs           JobOutput[]
-  knowledgeBases    KnowledgeBaseAsset[]
-  inspirationCovers Inspiration[]        @relation("InspirationCover")
+  id                  String               @id @default(cuid())
+  userId              String
+  projectId           String?
+  teamId              String?
+  kind                AssetKind
+  name                String
+  objectKey           String               @unique
+  storageDriver       String               @default("local")
+  storageBucket       String               @default("")
+  mimeType            String
+  size                BigInt
+  width               Int?
+  height              Int?
+  checksum            String?
+  metadata            Json?
+  deletedAt           DateTime?
+  createdAt           DateTime             @default(now())
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project             Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  messages            MessageAsset[]
+  outputs             JobOutput[]
+  knowledgeBases      KnowledgeBaseAsset[]
+  inspirationCovers   Inspiration[]        @relation("InspirationCover")
+  publishedWorkAssets PublishedWorkAsset[]
 
   @@index([userId, createdAt])
+  @@index([teamId, createdAt])
+  @@index([storageDriver, createdAt])
 }
 
 model Inspiration {
@@ -747,15 +956,18 @@ model KnowledgeBase {
   description   String                   @default("") @db.Text
   status        String                   @default("READY")
   creatorId     String
+  teamId        String?
   chunkCount    Int                      @default(0)
   documentCount Int                      @default(0)
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   creator       User                     @relation("KnowledgeBaseCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  team          Team?                    @relation(fields: [teamId], references: [id], onDelete: SetNull)
   assets        KnowledgeBaseAsset[]
   assistants    AssistantKnowledgeBase[]
 
   @@index([creatorId, updatedAt])
+  @@index([teamId, updatedAt])
 }
 
 model KnowledgeBaseAsset {
@@ -864,29 +1076,111 @@ model AssistantTool {
 }
 
 model Team {
-  id          String       @id @default(cuid())
-  name        String
-  slug        String       @unique
-  description String       @default("") @db.Text
-  ownerId     String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  owner       User         @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members     TeamMember[]
+  id             String             @id @default(cuid())
+  name           String
+  slug           String             @unique
+  description    String             @default("") @db.Text
+  ownerId        String
+  seatLimit      Int                @default(5)
+  status         String             @default("ACTIVE")
+  billingEnabled Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  owner          User               @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members        TeamMember[]
+  invitations    TeamInvitation[]
+  auditLogs      TeamAuditLog[]
+  projects       Project[]
+  assets         Asset[]
+  knowledgeBases KnowledgeBase[]
+  creditAccount  TeamCreditAccount?
+  billedJobs     GenerationJob[]    @relation("TeamBilledJobs")
 
   @@index([ownerId, updatedAt])
 }
 
+model TeamInvitation {
+  id           String    @id @default(cuid())
+  teamId       String
+  email        String
+  role         String    @default("MEMBER")
+  tokenHash    String    @unique
+  status       String    @default("PENDING")
+  invitedById  String
+  acceptedById String?
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy    User      @relation("TeamInvitationSender", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy   User?     @relation("TeamInvitationAccepter", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@unique([teamId, email])
+  @@index([email, status, expiresAt])
+  @@index([teamId, status, createdAt])
+}
+
+model TeamAuditLog {
+  id         String   @id @default(cuid())
+  teamId     String
+  actorId    String?
+  action     String
+  targetType String   @default("")
+  targetId   String   @default("")
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  actor      User?    @relation("TeamAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, createdAt])
+  @@index([actorId, createdAt])
+}
+
 model TeamMember {
-  teamId   String
-  userId   String
-  role     String   @default("MEMBER")
-  joinedAt DateTime @default(now())
-  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId             String
+  userId             String
+  role               String   @default("MEMBER")
+  monthlyCreditLimit Int?
+  creditsUsed        Int      @default(0)
+  creditPeriodStart  DateTime @default(now())
+  joinedAt           DateTime @default(now())
+  team               Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([teamId, userId])
   @@index([userId])
+}
+
+model TeamCreditAccount {
+  id        String             @id @default(cuid())
+  teamId    String             @unique
+  balance   Int                @default(0)
+  version   Int                @default(0)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  team      Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  entries   TeamCreditLedger[]
+}
+
+model TeamCreditLedger {
+  id             String            @id @default(cuid())
+  accountId      String
+  userId         String?
+  type           LedgerType
+  amount         Int
+  balanceAfter   Int
+  idempotencyKey String?           @unique
+  referenceType  String?
+  referenceId    String?
+  description    String
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+  account        TeamCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user           User?             @relation("TeamCreditActor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model ToolCallAudit {
@@ -935,6 +1229,7 @@ model ToolApprovalRequest {
 model ProviderChannel {
   id                  String               @id @default(cuid())
   name                String               @unique
+  templateId          String?
   type                ProviderType
   baseUrl             String
   encryptedApiKey     String               @default("") @db.Text
@@ -959,8 +1254,52 @@ model ProviderChannel {
   modelPresets        ModelPreset[]
   modelRoutes         ModelProviderRoute[]
   generationJobs      GenerationJob[]
+  template            ProviderTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   @@index([enabled, priority])
+  @@index([templateId])
+}
+
+model ModelVendor {
+  id                String             @id @default(cuid())
+  key               String             @unique
+  name              String
+  icon              String             @default("")
+  websiteUrl        String             @default("")
+  enabled           Boolean            @default(true)
+  sortOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  providerTemplates ProviderTemplate[]
+  modelPresets      ModelPreset[]
+  userModels        UserModel[]
+
+  @@index([enabled, sortOrder])
+}
+
+model ProviderTemplate {
+  id                   String              @id @default(cuid())
+  key                  String              @unique
+  name                 String
+  description          String              @default("") @db.Text
+  vendorId             String?
+  type                 ProviderType
+  baseUrl              String
+  authType             ProviderAuthType    @default(BEARER)
+  apiProtocol          String              @default("openai")
+  nativeSearchProvider String              @default("disabled")
+  customHeaders        Json?
+  supportsDiscovery    Boolean             @default(true)
+  enabled              Boolean             @default(true)
+  sortOrder            Int                 @default(0)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  vendor               ModelVendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  providerChannels     ProviderChannel[]
+  userCredentials      UserApiCredential[]
+
+  @@index([enabled, sortOrder])
+  @@index([vendorId])
 }
 
 model ModelPreset {
@@ -968,6 +1307,7 @@ model ModelPreset {
   key                        String                 @unique
   displayName                String
   description                String                 @default("") @db.Text
+  vendorId                   String?
   providerId                 String?
   upstreamModel              String
   capability                 ModelCapability
@@ -987,11 +1327,34 @@ model ModelPreset {
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
   provider                   ProviderChannel?       @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  vendor                     ModelVendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   groupAccess                UserGroupModelAccess[]
   providerRoutes             ModelProviderRoute[]
+  priceVersions              ModelPriceVersion[]
 
   @@index([capability, enabled, sortOrder])
   @@index([providerId])
+  @@index([vendorId])
+}
+
+model ModelPriceVersion {
+  id                         String          @id @default(cuid())
+  modelPresetId              String
+  version                    Int
+  flatCreditCost             Int
+  inputCreditsPerMillion     Int
+  outputCreditsPerMillion    Int
+  inputCostMicrosPerMillion  Int
+  outputCostMicrosPerMillion Int
+  imageCostMicros            Int
+  videoCostMicros            Int
+  effectiveAt                DateTime        @default(now())
+  createdAt                  DateTime        @default(now())
+  modelPreset                ModelPreset     @relation(fields: [modelPresetId], references: [id], onDelete: Cascade)
+  jobs                       GenerationJob[]
+
+  @@unique([modelPresetId, version])
+  @@index([modelPresetId, effectiveAt])
 }
 
 model ModelProviderRoute {
@@ -1031,97 +1394,174 @@ model UserGroupModelAccess {
 }
 
 model UserApiCredential {
-  id              String           @id @default(cuid())
-  userId          String
-  name            String
-  providerType    ProviderType
-  baseUrl         String
-  encryptedApiKey String           @db.Text
-  apiKeyHint      String
-  authType        ProviderAuthType @default(BEARER)
-  enabled         Boolean          @default(true)
-  isDefault       Boolean          @default(false)
-  customHeaders   Json?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String            @id @default(cuid())
+  userId            String
+  name              String
+  templateId        String?
+  providerType      ProviderType
+  baseUrl           String
+  encryptedApiKey   String            @db.Text
+  apiKeyHint        String
+  authType          ProviderAuthType  @default(BEARER)
+  enabled           Boolean           @default(true)
+  isDefault         Boolean           @default(false)
+  priority          Int               @default(0)
+  weight            Int               @default(100)
+  customHeaders     Json?
+  lastHealthStatus  String?
+  lastHealthMessage String            @default("") @db.Text
+  lastHealthAt      DateTime?
+  lastSuccessAt     DateTime?
+  lastFailureAt     DateTime?
+  cooldownUntil     DateTime?
+  lastUsedAt        DateTime?
+  lastRotatedAt     DateTime?
+  expiresAt         DateTime?
+  totalRequests     Int               @default(0)
+  totalFailures     Int               @default(0)
+  inputTokens       BigInt            @default(0)
+  outputTokens      BigInt            @default(0)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template          ProviderTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  modelRoutes       UserModelRoute[]
+  generationJobs    GenerationJob[]
 
   @@unique([userId, name])
   @@index([userId, enabled])
+  @@index([templateId])
+}
+
+model UserModel {
+  id              String           @id @default(cuid())
+  userId          String
+  vendorId        String?
+  key             String
+  displayName     String
+  description     String           @default("") @db.Text
+  capability      ModelCapability
+  apiProtocol     String           @default("openai")
+  routingStrategy String           @default("PRIORITY")
+  enabled         Boolean          @default(true)
+  isDefault       Boolean          @default(false)
+  options         Json?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor          ModelVendor?     @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  routes          UserModelRoute[]
+
+  @@unique([userId, key])
+  @@index([userId, capability, enabled])
+  @@index([vendorId])
+}
+
+model UserModelRoute {
+  id                  String            @id @default(cuid())
+  userModelId         String
+  credentialId        String
+  upstreamModel       String
+  enabled             Boolean           @default(true)
+  priority            Int               @default(0)
+  weight              Int               @default(100)
+  lastHealthStatus    String?
+  lastHealthMessage   String            @default("") @db.Text
+  lastHealthAt        DateTime?
+  consecutiveFailures Int               @default(0)
+  cooldownUntil       DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  userModel           UserModel         @relation(fields: [userModelId], references: [id], onDelete: Cascade)
+  credential          UserApiCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  generationJobs      GenerationJob[]
+
+  @@unique([userModelId, credentialId, upstreamModel])
+  @@index([userModelId, enabled])
+  @@index([credentialId, enabled])
 }
 
 model SystemSetting {
-  id                           String   @id @default("global")
-  siteName                     String   @default("Xinyue AI")
-  siteLogoUrl                  String   @default("")
-  supportUrl                   String   @default("")
-  sidebarCreationEnabled       Boolean  @default(true)
-  sidebarCommerceEnabled       Boolean  @default(true)
-  sidebarOfficeEnabled         Boolean  @default(true)
-  sidebarPromptsEnabled        Boolean  @default(true)
-  sidebarPluginsEnabled        Boolean  @default(true)
-  sidebarProjectsEnabled       Boolean  @default(true)
-  sidebarAssetsEnabled         Boolean  @default(true)
-  registrationEnabled          Boolean  @default(true)
-  emailLoginEnabled            Boolean  @default(true)
-  emailVerifyEnabled           Boolean  @default(true)
-  passwordLoginEnabled         Boolean  @default(true)
-  passwordRegistrationEnabled  Boolean  @default(true)
-  linuxDoLoginEnabled          Boolean  @default(false)
-  linuxDoClientId              String   @default("")
-  encryptedLinuxDoClientSecret String   @default("") @db.Text
-  linuxDoClientSecretHint      String   @default("")
-  linuxDoRedirectUrl           String   @default("")
-  linuxDoScopes                String   @default("user")
-  linuxDoAuthorizeUrl          String   @default("https://connect.linux.do/oauth2/authorize")
-  linuxDoTokenUrl              String   @default("https://connect.linux.do/oauth2/token")
-  linuxDoUserInfoUrl           String   @default("https://connect.linux.do/api/user")
-  sub2apiLoginEnabled          Boolean  @default(false)
-  sub2apiBaseUrl               String   @default("")
-  sub2apiClientId              String   @default("")
-  encryptedSub2apiClientSecret String   @default("") @db.Text
-  sub2apiClientSecretHint      String   @default("")
-  sub2apiRedirectUrl           String   @default("")
-  sub2apiScopes                String   @default("openid profile email")
-  sub2apiAuthorizeUrl          String   @default("")
-  sub2apiTokenUrl              String   @default("")
-  sub2apiUserInfoUrl           String   @default("")
-  allowedEmailDomains          String[] @default([])
-  otpTtlMinutes                Int      @default(10)
-  otpResendSeconds             Int      @default(60)
-  defaultUserCredits           Int      @default(8)
-  defaultTheme                 String   @default("dark")
-  defaultLanguage              String   @default("zh-CN")
-  chatUiPreset                 String   @default("gpt")
-  chatHomeContent              Json     @default("{}")
-  defaultChatModelKey          String   @default("")
-  defaultImageModelKey         String   @default("")
-  userByokEnabled              Boolean  @default(true)
-  inviteRewardCredits          Int      @default(0)
-  rechargeEnabled              Boolean  @default(false)
-  minRechargeCents             Int      @default(100)
-  currency                     String   @default("CNY")
-  creditValueMicros            Int      @default(10000)
-  subscriptionsEnabled         Boolean  @default(true)
-  trialEnabled                 Boolean  @default(true)
-  defaultTrialPlanId           String   @default("")
-  trialCredits                 Int      @default(8)
-  defaultUserGroupId           String   @default("")
-  temporaryChatRetentionHours  Int      @default(24)
-  defaultChatHistoryEnabled    Boolean  @default(true)
-  defaultTrainingOptOut        Boolean  @default(true)
-  defaultShareUsageAnalytics   Boolean  @default(false)
-  smtpEnabled                  Boolean  @default(false)
-  smtpHost                     String   @default("")
-  smtpPort                     Int      @default(465)
-  smtpSecure                   Boolean  @default(true)
-  smtpUsername                 String   @default("")
-  encryptedSmtpPassword        String   @default("") @db.Text
-  smtpPasswordHint             String   @default("")
-  smtpFromName                 String   @default("Xinyue AI")
-  smtpFromEmail                String   @default("")
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
+  id                            String   @id @default("global")
+  siteName                      String   @default("Xinyue AI")
+  siteLogoUrl                   String   @default("")
+  supportUrl                    String   @default("")
+  sidebarCreationEnabled        Boolean  @default(true)
+  sidebarCommerceEnabled        Boolean  @default(true)
+  sidebarOfficeEnabled          Boolean  @default(true)
+  sidebarPromptsEnabled         Boolean  @default(true)
+  sidebarPluginsEnabled         Boolean  @default(true)
+  sidebarProjectsEnabled        Boolean  @default(true)
+  sidebarAssetsEnabled          Boolean  @default(true)
+  registrationEnabled           Boolean  @default(true)
+  emailLoginEnabled             Boolean  @default(true)
+  emailVerifyEnabled            Boolean  @default(true)
+  passwordLoginEnabled          Boolean  @default(true)
+  passwordRegistrationEnabled   Boolean  @default(true)
+  linuxDoLoginEnabled           Boolean  @default(false)
+  linuxDoClientId               String   @default("")
+  encryptedLinuxDoClientSecret  String   @default("") @db.Text
+  linuxDoClientSecretHint       String   @default("")
+  linuxDoRedirectUrl            String   @default("")
+  linuxDoScopes                 String   @default("user")
+  linuxDoAuthorizeUrl           String   @default("https://connect.linux.do/oauth2/authorize")
+  linuxDoTokenUrl               String   @default("https://connect.linux.do/oauth2/token")
+  linuxDoUserInfoUrl            String   @default("https://connect.linux.do/api/user")
+  sub2apiLoginEnabled           Boolean  @default(false)
+  sub2apiBaseUrl                String   @default("")
+  sub2apiClientId               String   @default("")
+  encryptedSub2apiClientSecret  String   @default("") @db.Text
+  sub2apiClientSecretHint       String   @default("")
+  sub2apiRedirectUrl            String   @default("")
+  sub2apiScopes                 String   @default("openid profile email")
+  sub2apiAuthorizeUrl           String   @default("")
+  sub2apiTokenUrl               String   @default("")
+  sub2apiUserInfoUrl            String   @default("")
+  allowedEmailDomains           String[] @default([])
+  otpTtlMinutes                 Int      @default(10)
+  otpResendSeconds              Int      @default(60)
+  defaultUserCredits            Int      @default(8)
+  defaultTheme                  String   @default("dark")
+  defaultLanguage               String   @default("zh-CN")
+  chatUiPreset                  String   @default("gpt")
+  chatHomeContent               Json     @default("{}")
+  siteContent                   Json     @default("{}")
+  defaultChatModelKey           String   @default("")
+  defaultImageModelKey          String   @default("")
+  userByokEnabled               Boolean  @default(true)
+  inviteRewardCredits           Int      @default(0)
+  referralEnabled               Boolean  @default(true)
+  referralCoolingDays           Int      @default(7)
+  referralMinimumPaidCents      Int      @default(100)
+  referralMonthlyRewardLimit    Int      @default(50)
+  referralAutoApprove           Boolean  @default(true)
+  rechargeEnabled               Boolean  @default(false)
+  minRechargeCents              Int      @default(100)
+  currency                      String   @default("CNY")
+  creditValueMicros             Int      @default(10000)
+  modelImportMarkupPercent      Int      @default(130)
+  modelPriceCatalogUrl          String   @default("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json") @db.Text
+  modelPriceCatalogRefreshHours Int      @default(12)
+  subscriptionsEnabled          Boolean  @default(true)
+  trialEnabled                  Boolean  @default(true)
+  defaultTrialPlanId            String   @default("")
+  trialCredits                  Int      @default(8)
+  defaultUserGroupId            String   @default("")
+  temporaryChatRetentionHours   Int      @default(24)
+  defaultChatHistoryEnabled     Boolean  @default(true)
+  defaultTrainingOptOut         Boolean  @default(true)
+  defaultShareUsageAnalytics    Boolean  @default(false)
+  smtpEnabled                   Boolean  @default(false)
+  smtpHost                      String   @default("")
+  smtpPort                      Int      @default(465)
+  smtpSecure                    Boolean  @default(true)
+  smtpUsername                  String   @default("")
+  encryptedSmtpPassword         String   @default("") @db.Text
+  smtpPasswordHint              String   @default("")
+  smtpFromName                  String   @default("Xinyue AI")
+  smtpFromEmail                 String   @default("")
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
 }
 
 model AlertRule {
@@ -1187,76 +1627,220 @@ model ExternalNavLink {
 }
 
 model SubscriptionPlan {
-  id                 String              @id @default(cuid())
-  code               String              @unique
+  id                 String               @id @default(cuid())
+  code               String               @unique
   name               String
-  description        String              @default("") @db.Text
-  billingCycle       PlanBillingCycle    @default(MONTHLY)
-  priceCents         Int                 @default(0)
+  description        String               @default("") @db.Text
+  billingCycle       PlanBillingCycle     @default(MONTHLY)
+  priceCents         Int                  @default(0)
   originalPriceCents Int?
-  currency           String              @default("CNY")
-  includedCredits    Int                 @default(0)
-  trialDays          Int                 @default(0)
-  concurrency        Int                 @default(1)
-  allowByok          Boolean             @default(true)
-  apiAccess          Boolean             @default(false)
-  imageAccess        Boolean             @default(true)
-  videoAccess        Boolean             @default(false)
-  commerceAccess     Boolean             @default(false)
-  batchAccess        Boolean             @default(false)
-  enabled            Boolean             @default(true)
-  recommended        Boolean             @default(false)
-  sortOrder          Int                 @default(0)
+  currency           String               @default("CNY")
+  includedCredits    Int                  @default(0)
+  trialDays          Int                  @default(0)
+  concurrency        Int                  @default(1)
+  allowByok          Boolean              @default(true)
+  apiAccess          Boolean              @default(false)
+  imageAccess        Boolean              @default(true)
+  videoAccess        Boolean              @default(false)
+  commerceAccess     Boolean              @default(false)
+  batchAccess        Boolean              @default(false)
+  enabled            Boolean              @default(true)
+  recommended        Boolean              @default(false)
+  sortOrder          Int                  @default(0)
   capabilities       Json?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   subscriptions      UserSubscription[]
   orders             SubscriptionOrder[]
+  promotionProducts  PromotionPlan[]
+  couponProducts     CouponTemplatePlan[]
 
   @@index([enabled, sortOrder])
 }
 
 model UserSubscription {
-  id                 String             @id @default(cuid())
-  userId             String
-  planId             String
-  status             SubscriptionStatus @default(ACTIVE)
-  startsAt           DateTime           @default(now())
-  currentPeriodStart DateTime           @default(now())
-  currentPeriodEnd   DateTime?
-  trialEndsAt        DateTime?
-  cancelAtPeriodEnd  Boolean            @default(false)
-  cancelledAt        DateTime?
-  endedAt            DateTime?
-  metadata           Json?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan               SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id                   String                       @id @default(cuid())
+  userId               String
+  planId               String
+  status               SubscriptionStatus           @default(ACTIVE)
+  startsAt             DateTime                     @default(now())
+  currentPeriodStart   DateTime                     @default(now())
+  currentPeriodEnd     DateTime?
+  trialEndsAt          DateTime?
+  cancelAtPeriodEnd    Boolean                      @default(false)
+  autoRenewEnabled     Boolean                      @default(false)
+  renewalChannelId     String?
+  nextRenewalAt        DateTime?
+  graceEndsAt          DateTime?
+  renewalFailureCount  Int                          @default(0)
+  lastRenewalAttemptAt DateTime?
+  cancelledAt          DateTime?
+  endedAt              DateTime?
+  metadata             Json?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  user                 User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan             @relation(fields: [planId], references: [id], onDelete: Restrict)
+  renewalChannel       PaymentChannel?              @relation(fields: [renewalChannelId], references: [id], onDelete: SetNull)
+  renewalAttempts      SubscriptionRenewalAttempt[]
 
   @@index([userId, status, createdAt])
   @@index([planId, status])
+  @@index([autoRenewEnabled, nextRenewalAt])
+  @@index([renewalChannelId])
+}
+
+model SubscriptionRenewalAttempt {
+  id             String               @id @default(cuid())
+  subscriptionId String
+  status         RenewalAttemptStatus @default(SCHEDULED)
+  attemptNumber  Int                  @default(1)
+  idempotencyKey String               @unique
+  orderId        String?
+  transactionId  String?
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  nextRetryAt    DateTime?
+  failureReason  String               @default("") @db.Text
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  subscription   UserSubscription     @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, createdAt])
+  @@index([status, scheduledAt])
+  @@index([status, nextRetryAt])
 }
 
 model SubscriptionOrder {
-  id              String                  @id @default(cuid())
-  userId          String
-  planId          String
-  status          SubscriptionOrderStatus @default(PENDING)
-  amountCents     Int
-  currency        String                  @default("CNY")
-  paymentMethod   String                  @default("")
-  externalOrderId String?                 @unique
-  paidAt          DateTime?
-  cancelledAt     DateTime?
-  metadata        Json?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan            SubscriptionPlan        @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id                     String                  @id @default(cuid())
+  userId                 String
+  planId                 String
+  status                 SubscriptionOrderStatus @default(PENDING)
+  amountCents            Int
+  originalAmountCents    Int
+  promotionDiscountCents Int                     @default(0)
+  couponDiscountCents    Int                     @default(0)
+  currency               String                  @default("CNY")
+  paymentMethod          String                  @default("")
+  externalOrderId        String?                 @unique
+  paidAt                 DateTime?
+  cancelledAt            DateTime?
+  metadata               Json?
+  priceSnapshot          Json?
+  promotionId            String?
+  userCouponId           String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                   SubscriptionPlan        @relation(fields: [planId], references: [id], onDelete: Restrict)
+  promotion              PromotionCampaign?      @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  userCoupon             UserCoupon?             @relation(fields: [userCouponId], references: [id], onDelete: SetNull)
+  couponRedemption       CouponRedemption?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([promotionId, createdAt])
+  @@index([userCouponId])
+}
+
+model PromotionCampaign {
+  id        String              @id @default(cuid())
+  name      String
+  label     String              @default("")
+  enabled   Boolean             @default(true)
+  startsAt  DateTime
+  endsAt    DateTime
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  products  PromotionPlan[]
+  orders    SubscriptionOrder[]
+
+  @@index([enabled, startsAt, endsAt])
+}
+
+model PromotionPlan {
+  campaignId            String
+  planId                String
+  promotionalPriceCents Int
+  campaign              PromotionCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  plan                  SubscriptionPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, planId])
+  @@index([planId])
+}
+
+model CouponTemplate {
+  id                   String               @id @default(cuid())
+  code                 String               @unique
+  name                 String
+  description          String               @default("") @db.Text
+  discountType         CouponDiscountType
+  discountValue        Int
+  minimumSpendCents    Int                  @default(0)
+  maximumDiscountCents Int?
+  stackWithPromotion   Boolean              @default(true)
+  claimEnabled         Boolean              @default(true)
+  enabled              Boolean              @default(true)
+  totalLimit           Int?
+  perUserLimit         Int                  @default(1)
+  validDays            Int?
+  startsAt             DateTime?
+  endsAt               DateTime?
+  issuedCount          Int                  @default(0)
+  redeemedCount        Int                  @default(0)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  products             CouponTemplatePlan[]
+  userCoupons          UserCoupon[]
+
+  @@index([enabled, claimEnabled, startsAt, endsAt])
+}
+
+model CouponTemplatePlan {
+  templateId String
+  planId     String
+  template   CouponTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  plan       SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, planId])
+  @@index([planId])
+}
+
+model UserCoupon {
+  id            String              @id @default(cuid())
+  userId        String
+  templateId    String
+  status        UserCouponStatus    @default(AVAILABLE)
+  validFrom     DateTime            @default(now())
+  expiresAt     DateTime?
+  lockedOrderId String?             @unique
+  lockedAt      DateTime?
+  redeemedAt    DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template      CouponTemplate      @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  orders        SubscriptionOrder[]
+  redemption    CouponRedemption?
+
+  @@index([userId, status, expiresAt])
+  @@index([templateId, userId, createdAt])
+}
+
+model CouponRedemption {
+  id            String                 @id @default(cuid())
+  userCouponId  String                 @unique
+  orderId       String                 @unique
+  discountCents Int
+  status        CouponRedemptionStatus @default(REDEEMED)
+  redeemedAt    DateTime               @default(now())
+  refundedAt    DateTime?
+  userCoupon    UserCoupon             @relation(fields: [userCouponId], references: [id], onDelete: Restrict)
+  order         SubscriptionOrder      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([status, redeemedAt])
 }
 
 model RechargePackage {
@@ -1299,28 +1883,29 @@ model RechargeOrder {
 }
 
 model PaymentChannel {
-  id               String                @id @default(cuid())
-  name             String
-  providerKey      String
-  enabled          Boolean               @default(false)
-  isDefault        Boolean               @default(false)
-  supportedMethods String[]              @default([])
-  minAmountCents   Int                   @default(100)
-  maxAmountCents   Int?
-  dailyLimitCents  Int?
-  feeRateBps       Int                   @default(0)
-  sortOrder        Int                   @default(0)
-  publicConfig     Json?
-  encryptedSecrets String                @default("") @db.Text
-  secretHints      Json?
-  lastHealthStatus String                @default("unchecked")
-  lastError        String                @default("") @db.Text
-  lastCheckedAt    DateTime?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  transactions     PaymentTransaction[]
-  webhookEvents    PaymentWebhookEvent[]
-  refunds          PaymentRefund[]
+  id                   String                @id @default(cuid())
+  name                 String
+  providerKey          String
+  enabled              Boolean               @default(false)
+  isDefault            Boolean               @default(false)
+  supportedMethods     String[]              @default([])
+  minAmountCents       Int                   @default(100)
+  maxAmountCents       Int?
+  dailyLimitCents      Int?
+  feeRateBps           Int                   @default(0)
+  sortOrder            Int                   @default(0)
+  publicConfig         Json?
+  encryptedSecrets     String                @default("") @db.Text
+  secretHints          Json?
+  lastHealthStatus     String                @default("unchecked")
+  lastError            String                @default("") @db.Text
+  lastCheckedAt        DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  transactions         PaymentTransaction[]
+  webhookEvents        PaymentWebhookEvent[]
+  refunds              PaymentRefund[]
+  renewalSubscriptions UserSubscription[]
 
   @@index([enabled, sortOrder])
   @@index([providerKey, enabled])
@@ -1353,12 +1938,55 @@ model PaymentTransaction {
   channel             PaymentChannel        @relation(fields: [channelId], references: [id], onDelete: Restrict)
   webhookEvents       PaymentWebhookEvent[]
   refunds             PaymentRefund[]
+  invoiceRequest      InvoiceRequest?
+  qualifyingReferral  Invitation?           @relation("ReferralQualifyingTransaction")
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([channelId, createdAt])
   @@index([subscriptionOrderId])
   @@index([rechargeOrderId])
+}
+
+model BillingProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  profileType  String   @default("COMPANY")
+  title        String
+  taxId        String   @default("")
+  invoiceEmail String
+  phone        String   @default("")
+  address      String   @default("") @db.Text
+  bankName     String   @default("")
+  bankAccount  String   @default("")
+  isDefault    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model InvoiceRequest {
+  id              String             @id @default(cuid())
+  userId          String
+  transactionId   String             @unique
+  status          InvoiceStatus      @default(REQUESTED)
+  profileSnapshot Json
+  amountCents     Int
+  currency        String             @default("CNY")
+  invoiceType     String             @default("ELECTRONIC_NORMAL")
+  invoiceNumber   String             @default("")
+  invoiceUrl      String             @default("") @db.Text
+  rejectionReason String             @default("") @db.Text
+  requestedAt     DateTime           @default(now())
+  reviewedAt      DateTime?
+  issuedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transaction     PaymentTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 model PaymentWebhookEvent {
@@ -1417,34 +2045,43 @@ model MessageAsset {
 }
 
 model GenerationJob {
-  id                 String           @id @default(cuid())
+  id                 String             @id @default(cuid())
   userId             String
   projectId          String?
   conversationId     String?
+  billingTeamId      String?
   kind               JobKind
-  status             JobStatus        @default(QUEUED)
+  status             JobStatus          @default(QUEUED)
   provider           String
   providerChannelId  String?
+  userCredentialId   String?
+  userModelRouteId   String?
+  priceVersionId     String?
   model              String
-  prompt             String           @db.Text
+  prompt             String             @db.Text
   options            Json
   creditCost         Int
-  revenueMicros      Int              @default(0)
-  upstreamCostMicros Int              @default(0)
-  inputTokens        Int              @default(0)
-  outputTokens       Int              @default(0)
-  idempotencyKey     String?          @unique
+  revenueMicros      Int                @default(0)
+  upstreamCostMicros Int                @default(0)
+  pricingSnapshot    Json?
+  inputTokens        Int                @default(0)
+  outputTokens       Int                @default(0)
+  idempotencyKey     String?            @unique
   providerJobId      String?
   errorCode          String?
-  errorMessage       String?          @db.Text
+  errorMessage       String?            @db.Text
   startedAt          DateTime?
   completedAt        DateTime?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project            Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  conversation       Conversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  providerChannel    ProviderChannel? @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project            Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  conversation       Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  providerChannel    ProviderChannel?   @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
+  userCredential     UserApiCredential? @relation(fields: [userCredentialId], references: [id], onDelete: SetNull)
+  userModelRoute     UserModelRoute?    @relation(fields: [userModelRouteId], references: [id], onDelete: SetNull)
+  priceVersion       ModelPriceVersion? @relation(fields: [priceVersionId], references: [id], onDelete: SetNull)
+  billingTeam        Team?              @relation("TeamBilledJobs", fields: [billingTeamId], references: [id], onDelete: SetNull)
   outputs            JobOutput[]
   pluginUsage        PluginUsage?
   agentTask          AgentTask?
@@ -1453,6 +2090,10 @@ model GenerationJob {
   @@index([status, createdAt])
   @@index([completedAt, status])
   @@index([providerChannelId])
+  @@index([userCredentialId, createdAt])
+  @@index([userModelRouteId, createdAt])
+  @@index([priceVersionId])
+  @@index([billingTeamId, createdAt])
 }
 
 model AgentTask {
@@ -1538,6 +2179,14 @@ model AgentRun {
   currentNode      String          @default("prepare")
   iteration        Int             @default(0)
   maxIterations    Int             @default(3)
+  maxToolCalls     Int             @default(16)
+  maxSearchQueries Int             @default(8)
+  maxCreditCost    Int             @default(100)
+  timeoutSeconds   Int             @default(900)
+  toolCallCount    Int             @default(0)
+  searchQueryCount Int             @default(0)
+  creditCost       Int             @default(0)
+  deadlineAt       DateTime?
   plan             Json?
   context          Json?
   verifierFeedback String          @default("") @db.Text
@@ -1641,16 +2290,85 @@ model Notification {
   @@index([userId, readAt, createdAt])
 }
 
+model NotificationTemplate {
+  id                     String                @id @default(cuid())
+  key                    String                @unique
+  name                   String
+  description            String                @default("") @db.Text
+  titleTemplate          String
+  bodyTemplate           String                @db.Text
+  channels               NotificationChannel[] @default([IN_APP])
+  enabled                Boolean               @default(true)
+  webhookUrl             String                @default("") @db.Text
+  encryptedWebhookSecret String                @default("") @db.Text
+  webhookSecretHint      String                @default("")
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  @@index([enabled, key])
+}
+
+model NotificationDelivery {
+  id          String                     @id @default(cuid())
+  templateKey String
+  userId      String?
+  channel     NotificationChannel
+  recipient   String                     @default("")
+  status      NotificationDeliveryStatus @default(PENDING)
+  title       String
+  body        String                     @db.Text
+  metadata    Json?
+  attempts    Int                        @default(0)
+  lastError   String                     @default("") @db.Text
+  sentAt      DateTime?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  user        User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([templateKey, createdAt])
+}
+
+model ReferralCode {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  code      String   @unique
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, createdAt])
+}
+
 model Invitation {
-  id         String    @id @default(cuid())
-  inviterId  String
-  inviteeId  String?   @unique
-  code       String    @unique
-  reward     Int       @default(0)
-  rewardedAt DateTime?
-  createdAt  DateTime  @default(now())
-  inviter    User      @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
-  invitee    User?     @relation("Invitee", fields: [inviteeId], references: [id], onDelete: SetNull)
+  id                      String              @id @default(cuid())
+  inviterId               String
+  inviteeId               String              @unique
+  code                    String
+  status                  ReferralStatus      @default(REGISTERED)
+  qualifyingTransactionId String?             @unique
+  qualifiedAmountCents    Int                 @default(0)
+  reward                  Int                 @default(0)
+  payableAt               DateTime?
+  rewardedAt              DateTime?
+  reversedAt              DateTime?
+  reviewedAt              DateTime?
+  reviewedById            String?
+  reviewReason            String              @default("") @db.Text
+  riskFlags               Json?
+  registrationIpHash      String              @default("")
+  registrationAgentHash   String              @default("")
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  inviter                 User                @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee                 User                @relation("Invitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  qualifyingTransaction   PaymentTransaction? @relation("ReferralQualifyingTransaction", fields: [qualifyingTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([inviterId, status, createdAt])
+  @@index([status, payableAt])
+  @@index([code, createdAt])
 }
 
 model RedemptionCode {
@@ -1743,10 +2461,44 @@ model ModerationEvent {
   resolvedAt     DateTime?
   createdAt      DateTime              @default(now())
   user           User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  appeal         ModerationAppeal?
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
   @@index([source, action, createdAt])
+}
+
+model ModerationAppeal {
+  id           String                    @id @default(cuid())
+  eventId      String                    @unique
+  userId       String
+  status       ModerationAppealStatus    @default(PENDING)
+  reason       String                    @db.Text
+  reviewNote   String                    @default("") @db.Text
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  event        ModerationEvent           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user         User                      @relation("ModerationAppealUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?                     @relation("ModerationAppealReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  history      ModerationAppealHistory[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ModerationAppealHistory {
+  id        String                 @id @default(cuid())
+  appealId  String
+  actorId   String?
+  status    ModerationAppealStatus
+  note      String                 @default("") @db.Text
+  createdAt DateTime               @default(now())
+  appeal    ModerationAppeal       @relation(fields: [appealId], references: [id], onDelete: Cascade)
+  actor     User?                  @relation("ModerationAppealHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([appealId, createdAt])
 }
 
 model SupportTicket {
@@ -1806,4 +2558,117 @@ model ContentPage {
 
   @@index([published, sortOrder, updatedAt])
   @@index([category, published])
+}
+
+model PublishedWork {
+  id                 String                 @id @default(cuid())
+  userId             String
+  slug               String                 @unique
+  sourceType         String                 @default("ASSET")
+  sourceId           String?
+  lifecycleStatus    WorkLifecycleStatus    @default(ACTIVE)
+  currentVersionId   String?                @unique
+  publishedVersionId String?                @unique
+  isFeatured         Boolean                @default(false)
+  featuredAt         DateTime?
+  viewCount          Int                    @default(0)
+  likeCount          Int                    @default(0)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentVersion     PublishedWorkVersion?  @relation("WorkCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  publishedVersion   PublishedWorkVersion?  @relation("WorkPublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  versions           PublishedWorkVersion[] @relation("WorkVersions")
+  likes              WorkLike[]
+  reports            WorkReport[]
+
+  @@index([userId, updatedAt])
+  @@index([lifecycleStatus, isFeatured, featuredAt])
+  @@index([lifecycleStatus, viewCount, updatedAt])
+}
+
+model PublishedWorkVersion {
+  id               String               @id @default(cuid())
+  workId           String
+  versionNumber    Int
+  title            String
+  description      String               @default("") @db.Text
+  category         String               @default("")
+  tags             String[]             @default([])
+  visibility       WorkVisibility       @default(PRIVATE)
+  authorDisplay    WorkAuthorDisplay    @default(PROFILE)
+  customAuthor     String               @default("")
+  publicPrompt     String               @default("") @db.Text
+  moderationStatus WorkModerationStatus @default(DRAFT)
+  rejectionReason  String               @default("") @db.Text
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedById     String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  work             PublishedWork        @relation("WorkVersions", fields: [workId], references: [id], onDelete: Cascade)
+  currentFor       PublishedWork?       @relation("WorkCurrentVersion")
+  publishedFor     PublishedWork?       @relation("WorkPublishedVersion")
+  reviewedBy       User?                @relation("WorkVersionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  assets           PublishedWorkAsset[]
+
+  @@unique([workId, versionNumber])
+  @@index([moderationStatus, submittedAt])
+  @@index([visibility, reviewedAt])
+  @@index([category, reviewedAt])
+  @@index([tags], type: Gin)
+}
+
+model PublishedWorkAsset {
+  versionId String
+  assetId   String
+  role      WorkAssetRole        @default(CONTENT)
+  sortOrder Int                  @default(0)
+  caption   String               @default("")
+  version   PublishedWorkVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  asset     Asset                @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([versionId, assetId])
+  @@index([assetId])
+}
+
+model WorkLike {
+  workId    String
+  userId    String
+  createdAt DateTime      @default(now())
+  work      PublishedWork @relation(fields: [workId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workId, userId])
+  @@index([userId, createdAt])
+}
+
+model UserFollow {
+  followerId String
+  followedId String
+  createdAt  DateTime @default(now())
+  follower   User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  followed   User     @relation("UserFollowers", fields: [followedId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followedId])
+  @@index([followedId, createdAt])
+}
+
+model WorkReport {
+  id           String           @id @default(cuid())
+  workId       String
+  reporterId   String
+  reason       String
+  details      String           @default("") @db.Text
+  status       WorkReportStatus @default(PENDING)
+  resolution   String           @default("") @db.Text
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime         @default(now())
+  work         PublishedWork    @relation(fields: [workId], references: [id], onDelete: Cascade)
+  reporter     User             @relation("WorkReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy   User?            @relation("WorkReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([workId, reporterId])
 }

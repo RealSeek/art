@@ -6,7 +6,7 @@ const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
 
 const routes = [
   ['dashboard/console', '工作台'], ['dashboard/analysis', '分析页'], ['dashboard/ecommerce', '电子商务'],
-  ['enterprise/customers/users', '客户管理'], ['enterprise/customers/groups', '用户分组'], ['enterprise/customers/credits', '额度流水'],
+  ['enterprise/customers/users', '客户管理'], ['enterprise/customers/groups', '用户分组'], ['enterprise/customers/teams', '团队与成员'], ['enterprise/customers/credits', '额度流水'],
   ['enterprise/ai/providers', '上游渠道'], ['enterprise/ai/models', '模型与定价'], ['enterprise/ai/jobs', '生成任务'],
   ['enterprise/content/inspirations', '灵感内容'], ['enterprise/content/image-tools', '图片工具'],
   ['enterprise/content/prompt-templates', '提示词模板'], ['enterprise/content/prompt-library', '提示词库'],
@@ -17,7 +17,10 @@ const routes = [
   ['enterprise/workspace/assets', '文件与资产'], ['enterprise/workspace/projects', '项目与工作流'],
   ['enterprise/workspace/external-links', '外部入口'],
   ['enterprise/commerce/subscriptions', '订阅与套餐'], ['enterprise/commerce/payments', '商业化中心'],
-  ['enterprise/operations/announcements', '公告管理'], ['enterprise/operations/moderation-rules', '审核规则'],
+  ['enterprise/commerce/margins', '成本与毛利'], ['enterprise/commerce/byok', '用户密钥运营'],
+  ['enterprise/commerce/governance', '商业治理'],
+  ['enterprise/operations/announcements', '公告管理'], ['enterprise/operations/notification-templates', '通知模板'],
+  ['enterprise/operations/notification-deliveries', '通知投递'], ['enterprise/operations/moderation-rules', '审核规则'],
   ['enterprise/operations/moderation', '内容审核'], ['enterprise/operations/support', '客服工单'],
   ['enterprise/operations/alerts', '告警中心'], ['enterprise/operations/alert-rules', '告警规则'],
   ['enterprise/operations/logins', '登录会话'], ['enterprise/operations/audits', '审计日志'],

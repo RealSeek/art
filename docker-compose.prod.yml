@@ -26,19 +26,112 @@ services:
       timeout: 3s
       retries: 30
 
+  dailyhot:
+    image: imsyy/dailyhot-api:latest
+    profiles: ["recommendations"]
+    restart: unless-stopped
+    environment:
+      PORT: "6688"
+      ALLOWED_DOMAIN: "*"
+      DISALLOW_ROBOT: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "2"
+      CACHE_TTL: "1800"
+      REQUEST_TIMEOUT: "6000"
+      USE_LOG_FILE: "false"
+      RSS_MODE: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  image-worker:
+    build:
+      context: ./workers/image-tools
+    profiles: ["image-tools"]
+    restart: unless-stopped
+    environment:
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
+      RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
+      REMBG_MODEL: ${LOCAL_WORKER_REMBG_MODEL:-u2net}
+    volumes:
+      - xinyue_worker_models:/home/worker/.u2net
+      - xinyue_worker_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  iopaint-worker:
+    build:
+      context: ./workers/iopaint
+    profiles: ["iopaint"]
+    restart: unless-stopped
+    environment:
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
+      RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
+      IOPAINT_MODEL: ${LOCAL_WORKER_IOPAINT_MODEL:-lama}
+      DEVICE: ${LOCAL_WORKER_IOPAINT_DEVICE:-cpu}
+    volumes:
+      - xinyue_iopaint_models:/models
+      - xinyue_iopaint_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  realesrgan-worker:
+    build:
+      context: ./workers/realesrgan
+    profiles: ["realesrgan"]
+    restart: unless-stopped
+    environment:
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
+      RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
+      DEVICE: ${LOCAL_WORKER_REALESRGAN_DEVICE:-cpu}
+      REALESRGAN_TILE: ${LOCAL_WORKER_REALESRGAN_TILE:-0}
+    volumes:
+      - xinyue_realesrgan_models:/models
+      - xinyue_realesrgan_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  comfyui-gateway:
+    build:
+      context: ./workers/comfyui-gateway
+    profiles: ["comfyui"]
+    restart: unless-stopped
+    environment:
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
+      RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
+      COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      COMFYUI_TIMEOUT_SECONDS: ${COMFYUI_TIMEOUT_SECONDS:-600}
+    volumes:
+      - ${COMFYUI_WORKFLOW_DIR:-./workers/comfyui-gateway/workflows}:/workflows:ro
+      - xinyue_comfyui_gateway_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
   backend:
     build:
       context: ./server
     restart: unless-stopped
     env_file:
       - .env.production
-    environment:
-      INSTALL_ENV_PATH: /app/config/.env
-      INSTALL_ENV_OVERRIDE: "true"
-      INSTALL_AUTO_RESTART: "true"
     volumes:
       - xinyue_uploads:/app/uploads
-      - xinyue_config:/app/config
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,4 +157,10 @@ volumes:
   xinyue_postgres:
   xinyue_redis:
   xinyue_uploads:
-  xinyue_config:
+  xinyue_worker_models:
+  xinyue_worker_data:
+  xinyue_iopaint_models:
+  xinyue_iopaint_data:
+  xinyue_realesrgan_models:
+  xinyue_realesrgan_data:
+  xinyue_comfyui_gateway_data:

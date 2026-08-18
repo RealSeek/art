@@ -12,7 +12,8 @@ Xinyue AI 是面向团队和商业运营的 AI 工作平台，包含用户工作
 - 提示词灵感库、技能市场、助手、工具授权、项目和团队协作
 - 套餐、充值、兑换码、额度流水、用户分组和支付渠道
 - 企业管理后台、内容审核、审计日志、运营告警和系统健康检查
-- 首次安装向导、Docker Compose 部署和数据库自动迁移
+- Docker Compose 部署、数据库自动迁移和幂等管理员初始化
+- 可选独立图片工具 Worker，当前可自托管 rembg 智能抠图
 
 ## 技术架构
 
@@ -24,14 +25,14 @@ Browser
      -> NestJS API /v1/*
         -> PostgreSQL 17
         -> Redis 7 / BullMQ
-        -> persistent uploads
+        -> local or S3-compatible asset storage
 ```
 
 - 用户端：Vue 3、TypeScript、Vite、Pinia
 - 管理端：Art Design Pro、Vue 3、Element Plus
 - 服务端：NestJS、Fastify、Prisma、PostgreSQL、Redis、BullMQ、LangGraph.js
 
-更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+当前功能状态、真实缺口和后续顺序见 [项目审计与后续执行基线](docs/PROJECT_AUDIT_AND_NEXT_STEPS.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
 
 ## 本地开发
 
@@ -42,10 +43,7 @@ npm ci
 npm --prefix server ci
 pnpm --dir admin install --frozen-lockfile
 docker compose up -d
-Copy-Item server/.env.example server/.env
-npm --prefix server run prisma:generate
-npm --prefix server run prisma:deploy
-npm --prefix server run admin:seed
+npm run setup:dev
 ```
 
 在三个终端分别运行：
@@ -60,7 +58,7 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-请在启动前替换 `server/.env` 中的默认管理员密码、会话密钥和凭据加密密钥。
+`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。请在启动前替换其中的默认管理员密码、会话密钥和凭据加密密钥。
 
 ## 生产部署
 
@@ -70,7 +68,19 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend
 ```
 
-首次部署访问 `http://服务器地址/install` 完成数据库、站点和超级管理员配置。生产环境必须配置域名、HTTPS、`WEB_ORIGIN=https://你的域名` 和 `COOKIE_SECURE=true`。具体参数及升级、备份、回滚步骤见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+首次部署由后端自动执行迁移和幂等初始化，不存在公开 `/install` 页面。生产环境必须配置管理员账户、两个独立密钥、域名、HTTPS、`WEB_ORIGIN=https://你的域名` 和 `COOKIE_SECURE=true`。本地盘/S3 存储、可选热点服务、升级、备份和回滚步骤见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+
+生产备份和恢复使用仓库内的可校验命令：`npm run backup:production` 与 `npm run restore:production -- --source=<备份目录> --confirm`。脚本覆盖 PostgreSQL、Redis、上传文件和生产配置，并在恢复前校验 SHA-256。
+
+可选 rembg 图片工具使用独立容器启动，不会把 ONNX 模型放入主 API 镜像：
+
+```powershell
+docker compose --profile image-tools --env-file .env.production -f docker-compose.prod.yml up -d --build image-worker
+```
+
+Worker 协议和管理端绑定方法见 [docs/LOCAL_WORKER_PROTOCOL.md](docs/LOCAL_WORKER_PROTOCOL.md)。
+
+可选的 IOPaint、Real-ESRGAN 和受控 ComfyUI 网关使用独立 profile：`iopaint`、`realesrgan`、`comfyui`。它们不会进入主 API 镜像；具体环境变量、白名单工作流和预热要求见 [部署文档](docs/DEPLOYMENT.md)。
 
 ## 质量验证
 

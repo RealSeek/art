@@ -25,7 +25,8 @@
             ><strong>{{ row.displayName }}</strong
             ><ElTag v-if="row.badge" size="small" class="badge">{{ row.badge }}</ElTag
             ><small class="block-note"
-              >{{ row.key }}<template v-if="row.isDefault"> · {{ xt('默认模型') }}</template></small
+              >{{ row.vendor?.name || xt('未分组') }} · {{ row.key
+              }}<template v-if="row.isDefault"> · {{ xt('默认模型') }}</template></small
             ></template
           ></ElTableColumn
         >
@@ -102,7 +103,15 @@
                 v-model.trim="editor.displayName"
                 placeholder="GPT-4.1" /></ElFormItem></ElCol></ElRow
         ><ElRow :gutter="14"
-          ><ElCol :span="8"
+          ><ElCol :span="6"
+            ><ElFormItem :label="xt('模型厂商')"
+              ><ElSelect v-model="editor.vendorId" clearable class="w-full"
+                ><ElOption
+                  v-for="item in vendors"
+                  :key="item.id"
+                  :label="item.name"
+                  :value="item.id" /></ElSelect></ElFormItem></ElCol
+          ><ElCol :span="6"
             ><ElFormItem :label="xt('能力类型')"
               ><ElSelect v-model="editor.capability" class="w-full"
                 ><ElOption
@@ -110,10 +119,10 @@
                   :key="item.value"
                   :label="item.label"
                   :value="item.value" /></ElSelect></ElFormItem></ElCol
-          ><ElCol :span="8"
+          ><ElCol :span="6"
             ><ElFormItem :label="xt('角标')"
               ><ElInput v-model.trim="editor.badge" :placeholder="xt('推荐')" /></ElFormItem></ElCol
-          ><ElCol :span="8"
+          ><ElCol :span="6"
             ><ElFormItem :label="xt('排序')"
               ><ElInputNumber
                 v-model="editor.sortOrder"
@@ -142,12 +151,30 @@
                   label="Google Gemini"
                   value="gemini" /></ElSelect></ElFormItem></ElCol
           ><ElCol :span="12"
-            ><ElAlert
-              type="info"
-              :closable="false"
-              :title="
-                xt('NewAPI、Sub2API、DeepSeek、Qwen、Grok 通常选择 OpenAI Compatible。')
-              " /></ElCol></ElRow
+            ><ElFormItem :label="xt('模型原生联网')"
+              ><ElSelect v-model="editor.nativeSearchProvider" class="w-full"
+                ><ElOption :label="xt('自动继承渠道配置')" value="auto" />
+                <ElOption :label="xt('强制关闭，仅使用外部搜索')" value="disabled" />
+                <ElOption label="OpenAI Web Search" value="openai" />
+                <ElOption label="Anthropic Web Search" value="anthropic" />
+                <ElOption label="Gemini Google Search" value="gemini" />
+                <ElOption label="xAI Web Search" value="xai" />
+                <ElOption label="Qwen 联网搜索" value="qwen" />
+                <ElOption label="豆包 / 方舟联网" value="doubao" /></ElSelect></ElFormItem></ElCol></ElRow
+        ><ElAlert
+          v-if="editor.capability === 'CHAT'"
+          type="info"
+          :closable="false"
+          :title="xt('自动继承会按模型路由选择渠道配置；原生搜索失败或没有真实来源时自动进入外部搜索保底。')"
+          class="protocol-note"
+        />
+        <ElAlert
+          v-if="editor.capability === 'CHAT'"
+          type="success"
+          :closable="false"
+          :title="agentCapabilitySummary"
+          class="protocol-note"
+        />
         ><template v-if="editor.capability === 'IMAGE' || editor.capability === 'COMMERCE'"
           ><ElDivider content-position="left">{{ xt('图片模型能力') }}</ElDivider
           ><ElRow :gutter="14"
@@ -358,7 +385,8 @@
         ><ElSpace wrap
           ><ElCheckbox v-model="editor.enabled">{{ xt('前端启用') }}</ElCheckbox
           ><ElCheckbox v-model="editor.isDefault">{{ xt('设为默认模型') }}</ElCheckbox
-          ><ElCheckbox v-model="editor.allowUserKey">{{ xt('允许用户 BYOK') }}</ElCheckbox></ElSpace
+          ><ElCheckbox v-model="editor.allowUserKey">{{ xt('允许用户 BYOK') }}</ElCheckbox
+          ><ElCheckbox v-if="editor.capability === 'CHAT'" v-model="editor.agentEnabled">{{ xt('允许 Agent 任务') }}</ElCheckbox></ElSpace
         ></ElForm
       >
       <template #footer
@@ -373,7 +401,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { xinyueApi, type ModelPreset, type ModelProviderRoute, type Provider } from '@/api/xinyue'
+  import { xinyueApi, type ModelPreset, type ModelProviderRoute, type ModelVendor, type NativeSearchProvider, type Provider } from '@/api/xinyue'
   import { xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'XinyueModels' })
   type Capability = ModelPreset['capability']
@@ -399,6 +427,7 @@
     key: '',
     displayName: '',
     description: '',
+    vendorId: '',
     providerId: '',
     upstreamModel: '',
     capability: 'CHAT' as Capability,
@@ -411,6 +440,10 @@
     outputCreditsPerMillion: 0,
     badge: '',
     apiProtocol: 'openai' as 'openai' | 'anthropic' | 'gemini',
+    nativeSearchProvider: 'auto' as NativeSearchProvider | 'auto',
+    agentEnabled: true,
+    discovery: null as NonNullable<ModelPreset['options']>['discovery'] | null,
+    agentCapabilities: null as NonNullable<ModelPreset['options']>['agentCapabilities'] | null,
     imageSizes: '1024x1024, 1536x1024, 1024x1536, 2048x2048, 4096x4096',
     imageMaxCount: 4,
     supportsReference: true,
@@ -433,6 +466,7 @@
   })
   const rows = ref<ModelPreset[]>([])
   const providers = ref<Provider[]>([])
+  const vendors = ref<ModelVendor[]>([])
   const capability = ref<Capability>('CHAT')
   const loading = ref(false)
   const saving = ref(false)
@@ -467,12 +501,20 @@
     () =>
       `${capabilities.value.find((item) => item.value === capability.value)?.label || ''}${xt('模型')}`
   )
+  const agentCapabilitySummary = computed(() => {
+    const detected = editor.agentCapabilities
+    const context = detected?.contextWindow || editor.discovery?.contextWindow
+    const features = [detected?.supportsReasoning ? xt('推理') : '', detected?.supportsTools ? xt('工具调用') : '', detected?.supportsStructuredOutput ? xt('结构化输出') : ''].filter(Boolean)
+    const detail = [context ? `${Math.round(context / 1000)}K context` : '', ...features].filter(Boolean).join(' · ')
+    return `${editor.agentEnabled ? xt('已开放 Agent 任务') : xt('未开放 Agent 任务')}${detail ? ` · ${detail}` : ` · ${xt('工具由 Xinyue 服务端编排')}`}`
+  })
   async function load() {
     loading.value = true
     try {
-      ;[rows.value, providers.value] = await Promise.all([
+      ;[rows.value, providers.value, vendors.value] = await Promise.all([
         xinyueApi.models(),
-        xinyueApi.providers()
+        xinyueApi.providers(),
+        xinyueApi.modelVendors()
       ])
     } finally {
       loading.value = false
@@ -620,7 +662,12 @@
     const videoCapabilities = row.options?.videoCapabilities
     Object.assign(editor, emptyEditor(), row, {
       providerId: row.providerId || '',
+      vendorId: row.vendorId || '',
       apiProtocol: row.options?.apiProtocol || 'openai',
+      nativeSearchProvider: row.options?.nativeSearchProvider || 'auto',
+      agentEnabled: row.options?.agentEnabled !== false,
+      discovery: row.options?.discovery || null,
+      agentCapabilities: row.options?.agentCapabilities || null,
       imageSizes: imageCapabilities?.sizes?.join(', ') || emptyEditor().imageSizes,
       imageMaxCount: imageCapabilities?.maxCount || 4,
       supportsReference: imageCapabilities?.supportsReference !== false,
@@ -698,6 +745,7 @@
         key: editor.key,
         displayName: editor.displayName,
         description: editor.description,
+        vendorId: editor.vendorId || null,
         providerId: editor.providerId || null,
         upstreamModel: editor.upstreamModel,
         capability: editor.capability,
@@ -711,7 +759,15 @@
         badge: editor.badge,
         options:
           editor.capability === 'CHAT'
-            ? { apiProtocol: editor.apiProtocol }
+            ? {
+                apiProtocol: editor.apiProtocol,
+                agentEnabled: editor.agentEnabled,
+                ...(editor.discovery ? { discovery: editor.discovery } : {}),
+                ...(editor.agentCapabilities ? { agentCapabilities: { ...editor.agentCapabilities, eligible: editor.agentEnabled } } : {}),
+                ...(editor.nativeSearchProvider === 'auto'
+                  ? {}
+                  : { nativeSearchProvider: editor.nativeSearchProvider })
+              }
             : editor.capability === 'VIDEO'
               ? {
                   videoCapabilities: {

@@ -76,7 +76,7 @@ export class AgentTasksController {
       ...(task.agentRun?.toolCalls || []).flatMap((call) => [call.status, call.approvalStatus, call.updatedAt.getTime()]),
       ...task.steps.flatMap((step) => [step.status, step.updatedAt.getTime(), step.detail]),
     ].join('|')
-    return interval(300).pipe(startWith(0), switchMap(() => from(this.tasks.get(user.id, id))), distinctUntilChanged((a, b) => fingerprint(a) === fingerprint(b)), map((task) => ({ type: 'task', id: task.id, data: task })), takeWhile((event) => !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(event.data.status), true))
+    return interval(300).pipe(startWith(0), switchMap(() => from(this.tasks.get(user.id, id))), distinctUntilChanged((a, b) => fingerprint(a) === fingerprint(b)), map((task) => ({ type: 'task', id: task.id, data: task })), takeWhile((event) => !['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(event.data.status), true))
   }
 
 }

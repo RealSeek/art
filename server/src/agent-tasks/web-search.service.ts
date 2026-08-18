@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma, WebSearchChannel, WebSearchProviderType } from '@prisma/client'
+import { load } from 'cheerio'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 
 type SearchInput = { query: string; maxResults?: number; topic?: string; includeDomains?: string[]; excludeDomains?: string[]; timeoutMs?: number }
-type SearchResult = { title: string; url: string; content: string; publishedAt?: string; score?: number }
+type SearchResult = { title: string; url: string; content: string; publishedAt?: string; score?: number; source?: string }
 type ChannelInput = {
   name: string; type: WebSearchProviderType; endpoint?: string; apiKey?: string; enabled?: boolean; priority?: number
   timeoutMs?: number; maxResults?: number; config?: Record<string, unknown>; clearApiKey?: boolean
@@ -18,11 +21,42 @@ type TgmengInput = {
   recommendationLimit?: number
   cacheMinutes?: number
 }
+type DailyHotInput = {
+  endpoint?: string
+  recommendationEnabled?: boolean
+  sources?: string[]
+  recommendationLimit?: number
+  cacheMinutes?: number
+}
+type RecommendationItem = { title: string; prompt: string; targetUrl: string; source: string; category: string; publishedAt: string; sourceUrl?: string }
+type RecommendationFeed = { enabled: boolean; items: RecommendationItem[]; updatedAt?: string; stale?: boolean }
 
 const TGMENG_ENDPOINT = 'https://trendapi.tgmeng.com/api/skill/search'
 const TGMENG_CATEGORIES = ['新闻', '羊毛', '媒体', '电视', '生活', '社区', '财经', '股讯', '体育', '科技', '设计', '影音', '游戏', '健康', '教育', '期货', 'AI', '副业']
+const DAILY_HOT_DEFAULT_ENDPOINT = 'http://dailyhot:6688'
+export const DAILY_HOT_SOURCES = [
+  ['weibo', '微博'], ['zhihu', '知乎'], ['baidu', '百度'], ['douyin', '抖音'], ['bilibili', '哔哩哔哩'], ['toutiao', '今日头条'],
+  ['thepaper', '澎湃新闻'], ['qq-news', '腾讯新闻'], ['netease-news', '网易新闻'], ['sina-news', '新浪新闻'], ['36kr', '36氪'], ['huxiu', '虎嗅'],
+  ['ithome', 'IT之家'], ['sspai', '少数派'], ['juejin', '稀土掘金'], ['csdn', 'CSDN'], ['51cto', '51CTO'], ['geekpark', '极客公园'],
+  ['ifanr', '爱范儿'], ['producthunt', 'Product Hunt'], ['hackernews', 'Hacker News'], ['github', 'GitHub'], ['hellogithub', 'HelloGitHub'], ['linuxdo', 'Linux.do'],
+  ['nodeseek', 'NodeSeek'], ['v2ex', 'V2EX'], ['52pojie', '吾爱破解'], ['hostloc', '全球主机交流'], ['coolapk', '酷安'], ['tieba', '百度贴吧'],
+  ['douban-movie', '豆瓣电影'], ['douban-group', '豆瓣小组'], ['kuaishou', '快手'], ['acfun', 'AcFun'], ['hupu', '虎扑'], ['ngabbs', 'NGA'],
+  ['weread', '微信读书'], ['jianshu', '简书'], ['guokr', '果壳'], ['smzdm', '什么值得买'], ['newsmth', '水木社区'], ['nytimes', '纽约时报'],
+  ['yystv', '游研社'], ['gameres', '游戏葡萄'], ['lol', '英雄联盟'], ['miyoushe', '米游社'], ['genshin', '原神'], ['starrail', '崩坏：星穹铁道'],
+  ['honkai', '崩坏3'], ['weatheralarm', '气象预警'], ['earthquake', '地震速报'], ['history', '历史上的今天'],
+] as const
+export const DAILY_HOT_SOURCE_IDS = DAILY_HOT_SOURCES.map(([id]) => id)
+const DAILY_HOT_SOURCE_SET = new Set<string>(DAILY_HOT_SOURCE_IDS)
+const DAILY_HOT_SOURCE_LABELS = Object.fromEntries(DAILY_HOT_SOURCES)
+const DAILY_HOT_DEFAULT_SOURCES = ['weibo', 'zhihu', 'baidu', 'douyin', 'bilibili', '36kr', 'ithome', 'juejin']
+const TRACKING_QUERY_KEYS = new Set(['fbclid', 'gclid', 'dclid', 'msclkid', 'mc_cid', 'mc_eid', 'ref_src', 'spm', 'from', 'source'])
+const MAX_PAGE_BYTES = 1_000_000
+const MAX_PAGE_TEXT = 6_000
+const MAX_ENRICHED_RESULTS = 5
+const MAX_ENRICHED_TEXT = 20_000
 
 const endpoints: Record<WebSearchProviderType, string> = {
+  SEARXNG: '',
   TAVILY: 'https://api.tavily.com/search',
   SERPER: 'https://google.serper.dev/search',
   BRAVE: 'https://api.search.brave.com/res/v1/web/search',
@@ -32,13 +66,13 @@ const endpoints: Record<WebSearchProviderType, string> = {
 
 @Injectable()
 export class WebSearchService {
-  private tgmengCache: { expiresAt: number; value: Record<string, unknown> } | null = null
+  private tgmengCache: { expiresAt: number; value: RecommendationFeed } | null = null
 
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly crypto: CredentialCryptoService) {}
 
   async isAvailable() {
     const channels = await this.prisma.webSearchChannel.findMany({ where: { enabled: true, endpoint: { not: '' } } })
-    if (channels.some((channel) => (!this.isTgmeng(channel) || this.record(channel.config).fallbackEnabled === true) && (channel.type === WebSearchProviderType.CUSTOM || Boolean(channel.encryptedApiKey)))) return true
+    if (channels.some((channel) => !this.isDailyHot(channel) && (!this.isTgmeng(channel) || this.record(channel.config).fallbackEnabled === true) && (channel.type === WebSearchProviderType.CUSTOM || channel.type === WebSearchProviderType.SEARXNG || Boolean(channel.encryptedApiKey)))) return true
     const endpoint = this.config.get<string>('WEB_SEARCH_ENDPOINT') || ''
     const apiKey = this.config.get<string>('WEB_SEARCH_API_KEY') || ''
     return Boolean(endpoint && apiKey)
@@ -51,7 +85,7 @@ export class WebSearchService {
     const channels = await this.prisma.webSearchChannel.findMany({
       where: { enabled: true }, orderBy: [{ priority: 'desc' }, { consecutiveFailures: 'asc' }, { createdAt: 'asc' }],
     })
-    const eligible = channels.filter((channel) => (!this.isTgmeng(channel) || this.record(channel.config).fallbackEnabled === true) && (!channel.cooldownUntil || channel.cooldownUntil <= now))
+    const eligible = channels.filter((channel) => !this.isDailyHot(channel) && (!this.isTgmeng(channel) || this.record(channel.config).fallbackEnabled === true) && (!channel.cooldownUntil || channel.cooldownUntil <= now))
     const primaryChannels = eligible.filter((channel) => !this.isTgmeng(channel))
     const fallbackChannels = eligible.filter((channel) => this.isTgmeng(channel))
     const errors: string[] = channels.length && !eligible.length ? ['已配置渠道均处于故障冷却期'] : []
@@ -79,7 +113,66 @@ export class WebSearchService {
     throw new Error(`所有联网搜索渠道均不可用${errors.length ? `：${errors.join('；')}` : '，请在管理端配置搜索渠道'}`)
   }
 
-  list() { return this.prisma.webSearchChannel.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] }).then((rows) => rows.filter((row) => !this.isTgmeng(row)).map((row) => this.publicChannel(row))) }
+  canonicalizeUrl(value: string) { return this.normalizeWebUrl(value) }
+
+  list() { return this.prisma.webSearchChannel.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] }).then((rows) => rows.filter((row) => !this.isSystemRecommendation(row)).map((row) => this.publicChannel(row))) }
+
+  async dailyHotSettings() {
+    const row = await this.findDailyHot()
+    const config = this.record(row?.config)
+    return {
+      endpoint: row?.endpoint || DAILY_HOT_DEFAULT_ENDPOINT,
+      availableSources: DAILY_HOT_SOURCES.map(([id, name]) => ({ id, name })),
+      recommendationEnabled: config.recommendationEnabled === true,
+      sources: this.dailyHotSources(config.sources),
+      recommendationLimit: Math.min(12, Math.max(3, Number(config.recommendationLimit || 8))),
+      cacheMinutes: Math.min(1440, Math.max(5, Number(config.cacheMinutes || 30))),
+      cachedCount: Array.isArray(config.cachedItems) ? config.cachedItems.length : 0,
+      cacheUpdatedAt: typeof config.cacheUpdatedAt === 'string' ? config.cacheUpdatedAt : '',
+      lastHealthStatus: row?.lastHealthStatus || null,
+      lastHealthMessage: row?.lastHealthMessage || '',
+      lastSuccessAt: row?.lastSuccessAt || null,
+    }
+  }
+
+  async saveDailyHot(input: DailyHotInput) {
+    const current = await this.findDailyHot()
+    const currentConfig = this.record(current?.config)
+    const endpoint = (input.endpoint ?? current?.endpoint ?? DAILY_HOT_DEFAULT_ENDPOINT).trim().replace(/\/+$/, '')
+    if (!this.normalizeWebUrl(endpoint)) throw new BadRequestException('DailyHot API 地址无效')
+    const config = {
+      integration: 'dailyhot',
+      recommendationEnabled: input.recommendationEnabled ?? currentConfig.recommendationEnabled === true,
+      sources: this.dailyHotSources(input.sources ?? currentConfig.sources),
+      recommendationLimit: Math.min(12, Math.max(3, Number(input.recommendationLimit ?? currentConfig.recommendationLimit ?? 8))),
+      cacheMinutes: Math.min(1440, Math.max(5, Number(input.cacheMinutes ?? currentConfig.cacheMinutes ?? 30))),
+    }
+    const data = {
+      name: 'DailyHot 多源热榜', type: WebSearchProviderType.CUSTOM, endpoint, encryptedApiKey: '', apiKeyHint: '',
+      enabled: config.recommendationEnabled, priority: -11000, timeoutMs: 8000, maxResults: config.recommendationLimit,
+      config: config as Prisma.InputJsonValue, lastHealthStatus: null, lastHealthMessage: '', cooldownUntil: null, consecutiveFailures: 0,
+    }
+    if (current) await this.prisma.webSearchChannel.update({ where: { id: current.id }, data })
+    else await this.prisma.webSearchChannel.create({ data })
+    return this.dailyHotSettings()
+  }
+
+  async checkDailyHot() {
+    const row = await this.findDailyHot()
+    if (!row) throw new BadRequestException('请先保存 DailyHot 配置')
+    const source = this.dailyHotSources(this.record(row.config).sources)[0]
+    const started = Date.now()
+    try {
+      const output = await this.executeDailyHot(row.endpoint, source, row.timeoutMs)
+      if (!output.length) throw new Error(`${DAILY_HOT_SOURCE_LABELS[source]}没有返回内容`)
+      await this.markSuccess(row.id, output.length, `连接正常，${DAILY_HOT_SOURCE_LABELS[source]}返回 ${output.length} 条，${Date.now() - started}ms`)
+      return { healthy: true, latencyMs: Date.now() - started, resultCount: output.length, source }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '连接失败'
+      await this.markFailure(row.id, message)
+      throw new BadRequestException(message)
+    }
+  }
 
   async tgmengSettings() {
     const row = await this.findTgmeng()
@@ -143,7 +236,31 @@ export class WebSearchService {
     }
   }
 
+  async refreshTgmeng() { return this.tgmengRecommendations(true) }
+  async refreshDailyHot() { return this.dailyHotRecommendations(true) }
+
   async recommendations(force = false) {
+    const [dailyHot, tgmeng] = await Promise.all([this.dailyHotRecommendations(force), this.tgmengRecommendations(force)])
+    const items: RecommendationItem[] = []
+    const seen = new Set<string>()
+    for (const item of [...dailyHot.items, ...tgmeng.items]) {
+      const key = item.title.trim().toLocaleLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      items.push(item)
+      if (items.length >= 12) break
+    }
+    const enabled = dailyHot.enabled || tgmeng.enabled
+    return {
+      enabled,
+      items,
+      updatedAt: [dailyHot.updatedAt, tgmeng.updatedAt].filter(Boolean).sort().at(-1),
+      stale: enabled && ((dailyHot.enabled && dailyHot.stale) || (tgmeng.enabled && tgmeng.stale)),
+      providers: [dailyHot.enabled ? 'dailyhot' : '', tgmeng.enabled ? 'tgmeng' : ''].filter(Boolean),
+    }
+  }
+
+  private async tgmengRecommendations(force = false): Promise<RecommendationFeed> {
     const row = await this.findTgmeng()
     const config = this.record(row?.config)
     if (!row?.enabled || !row.encryptedApiKey || config.recommendationEnabled !== true) return { enabled: false, items: [] }
@@ -169,6 +286,58 @@ export class WebSearchService {
       this.tgmengCache = { expiresAt: Date.now() + 60_000, value }
       return value
     }
+  }
+
+  private async dailyHotRecommendations(force = false): Promise<RecommendationFeed> {
+    const row = await this.findDailyHot()
+    const config = this.record(row?.config)
+    if (!row?.enabled || config.recommendationEnabled !== true) return { enabled: false, items: [] }
+    const cacheMinutes = Math.min(1440, Math.max(5, Number(config.cacheMinutes || 30)))
+    const cachedItems = this.recommendationItems(config.cachedItems)
+    const cacheUpdatedAt = typeof config.cacheUpdatedAt === 'string' ? config.cacheUpdatedAt : ''
+    const cacheAge = cacheUpdatedAt ? Date.now() - new Date(cacheUpdatedAt).getTime() : Number.POSITIVE_INFINITY
+    if (!force && cachedItems.length && Number.isFinite(cacheAge) && cacheAge < cacheMinutes * 60_000) {
+      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt, stale: false }
+    }
+    const sources = this.dailyHotSources(config.sources)
+    const limit = Math.min(12, Math.max(3, Number(config.recommendationLimit || 8)))
+    const settled = await Promise.allSettled(sources.map(async (source) => ({ source, rows: await this.executeDailyHot(row.endpoint, source, row.timeoutMs) })))
+    const available = settled.flatMap((result) => result.status === 'fulfilled' && result.value.rows.length ? [result.value] : [])
+    if (!available.length) {
+      const errors = settled.flatMap((result) => result.status === 'rejected' ? [result.reason instanceof Error ? result.reason.message : '请求失败'] : [])
+      await this.markFailure(row.id, errors[0] || 'DailyHot 已启用的榜单均未返回内容')
+      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt || undefined, stale: true }
+    }
+    const items: RecommendationItem[] = []
+    const seen = new Set<string>()
+    for (let index = 0; items.length < limit; index += 1) {
+      let added = false
+      for (const result of available) {
+        const item = result.rows[index]
+        if (!item) continue
+        const key = item.title.trim().toLocaleLowerCase()
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        items.push({
+          title: item.title,
+          prompt: `请联网搜索并介绍这个热点：${item.title}`,
+          targetUrl: '',
+          source: DAILY_HOT_SOURCE_LABELS[result.source] || result.source,
+          category: '实时热榜',
+          publishedAt: item.publishedAt || '',
+          sourceUrl: item.url,
+        })
+        added = true
+        if (items.length >= limit) break
+      }
+      if (!added) break
+    }
+    const updatedAt = new Date().toISOString()
+    const nextConfig = { ...config, cachedItems: items, cacheUpdatedAt: updatedAt }
+    await this.prisma.webSearchChannel.update({ where: { id: row.id }, data: { config: nextConfig as Prisma.InputJsonValue } })
+    const failedCount = settled.length - available.length
+    await this.markSuccess(row.id, items.length, `已刷新 ${available.length}/${settled.length} 个榜单，共 ${items.length} 条${failedCount ? `，${failedCount} 个榜单暂不可用` : ''}`)
+    return { enabled: true, items, updatedAt, stale: false }
   }
 
   async create(input: ChannelInput) {
@@ -212,20 +381,27 @@ export class WebSearchService {
 
   async checkAll() {
     const channels = await this.prisma.webSearchChannel.findMany({ where: { enabled: true } })
-    const rows = channels.filter((row) => !this.isTgmeng(row)).map(({ id, name }) => ({ id, name }))
+    const rows = channels.filter((row) => !this.isSystemRecommendation(row)).map(({ id, name }) => ({ id, name }))
     const results = await Promise.all(rows.map(async (row) => { try { return { id: row.id, name: row.name, ...await this.check(row.id) } } catch (reason) { return { id: row.id, name: row.name, healthy: false, error: reason instanceof Error ? reason.message : '连接失败' } } }))
     return { checked: results.length, healthy: results.filter((item) => item.healthy).length, unhealthy: results.filter((item) => !item.healthy).length, results }
   }
 
   private async execute(channel: WebSearchChannel, input: SearchInput) {
-    if (this.isTgmeng(channel)) return this.executeTgmeng(channel, input)
+    if (this.isTgmeng(channel)) return this.enrichOutput(await this.executeTgmeng(channel, input))
     const apiKey = channel.encryptedApiKey ? this.crypto.decrypt(channel.encryptedApiKey) : ''
-    if (!apiKey && channel.type !== 'CUSTOM') throw new Error('未配置 API 密钥')
+    if (!apiKey && channel.type !== WebSearchProviderType.CUSTOM && channel.type !== WebSearchProviderType.SEARXNG) throw new Error('未配置 API 密钥')
     const maxResults = Math.min(20, Math.max(1, input.maxResults || channel.maxResults))
     let endpoint = channel.endpoint || endpoints[channel.type]
     if (!endpoint) throw new Error('未配置搜索地址')
     const config = this.record(channel.config)
     if (channel.type === 'BRAVE') endpoint = `${endpoint}?${new URLSearchParams({ q: input.query, count: String(maxResults), ...(input.topic === 'news' ? { freshness: 'pm' } : {}) })}`
+    if (channel.type === 'SEARXNG') {
+      const url = new URL(endpoint)
+      url.searchParams.set('q', input.query)
+      url.searchParams.set('format', 'json')
+      if (input.topic === 'news') url.searchParams.set('categories', 'news')
+      endpoint = url.toString()
+    }
     if (channel.type === 'CUSTOM' && String(config.method || 'POST').toUpperCase() === 'GET') {
       const url = new URL(endpoint)
       url.searchParams.set(String(config.queryParam || 'query'), input.query)
@@ -238,7 +414,7 @@ export class WebSearchService {
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`)
     let payload: Record<string, unknown>
     try { payload = JSON.parse(text) as Record<string, unknown> } catch { throw new Error('搜索服务返回的不是有效 JSON') }
-    return this.normalize(channel.type, payload, maxResults, config)
+    return this.enrichOutput(this.normalize(channel.type, payload, maxResults, config))
   }
 
   private async executeTgmeng(channel: WebSearchChannel, input: SearchInput) {
@@ -277,7 +453,32 @@ export class WebSearchService {
     return { results }
   }
 
+  private async executeDailyHot(endpoint: string, source: string, timeoutMs: number) {
+    const sourceId = this.dailyHotSources([source])[0]
+    const url = `${endpoint.replace(/\/+$/, '')}/${sourceId}`
+    let response: Response
+    try {
+      response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'XinyueAI/1.0' }, signal: AbortSignal.timeout(Math.min(30_000, Math.max(1000, timeoutMs))) })
+    } catch (reason) {
+      throw new Error(`${DAILY_HOT_SOURCE_LABELS[sourceId]}：${this.networkError(reason)}`)
+    }
+    const text = await response.text()
+    if (!response.ok) throw new Error(`${DAILY_HOT_SOURCE_LABELS[sourceId]}：HTTP ${response.status}: ${text.slice(0, 240)}`)
+    let payload: Record<string, unknown>
+    try { payload = JSON.parse(text) as Record<string, unknown> } catch { throw new Error(`${DAILY_HOT_SOURCE_LABELS[sourceId]}返回的不是有效 JSON`) }
+    const raw = Array.isArray(payload.data) ? payload.data : []
+    return raw.slice(0, 30).map((item) => {
+      const row = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+      return {
+        title: String(row.title || '').trim(),
+        url: this.normalizeWebUrl(String(row.url || row.mobileUrl || '')),
+        publishedAt: row.timestamp ? String(row.timestamp) : '',
+      }
+    }).filter((item) => item.title && item.url)
+  }
+
   private request(type: WebSearchProviderType, apiKey: string, input: SearchInput, maxResults: number, config: Record<string, unknown>): RequestInit {
+    if (type === 'SEARXNG') return { method: 'GET', headers: { Accept: 'application/json' } }
     if (type === 'BRAVE') {
       return { method: 'GET', headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey } }
     }
@@ -298,7 +499,8 @@ export class WebSearchService {
       : type === 'SERPER' ? (Array.isArray(payload.organic) ? payload.organic : Array.isArray(payload.news) ? payload.news : [])
       : type === 'BRAVE' ? ((payload.web as Record<string, unknown> | undefined)?.results || [])
       : Array.isArray(payload.results) ? payload.results : Array.isArray(payload.data) ? payload.data : []
-    const results = (Array.isArray(raw) ? raw : []).slice(0, maxResults).map<SearchResult>((item) => {
+    const seen = new Set<string>()
+    const results = (Array.isArray(raw) ? raw : []).slice(0, maxResults * 2).map<SearchResult>((item) => {
       const row = item && typeof item === 'object' ? item as Record<string, unknown> : {}
       const custom = type === 'CUSTOM'
       const title = custom && typeof config.titleField === 'string' ? this.atPath(row, config.titleField) : row.title ?? row.name
@@ -306,8 +508,103 @@ export class WebSearchService {
       const text = custom && typeof config.contentField === 'string' ? this.atPath(row, config.contentField) : row.content ?? row.text ?? row.snippet ?? row.description ?? ((row.contents as Record<string, unknown> | undefined)?.text)
       const published = custom && typeof config.publishedAtField === 'string' ? this.atPath(row, config.publishedAtField) : row.publishedDate ?? row.published_at ?? row.age
       return { title: String(title || url || ''), url: this.normalizeWebUrl(String(url || '')), content: String(text || '').slice(0, 3000), publishedAt: published ? String(published) : undefined, score: typeof row.score === 'number' ? row.score : undefined }
-    }).filter((item) => Boolean(item.url))
+    }).filter((item) => {
+      if (!item.url || seen.has(item.url)) return false
+      seen.add(item.url)
+      return true
+    }).slice(0, maxResults)
     return { answer, results }
+  }
+
+  private async enrichOutput<T extends { results: SearchResult[] }>(output: T): Promise<T> {
+    const candidates = output.results.slice(0, MAX_ENRICHED_RESULTS)
+    const pages = await Promise.all(candidates.map((item) => this.extractPage(item.url).catch(() => null)))
+    let remaining = MAX_ENRICHED_TEXT
+    const results = output.results.map((item, index) => {
+      const page = pages[index]
+      if (!page || remaining <= 0) return item
+      const content = page.content.slice(0, Math.min(MAX_PAGE_TEXT, remaining))
+      remaining -= content.length
+      return {
+        ...item,
+        title: page.title || item.title,
+        url: page.url,
+        content: content.length >= 160 ? content : item.content,
+        publishedAt: page.publishedAt || item.publishedAt,
+      }
+    })
+    return { ...output, results }
+  }
+
+  private async extractPage(value: string) {
+    let url = this.normalizeWebUrl(value)
+    if (!url) throw new Error('网页地址无效')
+    let response: Response | null = null
+    for (let redirect = 0; redirect <= 3; redirect += 1) {
+      await this.assertPublicHttpUrl(url)
+      response = await fetch(url, {
+        redirect: 'manual',
+        headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'XinyueAI-Search/1.0' },
+        signal: AbortSignal.timeout(6_000),
+      })
+      if (![301, 302, 303, 307, 308].includes(response.status)) break
+      const location = response.headers.get('location')
+      if (!location || redirect === 3) throw new Error('网页重定向无效')
+      url = this.normalizeWebUrl(new URL(location, url).toString())
+      if (!url) throw new Error('网页重定向地址无效')
+    }
+    if (!response?.ok) throw new Error(`网页返回 HTTP ${response?.status || 502}`)
+    const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) throw new Error('网页不是 HTML 内容')
+    const declaredSize = Number(response.headers.get('content-length') || 0)
+    if (declaredSize > MAX_PAGE_BYTES) throw new Error('网页内容过大')
+    const html = await this.readBoundedText(response, MAX_PAGE_BYTES)
+    const $ = load(html)
+    $('script,style,noscript,template,svg,canvas,iframe,form,nav,footer,aside').remove()
+    const title = String($('meta[property="og:title"]').attr('content') || $('title').first().text() || $('h1').first().text()).replace(/\s+/g, ' ').trim().slice(0, 300)
+    const publishedAt = String(
+      $('meta[property="article:published_time"]').attr('content')
+      || $('meta[name="date"]').attr('content')
+      || $('meta[name="publishdate"]').attr('content')
+      || $('time[datetime]').first().attr('datetime')
+      || '',
+    ).trim().slice(0, 100) || undefined
+    const root = $('main,article,[role="main"],.article,.post,.entry-content,.article-content').filter((_, element) => $(element).text().trim().length >= 200).first()
+    const content = (root.length ? root : $('body')).text().replace(/\s+/g, ' ').trim().slice(0, MAX_PAGE_TEXT)
+    return { title, url, content, publishedAt }
+  }
+
+  private async readBoundedText(response: Response, limit: number) {
+    if (!response.body) return (await response.text()).slice(0, limit)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let size = 0
+    let output = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > limit) { await reader.cancel(); throw new Error('网页内容超过大小限制') }
+      output += decoder.decode(value, { stream: true })
+    }
+    return output + decoder.decode()
+  }
+
+  private async assertPublicHttpUrl(value: string) {
+    const url = new URL(value)
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
+    if (!hostname || url.username || url.password || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) throw new Error('网页地址不允许访问')
+    const addresses = isIP(hostname) ? [hostname] : (await lookup(hostname, { all: true, verbatim: true })).map((item) => item.address)
+    if (!addresses.length || addresses.some((address) => this.isPrivateAddress(address))) throw new Error('网页地址解析到非公网地址')
+  }
+
+  private isPrivateAddress(value: string) {
+    const address = value.toLowerCase().replace(/^::ffff:/, '')
+    if (address.includes(':')) return address === '::' || address === '::1' || address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe8') || address.startsWith('fe9') || address.startsWith('fea') || address.startsWith('feb')
+    const parts = address.split('.').map(Number)
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true
+    const [a, b] = parts
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224
   }
 
   private async legacy(input: SearchInput) {
@@ -323,8 +620,26 @@ export class WebSearchService {
   private channelData(input: ChannelInput): Prisma.WebSearchChannelCreateInput { const apiKey = input.apiKey?.trim() || ''; const endpoint = (input.endpoint || endpoints[input.type]).trim(); if (!endpoint) throw new BadRequestException('请填写搜索地址'); return { name: input.name.trim(), type: input.type, endpoint, encryptedApiKey: apiKey ? this.crypto.encrypt(apiKey) : '', apiKeyHint: apiKey ? this.crypto.hint(apiKey) : '', enabled: input.enabled ?? false, priority: input.priority ?? 0, timeoutMs: input.timeoutMs ?? 30000, maxResults: input.maxResults ?? 8, config: (input.config || {}) as Prisma.InputJsonValue } }
   private publicChannel<T extends WebSearchChannel>(row: T) { return { ...row, encryptedApiKey: undefined, hasApiKey: Boolean(row.encryptedApiKey) } }
   private findTgmeng() { return this.prisma.webSearchChannel.findMany({ where: { type: WebSearchProviderType.CUSTOM } }).then((rows) => rows.find((row) => this.isTgmeng(row)) || null) }
+  private findDailyHot() { return this.prisma.webSearchChannel.findMany({ where: { type: WebSearchProviderType.CUSTOM } }).then((rows) => rows.find((row) => this.isDailyHot(row)) || null) }
   private isTgmeng(channel: Pick<WebSearchChannel, 'config'>) { return this.record(channel.config).integration === 'tgmeng' }
+  private isDailyHot(channel: Pick<WebSearchChannel, 'config'>) { return this.record(channel.config).integration === 'dailyhot' }
+  private isSystemRecommendation(channel: Pick<WebSearchChannel, 'config'>) { return this.isTgmeng(channel) || this.isDailyHot(channel) }
   private categories(value: unknown) { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === 'string' && TGMENG_CATEGORIES.includes(item)))].slice(0, TGMENG_CATEGORIES.length) : [] }
+  private dailyHotSources(value: unknown) {
+    const sourceIds = Array.isArray(value) ? value : DAILY_HOT_DEFAULT_SOURCES
+    const selected = [...new Set(sourceIds.filter((item): item is string => typeof item === 'string' && DAILY_HOT_SOURCE_SET.has(item)))].slice(0, 12)
+    return selected.length ? selected : [...DAILY_HOT_DEFAULT_SOURCES]
+  }
+  private recommendationItems(value: unknown): RecommendationItem[] {
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+      const row = item as Record<string, unknown>
+      const title = String(row.title || '').trim()
+      if (!title) return []
+      return [{ title, prompt: String(row.prompt || title), targetUrl: String(row.targetUrl || ''), source: String(row.source || ''), category: String(row.category || ''), publishedAt: String(row.publishedAt || ''), sourceUrl: String(row.sourceUrl || '') }]
+    }).slice(0, 12)
+  }
   private record(value: Prisma.JsonValue | null | undefined): Record<string, any> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {} }
   private atPath(value: unknown, path: string): unknown {
     return path.split('.').filter(Boolean).reduce<unknown>((current, key) => current && typeof current === 'object' ? (current as Record<string, unknown>)[key] : undefined, value)
@@ -333,8 +648,11 @@ export class WebSearchService {
     try {
       const url = new URL(value)
       if (!['http:', 'https:'].includes(url.protocol)) return ''
-      url.username = ''
-      url.password = ''
+      if (url.username || url.password) return ''
+      url.hash = ''
+      if ((url.protocol === 'http:' && url.port === '80') || (url.protocol === 'https:' && url.port === '443')) url.port = ''
+      for (const key of [...url.searchParams.keys()]) if (key.toLowerCase().startsWith('utm_') || TRACKING_QUERY_KEYS.has(key.toLowerCase())) url.searchParams.delete(key)
+      url.searchParams.sort()
       return url.toString()
     } catch { return '' }
   }

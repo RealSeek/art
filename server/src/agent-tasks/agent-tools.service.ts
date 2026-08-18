@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { WebSearchService } from './web-search.service'
+import { ResourceAccessService } from '../common/resource-access.service'
 
 export type AgentToolDescriptor = {
   id?: string
@@ -18,17 +20,20 @@ type ToolExecutionTask = { id: string; userId: string; assistantId: string | nul
 
 @Injectable()
 export class AgentToolsService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly web: WebSearchService) {}
+  private readonly ajv = new Ajv({ allErrors: true, strict: false, coerceTypes: false })
+  private readonly validators = new Map<string, ValidateFunction>()
+
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly web: WebSearchService, private readonly access: ResourceAccessService) {}
 
   async available(task: ToolExecutionTask): Promise<AgentToolDescriptor[]> {
     const tools: AgentToolDescriptor[] = [
-      { key: 'knowledge_search', name: '知识库检索', description: '从用户已授权的知识库中检索事实、文档片段和内部资料', requiresApproval: false, kind: 'builtin' },
-      { key: 'project_context', name: '项目上下文', description: '读取当前项目的目标、说明、工作流状态、版本记录和项目文件摘要', requiresApproval: false, kind: 'builtin' },
-      { key: 'file_catalog', name: '文件目录', description: '按名称、类型或项目筛选用户文件，返回可用于后续办公任务的文件元数据', requiresApproval: false, kind: 'builtin' },
-      { key: 'data_summary', name: '数据汇总', description: '对输入的数字数组或表格行执行计数、合计、均值、最小值和最大值计算', requiresApproval: false, kind: 'builtin' },
-      { key: 'current_time', name: '日期与时间', description: '获取当前服务器日期、时间和时区', requiresApproval: false, kind: 'builtin' },
+      { key: 'knowledge_search', name: '知识库检索', description: '从用户已授权的知识库中检索事实、文档片段和内部资料', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 500 }, q: { type: 'string', minLength: 1, maxLength: 500 } }, anyOf: [{ required: ['query'] }, { required: ['q'] }], additionalProperties: false } },
+      { key: 'project_context', name: '项目上下文', description: '读取当前项目的目标、说明、工作流状态、版本记录和项目文件摘要', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+      { key: 'file_catalog', name: '文件目录', description: '按名称、类型或项目筛选用户文件，返回可用于后续办公任务的文件元数据', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { query: { type: 'string', maxLength: 300 }, kind: { type: 'string', enum: ['IMAGE', 'VIDEO', 'FILE'] }, projectId: { type: 'string', maxLength: 100 } }, additionalProperties: false } },
+      { key: 'data_summary', name: '数据汇总', description: '对输入的数字数组或表格行执行计数、合计、均值、最小值和最大值计算', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { values: { type: 'array', maxItems: 20000, items: { type: ['number', 'string'] } }, rows: { type: 'array', maxItems: 5000, items: { type: 'object' } } }, anyOf: [{ required: ['values'] }, { required: ['rows'] }], additionalProperties: false } },
+      { key: 'current_time', name: '日期与时间', description: '获取当前服务器日期、时间和时区', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
     ]
-    if (task.webSearchEnabled && await this.web.isAvailable()) tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回可引用的标题、链接、摘要和来源，适合最新信息、事实核验与调研任务', requiresApproval: false, kind: 'builtin' })
+    if (task.webSearchEnabled && await this.web.isAvailable()) tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回可引用的标题、链接、摘要和来源，适合最新信息、事实核验与调研任务', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 500 }, q: { type: 'string', minLength: 1, maxLength: 500 }, maxResults: { type: 'integer', minimum: 1, maximum: 20 }, max_results: { type: 'integer', minimum: 1, maximum: 20 }, topic: { type: 'string', maxLength: 50 }, includeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } }, excludeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } } }, anyOf: [{ required: ['query'] }, { required: ['q'] }], additionalProperties: false } })
     const [bindings, connected] = await Promise.all([
       task.assistantId
         ? this.prisma.assistantTool.findMany({ where: { assistantId: task.assistantId, tool: { enabled: true, kind: { not: 'CONNECTOR' } } }, include: { tool: true } })
@@ -46,6 +51,7 @@ export class AgentToolsService {
   }
 
   async execute(task: ToolExecutionTask, tool: AgentToolDescriptor, input: Record<string, unknown>, executionKey?: string) {
+    this.validateInput(input, tool.inputSchema || null)
     if (tool.key === 'knowledge_search') return this.knowledgeSearch(task, String(input.query || input.q || ''))
     if (tool.key === 'web_search') return this.web.search({ query: String(input.query || input.q || ''), maxResults: Number(input.maxResults || input.max_results) || undefined, topic: String(input.topic || ''), includeDomains: this.stringArray(input.includeDomains || input.include_domains), excludeDomains: this.stringArray(input.excludeDomains || input.exclude_domains) })
     if (tool.key === 'project_context') return this.projectContext(task)
@@ -55,7 +61,6 @@ export class AgentToolsService {
     if (!tool.id) throw new Error('工具配置不存在')
     const configured = await this.prisma.toolDefinition.findFirst({ where: { id: tool.id, enabled: true }, include: { credentials: { where: { userId: task.userId, status: 'CONNECTED' }, take: 1 } } })
     if (!configured?.endpoint) throw new Error('工具尚未配置 Endpoint')
-    this.validateInput(input, configured.inputSchema)
     const started = Date.now()
     let status = 'FAILED'
     let output = ''
@@ -112,7 +117,7 @@ export class AgentToolsService {
     const assets = await this.prisma.knowledgeBaseAsset.findMany({
       where: task.assistantId
         ? { knowledgeBase: { assistants: { some: { assistantId: task.assistantId } } } }
-        : { knowledgeBase: { creatorId: task.userId } },
+        : { knowledgeBase: { is: this.access.knowledgeBaseWhere(task.userId) } },
       include: { knowledgeBase: { select: { id: true, name: true } }, asset: { select: { id: true, name: true } } },
       take: 100,
     })
@@ -131,7 +136,7 @@ export class AgentToolsService {
   private async projectContext(task: ToolExecutionTask) {
     if (!task.projectId) return { project: null, message: '当前任务未关联项目' }
     const project = await this.prisma.project.findFirst({
-      where: { id: task.projectId, archivedAt: null, OR: [{ userId: task.userId }, { members: { some: { userId: task.userId } } }] },
+      where: { id: task.projectId, archivedAt: null, ...this.access.projectWhere(task.userId) },
       select: {
         id: true,
         name: true,
@@ -154,7 +159,7 @@ export class AgentToolsService {
     const allowedKinds = new Set(['IMAGE', 'VIDEO', 'FILE'])
     const assets = await this.prisma.asset.findMany({
       where: {
-        userId: task.userId,
+        ...this.access.assetWhere(task.userId),
         deletedAt: null,
         ...(task.projectId && input.allProjects !== true ? { OR: [{ projectId: task.projectId }, { projectId: null }] } : {}),
         ...(query ? { name: { contains: query, mode: 'insensitive' } } : {}),
@@ -195,17 +200,14 @@ export class AgentToolsService {
 
   private validateInput(input: Record<string, unknown>, schema: Prisma.JsonValue | null) {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return
-    const definition = schema as Record<string, unknown>
-    const required = Array.isArray(definition.required) ? definition.required.filter((item): item is string => typeof item === 'string') : []
-    const missing = required.filter((key) => input[key] === undefined || input[key] === null || input[key] === '')
-    if (missing.length) throw new Error(`工具参数缺少必填字段：${missing.join('、')}`)
-    const properties = definition.properties && typeof definition.properties === 'object' && !Array.isArray(definition.properties) ? definition.properties as Record<string, unknown> : {}
-    for (const [key, value] of Object.entries(input)) {
-      const property = properties[key]
-      if (!property || typeof property !== 'object' || Array.isArray(property)) continue
-      const type = String((property as Record<string, unknown>).type || '')
-      const valid = !type || type === 'array' && Array.isArray(value) || type === 'object' && value !== null && typeof value === 'object' && !Array.isArray(value) || type === 'string' && typeof value === 'string' || type === 'number' && typeof value === 'number' || type === 'integer' && Number.isInteger(value) || type === 'boolean' && typeof value === 'boolean'
-      if (!valid) throw new Error(`工具参数 ${key} 类型应为 ${type}`)
+    const cacheKey = JSON.stringify(schema)
+    let validate = this.validators.get(cacheKey)
+    if (!validate) {
+      try { validate = this.ajv.compile(schema as object); this.validators.set(cacheKey, validate) }
+      catch (reason) { throw new Error(`工具 JSON Schema 配置无效：${reason instanceof Error ? reason.message : '无法编译'}`) }
     }
+    if (validate(input)) return
+    const describe = (error: ErrorObject) => `${error.instancePath || '参数'} ${error.message || '格式不正确'}`.trim()
+    throw new Error(`工具参数校验失败：${(validate.errors || []).slice(0, 5).map(describe).join('；')}`)
   }
 }

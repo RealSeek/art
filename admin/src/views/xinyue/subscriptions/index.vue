@@ -59,6 +59,12 @@
           ></div
         >
       </ElTabPane>
+      <ElTabPane label="促销活动" name="promotions">
+        <CommerceMarketingPanel section="promotions" :plans="plans" :users="users" />
+      </ElTabPane>
+      <ElTabPane label="优惠券" name="coupons">
+        <CommerceMarketingPanel section="coupons" :plans="plans" :users="users" />
+      </ElTabPane>
       <ElTabPane :label="`${xt('有效订阅')} ${subscriptions.length}`" name="active">
         <ElCard shadow="never" class="art-table-card"
           ><ArtTableHeader :loading="loading" @refresh="load" /><ElTable
@@ -212,6 +218,17 @@
           ><ElCheckbox v-model="planForm.allowByok">{{ xt('允许 BYOK') }}</ElCheckbox
           ><ElCheckbox v-model="planForm.recommended">{{ xt('推荐套餐') }}</ElCheckbox
           ><ElCheckbox v-model="planForm.enabled">{{ xt('上架销售') }}</ElCheckbox></ElSpace
+        ><ElDivider content-position="left">{{ xt('画布能力') }}</ElDivider
+        ><ElSpace wrap
+          ><ElCheckbox v-model="planForm.canvasAccess">{{ xt('无限画布') }}</ElCheckbox
+          ><ElCheckbox v-model="planForm.shortDramaAccess">{{ xt('短剧工作流') }}</ElCheckbox></ElSpace
+        ><ElRow :gutter="14" class="capability-limit-row"
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('用户画布上限')"
+              ><ElInputNumber v-model="planForm.maxCanvases" :min="1" :max="10000" class="wide" /></ElFormItem></ElCol
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('单画布节点上限')"
+              ><ElInputNumber v-model="planForm.maxCanvasNodes" :min="10" :max="500" class="wide" /></ElFormItem></ElCol></ElRow
         ></ElForm
       >
       <template #footer
@@ -264,6 +281,7 @@
     type UserSubscription
   } from '@/api/xinyue'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
+  import CommerceMarketingPanel from './CommerceMarketingPanel.vue'
   defineOptions({ name: 'XinyueSubscriptions' })
   type Cycle = SubscriptionPlan['billingCycle']
   const cycleText: Record<Cycle, string> = {
@@ -302,6 +320,11 @@
     videoAccess: false,
     commerceAccess: false,
     batchAccess: false,
+    canvasAccess: true,
+    shortDramaAccess: true,
+    maxCanvases: 100,
+    maxCanvasNodes: 500,
+    capabilities: {} as Record<string, unknown>,
     enabled: true,
     recommended: false,
     sortOrder: 0
@@ -355,7 +378,14 @@
     planDialog.value = true
   }
   function openEdit(row: SubscriptionPlan) {
-    Object.assign(planForm, emptyPlan(), row, { originalPriceCents: row.originalPriceCents || 0 })
+    Object.assign(planForm, emptyPlan(), row, {
+      originalPriceCents: row.originalPriceCents || 0,
+      capabilities: row.capabilities || {},
+      canvasAccess: row.capabilities?.canvasAccess !== false,
+      shortDramaAccess: row.capabilities?.shortDramaAccess !== false,
+      maxCanvases: Number(row.capabilities?.maxCanvases || 100),
+      maxCanvasNodes: Number(row.capabilities?.maxCanvasNodes || 500)
+    })
     planDialog.value = true
   }
   async function savePlan() {
@@ -379,6 +409,13 @@
         videoAccess: planForm.videoAccess,
         commerceAccess: planForm.commerceAccess,
         batchAccess: planForm.batchAccess,
+        capabilities: {
+          ...planForm.capabilities,
+          canvasAccess: planForm.canvasAccess,
+          shortDramaAccess: planForm.shortDramaAccess,
+          maxCanvases: planForm.maxCanvases,
+          maxCanvasNodes: planForm.maxCanvasNodes
+        },
         enabled: planForm.enabled,
         recommended: planForm.recommended,
         sortOrder: planForm.sortOrder

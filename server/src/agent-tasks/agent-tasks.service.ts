@@ -1,9 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { AgentTaskStatus, AgentTaskStepStatus, Prisma } from '@prisma/client'
+import { AgentTaskStatus, AgentTaskStepStatus, ModelCapability, Prisma } from '@prisma/client'
 import { Queue } from 'bullmq'
 import { GenerationsService } from '../generations/generations.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { ProvidersService } from '../providers/providers.service'
+import { ResourceAccessService } from '../common/resource-access.service'
 
 export interface CreateAgentTaskInput {
   title: string
@@ -30,6 +32,8 @@ export class AgentTasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly generations: GenerationsService,
+    private readonly providers: ProvidersService,
+    private readonly access: ResourceAccessService,
     @InjectQueue('agent-task') private readonly queue: Queue,
   ) {}
 
@@ -123,7 +127,7 @@ export class AgentTasksService {
   async retry(userId: string, id: string) {
     const task = await this.prisma.agentTask.findFirst({ where: { id, userId }, select: { status: true } })
     if (!task) throw new NotFoundException('Agent 任务不存在')
-    const retryable: AgentTaskStatus[] = [AgentTaskStatus.FAILED, AgentTaskStatus.CANCELLED, AgentTaskStatus.SUCCEEDED]
+    const retryable: AgentTaskStatus[] = [AgentTaskStatus.FAILED, AgentTaskStatus.CANCELLED, AgentTaskStatus.SUCCEEDED, AgentTaskStatus.PARTIAL]
     if (!retryable.includes(task.status)) throw new BadRequestException('当前任务不能重新执行')
     return this.run(userId, id)
   }
@@ -171,6 +175,9 @@ export class AgentTasksService {
       pluginId: task.pluginId || undefined,
       attachmentIds: this.attachmentIds(task.attachmentIds),
     })
+    const modelProfile = await this.providers.agentModelProfile(userId, task.model)
+    const candidates = await this.providers.resolveCandidates(userId, task.model, ModelCapability.CHAT)
+    if (!candidates.some((candidate) => Boolean(candidate.apiKey))) throw new BadRequestException('Agent 任务需要可用的真实对话模型，请先配置平台渠道或个人模型密钥')
     const now = new Date()
     const runKey = `${id}-${now.getTime()}`
     let runId = ''
@@ -188,10 +195,20 @@ export class AgentTasksService {
           })
         }
         await tx.agentTaskStep.updateMany({ where: { agentTaskId: id }, data: { status: AgentTaskStepStatus.PENDING, startedAt: null, completedAt: null, detail: '' } })
-        return tx.agentRun.create({ data: { agentTaskId: id, runKey, status: AgentTaskStatus.QUEUED, maxIterations: 3 } })
+        return tx.agentRun.create({ data: { agentTaskId: id, runKey, status: AgentTaskStatus.QUEUED, maxIterations: 3, maxToolCalls: 16, maxSearchQueries: 8, maxCreditCost: 100, timeoutSeconds: 900, deadlineAt: new Date(now.getTime() + 900_000) } })
       })
       if (!run) throw new BadRequestException('任务正在执行中')
       runId = run.id
+      await this.prisma.agentEvent.create({
+        data: {
+          agentTaskId: id,
+          runId: run.id,
+          type: 'model_selected',
+          title: `使用 ${modelProfile.displayName}`,
+          detail: modelProfile.reason,
+          payload: modelProfile as Prisma.InputJsonValue,
+        },
+      })
       await this.queue.add('run', { taskId: id, runId: run.id, runKey }, { jobId: runKey, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000 })
       return this.get(userId, id)
     } catch (error) {
@@ -269,9 +286,9 @@ export class AgentTasksService {
   private async assertRelations(userId: string, input: CreateAgentTaskInput) {
     const attachmentIds = [...new Set(input.attachmentIds || [])]
     const [project, assistant, assets] = await Promise.all([
-      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, archivedAt: null, OR: [{ userId }, { members: { some: { userId } } }] }, select: { id: true } }) : null,
+      input.projectId ? this.prisma.project.findFirst({ where: { id: input.projectId, archivedAt: null, ...this.access.projectWhere(userId) }, select: { id: true } }) : null,
       input.assistantId ? this.prisma.assistant.findFirst({ where: { id: input.assistantId, enabled: true, visibility: 'PUBLIC' }, select: { id: true } }) : null,
-      attachmentIds.length ? this.prisma.asset.count({ where: { id: { in: attachmentIds }, userId, deletedAt: null } }) : 0,
+      attachmentIds.length ? this.prisma.asset.count({ where: { id: { in: attachmentIds }, deletedAt: null, ...this.access.assetWhere(userId) } }) : 0,
     ])
     if (input.projectId && !project) throw new NotFoundException('项目不存在或已归档')
     if (input.assistantId && !assistant) throw new NotFoundException('助手不存在或已停用')

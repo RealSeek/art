@@ -6,9 +6,9 @@ import { createClientId } from '../utils/client-id'
 type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
 type ServerMessageMetadata = { feedback?: 'UP' | 'DOWN' | null; suggestionVersion?: number; suggestions?: string[]; webSearch?: unknown }
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
-type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
+type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
-type ServerAsset = { id: string; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; metadata?: Record<string, unknown> | null }
+type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null; metadata?: ServerMessageMetadata | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
 
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -68,7 +68,7 @@ function mapWorkflowConfig(input?: ProjectWorkflowConfig | null): ProjectWorkflo
 }
 
 function mapProject(item: ServerProject): Project {
-  return { id: item.id, name: item.name, brief: item.description || '尚未添加项目说明。', description: item.description || '', instructions: item.instructions || '', updatedAt: Date.parse(item.updatedAt), assetIds: item.assets?.map((asset) => asset.id) || [], assets: item.assets?.map(mapAsset) || [], conversations: item.conversations?.map(mapConversation) || [], assetCount: item._count?.assets ?? item.assets?.length ?? 0, conversationCount: item._count?.conversations ?? item.conversations?.length ?? 0, versionCount: item._count?.versions ?? item.revision ?? 1, archived: Boolean(item.archivedAt), workflowStatus: item.workflowStatus || 'PLANNING', workflowConfig: mapWorkflowConfig(item.workflowConfig), defaultModel: item.defaultModel || '', defaultAssistantId: item.defaultAssistantId || null, revision: item.revision || 1, accessRole: item.accessRole || 'OWNER', owner: item.user, members: item.members || [], activeSkillVersion: item.activeSkillVersion || null }
+  return { id: item.id, name: item.name, brief: item.description || '尚未添加项目说明。', description: item.description || '', instructions: item.instructions || '', updatedAt: Date.parse(item.updatedAt), assetIds: item.assets?.map((asset) => asset.id) || [], assets: item.assets?.map(mapAsset) || [], conversations: item.conversations?.map(mapConversation) || [], assetCount: item._count?.assets ?? item.assets?.length ?? 0, conversationCount: item._count?.conversations ?? item.conversations?.length ?? 0, versionCount: item._count?.versions ?? item.revision ?? 1, archived: Boolean(item.archivedAt), workflowStatus: item.workflowStatus || 'PLANNING', workflowConfig: mapWorkflowConfig(item.workflowConfig), defaultModel: item.defaultModel || '', defaultAssistantId: item.defaultAssistantId || null, revision: item.revision || 1, accessRole: item.accessRole || 'OWNER', owner: item.user, members: item.members || [], activeSkillVersion: item.activeSkillVersion || null, teamId: item.teamId || null, team: item.team || null }
 }
 
 function mapVersion(item: ServerVersion): ProjectVersion {
@@ -100,6 +100,11 @@ function mapAsset(item: ServerAsset): StudioAsset {
     creationType: typeof item.metadata?.creationType === 'string' ? item.metadata.creationType : undefined,
     platform: typeof item.metadata?.platform === 'string' ? item.metadata.platform : undefined,
     options: item.metadata?.options && typeof item.metadata.options === 'object' && !Array.isArray(item.metadata.options) ? item.metadata.options as Record<string, unknown> : undefined,
+    teamId: item.teamId || null,
+    team: item.team || null,
+    owner: item.user || null,
+    projectId: item.projectId || null,
+    canManage: item.canManage,
   }
 }
 
@@ -318,7 +323,7 @@ export const useStudioStore = defineStore('studio', {
       const message = this.messages.find((item) => item.id === messageId)
       if (message) message.feedback = value
     },
-    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string; pluginId?: string; webSearchEnabled?: boolean }) {
+    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string; pluginId?: string; webSearchEnabled?: boolean; responseMode?: 'fast' | 'expert' }) {
       const trimmed = content.trim()
       if (!trimmed) return
       let messagePersisted = false
@@ -335,7 +340,7 @@ export const useStudioStore = defineStore('studio', {
         const userMessage = await api<ServerMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
         messagePersisted = true
         if (this.currentConversationId === conversationId) this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}), webSearchEnabled: input.webSearchEnabled === true }, idempotencyKey: idempotencyKey('chat') }) })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}), webSearchEnabled: input.webSearchEnabled === true, responseMode: input.responseMode || 'fast' }, idempotencyKey: idempotencyKey('chat') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
@@ -357,7 +362,7 @@ export const useStudioStore = defineStore('studio', {
         }
       }
     },
-    async branchMessage(messageId: string, content: string, model: string, webSearchEnabled = false) {
+    async branchMessage(messageId: string, content: string, model: string, webSearchEnabled = false, responseMode: 'fast' | 'expert' = 'fast') {
       if (!this.currentConversationId || this.isGenerating) return
       const trimmed = content.trim()
       if (!trimmed) return
@@ -370,7 +375,7 @@ export const useStudioStore = defineStore('studio', {
           const index = this.messages.findIndex((message) => message.id === messageId)
           if (index >= 0) this.messages = [...this.messages.slice(0, index), { ...this.messages[index], content: trimmed, createdAt: Date.parse(updated.createdAt) }]
         }
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model, conversationId, projectId: this.currentProjectId || undefined, options: { webSearchEnabled }, idempotencyKey: idempotencyKey('chat-branch') }) })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model, conversationId, projectId: this.currentProjectId || undefined, options: { webSearchEnabled, responseMode }, idempotencyKey: idempotencyKey('chat-branch') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`

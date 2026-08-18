@@ -19,7 +19,7 @@
           <button type="button" aria-label="任务操作" @click="toggleTaskMenu(task.id)"><MoreHorizontal :size="16" /></button>
           <div v-if="taskMenuId === task.id" class="office-task-menu">
             <button v-if="!archivedTasksVisible" type="button" @click="duplicateTask(task)"><Copy :size="14" />创建副本</button>
-            <button v-if="!archivedTasksVisible && ['FAILED', 'CANCELLED', 'SUCCEEDED'].includes(task.status)" type="button" @click="retryTask(task)"><RotateCcw :size="14" />重新执行</button>
+            <button v-if="!archivedTasksVisible && ['FAILED', 'CANCELLED', 'SUCCEEDED', 'PARTIAL'].includes(task.status)" type="button" @click="retryTask(task)"><RotateCcw :size="14" />重新执行</button>
             <button type="button" @click="setTaskArchived(task, !archivedTasksVisible)"><ArchiveRestore v-if="archivedTasksVisible" :size="14" /><Archive v-else :size="14" />{{ archivedTasksVisible ? '恢复' : '归档' }}</button>
             <button type="button" class="danger" @click="deleteTask(task)"><Trash2 :size="14" />删除</button>
           </div>
@@ -65,7 +65,13 @@
         <article v-if="submittedPrompt" class="office-user-message">{{ submittedPrompt }}</article>
         <article class="office-assistant-message">
           <header><span><component :is="selectedSkill.icon" :size="17" :style="{ color: selectedSkill.color }" /></span><strong>{{ selectedSkill.name }}</strong><small>{{ modeLabel }}</small></header>
-          <nav v-if="activeAgentTask && !generating" class="office-result-actions"><button v-if="['FAILED', 'CANCELLED', 'SUCCEEDED'].includes(activeAgentTask.status)" type="button" @click="retryTask(activeAgentTask)"><RotateCcw :size="14" />重新执行</button><button type="button" @click="duplicateTask(activeAgentTask)"><Copy :size="14" />创建副本</button><button type="button" @click="setTaskArchived(activeAgentTask, true)"><Archive :size="14" />归档</button></nav>
+          <nav v-if="activeAgentTask && !generating" class="office-result-actions"><button v-if="['FAILED', 'CANCELLED', 'SUCCEEDED', 'PARTIAL'].includes(activeAgentTask.status)" type="button" @click="retryTask(activeAgentTask)"><RotateCcw :size="14" />重新执行</button><button type="button" @click="duplicateTask(activeAgentTask)"><Copy :size="14" />创建副本</button><button type="button" @click="setTaskArchived(activeAgentTask, true)"><Archive :size="14" />归档</button></nav>
+          <div v-if="taskMode === 'agent' && activeAgentTask" class="office-agent-runtime" aria-label="任务执行状态">
+            <span><Bot :size="14" /><strong>{{ activeAgentTask.model || selectedModelLabel }}</strong></span>
+            <span><Activity :size="14" />{{ agentNodeLabel }}</span>
+            <span v-if="activeAgentTask.agentRun"><RotateCcw :size="13" />第 {{ activeAgentTask.agentRun.iteration + 1 }} / {{ activeAgentTask.agentRun.maxIterations }} 轮</span>
+            <span v-if="activeAgentTask.agentRun"><Coins :size="14" />{{ activeAgentTask.agentRun.creditCost }} 点</span>
+          </div>
           <ol v-if="taskMode === 'agent' && activeAgentTask?.steps.length" class="office-agent-steps">
             <li v-for="step in activeAgentTask.steps" :key="step.id" :data-status="step.status">
               <span><Check v-if="step.status === 'SUCCEEDED'" :size="13" /><X v-else-if="step.status === 'FAILED'" :size="13" /><LoaderCircle v-else-if="step.status === 'RUNNING'" class="office-spin" :size="13" /><span v-else /></span>
@@ -131,16 +137,16 @@
             <span class="office-control-anchor">
               <button class="office-mode-button" type="button" :aria-expanded="modeMenuOpen" @click="toggleModeMenu"><Zap v-if="taskMode === 'fast'" :size="15" /><BrainCircuit v-else-if="taskMode === 'expert'" :size="15" /><Bot v-else :size="15" />{{ modeLabel }}<ChevronDown :size="13" /></button>
               <div v-if="modeMenuOpen" class="office-mode-menu">
-                <button type="button" :class="{ active: taskMode === 'fast' }" @click="taskMode = 'fast'; modeMenuOpen = false"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
-                <button type="button" :class="{ active: taskMode === 'expert' }" @click="taskMode = 'expert'; modeMenuOpen = false"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
-                <button type="button" :class="{ active: taskMode === 'agent' }" @click="taskMode = 'agent'; modeMenuOpen = false"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
+                <button type="button" :class="{ active: taskMode === 'fast' }" @click="selectTaskMode('fast')"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
+                <button type="button" :class="{ active: taskMode === 'expert' }" @click="selectTaskMode('expert')"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
+                <button type="button" :class="{ active: taskMode === 'agent' }" @click="selectTaskMode('agent')"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
               </div>
             </span>
             <button v-for="item in officeQuickSkills" :key="item.skill.id" class="office-quick-skill" :class="{ active: selectedSkill.id === item.skill.id }" type="button" @click="selectSkill(item.skill)"><component :is="item.icon" :size="15" />{{ item.label }}</button>
             <span class="office-control-anchor">
-              <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!chatModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ model || '暂无可用模型' }}<ChevronDown :size="13" /></button>
-              <div v-if="modelMenuOpen" class="office-model-menu">
-                <button v-for="item in chatModels" :key="item.key" type="button" :class="{ active: model === item.displayName }" @click="model = item.displayName; modelMenuOpen = false"><span><strong>{{ item.displayName }}</strong><small>{{ item.description || '办公任务模型' }}</small></span><Check v-if="model === item.displayName" :size="15" /></button>
+              <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!selectableModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ selectedModelLabel || '暂无可用模型' }}<ChevronDown :size="13" /></button>
+              <div v-if="modelMenuOpen" class="office-model-menu office-model-menu--catalog">
+                <ModelCatalogPicker :models="selectableModels" :model-value="model" :title="taskMode === 'agent' ? '选择 Agent 模型' : '选择办公模型'" :description-mode="taskMode === 'agent' ? 'agent' : 'default'" @select="selectOfficeModel" />
               </div>
             </span>
             <span class="office-control-anchor">
@@ -166,37 +172,38 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
+  Activity, ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Coins, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
   LayoutGrid, Mic, PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
   Archive, ArchiveRestore, CalendarClock, CalendarPlus, ExternalLink, Globe2, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
   type LucideIcon,
 } from 'lucide-vue-next'
 import ChatMessageContent from '../components/ChatMessageContent.vue'
+import ModelCatalogPicker from '../components/ModelCatalogPicker.vue'
 import { api, apiUrl, streamApiEvents } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import { useStudioStore } from '../stores/studio'
 import type { Plugin, StudioAsset } from '../types'
 import { createClientId } from '../utils/client-id'
+import { catalogModelKey, catalogModelLabel, isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
 
 type TaskMode = 'fast' | 'expert' | 'agent'
 type OfficeExportFormat = 'auto' | 'docx' | 'xlsx' | 'pptx' | 'md'
 type OfficeSkill = { id: string; name: string; category: string; description: string; shortDescription: string; placeholder: string; color: string; icon: LucideIcon; assistantId?: string; pluginId?: string }
-type CatalogModel = { key: string; displayName: string; description?: string; capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; enabled?: boolean; isDefault: boolean }
 type ServerConversation = { id: string }
 type ServerMessage = { id: string; createdAt: string }
 type ServerJob = { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null } | null }
 type AssistantOption = { id: string; name: string; description?: string; defaultModel?: string }
 type OfficeDeliverable = { id: string; name: string; mimeType: string; size: number; contentUrl: string }
-type AgentTaskStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+type AgentTaskStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED' | 'CANCELLED'
 type AgentTaskStep = { id: string; position: number; title: string; detail: string; status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' }
 type AgentToolCall = { id: string; key: string; name: string; input: Record<string, unknown>; status: string; approvalStatus: string; requiresApproval: boolean; iteration: number }
 type AgentSource = { title: string; url: string }
 type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string; payload?: { sources?: AgentSource[] } | null }
-type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
-type AgentTask = { id: string; title: string; goal: string; skillId: string; webSearchEnabled: boolean; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
+type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; creditCost: number; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
+type AgentTask = { id: string; title: string; goal: string; model: string; skillId: string; webSearchEnabled: boolean; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
 type AgentSchedule = { id: string; title: string; goal: string; cronExpression: string; timezone: string; enabled: boolean; nextRunAt?: string | null }
 
 const builtInSkills: OfficeSkill[] = [
@@ -215,6 +222,7 @@ const builtInSkills: OfficeSkill[] = [
 
 const auth = useAuthStore()
 const studio = useStudioStore()
+const route = useRoute()
 const router = useRouter()
 const prompt = ref('')
 const submittedPrompt = ref('')
@@ -262,6 +270,8 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const chatModels = ref<CatalogModel[]>([])
+const selectableModels = computed(() => taskMode.value === 'agent' ? chatModels.value.filter(isAgentModelEligible) : chatModels.value)
+const selectedModelLabel = computed(() => catalogModelLabel(chatModels.value, model.value, 'CHAT'))
 const organizationSkills = ref<OfficeSkill[]>([])
 const installedSkills = ref<OfficeSkill[]>([])
 const deliverable = ref<OfficeDeliverable | null>(null)
@@ -282,6 +292,16 @@ const filteredSkills = computed(() => allSkills.value.filter((skill) => {
   return categoryMatches && (!query || `${skill.name} ${skill.description}`.toLowerCase().includes(query))
 }))
 const modeLabel = computed(() => taskMode.value === 'fast' ? '快速' : taskMode.value === 'expert' ? '专家' : '任务')
+const agentNodeLabel = computed(() => ({ prepare: '准备任务', plan: '制定计划', tools: '调用工具', draft: '整理结果', verify: '校验结果', replan: '调整计划', deliver: '生成交付物', done: '已完成' }[activeAgentTask.value?.agentRun?.currentNode || 'prepare'] || '执行中'))
+
+function selectTaskMode(nextMode: TaskMode) {
+  taskMode.value = nextMode
+  modeMenuOpen.value = false
+  const candidates = nextMode === 'agent' ? chatModels.value.filter(isAgentModelEligible) : chatModels.value
+  if (!candidates.some((item) => item.key === model.value)) model.value = (candidates.find((item) => item.isDefault) || candidates[0])?.key || ''
+  if (nextMode === 'agent' && !candidates.length) error.value = '当前没有已开放的 Agent 模型，请联系管理员在模型与定价中启用'
+  else if (error.value.includes('Agent 模型')) error.value = ''
+}
 const exportFormats = [
   { value: 'auto' as const, label: '自动格式', note: '根据办公技能选择文件类型', icon: FileText },
   { value: 'docx' as const, label: 'Word', note: '可编辑的 DOCX 文档', icon: FileText },
@@ -317,7 +337,7 @@ function selectSkill(skill: OfficeSkill) {
   selectedSkill.value = skill
   pluginId.value = skill.pluginId || ''
   const assistantModel = organizationAssistantModels.get(skill.id)
-  if (assistantModel) model.value = assistantModel
+  if (assistantModel) model.value = catalogModelKey(chatModels.value, assistantModel, 'CHAT')
   skillPanelOpen.value = false
   if (wasGeneratedPrefix) prompt.value = ''
   void nextTick(() => taskInput.value?.focus())
@@ -335,6 +355,10 @@ function toggleModelMenu() {
   modeMenuOpen.value = false
   formatMenuOpen.value = false
   skillPanelOpen.value = false
+}
+function selectOfficeModel(value: string) {
+  model.value = catalogModelKey(chatModels.value, value, 'CHAT')
+  modelMenuOpen.value = false
 }
 function toggleFormatMenu() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
@@ -447,7 +471,8 @@ async function submitTask() {
       accepted = true
       prompt.value = ''
       const completed = await watchAgentTask(created.id)
-      if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : 'Agent 任务执行失败'))
+      if (!['SUCCEEDED', 'PARTIAL'].includes(completed.status)) throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : 'Agent 任务执行失败'))
+      if (completed.status === 'PARTIAL') error.value = `任务部分完成：${completed.errorMessage || '部分目标未通过最终校验'}`
       void createDeliverable()
       await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
       return
@@ -473,7 +498,7 @@ async function submitTask() {
 }
 
 const terminalJobStatuses = new Set<ServerJob['status']>(['SUCCEEDED', 'FAILED', 'CANCELLED'])
-const terminalAgentStatuses = new Set<AgentTaskStatus>(['SUCCEEDED', 'FAILED', 'CANCELLED', 'WAITING_APPROVAL'])
+const terminalAgentStatuses = new Set<AgentTaskStatus>(['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED', 'WAITING_APPROVAL'])
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 
 async function pollTask<T extends { status: string }>(path: string, terminalStatuses: Set<string>, onUpdate: (task: T) => void) {
@@ -518,12 +543,26 @@ async function toggleArchivedTasks() { archivedTasksVisible.value = !archivedTas
 function toggleTaskMenu(id: string) { taskMenuId.value = taskMenuId.value === id ? '' : id }
 async function duplicateTask(task: AgentTask) {
   taskMenuId.value = ''
-  try { const copy = await api<AgentTask>(`/agent-tasks/${task.id}/duplicate`, { method: 'POST' }); startNewTask(); activeAgentTaskId.value = copy.id; activeAgentTask.value = copy; taskMode.value = 'agent'; webSearchEnabled.value = copy.webSearchEnabled; prompt.value = copy.goal; const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId); if (matchingSkill) selectedSkill.value = matchingSkill; historyOpen.value = false; await loadAgentTasks() }
+  try {
+    const copy = await api<AgentTask>(`/agent-tasks/${task.id}/duplicate`, { method: 'POST' })
+    startNewTask()
+    activeAgentTaskId.value = copy.id
+    activeAgentTask.value = copy
+    selectTaskMode('agent')
+    const copiedModel = chatModels.value.find((item) => item.key === copy.model || item.upstreamModel === copy.model || item.displayName === copy.model)
+    if (copiedModel && isAgentModelEligible(copiedModel)) model.value = copiedModel.key
+    webSearchEnabled.value = copy.webSearchEnabled
+    prompt.value = copy.goal
+    const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId)
+    if (matchingSkill) selectedSkill.value = matchingSkill
+    historyOpen.value = false
+    await loadAgentTasks()
+  }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '创建副本失败' }
 }
 async function retryTask(task: AgentTask) {
   taskMenuId.value = ''; error.value = ''; generating.value = true
-  try { const started = await api<AgentTask>(`/agent-tasks/${task.id}/retry`, { method: 'POST' }); activeAgentTaskId.value = task.id; activeAgentTask.value = started; submittedPrompt.value = started.goal; answer.value = ''; conversationId.value = `agent:${task.id}`; const completed = await watchAgentTask(task.id); if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || '任务执行失败'); void createDeliverable(); await loadAgentTasks() }
+  try { const started = await api<AgentTask>(`/agent-tasks/${task.id}/retry`, { method: 'POST' }); activeAgentTaskId.value = task.id; activeAgentTask.value = started; submittedPrompt.value = started.goal; answer.value = ''; conversationId.value = `agent:${task.id}`; const completed = await watchAgentTask(task.id); if (!['SUCCEEDED', 'PARTIAL'].includes(completed.status)) throw new Error(completed.errorMessage || '任务执行失败'); if (completed.status === 'PARTIAL') error.value = `任务部分完成：${completed.errorMessage || '部分目标未通过最终校验'}`; void createDeliverable(); await loadAgentTasks() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '重新执行失败' }
   finally { generating.value = false }
 }
@@ -555,7 +594,9 @@ async function openAgentTask(id: string) {
   const task = await api<AgentTask>(`/agent-tasks/${id}`, { cache: 'no-store' })
   activeAgentTaskId.value = task.id
   activeAgentTask.value = task
-  taskMode.value = 'agent'
+  selectTaskMode('agent')
+  const taskModel = chatModels.value.find((item) => item.key === task.model || item.upstreamModel === task.model || item.displayName === task.model)
+  if (taskModel && isAgentModelEligible(taskModel)) model.value = taskModel.key
   webSearchEnabled.value = task.webSearchEnabled
   if (task.status === 'DRAFT') {
     conversationId.value = ''; submittedPrompt.value = ''; answer.value = ''; prompt.value = task.goal; deliverable.value = null; historyOpen.value = false
@@ -611,9 +652,10 @@ async function resumeAgentTask(id: string) {
   error.value = ''
   try {
     const completed = await watchAgentTask(id)
-    if (completed.status === 'SUCCEEDED') {
+    if (completed.status === 'SUCCEEDED' || completed.status === 'PARTIAL') {
       if (!deliverable.value) void createDeliverable()
       await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
+      if (completed.status === 'PARTIAL') error.value = `任务部分完成：${completed.errorMessage || '部分目标未通过最终校验'}`
     } else if (completed.status === 'FAILED') error.value = completed.errorMessage || 'Agent 任务执行失败'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法恢复任务进度'
@@ -623,7 +665,7 @@ async function resumeAgentTask(id: string) {
   }
 }
 function agentStatusLabel(status: AgentTaskStatus) {
-  return ({ DRAFT: '草稿', QUEUED: '排队中', RUNNING: '执行中', WAITING_APPROVAL: '待审批', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已停止' } as Record<AgentTaskStatus, string>)[status]
+  return ({ DRAFT: '草稿', QUEUED: '排队中', RUNNING: '执行中', WAITING_APPROVAL: '待审批', SUCCEEDED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已停止' } as Record<AgentTaskStatus, string>)[status]
 }
 function formatTaskTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
@@ -667,23 +709,65 @@ async function downloadDeliverable() {
   }
 }
 
+function applyRouteIntent() {
+  const requestedTool = typeof route.query.tool === 'string' ? route.query.tool.trim().toLowerCase() : ''
+  const toolAliases: Record<string, string> = {
+    ppt: 'ppt',
+    powerpoint: 'ppt',
+    spreadsheet: 'spreadsheet',
+    table: 'spreadsheet',
+    excel: 'excel',
+    writing: 'writing',
+    code: 'development',
+    development: 'development',
+    meeting: 'meeting',
+    analysis: 'analysis',
+    report: 'report',
+    daily: 'daily',
+  }
+  const requestedSkill = allSkills.value.find((skill) => skill.id === (toolAliases[requestedTool] || requestedTool))
+  if (requestedSkill) {
+    selectedSkill.value = requestedSkill
+    pluginId.value = requestedSkill.pluginId || ''
+    if (requestedSkill.id === 'ppt') exportFormat.value = 'pptx'
+    else if (['spreadsheet', 'excel', 'analysis'].includes(requestedSkill.id)) exportFormat.value = 'xlsx'
+  } else if (requestedTool) {
+    error.value = `未找到办公能力“${requestedTool}”，已为你打开默认办公助理。`
+  }
+
+  const requestedModel = typeof route.query.model === 'string' ? route.query.model.trim() : ''
+  if (requestedModel) {
+    const matchedModel = chatModels.value.find((item) => item.key === requestedModel || item.displayName === requestedModel)
+    if (matchedModel) model.value = matchedModel.key
+    else error.value = `快捷能力绑定的模型“${requestedModel}”当前不可用，请联系管理员调整模型或用户分组。`
+  }
+
+  if (typeof route.query.prompt === 'string') prompt.value = route.query.prompt.slice(0, 20000)
+  if (route.query.webSearch === 'true') webSearchEnabled.value = true
+  if (route.query.webSearch === 'false') webSearchEnabled.value = false
+  const requestedMode = typeof route.query.mode === 'string' ? route.query.mode : ''
+  if (['fast', 'expert', 'agent'].includes(requestedMode)) selectTaskMode(requestedMode as TaskMode)
+  void nextTick(() => taskInput.value?.focus({ preventScroll: true }))
+}
+
 onMounted(async () => {
   studio.setMode('office')
   document.addEventListener('xinyue:close-popovers', closeOfficePopovers)
   const [models, assistants, plugins] = await Promise.all([
     api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => []),
-    api<AssistantOption[]>('/assistants').catch(() => []),
+    auth.isAuthenticated ? api<AssistantOption[]>('/assistants').catch(() => []) : Promise.resolve([]),
     auth.isAuthenticated ? api<Plugin[]>('/plugins/available?capability=OFFICE').catch(() => []) : Promise.resolve([]),
   ])
   chatModels.value = models.filter((item) => item.capability === 'CHAT' && item.enabled !== false)
   const defaultModel = chatModels.value.find((item) => item.isDefault) || chatModels.value[0]
-  if (defaultModel) model.value = defaultModel.displayName
+  if (defaultModel) model.value = defaultModel.key
   organizationSkills.value = assistants.map((assistant, index) => {
     const id = `assistant:${assistant.id}`
     if (assistant.defaultModel) organizationAssistantModels.set(id, assistant.defaultModel)
     return { id, name: assistant.name, category: '组织技能', description: assistant.description || '由管理员配置的办公助手', shortDescription: assistant.description || '组织专属办公能力', placeholder: `描述需要交给${assistant.name}处理的任务`, color: ['#4f8cff', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Sparkles, assistantId: assistant.id }
   })
   installedSkills.value = plugins.map((plugin, index) => ({ id: `skill:${plugin.id}`, name: plugin.name, category: '已安装', description: plugin.description || '已安装的办公技能', shortDescription: plugin.description || '已安装技能', placeholder: `描述需要使用${plugin.name}完成的任务`, color: ['#4f8cff', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Layers3, pluginId: plugin.id }))
+  applyRouteIntent()
   if (auth.isAuthenticated) void loadAgentTasks()
 })
 onUnmounted(() => {

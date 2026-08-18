@@ -53,10 +53,10 @@
       <section id="intro" class="landing-overview">
         <div class="landing-overview__copy">
           <h1>
-            <span class="landing-title-lead">在一个平台，完成</span>
+            <span class="landing-title-lead">{{ landing.heroLead }}</span>
             <span class="landing-title-modes">
-              <button type="button" class="mode-chat" :class="{ 'is-active': activeMode === 0 }" :aria-pressed="activeMode === 0" @pointerenter="previewMode(0)" @focus="previewMode(0)" @click="selectMode(0)"><span>对话</span><i></i></button><b>、</b>
-              <button type="button" class="mode-image" :class="{ 'is-active': activeMode === 1 }" :aria-pressed="activeMode === 1" @pointerenter="previewMode(1)" @focus="previewMode(1)" @click="selectMode(1)"><span>图片创作</span><i></i></button><span class="landing-title-tail"><b>和</b><button type="button" class="mode-product" :class="{ 'is-active': activeMode === 2 }" :aria-pressed="activeMode === 2" @pointerenter="previewMode(2)" @focus="previewMode(2)" @click="selectMode(2)"><span>商品上新</span><i></i></button><b>。</b></span>
+              <button type="button" class="mode-chat" :class="{ 'is-active': activeMode === 0 }" :aria-pressed="activeMode === 0" @pointerenter="previewMode(0)" @focus="previewMode(0)" @click="selectMode(0)"><span>{{ modes[0]?.title }}</span><i></i></button><b>、</b>
+              <button type="button" class="mode-image" :class="{ 'is-active': activeMode === 1 }" :aria-pressed="activeMode === 1" @pointerenter="previewMode(1)" @focus="previewMode(1)" @click="selectMode(1)"><span>{{ modes[1]?.title }}</span><i></i></button><span class="landing-title-tail"><b>和</b><button type="button" class="mode-product" :class="{ 'is-active': activeMode === 2 }" :aria-pressed="activeMode === 2" @pointerenter="previewMode(2)" @focus="previewMode(2)" @click="selectMode(2)"><span>{{ modes[2]?.title }}</span><i></i></button><b>。</b></span>
             </span>
           </h1>
 
@@ -126,19 +126,18 @@
 
       <section class="landing-section landing-fit landing-reveal">
         <div class="landing-section-heading">
-          <h2>创作可以大胆，关键信息不能靠猜。</h2>
-          <p>Xinyue AI 会利用当前对话和你提供的资料继续工作；涉及商品参数、功效、认证和销售数据时，只使用有依据的信息。</p>
+          <h2>{{ landing.trustTitle }}</h2>
+          <p>{{ landing.trustDescription }}</p>
         </div>
         <div class="landing-fit-grid">
-          <article><h3>上下文持续可用，作品统一留存</h3><p>项目里的对话、文件和生成结果会统一保留。支持继续创作的图片和文字可以从明确版本接着处理，商品图则可集中查看和下载。</p></article>
-          <article><h3>有依据的信息，才写进商品图</h3><p>包装、卖点、参数和适用范围由你提供并确认；没有可靠依据的内容，不会被包装成商品事实。</p></article>
+          <article v-for="item in landing.trustItems" :key="item.title"><h3>{{ item.title }}</h3><p>{{ item.description }}</p></article>
         </div>
       </section>
 
       <section class="landing-section landing-links landing-reveal">
         <div class="landing-section-heading">
-          <h2>把当前任务，接到合适的下一步。</h2>
-          <p>根据现在要完成的内容，继续了解相关能力和使用方式。</p>
+          <h2>{{ landing.linksTitle }}</h2>
+          <p>{{ landing.linksDescription }}</p>
         </div>
         <div class="landing-link-list">
           <RouterLink v-for="item in capabilityLinks" :key="item.title" :to="item.to">
@@ -148,7 +147,7 @@
       </section>
 
       <section class="landing-section landing-faq landing-reveal">
-        <h2>开始前，你可能还想确认这些。</h2>
+        <h2>{{ landing.faqTitle }}</h2>
         <div>
           <details v-for="item in faqs" :key="item.question">
             <summary>{{ item.question }}<span></span></summary>
@@ -158,8 +157,8 @@
       </section>
 
       <section id="plans" class="landing-final landing-reveal">
-        <h2>从今天要完成的事开始。</h2>
-        <p>提出一个问题，生成一张图片，或直接上传商品图。无需先学习复杂流程，选择当前任务就可以开始。</p>
+        <h2>{{ landing.finalTitle }}</h2>
+        <p>{{ landing.finalDescription }}</p>
         <RouterLink class="landing-button landing-button--primary" to="/chat">免费开始 <ArrowRight :size="17" /></RouterLink>
       </section>
     </main>
@@ -167,7 +166,7 @@
     <footer class="landing-footer">
       <div class="landing-footer__brand">
         <strong><span>X</span> Xinyue AI</strong>
-        <p>在同一个平台完成 AI 对话、图片创作、商品素材包和连续详情页。</p>
+        <p>{{ landing.footerDescription }}</p>
       </div>
       <div class="landing-footer__groups">
         <section><h2>产品</h2><RouterLink to="/chat">AI 对话</RouterLink><RouterLink to="/image">图片生成</RouterLink><RouterLink to="/commerce">商品素材包</RouterLink><RouterLink to="/commerce">商品详情页</RouterLink></section>
@@ -175,7 +174,7 @@
         <section><h2>了解我们</h2><RouterLink to="/about">关于我们</RouterLink><RouterLink to="/copyright">版权说明</RouterLink></section>
         <section><h2>条款与政策</h2><RouterLink to="/terms">用户协议</RouterLink><RouterLink to="/privacy">隐私政策</RouterLink></section>
       </div>
-      <p class="landing-footer__copyright">© 2026 Xinyue AI. 保留所有权利。</p>
+      <p class="landing-footer__copyright">{{ landing.copyright }}</p>
     </footer>
   </div>
 </template>
@@ -183,6 +182,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDown, ArrowRight, ArrowUpRight, Asterisk, ChevronDown, Menu, X } from 'lucide-vue-next'
+import { useCatalogStore, type LandingContent } from '../stores/catalog'
 
 const activeMode = ref(0)
 const selectedMode = ref(0)
@@ -195,7 +195,7 @@ const story = ref<HTMLElement | null>(null)
 let revealObserver: IntersectionObserver | null = null
 let frame = 0
 
-const modes = [
+const defaultModes = [
   {
     key: 'chat', title: '对话', path: 'chat', image: '/assets/chat-workspace-white.jpg', imageAlt: 'Xinyue AI 对话工作台预览',
     lead: '先聊清需求、资料和下一步。',
@@ -216,7 +216,7 @@ const modes = [
   },
 ]
 
-const navGroups = [
+const defaultNavGroups = [
   { key: 'features', label: '功能', items: [
     { label: 'AI 对话', description: '思考、写作与协作', to: '/chat' },
     { label: '图片生成', description: '生成、编辑与多图创作', to: '/image' },
@@ -230,14 +230,14 @@ const navGroups = [
   ] },
 ]
 
-const previewNav = ['新对话', '图片生成', '电商中心', '项目', '文件库', 'API']
-const capabilityLinks = [
+const defaultPreviewNav = ['新对话', '图片生成', '电商中心', '项目', '文件库', 'API']
+const defaultCapabilityLinks = [
   { title: '图片生成', description: '了解普通图片生成、参考图编辑与多张候选。', to: '/image' },
   { title: '商品素材包', description: '围绕同一商品生成一组各有用途的商品图片。', to: '/commerce' },
   { title: '商品详情页', description: '生成需要按顺序阅读的连续商品介绍。', to: '/commerce' },
   { title: '定价', description: '查看会员方案、适用场景和包含的创作点。', to: '#plans' },
 ]
-const faqs = [
+const defaultFaqs = [
   { question: '一定要先从 AI 对话开始吗？', answer: '不需要。需求明确时可以直接进入图片创作或商品中心；需要梳理背景、资料和交付标准时，再从对话开始。' },
   { question: '图片生成、商品素材包和商品详情页有什么区别？', answer: '图片生成处理单次视觉任务；商品素材包围绕同一商品规划多张独立用途图片；商品详情页则是按顺序阅读的连续页面。' },
   { question: '商品素材包和商品详情页必须一起生成吗？', answer: '不必。它们是独立任务，可以分别创建、计费、修改和下载。' },
@@ -246,6 +246,22 @@ const faqs = [
   { question: '生成的作品保存在哪里？', answer: '所有生成结果都会进入文件库，并可关联到当前项目继续编辑和下载。' },
   { question: '哪些功能可以免费体验？', answer: '注册后可使用基础对话和体验额度；具体模型与生成成本会在提交任务前显示。' },
 ]
+
+const catalog = useCatalogStore()
+const fallbackLanding: LandingContent = {
+  heroLead: '在一个平台，完成', modes: defaultModes, navGroups: defaultNavGroups, previewNav: defaultPreviewNav,
+  trustTitle: '创作可以大胆，关键信息不能靠猜。', trustDescription: 'Xinyue AI 会利用当前对话和你提供的资料继续工作；涉及事实信息时，只使用有依据的内容。',
+  trustItems: [{ title: '上下文持续可用，作品统一留存', description: '项目里的对话、文件和生成结果会统一保留，可从明确版本继续处理。' }, { title: '有依据的信息，才写进商业内容', description: '没有可靠依据的内容，不会被包装成商品事实。' }],
+  linksTitle: '把当前任务，接到合适的下一步。', linksDescription: '根据现在要完成的内容，继续了解相关能力和使用方式。', capabilityLinks: defaultCapabilityLinks,
+  faqTitle: '开始前，你可能还想确认这些。', faqs: defaultFaqs,
+  finalTitle: '从今天要完成的事开始。', finalDescription: '提出一个问题、生成素材或发起办公任务，选择当前任务就可以开始。', footerDescription: '在同一个平台完成 AI 对话、视觉创作、办公任务和团队协作。', copyright: '© 2026 Xinyue AI. 保留所有权利。',
+}
+const landing = computed<LandingContent>(() => ({ ...fallbackLanding, ...(catalog.settings.siteContent.landing || {}) }))
+const modes = computed(() => landing.value.modes.length >= 3 ? landing.value.modes : defaultModes)
+const navGroups = computed(() => landing.value.navGroups.length ? landing.value.navGroups : defaultNavGroups)
+const previewNav = computed(() => landing.value.previewNav.length ? landing.value.previewNav : defaultPreviewNav)
+const capabilityLinks = computed(() => landing.value.capabilityLinks.length ? landing.value.capabilityLinks : defaultCapabilityLinks)
+const faqs = computed(() => landing.value.faqs.length ? landing.value.faqs : defaultFaqs)
 
 const journeyStyle = computed(() => {
   const eased = Math.min(1, Math.max(0, journeyProgress.value / 0.228))
@@ -278,7 +294,7 @@ function activateWorkflow(index: number) {
   if (!element || !desktop) return
   const top = window.scrollY + element.getBoundingClientRect().top
   const distance = Math.max(1, element.offsetHeight - window.innerHeight)
-  const progress = 0.25 + ((index + 0.5) / modes.length) * 0.75
+  const progress = 0.25 + ((index + 0.5) / modes.value.length) * 0.75
   window.scrollTo({ top: top + distance * progress, behavior: 'smooth' })
 }
 
@@ -301,7 +317,7 @@ function updateScroll() {
     activeMode.value = selectedMode.value
   } else if (progress >= 0.25) {
     const normalized = Math.min(0.999, Math.max(0, (progress - 0.25) / 0.75))
-    activeMode.value = Math.min(modes.length - 1, Math.floor(normalized * modes.length))
+    activeMode.value = Math.min(modes.value.length - 1, Math.floor(normalized * modes.value.length))
   }
 }
 
@@ -322,6 +338,7 @@ watch(mobileMenuOpen, (open) => {
 })
 
 onMounted(() => {
+  void catalog.load()
   window.addEventListener('scroll', scheduleScrollUpdate, { passive: true })
   window.addEventListener('resize', scheduleScrollUpdate, { passive: true })
   document.addEventListener('pointerdown', closeNavOnOutside)

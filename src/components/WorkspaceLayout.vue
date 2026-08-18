@@ -1,5 +1,5 @@
 <template>
-  <WorkspaceShell :active-mode="activeMode">
+  <WorkspaceShell :active-mode="activeMode" :canvas-route="canvasRoute">
     <RouterView />
   </WorkspaceShell>
 </template>
@@ -20,9 +20,12 @@ const activeMode = computed<StudioMode>(() => {
     office: 'office',
     prompts: 'prompts',
     plugins: 'plugins',
-    projects: 'projects',
-    assets: 'assets',
+    workspace: 'workspace',
+    works: 'workspace',
+    canvases: 'workspace',
+    canvas: 'workspace',
   }
   return modes[String(route.name)] || 'api'
 })
+const canvasRoute = computed(() => route.name === 'canvas')
 </script>
