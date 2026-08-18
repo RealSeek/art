@@ -1309,6 +1309,10 @@ html[data-studio-theme="light"] {
 .canvas-navigation-dock { gap: 4px; padding: 5px 8px; }
 .canvas-navigation-dock output { border: 0; min-width: 42px; }
 
+/* The canvas has its own horizontal navigation dock. Keep Vue Flow's
+   duplicate vertical control stack out of the reference composition. */
+.canvas-flow > .vue-flow__controls { display: none; }
+
 /* The dock also carries the legacy rail class for compatibility selectors.
    Clear the rail's top anchor so it cannot stretch from top to bottom. */
 .canvas-tool-dock.canvas-tool-rail { left: calc((100% - var(--canvas-sidebar-width)) / 2); top: auto; }

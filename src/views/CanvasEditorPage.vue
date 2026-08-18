@@ -641,6 +641,7 @@ function applyDocument(document: CanvasDocumentPayload) {
     position: { ...node.position },
     data: { ...node.data, kind: node.type, title: node.title, content: node.data.content || '' },
     style: { width: `${node.size?.width || 280}px`, height: `${node.size?.height || (node.type === 'GROUP' ? 360 : 220)}px` },
+    selected: false,
   }))
   edges.value = (document.edges || []).map((edge) => ({ ...edge, type: 'smoothstep', markerEnd: MarkerType.ArrowClosed }))
   nextTick(() => { applyingHistory = false })
@@ -1061,13 +1062,28 @@ function openAgentPanel() {
   nodeConfigOpen.value = false
 }
 
-function selectCanvasNode(id: string) {
+async function keepCanvasNodeVisible(id: string) {
+  await nextTick()
+  const nodeElement = document.querySelector<HTMLElement>(`.vue-flow__node-canvas[data-id="${id}"]`)
+  const flowElement = document.querySelector<HTMLElement>('.canvas-flow')
+  if (!nodeElement || !flowElement) return
+
+  const nodeRect = nodeElement.getBoundingClientRect()
+  const flowRect = flowElement.getBoundingClientRect()
+  const safeTop = flowRect.top + 72
+  const safeBottom = flowRect.bottom - 96
+  const needsReframe = nodeRect.top < safeTop || nodeRect.bottom > safeBottom || nodeRect.left < 16 || nodeRect.right > flowRect.right - 16
+  if (needsReframe) await fitView({ nodes: [id], padding: 0.34, maxZoom: 0.92, duration: 240 })
+}
+
+async function selectCanvasNode(id: string) {
   if (!nodes.value.some((node) => node.id === id)) return
   nodeCreateMenu.value = null
   canvasContextMenu.value = null
   nodes.value.forEach((node) => { node.selected = node.id === id })
   nodeConfigOpen.value = false
   workspacePanel.value = 'agent'
+  await keepCanvasNodeVisible(id)
 }
 
 function openWorkspaceSettings(section: 'account' | 'api' | 'credits' | 'notifications') {
