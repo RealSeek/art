@@ -65,7 +65,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
-export async function streamApiEvents<T>(path: string, onEvent?: (value: T) => void): Promise<T> {
+export type StreamApiEventMeta = { id?: string; event?: string }
+
+export async function streamApiEvents<T>(path: string, onEvent?: (value: T) => void, onMeta?: (meta: StreamApiEventMeta) => void): Promise<T> {
   const controller = new AbortController()
   const idleTimeoutMs = 30_000
   let idleTimer = window.setTimeout(() => controller.abort(), idleTimeoutMs)
@@ -85,7 +87,11 @@ export async function streamApiEvents<T>(path: string, onEvent?: (value: T) => v
   let buffer = ''
   let latest: T | undefined
   const consume = (block: string) => {
-    const data = block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n').trim()
+    const lines = block.split(/\r?\n/)
+    const id = lines.find((line) => line.startsWith('id:'))?.slice(3).trim()
+    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim()
+    onMeta?.({ id, event })
+    const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n').trim()
     if (!data) return
     latest = JSON.parse(data) as T
     onEvent?.(latest)

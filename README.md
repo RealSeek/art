@@ -32,7 +32,11 @@ Browser
 - 管理端：Art Design Pro、Vue 3、Element Plus
 - 服务端：NestJS、Fastify、Prisma、PostgreSQL、Redis、BullMQ、LangGraph.js
 
-当前功能状态、真实缺口和后续顺序见 [最近代码审计](docs/FINAL_CODE_AUDIT_2026-08-27.md) 与 [下一版本执行边界](docs/NEXT_VERSION_SCOPE_AND_EXECUTION_PLAN_2026-08-27.md)，本地重启记录见 [本地清理与重启记录](docs/LOCAL_CLEANUP_AND_RESTART_2026-08-28.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+当前版本审计结论见 [最终代码审计](docs/FINAL_CODE_AUDIT_2026-08-28.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+
+## 许可证
+
+Xinyue AI 使用 [Xinyue AI Community Source License v1.0](LICENSE)。源码可用于学习、研究和个人非商业部署；未经书面授权，不得用于商业 SaaS、API 聚合/中转、Token 销售、会员服务或企业商业交付。商业使用请通过 [GitHub 仓库](https://github.com/qiantingwl/xinyueai) 联系维护者。该协议是项目自定义的社区源码协议，不是 OSI 认证的开源许可证。
 
 ## 本地开发
 
@@ -58,7 +62,7 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。请在启动前替换其中的默认管理员密码、会话密钥和凭据加密密钥。
+`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。初始化脚本不会内置默认密码，必须在 `server/.env` 中设置 `ADMIN_EMAIL` 和至少 8 位的 `ADMIN_PASSWORD`；同时请替换会话密钥和凭据加密密钥。测试脚本中的回退账号仅用于演示，不是可用的默认管理员账号。
 
 ## 生产部署
 
@@ -94,6 +98,6 @@ npm run test:e2e
 
 ## 协作和第三方软件
 
-功能开发请使用分支和 Pull Request，约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。第三方声明和保留的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+功能开发请使用分支和 Pull Request，约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全漏洞报告方式见 [SECURITY.md](SECURITY.md)。第三方声明和保留的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 运行时 `.env`、日志、数据库、构建产物和用户上传文件不会提交到 Git。禁止在提交、Issue 或 Pull Request 中写入真实密钥。

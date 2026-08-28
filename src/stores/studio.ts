@@ -6,11 +6,12 @@ import { isGenerationActive, isGenerationTerminal } from '../utils/generation-ru
 
 type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
 type ServerMessageMetadata = { jobId?: string; feedback?: 'UP' | 'DOWN' | null; suggestionVersion?: number; suggestions?: string[]; reasoning?: unknown; webSearch?: unknown }
-type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
+type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; parentId?: string | null; branchIndex?: number; branchCount?: number; branches?: Array<{ id: string; branchIndex: number }>; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
 type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null; metadata?: ServerMessageMetadata | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
+type ServerGenerationEvent = { id?: string; sequence?: number; type?: string; payload?: unknown }
 
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 const terminalJob = (job: ServerJob) => isGenerationTerminal(job.status)
@@ -257,6 +258,7 @@ export const useStudioStore = defineStore('studio', {
         this.temporaryChat = Boolean(conversation.temporary)
         this.messages = (conversation.messages || []).filter((message) => message.role === 'USER' || message.role === 'ASSISTANT').map((message) => ({
           id: message.id, role: message.role.toLowerCase() as 'user' | 'assistant', content: message.content,
+          parentId: message.parentId || null, branchIndex: message.branchIndex || 0, branchCount: message.branchCount || 1, branches: message.branches || [{ id: message.id, branchIndex: message.branchIndex || 0 }],
           model: message.model || undefined, generationJobId: message.metadata?.jobId, createdAt: Date.parse(message.createdAt), attachmentIds: message.attachments?.map((attachment) => attachment.assetId || attachment.asset?.id || '').filter(Boolean),
           reasoning: typeof message.metadata?.reasoning === 'string' ? message.metadata.reasoning : undefined,
           feedback: message.metadata?.feedback || null,
@@ -421,6 +423,12 @@ export const useStudioStore = defineStore('studio', {
           this.activeJobId = ''
         }
       }
+    },
+    async switchMessageBranch(messageId: string) {
+      if (!this.currentConversationId || this.isGenerating) return
+      const conversationId = this.currentConversationId
+      await api(`/conversations/${conversationId}/messages/${messageId}/activate`, { method: 'POST' })
+      if (this.currentConversationId === conversationId) await this.openConversation(conversationId)
     },
     async refreshConversations() {
       this.conversations = (await api<ServerConversation[]>('/conversations')).map(mapConversation)
@@ -588,14 +596,54 @@ export const useStudioStore = defineStore('studio', {
       const existing = pendingChatJobs.get(jobId)
       if (existing) return existing
 
-      const monitor = this.pollJob(jobId, (current) => {
-        if (!current.stream || this.currentConversationId !== conversationId) return
-        const pendingId = `stream:${jobId}`
-        const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
-        const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, generationJobId: jobId, createdAt: this.messages[index]?.createdAt || Date.now(), reasoning: typeof current.stream.metadata?.reasoning === 'string' ? current.stream.metadata.reasoning : this.messages[index]?.reasoning, webSearch: mapWebSearch(current.stream.metadata?.webSearch) || this.messages[index]?.webSearch }
-        if (index >= 0) this.messages.splice(index, 1, streamed)
-        else this.messages.push(streamed)
-      })
+      const monitor = (async () => {
+        let cursor = '0'
+        const currentMessage = this.messages.find((message) => message.generationJobId === jobId || message.id === `stream:${jobId}`)
+        // A reloaded conversation already contains the persisted prefix. Start
+        // after its latest event; a brand-new optimistic row replays from zero.
+        if (currentMessage?.content) {
+          const history = await api<Array<{ sequence?: number }>>(`/generations/${jobId}/events/history`).catch(() => [])
+          cursor = String(history.reduce((max, row) => Math.max(max, Number(row.sequence || 0)), 0))
+        }
+        const applyEvent = (event: ServerGenerationEvent) => {
+          if (this.currentConversationId !== conversationId) return
+          const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {}
+          const textDelta = typeof payload.textDelta === 'string' ? payload.textDelta : ''
+          const reasoningDelta = typeof payload.reasoningDelta === 'string' ? payload.reasoningDelta : ''
+          if (!textDelta && !reasoningDelta) return
+          const pendingId = `stream:${jobId}`
+          const index = this.messages.findIndex((message) => message.id === pendingId || message.generationJobId === jobId)
+          const base = index >= 0 ? this.messages[index] : { id: pendingId, role: 'assistant' as const, content: '', model: fallbackModel, generationJobId: jobId, createdAt: Date.now() }
+          const next = { ...base, content: `${base.content || ''}${textDelta}`, model: base.model || fallbackModel, generationJobId: jobId, reasoning: `${base.reasoning || ''}${reasoningDelta}` }
+          if (index >= 0) this.messages.splice(index, 1, next)
+          else this.messages.push(next)
+        }
+        for (let attempt = 0; attempt < 180; attempt += 1) {
+          try {
+            await streamApiEvents<ServerGenerationEvent>(`/generations/${jobId}/events/stream?after=${encodeURIComponent(cursor)}`, applyEvent, (meta) => {
+              if (meta.id) cursor = meta.id
+            })
+          } catch {
+            // The snapshot request below determines whether a reconnect is
+            // still needed; transient stream failures are expected.
+          }
+          const current = await api<ServerJob>(`/generations/${jobId}`)
+          if (current.stream && this.currentConversationId === conversationId) {
+            const pendingId = `stream:${jobId}`
+            const index = this.messages.findIndex((message) => message.id === pendingId || message.generationJobId === jobId)
+            // The snapshot is authoritative after reconnect, but do not replace
+            // a newer local delta with an older database read.
+            if (index < 0 || current.stream.content.length >= this.messages[index].content.length) {
+              const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, generationJobId: jobId, createdAt: index >= 0 ? this.messages[index].createdAt : Date.now(), reasoning: typeof current.stream.metadata?.reasoning === 'string' ? current.stream.metadata.reasoning : index >= 0 ? this.messages[index].reasoning : undefined, webSearch: mapWebSearch(current.stream.metadata?.webSearch) || (index >= 0 ? this.messages[index].webSearch : undefined) }
+              if (index >= 0) this.messages.splice(index, 1, streamed)
+              else this.messages.push(streamed)
+            }
+          }
+          if (terminalJob(current)) return current
+          await wait(250)
+        }
+        throw new Error('任务处理超时，请稍后重新打开查看')
+      })()
       pendingChatJobs.set(jobId, monitor)
       try { return await monitor }
       finally {

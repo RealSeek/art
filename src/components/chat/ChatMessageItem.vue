@@ -71,6 +71,11 @@
                 </section>
                 <nav v-if="message.id !== 'welcome' && responseState.shouldRender" class="message-actions" :aria-label="`${message.role === 'user' ? '用户' : '助手'}消息操作`">
                   <button type="button" :title="copied ? '已复制' : '复制'" @click="copyMessage(message)"><Check v-if="copied" :size="15" /><Copy v-else :size="15" /></button>
+                  <span v-if="orderedBranches.length > 1" class="message-branch-nav" aria-label="消息分支">
+                    <button type="button" title="上一个分支" :disabled="store.isGenerating || currentBranchPosition <= 0" @click="switchBranch(-1)"><ChevronLeft :size="14" /></button>
+                    <small>{{ currentBranchPosition + 1 }}/{{ orderedBranches.length }}</small>
+                    <button type="button" title="下一个分支" :disabled="store.isGenerating || currentBranchPosition >= orderedBranches.length - 1" @click="switchBranch(1)"><ChevronRight :size="14" /></button>
+                  </span>
                   <button v-if="message.role === 'user'" type="button" title="编辑消息" :disabled="store.isGenerating" @click="$emit('start-edit')"><Pencil :size="15" /></button>
                   <template v-else>
                     <button type="button" title="重新生成" :disabled="store.isGenerating" @click="$emit('retry')"><RefreshCw :size="15" /></button>
@@ -89,7 +94,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowRight, BookOpenCheck, BrainCircuit, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, LoaderCircle, Pencil, RefreshCw, Search, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
+import { ArrowRight, BookOpenCheck, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy, LoaderCircle, Pencil, RefreshCw, Search, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
 import ChatMessageContent from '../ChatMessageContent.vue'
 import ModelBadge from '../common/ModelBadge.vue'
 import { useStudioStore } from '../../stores/studio'
@@ -103,11 +108,12 @@ const props = defineProps<{
   followUps: string[]
   showFollowUps: boolean
 }>()
-defineEmits<{
+const emit = defineEmits<{
   (e: 'start-edit'): void
   (e: 'save-edit'): void
   (e: 'cancel-edit'): void
   (e: 'retry'): void
+  (e: 'switch-branch', messageId: string): void
   (e: 'follow-up', value: string): void
   (e: 'preview-artifact', artifact: CodeArtifact): void
 }>()
@@ -119,6 +125,8 @@ const responseState = computed(() => resolveChatResponseState(props.message, {
   isGenerating: store.isGenerating,
   activeJobId: store.activeJobId,
 }))
+const orderedBranches = computed(() => [...(props.message.branches || [])].sort((left, right) => left.branchIndex - right.branchIndex))
+const currentBranchPosition = computed(() => Math.max(0, orderedBranches.value.findIndex((branch) => branch.id === props.message.id)))
 
 function sourceDomain(value: string) {
   try { return new URL(value).hostname.replace(/^www\./, '') } catch { return value }
@@ -132,5 +140,9 @@ async function setMessageFeedback(value: 'UP' | 'DOWN') {
   const nextValue = props.message.feedback === value ? null : value
   try { await store.setMessageFeedback(props.message.id, nextValue) }
   catch (reason) { store.lastError = reason instanceof Error ? reason.message : '反馈提交失败' }
+}
+function switchBranch(offset: -1 | 1) {
+  const target = orderedBranches.value[currentBranchPosition.value + offset]
+  if (target) emit('switch-branch', target.id)
 }
 </script>

@@ -59,10 +59,21 @@ export class TokenQuotaService {
   }
 
   async settle(input: { userId: string; quotaId: string; generationId: string; reservedUnits: bigint; chargedUnits: bigint; inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningTokens?: number; metadata?: Prisma.InputJsonValue }) {
-    const chargeKey = this.eventKey(input.generationId, 'charge', input.quotaId)
-    const existing = await this.prisma.tokenQuotaEvent.findUnique({ where: { idempotencyKey: chargeKey }, select: { id: true } })
-    if (existing) return { chargedUnits: input.chargedUnits, releasedUnits: input.reservedUnits > input.chargedUnits ? input.reservedUnits - input.chargedUnits : 0n, extraUnits: 0n }
+    const [result] = await this.settleMany([input])
+    return result
+  }
+
+  async settleMany(inputs: Array<{ userId: string; quotaId: string; generationId: string; reservedUnits: bigint; chargedUnits: bigint; inputTokens: number; outputTokens: number; cachedInputTokens?: number; reasoningTokens?: number; metadata?: Prisma.InputJsonValue }>) {
+    if (!inputs.length) return []
     return this.serializable(async (tx) => {
+      const results = []
+      for (const input of inputs) {
+        const chargeKey = this.eventKey(input.generationId, 'charge', input.quotaId)
+        const existing = await tx.tokenQuotaEvent.findUnique({ where: { idempotencyKey: chargeKey }, select: { id: true } })
+        if (existing) {
+          results.push({ chargedUnits: input.chargedUnits, releasedUnits: input.reservedUnits > input.chargedUnits ? input.reservedUnits - input.chargedUnits : 0n, extraUnits: 0n })
+          continue
+        }
       const quota = await tx.userTokenQuota.findUniqueOrThrow({ where: { id: input.quotaId } })
       const charge = input.chargedUnits < 0n ? 0n : input.chargedUnits
       const released = input.reservedUnits > charge ? input.reservedUnits - charge : 0n
@@ -73,7 +84,9 @@ export class TokenQuotaService {
       if (updated.count !== 1) throw new ConflictException('文字额度发生并发更新，请重试')
       if (released > 0n) await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.RELEASE, units: released, balanceBefore: available, balanceAfter: available + released, idempotencyKey: this.eventKey(input.generationId, 'release', quota.id), metadata: input.metadata } })
       await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.CHARGE, units: -charge, balanceBefore: available + released, balanceAfter: available + released - extra, idempotencyKey: chargeKey, metadata: input.metadata } })
-      return { chargedUnits: charge, releasedUnits: released, extraUnits: extra }
+        results.push({ chargedUnits: charge, releasedUnits: released, extraUnits: extra })
+      }
+      return results
     })
   }
 

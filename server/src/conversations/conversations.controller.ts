@@ -10,7 +10,7 @@ import { publicGenerationError } from '../generations/generation-errors'
 import { ResourceAccessService } from '../common/resource-access.service'
 
 class CreateConversationDto { @IsOptional() @IsString() @MinLength(1) @MaxLength(100) projectId?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(160) model?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(120) title?: string; @IsOptional() @IsBoolean() temporary?: boolean }
-class AddMessageDto { @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(50_000) content!: string; @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @IsNotEmpty({ each: true }) assetIds?: string[] }
+class AddMessageDto { @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(50_000) content!: string; @IsOptional() @IsString() @MaxLength(100) parentId?: string; @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @IsNotEmpty({ each: true }) assetIds?: string[] }
 class BranchMessageDto { @IsOptional() @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(50_000) content?: string }
 class MessageFeedbackDto { @IsOptional() @IsIn(['UP', 'DOWN']) value?: 'UP' | 'DOWN' | null }
 class UpdateConversationDto {
@@ -51,11 +51,30 @@ export class ConversationsController {
     if (!conversation) throw new NotFoundException('对话不存在')
     const auditReadOnly = conversation.userId !== user.id
     const { jobs, project: _project, ...detail } = conversation
+    const visibleMessages = conversation.activeLeafId
+      ? (() => {
+          const byId = new Map(conversation.messages.map((message) => [message.id, message]))
+          const ids = new Set<string>()
+          let cursor = byId.get(conversation.activeLeafId)
+          while (cursor && !ids.has(cursor.id)) { ids.add(cursor.id); cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined }
+          return ids.size ? conversation.messages.filter((message) => ids.has(message.id)) : conversation.messages
+        })()
+      : conversation.messages
+    const branchGroups = new Map<string, Array<{ id: string; branchIndex: number }>>()
+    for (const message of conversation.messages) {
+      const key = message.parentId || '__root__'
+      const group = branchGroups.get(key) || []
+      group.push({ id: message.id, branchIndex: message.branchIndex })
+      branchGroups.set(key, group)
+    }
+    for (const group of branchGroups.values()) group.sort((left, right) => left.branchIndex - right.branchIndex)
     return {
       ...detail,
       auditReadOnly,
-      messages: conversation.messages.map((message) => ({
+      messages: visibleMessages.map((message) => ({
         ...message,
+        branchCount: branchGroups.get(message.parentId || '__root__')?.length || 1,
+        branches: branchGroups.get(message.parentId || '__root__') || [{ id: message.id, branchIndex: message.branchIndex }],
         attachments: message.attachments.map((attachment) => ({
           ...attachment,
           asset: { ...attachment.asset, size: Number(attachment.asset.size), contentUrl: `/v1/assets/${attachment.asset.id}/content` },
@@ -77,8 +96,14 @@ export class ConversationsController {
       if (count !== body.assetIds.length) throw new NotFoundException('附件不存在')
     }
     return this.prisma.$transaction(async (tx) => {
-      const message = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content: body.content, attachments: body.assetIds?.length ? { create: body.assetIds.map((assetId) => ({ assetId })) } : undefined }, include: { attachments: true } })
-      await tx.conversation.update({ where: { id }, data: { updatedAt: new Date() } })
+      const parentId = body.parentId || conversation.activeLeafId || undefined
+      if (parentId) {
+        const parent = await tx.message.findFirst({ where: { id: parentId, conversationId: id, deletedAt: null }, select: { id: true } })
+        if (!parent) throw new NotFoundException('消息分支父节点不存在')
+      }
+      const branchIndex = parentId ? await tx.message.count({ where: { conversationId: id, parentId, deletedAt: null } }) : await tx.message.count({ where: { conversationId: id, parentId: null, deletedAt: null } })
+      const message = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content: body.content, parentId, branchIndex, attachments: body.assetIds?.length ? { create: body.assetIds.map((assetId) => ({ assetId })) } : undefined }, include: { attachments: true } })
+      await tx.conversation.update({ where: { id }, data: { activeLeafId: message.id, updatedAt: new Date() } })
       return message
     })
   }
@@ -86,19 +111,43 @@ export class ConversationsController {
   async branchMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string, @Body() body: BranchMessageDto) {
     const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id }, select: { id: true } })
     if (!conversation) throw new NotFoundException('对话不存在')
-    const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true, authorId: true } })
+    const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, role: true, content: true, authorId: true, parentId: true, branchIndex: true, attachments: { select: { assetId: true } } } })
     const messageIndex = messages.findIndex((message) => message.id === messageId)
     const target = messages[messageIndex]
     if (!target || target.role !== 'USER' || (target.authorId && target.authorId !== user.id)) throw new NotFoundException('用户消息不存在')
     const content = body.content?.trim() || target.content
     await this.moderation.inspect(user.id, 'CHAT', content, { conversationId: id, messageId, entry: 'branch' })
-    const followingIds = messages.slice(messageIndex + 1).map((message) => message.id)
     return this.prisma.$transaction(async (tx) => {
-      if (followingIds.length) await tx.message.deleteMany({ where: { id: { in: followingIds }, conversationId: id } })
-      const updated = await tx.message.update({ where: { id: messageId }, data: { content } })
-      await tx.conversation.update({ where: { id }, data: { updatedAt: new Date() } })
-      return updated
+      const branchIndex = await tx.message.count({ where: { conversationId: id, parentId: target.parentId, deletedAt: null } })
+      const updated = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content, parentId: target.parentId, branchIndex, attachments: target.attachments.length ? { create: target.attachments.map((attachment) => ({ assetId: attachment.assetId })) } : undefined } })
+      await tx.conversation.update({ where: { id }, data: { activeLeafId: updated.id, updatedAt: new Date() } })
+      return { ...updated, branchCount: branchIndex + 1 }
     })
+  }
+  @Post(':id/messages/:messageId/activate')
+  async activateBranch(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string) {
+    const conversation = await this.prisma.conversation.findFirst({ where: { id, userId: user.id }, select: { id: true } })
+    if (!conversation) throw new NotFoundException('对话不存在')
+    const messages = await this.prisma.message.findMany({ where: { conversationId: id, deletedAt: null }, orderBy: [{ branchIndex: 'asc' }, { createdAt: 'asc' }], select: { id: true, parentId: true, branchIndex: true, createdAt: true } })
+    const target = messages.find((message) => message.id === messageId)
+    if (!target) throw new NotFoundException('消息分支不存在')
+    const children = new Map<string, typeof messages>()
+    for (const message of messages) {
+      if (!message.parentId) continue
+      const rows = children.get(message.parentId) || []
+      rows.push(message)
+      children.set(message.parentId, rows)
+    }
+    let leaf = target
+    const visited = new Set<string>()
+    while (!visited.has(leaf.id)) {
+      visited.add(leaf.id)
+      const next = children.get(leaf.id)?.at(-1)
+      if (!next) break
+      leaf = next
+    }
+    await this.prisma.conversation.update({ where: { id }, data: { activeLeafId: leaf.id, updatedAt: new Date() } })
+    return { activeLeafId: leaf.id }
   }
   @Delete(':id/messages/:messageId')
   async softDeleteMessage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('messageId') messageId: string) {

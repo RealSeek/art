@@ -39,6 +39,10 @@ export interface Message {
   feedback?: 'UP' | 'DOWN' | null
   suggestions?: string[]
   webSearch?: MessageWebSearch
+  parentId?: string | null
+  branchIndex?: number
+  branchCount?: number
+  branches?: Array<{ id: string; branchIndex: number }>
 }
 
 export interface CodeArtifact {

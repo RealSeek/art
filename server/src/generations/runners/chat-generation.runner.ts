@@ -14,6 +14,10 @@ import { PricingResolverService, type PricingSnapshot } from '../../billing/pric
 import { TokenizerService } from '../../billing/tokenizer.service'
 import { TokenUsageLedgerService } from '../../billing/token-usage-ledger.service'
 import { TokenQuotaService } from '../../billing/token-quota.service'
+import { GenerationEventsService } from '../generation-events.service'
+import { ChatContextService } from '../chat-context.service'
+import { ToolLoopRunner } from '../tool-loop.runner'
+import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
 
 const officeSkillPrompts: Record<string, string> = {
   daily: '你是专业办公助理。输出应清晰、可直接使用，并使用标题、清单或表格组织内容。',
@@ -67,6 +71,7 @@ type WebSearchSource = { title: string; url: string; content?: string; published
 type ChatWebSearch = { enabled: true; status: 'searching' | 'completed' | 'failed'; queries: string[]; sources: WebSearchSource[]; error?: string; answer?: string; mode?: 'native' | 'external'; provider?: string }
 type AgentToolDefinition = { id: string; key: string; name: string; description: string; endpoint: string; scopes: Prisma.JsonValue; requiresApproval: boolean }
 type AgentToolCall = { key: string; input: Record<string, unknown> }
+type AgentToolPlan = { calls: AgentToolCall[]; usage?: ChatUsage }
 
 type BillingOptions = {
   maxOutputTokens?: number
@@ -97,6 +102,10 @@ export class ChatGenerationRunner implements GenerationRunner {
     private readonly tokenizer: TokenizerService,
     private readonly tokenLedger: TokenUsageLedgerService,
     private readonly tokenQuota: TokenQuotaService,
+    private readonly generationEvents: GenerationEventsService,
+    private readonly chatContext: ChatContextService,
+    private readonly toolLoop: ToolLoopRunner,
+    private readonly endpointPolicy: PublicEndpointPolicyService,
   ) {}
 
   run(task: GenerationJob) {
@@ -478,8 +487,8 @@ export class ChatGenerationRunner implements GenerationRunner {
     return configured.type === 'object' ? configured : { type: 'object', properties: {}, additionalProperties: true }
   }
 
-  private async planAgentTools(resolved: ResolvedProvider, messages: Array<{ role: string; content: string }>, maxTokens: number, tools: AgentToolDefinition[]): Promise<AgentToolCall[]> {
-    if (!tools.length) return []
+  private async planAgentTools(resolved: ResolvedProvider, messages: Array<{ role: string; content: string }>, maxTokens: number, tools: AgentToolDefinition[], signal?: AbortSignal): Promise<AgentToolPlan> {
+    if (!tools.length) return { calls: [] }
     const system = messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n\n')
     const conversation = messages.filter((message) => message.role !== 'system')
     let path = '/chat/completions'
@@ -497,34 +506,35 @@ export class ChatGenerationRunner implements GenerationRunner {
       body = { ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), contents: conversation.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })), tools: [{ functionDeclarations: tools.map((tool) => ({ name: tool.key, description: tool.description || tool.name, parameters: this.toolSchema(tool) })) }] }
     }
     let response: Response
-    try { response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: signal || AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ProviderRequestError(error instanceof Error ? error.message : 'Agent planning request failed') }
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     const payload = await response.json() as Record<string, unknown>
     if (resolved.apiProtocol === 'anthropic') {
       const blocks = Array.isArray(payload.content) ? payload.content as Array<Record<string, unknown>> : []
-      return blocks.filter((block) => block.type === 'tool_use' && typeof block.name === 'string').slice(0, 4).map((block) => ({ key: String(block.name), input: block.input && typeof block.input === 'object' && !Array.isArray(block.input) ? block.input as Record<string, unknown> : {} }))
+      return { calls: blocks.filter((block) => block.type === 'tool_use' && typeof block.name === 'string').slice(0, 4).map((block) => ({ key: String(block.name), input: block.input && typeof block.input === 'object' && !Array.isArray(block.input) ? block.input as Record<string, unknown> : {} })), usage: normalizeChatUsage('anthropic', payload.usage) }
     }
     if (resolved.apiProtocol === 'gemini') {
       const candidates = Array.isArray(payload.candidates) ? payload.candidates as Array<Record<string, unknown>> : []
       const content = candidates[0]?.content as Record<string, unknown> | undefined
       const parts = Array.isArray(content?.parts) ? content.parts as Array<Record<string, unknown>> : []
-      return parts.map((part) => part.functionCall as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).slice(0, 4).map((call) => ({ key: String(call.name), input: call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {} }))
+      return { calls: parts.map((part) => part.functionCall as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).slice(0, 4).map((call) => ({ key: String(call.name), input: call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {} })), usage: normalizeChatUsage('gemini', payload.usageMetadata) }
     }
     const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : []
     const message = choices[0]?.message as Record<string, unknown> | undefined
     const calls = Array.isArray(message?.tool_calls) ? message.tool_calls as Array<Record<string, unknown>> : []
-    return calls.slice(0, 4).map((call) => call.function as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).map((call) => {
+    const normalizedCalls = calls.slice(0, 4).map((call) => call.function as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).map((call) => {
       let input: Record<string, unknown> = {}
       try { input = typeof call.arguments === 'string' ? JSON.parse(call.arguments) as Record<string, unknown> : {} } catch { input = {} }
       return { key: String(call.name), input }
     })
+    return { calls: normalizedCalls, usage: normalizeChatUsage('openai', payload.usage) }
   }
 
-  private async executeAgentTools(task: GenerationJob, assistantId: string, tools: AgentToolDefinition[], calls: AgentToolCall[]) {
+  private async executeAgentTools(task: GenerationJob, assistantId: string, tools: AgentToolDefinition[], calls: AgentToolCall[], callOffset = 0, signal?: AbortSignal) {
     const byKey = new Map(tools.map((tool) => [tool.key, tool]))
     const results: Array<{ tool: string; status: string; output: string }> = []
-    for (const call of calls) {
+    for (const [index, call] of calls.entries()) {
       const tool = byKey.get(call.key)
       if (!tool?.endpoint) continue
       if (tool.requiresApproval) {
@@ -533,14 +543,18 @@ export class ChatGenerationRunner implements GenerationRunner {
         const consumed = await this.prisma.toolApprovalRequest.updateMany({ where: { id: approval.id, consumedAt: null }, data: { consumedAt: new Date() } })
         if (!consumed.count) continue
       }
+      const toolCallId = `tool-${callOffset + index + 1}`
+      void this.generationEvents.append(task.id, 'tool_call', { id: toolCallId, name: tool.key, inputKeys: Object.keys(call.input).slice(0, 32) }).catch(() => undefined)
       const started = Date.now(); let status = 'FAILED'; let output = ''; let error = ''
       try {
-        const response = await fetch(tool.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(call.input), signal: AbortSignal.timeout(30_000) })
+        const endpoint = await this.endpointPolicy.assertPublicHttpUrl(tool.endpoint)
+        const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(call.input), signal: signal || AbortSignal.timeout(30_000) })
         output = (await response.text()).slice(0, 100_000)
         if (!response.ok) throw new Error(`工具返回 ${response.status}`)
         status = 'SUCCEEDED'
       } catch (reason) { error = reason instanceof Error ? reason.message : '工具调用失败' }
       await this.prisma.toolCallAudit.create({ data: { userId: task.userId, toolId: tool.id, assistantId, status, input: call.input as Prisma.InputJsonValue, output: output || undefined, error: error || null, durationMs: Date.now() - started } })
+      void this.generationEvents.append(task.id, 'tool_result', { id: toolCallId, name: tool.key, status: status === 'SUCCEEDED' ? 'complete' : 'error', durationMs: Date.now() - started }).catch(() => undefined)
       results.push({ tool: tool.name || tool.key, status, output: status === 'SUCCEEDED' ? output : error })
     }
     return results
@@ -701,15 +715,19 @@ export class ChatGenerationRunner implements GenerationRunner {
 
   private async runChat(task: GenerationJob) {
     if (!task.conversationId) throw new Error('conversationId is required')
-    const conversation = await this.prisma.conversation.findFirst({ where: { id: task.conversationId, userId: task.userId }, select: { id: true } })
+    const conversation = await this.prisma.conversation.findFirst({ where: { id: task.conversationId, userId: task.userId }, select: { id: true, activeLeafId: true } })
     if (!conversation) throw new Error('conversation does not belong to the task user')
-    const messages = await this.prisma.message.findMany({
+    const loadedMessages = await this.prisma.message.findMany({
       where: { conversationId: conversation.id, deletedAt: null },
       orderBy: { createdAt: 'asc' },
-      take: 80,
+      take: 250,
       include: { attachments: { include: { asset: { select: { id: true, name: true, mimeType: true } } } } },
     })
     const options = task.options as Record<string, unknown>
+    // Build a bounded suffix instead of imposing a fixed message count. This
+    // keeps recent turns intact while allowing short conversations to use more
+    // history and preventing long prompts from overflowing the provider window.
+    const messages = this.chatContext.select(this.chatContext.activePath(loadedMessages, conversation.activeLeafId), task.model, options)
     const assistantId = typeof options.assistantId === 'string' ? options.assistantId : undefined
     const assistant = assistantId ? await this.prisma.assistant.findFirst({ where: { id: assistantId, enabled: true, visibility: 'PUBLIC' }, select: { systemPrompt: true, knowledgeBases: { include: { knowledgeBase: { select: { name: true, assets: { select: { extractedText: true } } } } } }, tools: { where: { tool: { enabled: true } }, select: { tool: { select: { id: true, key: true, name: true, description: true, endpoint: true, scopes: true, requiresApproval: true } } } } } }) : null
     const knowledgeContext = assistant?.knowledgeBases.flatMap((binding) => binding.knowledgeBase.assets.map((asset) => asset.extractedText)).filter(Boolean).join('\n\n').slice(0, 20_000) || ''
@@ -741,16 +759,32 @@ export class ChatGenerationRunner implements GenerationRunner {
     const reservedCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + (quotaEnabled ? 0 : Number(billing.reservedTokenCredits || 0)))
     const persistedResult = await this.prisma.message.findFirst({ where: { conversationId: conversation.id, deletedAt: null, metadata: { path: ['jobId'], equals: task.id } }, select: { id: true } })
     const initialWebSearch: ChatWebSearch | undefined = webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined
+    const parentMessage = [...messages].reverse().find((message) => message.role === 'USER')
+    const streamParentId = parentMessage?.id
+    const streamBranchIndex = streamParentId ? await this.prisma.message.count({ where: { conversationId: conversation.id, parentId: streamParentId, deletedAt: null } }) : 0
     const streamMessage = persistedResult
       ? await this.prisma.message.update({ where: { id: persistedResult.id }, data: { content: '', metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
-      : await this.prisma.message.create({ data: { conversationId: conversation.id, role: 'ASSISTANT', content: '', model: task.model, metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
+      : await this.prisma.message.create({ data: { conversationId: conversation.id, role: 'ASSISTANT', content: '', model: task.model, parentId: streamParentId, branchIndex: streamBranchIndex, metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
     let streamedContent = ''
     let streamedReasoning = ''
     let lastFlushAt = 0
+    let lastEventAt = 0
+    let emittedContentLength = 0
+    let emittedReasoningLength = 0
     const flushStream = async (force = false) => {
       const now = Date.now()
       if (!force && now - lastFlushAt < 80) return
       lastFlushAt = now
+      if (force || now - lastEventAt >= 250) {
+        const textDelta = streamedContent.slice(emittedContentLength)
+        const reasoningDelta = streamedReasoning.slice(emittedReasoningLength)
+        if (textDelta || reasoningDelta) {
+          lastEventAt = now
+          emittedContentLength = streamedContent.length
+          emittedReasoningLength = streamedReasoning.length
+          void this.generationEvents.append(task.id, reasoningDelta && !textDelta ? 'thinking_delta' : 'text_delta', { textDelta, reasoningDelta }).catch(() => undefined)
+        }
+      }
       await this.prisma.$transaction([
         this.prisma.message.update({ where: { id: streamMessage.id }, data: { content: streamedContent, metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, ...(searchMetadata ? { webSearch: searchMetadata } : {}) } } }),
         this.prisma.generationJob.update({ where: { id: task.id }, data: { updatedAt: new Date() } }),
@@ -758,11 +792,11 @@ export class ChatGenerationRunner implements GenerationRunner {
     }
     let content: string
     let usage: ChatUsage | undefined
-    let agentPrepared = false
     let agentContext = ''
     let searchPrepared = false
     let searchMetadata = initialWebSearch
     let searchUsage: ChatUsage | undefined
+    let toolPlanningUsage: ChatUsage | undefined
     const execution = await this.withProviderFailover(task, 'CHAT', async (resolved) => {
       streamedContent = ''
       streamedReasoning = ''
@@ -775,11 +809,40 @@ export class ChatGenerationRunner implements GenerationRunner {
         searchPrepared = true
         await this.prisma.message.update({ where: { id: streamMessage.id }, data: { metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, webSearch: searchMetadata } } })
       }
-      if (!agentPrepared && assistantId && agentTools.length && options.disableAssistantTools !== true) {
-        const calls = await this.planAgentTools(resolved, providerMessages, maxOutputTokens, agentTools)
-        const results = await this.executeAgentTools(task, assistantId, agentTools, calls)
-        agentContext = results.length ? `工具调用已经完成。请基于以下真实结果回答用户，不要声称执行了未列出的工具：\n${JSON.stringify(results)}` : ''
-        agentPrepared = true
+      if (assistantId && agentTools.length && options.disableAssistantTools !== true) {
+        try {
+          const outcome = await this.toolLoop.run({
+            maxRounds: Number(options.maxToolRounds || 3),
+            maxCallsPerRound: Number(options.maxToolCallsPerRound || 4),
+            maxTotalCalls: Number(options.maxToolCalls || 8),
+            timeoutMs: Number(options.toolTimeoutMs || 90_000),
+            plan: async (_round, context, signal) => {
+              const plan = await this.planAgentTools(
+                resolved,
+                context ? [...providerMessages, { role: 'system', content: `上一轮工具执行结果（仅供继续规划）：\n${context}` }] : providerMessages,
+                maxOutputTokens,
+                agentTools,
+                signal,
+              )
+              toolPlanningUsage = this.mergeUsage(toolPlanningUsage, plan.usage)
+              return plan.calls
+            },
+            execute: (calls, round, signal) => this.executeAgentTools(task, assistantId, agentTools, calls, (round - 1) * 8, signal),
+            formatContext: (results) => JSON.stringify(results).slice(0, 12_000),
+            onRound: (event) => {
+              void this.generationEvents.append(task.id, 'tool_loop', event).catch(() => undefined)
+            },
+          })
+          agentContext = outcome.results.length
+            ? `工具调用已经完成。请基于以下真实结果回答用户，不要声称执行了未列出的工具：\n${JSON.stringify(outcome.results).slice(0, 16_000)}`
+            : ''
+          if (outcome.exhausted) {
+            agentContext += `${agentContext ? '\n\n' : ''}工具执行预算已用尽。请停止继续调用工具，直接基于已有结果给出最终答复。`
+          }
+        } catch (error) {
+          agentContext = '工具执行未能在预算内完成。请不要声称工具已经成功执行，直接给出当前可确认的答复。'
+          void this.generationEvents.append(task.id, 'tool_loop', { error: error instanceof Error ? error.message : '工具循环失败', exhausted: true }).catch(() => undefined)
+        }
       }
       const runtimeContext = [searchMetadata ? this.webSearchContext(searchMetadata) : '', agentContext].filter(Boolean).join('\n\n')
       const executionMessages = runtimeContext ? [{ role: 'system', content: runtimeContext }, ...providerMessages] : providerMessages
@@ -791,6 +854,10 @@ export class ChatGenerationRunner implements GenerationRunner {
       })
     })
     const resolved = execution.provider
+    // Flush the final delta even when the provider ended inside the event
+    // throttle window, so the durable event stream and the persisted message
+    // contain the same visible tail.
+    await flushStream(true)
     content = this.validateSearchCitations(execution.result.content, searchMetadata)
     const reasoning = execution.result.reasoning || streamedReasoning
     usage = execution.result.usage
@@ -799,11 +866,11 @@ export class ChatGenerationRunner implements GenerationRunner {
     let suggestions = followUpSuggestions(latestUserPrompt, content)
     // Keep completion tied to the primary answer. A second provider request for
     // follow-up suggestions used to leave a complete answer looking "stuck".
-    const usageSource = usage || searchUsage ? TokenUsageSource.PROVIDER : TokenUsageSource.TOKENIZER
-    const inputTokens = Math.max(0, Number(usage?.prompt_tokens || 0) + Number(searchUsage?.prompt_tokens || 0) || this.tokenizer.estimateMessages(providerMessages.map((message) => ({ role: message.role, content: message.content })), resolved.model))
-    const outputTokens = Math.max(0, Number(usage?.completion_tokens || 0) + Number(searchUsage?.completion_tokens || 0) || this.tokenizer.estimateText(content, resolved.model))
-    const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0) + Number(searchUsage?.cached_input_tokens || 0)))
-    const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(usage?.reasoning_tokens || 0) + Number(searchUsage?.reasoning_tokens || 0)))
+    const usageSource = usage || searchUsage || toolPlanningUsage ? TokenUsageSource.PROVIDER : TokenUsageSource.TOKENIZER
+    const inputTokens = Math.max(0, Number(usage?.prompt_tokens || 0) + Number(searchUsage?.prompt_tokens || 0) + Number(toolPlanningUsage?.prompt_tokens || 0) || this.tokenizer.estimateMessages(providerMessages.map((message) => ({ role: message.role, content: message.content })), resolved.model))
+    const outputTokens = Math.max(0, Number(usage?.completion_tokens || 0) + Number(searchUsage?.completion_tokens || 0) + Number(toolPlanningUsage?.completion_tokens || 0) || this.tokenizer.estimateText(content, resolved.model))
+    const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0) + Number(searchUsage?.cached_input_tokens || 0) + Number(toolPlanningUsage?.cached_input_tokens || 0)))
+    const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(usage?.reasoning_tokens || 0) + Number(searchUsage?.reasoning_tokens || 0) + Number(toolPlanningUsage?.reasoning_tokens || 0)))
     const upstreamCostMicros = Math.min(2_000_000_000, Math.ceil(inputTokens * resolved.inputCostMicrosPerMillion / 1_000_000) + Math.ceil(outputTokens * resolved.outputCostMicrosPerMillion / 1_000_000))
     const reservedTokenCredits = Math.max(0, Number(billing.reservedTokenCredits || 0))
     const actualTokenCredits = Math.ceil(inputTokens * Number(billing.inputCreditsPerMillion || 0) / 1_000_000) + Math.ceil(outputTokens * Number(billing.outputCreditsPerMillion || 0) / 1_000_000)
@@ -812,8 +879,9 @@ export class ChatGenerationRunner implements GenerationRunner {
       const active = await tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, creditCost: finalCreditCost, revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)) } })
       if (!active.count) throw new JobCancelledError('Generation job was cancelled')
       await tx.message.update({ where: { id: streamMessage.id }, data: { content, model: resolved.model, inputTokens, outputTokens, metadata: { jobId: task.id, streaming: false, reasoning, providerSource: resolved.source, providerType: resolved.type, presetKey: resolved.presetKey, apiProtocol: resolved.apiProtocol, suggestionVersion: 3, suggestions, ...(searchMetadata ? { webSearch: searchMetadata } : {}) } } })
-      await tx.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } })
+      await tx.conversation.update({ where: { id: conversation.id }, data: { activeLeafId: streamMessage.id, updatedAt: new Date() } })
     })
+    void this.generationEvents.append(task.id, 'usage', { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, usageSource }).catch(() => undefined)
     const extra = finalCreditCost - reservedCreditCost
     if (!quotaEnabled && extra > 0) {
       await this.credits.spend(task.userId, extra, 'Token 实际用量补扣', `job:${task.id}:token-settlement-extra`, { type: 'generation_job', id: task.id }, task.billingTeamId)
@@ -835,12 +903,14 @@ export class ChatGenerationRunner implements GenerationRunner {
     const rows = Array.isArray(billing.quotaReservations) && billing.quotaReservations.length
       ? billing.quotaReservations
       : billing.quotaId ? [{ quotaId: billing.quotaId, reservedUnits: billing.reservedTokenCredits || 0 }] : []
+    const inputs: Array<Parameters<TokenQuotaService['settleMany']>[0][number]> = []
     for (const row of rows) {
       if (!row || typeof row.quotaId !== 'string') continue
       let reservedUnits: bigint
       try { reservedUnits = BigInt(String(row.reservedUnits || 0)) } catch { reservedUnits = 0n }
-      await this.tokenQuota.settle({ userId: task.userId, quotaId: row.quotaId, generationId: task.id, reservedUnits, chargedUnits: BigInt(Math.max(0, Math.trunc(chargedUnits))), inputTokens, outputTokens, cachedInputTokens, reasoningTokens, metadata: { model, scope: row.quotaId === billing.quotaId ? 'monthly' : 'daily' } as Prisma.InputJsonValue })
+      inputs.push({ userId: task.userId, quotaId: row.quotaId, generationId: task.id, reservedUnits, chargedUnits: BigInt(Math.max(0, Math.trunc(chargedUnits))), inputTokens, outputTokens, cachedInputTokens, reasoningTokens, metadata: { model, scope: row.quotaId === billing.quotaId ? 'monthly' : 'daily' } as Prisma.InputJsonValue })
     }
+    if (inputs.length) await this.tokenQuota.settleMany(inputs)
   }
 
   private async chatAttachmentContext(userId: string, assets: Array<{ id: string; name: string; mimeType: string }>) {

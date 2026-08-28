@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { WebSearchService } from './web-search.service'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 
 export type AgentToolDescriptor = {
   id?: string
@@ -23,7 +24,7 @@ export class AgentToolsService {
   private readonly ajv = new Ajv({ allErrors: true, strict: false, coerceTypes: false })
   private readonly validators = new Map<string, ValidateFunction>()
 
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly web: WebSearchService, private readonly access: ResourceAccessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly web: WebSearchService, private readonly access: ResourceAccessService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async available(task: ToolExecutionTask): Promise<AgentToolDescriptor[]> {
     const tools: AgentToolDescriptor[] = [
@@ -60,10 +61,11 @@ export class AgentToolsService {
       const method = configured.httpMethod.toUpperCase()
       const publicHeaders = this.record(configured.headers)
       const secretHeaders = configured.encryptedHeaders ? this.record(JSON.parse(this.crypto.decrypt(configured.encryptedHeaders))) : {}
-      const url = new URL(configured.endpoint)
+      const url = await this.endpointPolicy.assertPublicHttpUrl(configured.endpoint)
       if (method === 'GET' || method === 'DELETE') Object.entries(input).forEach(([key, value]) => { if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value)) })
       const response = await fetch(url, {
         method,
+        redirect: 'error',
         headers: { ...publicHeaders, ...secretHeaders, 'Content-Type': publicHeaders['Content-Type'] || publicHeaders['content-type'] || 'application/json', ...(executionKey ? { 'Idempotency-Key': executionKey } : {}) },
         ...(method === 'GET' || method === 'DELETE' ? {} : { body: JSON.stringify(input) }),
         signal: AbortSignal.timeout(Math.min(120_000, Math.max(1000, configured.timeoutMs))),

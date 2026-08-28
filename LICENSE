@@ -1,0 +1,57 @@
+Xinyue AI Community Source License v1.0
+
+Copyright (c) 2026 Xinyue AI Team
+
+1. Permission for non-commercial use
+
+Subject to this license, you may view, download, use, copy, modify, and share
+the source code for personal learning, academic research, evaluation, and
+non-commercial self-hosting.
+
+2. Commercial restriction
+
+Without prior written authorization from the Xinyue AI maintainers, you may
+not use this software or a modified version of it, directly or indirectly, for
+commercial purposes, including:
+
+- a paid or advertising-supported SaaS or hosted application;
+- a paid API, model aggregation, proxy, or relay service;
+- token, credit, usage, or membership sales;
+- commercial internal deployment or enterprise delivery;
+- selling, renting, sublicensing, or bundling the software in a product or
+  service for third parties.
+
+3. Redistribution and modifications
+
+You may redistribute and publish modifications for permitted non-commercial
+purposes only if you:
+
+- include this license with the redistribution;
+- clearly identify material modifications;
+- preserve copyright, attribution, and license notices;
+- do not represent the modified version as the official Xinyue AI project; and
+- do not use the Xinyue AI name, logo, or marks to imply endorsement.
+
+4. Commercial authorization
+
+Commercial use requires a separate written license from the Xinyue AI
+maintainers. Contact the maintainers through the project repository:
+https://github.com/qiantingwl/xinyueai
+
+5. No trademark grant
+
+This license does not grant permission to use Xinyue AI trademarks, logos, or
+brand assets except as needed to identify an unmodified copy of the project.
+
+6. Disclaimer and limitation of liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+This license is a custom source-available license and is not an OSI-approved
+open-source license.

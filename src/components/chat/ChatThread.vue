@@ -1,7 +1,7 @@
 <template>
         <div v-if="hasChatThread" ref="thread" class="chat-thread" @scroll="syncMessageNavigator">
           <template v-for="entry in chatTimeline" :key="`${entry.kind}-${entry.id}`">
-            <ChatMessageItem v-if="entry.message" v-model:editing-content="editingMessageContent" :message="entry.message" :highlight="jumpHighlightId === entry.message.id" :editing="editingMessageId === entry.message.id" :follow-ups="followUpsForMessage(entry.message)" :show-follow-ups="shouldShowFollowUps(entry.message)" @start-edit="startMessageEdit(entry.message)" @save-edit="saveMessageEdit(entry.message.id)" @cancel-edit="cancelMessageEdit" @retry="retryAssistantMessage(entry.message.id)" @follow-up="useFollowUpSuggestion" @preview-artifact="openCodeArtifact" />
+            <ChatMessageItem v-if="entry.message" v-model:editing-content="editingMessageContent" :message="entry.message" :highlight="jumpHighlightId === entry.message.id" :editing="editingMessageId === entry.message.id" :follow-ups="followUpsForMessage(entry.message)" :show-follow-ups="shouldShowFollowUps(entry.message)" @start-edit="startMessageEdit(entry.message)" @save-edit="saveMessageEdit(entry.message.id)" @cancel-edit="cancelMessageEdit" @retry="retryAssistantMessage(entry.message.id)" @switch-branch="switchMessageBranch" @follow-up="useFollowUpSuggestion" @preview-artifact="openCodeArtifact" />
             <section v-else-if="entry.generation" class="image-generation-response" :class="[`is-${entry.generation.status.toLowerCase()}`, { 'is-video-generation': entry.generation.mode === 'videos' }]" aria-live="polite">
               <template v-if="generationState(entry.generation).isActive">
                 <header><LoaderCircle :size="18" /><strong>正在创建{{ entry.generation.mode === 'videos' ? '视频' : '图片' }}</strong><button type="button" class="image-generation-stop" :disabled="store.cancelingJobId === entry.generation.id" :aria-label="`停止${entry.generation.mode === 'videos' ? '视频' : '图片'}生成`" :title="`停止${entry.generation.mode === 'videos' ? '视频' : '图片'}生成`" @click="stopGeneration(entry.generation)"><LoaderCircle v-if="store.cancelingJobId === entry.generation.id" class="generation-stop-spin" :size="14" /><Square v-else :size="14" fill="currentColor" />{{ store.cancelingJobId === entry.generation.id ? '停止中' : '停止' }}</button></header>
@@ -118,6 +118,10 @@ function shouldShowFollowUps(message: Message) {
   return message.role === 'assistant' && message.id === latestAssistantMessageId.value && !store.isGenerating && Boolean(followUpsForMessage(message).length)
 }
 function useFollowUpSuggestion(value: string) { emit('follow-up', value) }
+async function switchMessageBranch(messageId: string) {
+  try { await store.switchMessageBranch(messageId); await scrollThreadToBottom('auto') }
+  catch { /* Store and global request handling expose the server error. */ }
+}
 function openCodeArtifact(artifact: CodeArtifact) { emit('open-artifact', artifact) }
 function generationState(generation: GenerationRun) { return resolveGenerationRunState(generation.status) }
 async function stopGeneration(generation: GenerationRun) {

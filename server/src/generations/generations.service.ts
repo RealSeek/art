@@ -19,13 +19,14 @@ import { FeatureFlagsService } from '../features/feature-flags.service'
 import { PricingResolverService } from '../billing/pricing-resolver.service'
 import { TokenizerService } from '../billing/tokenizer.service'
 import { TokenQuotaService, type QuotaReservation } from '../billing/token-quota.service'
+import { ChatContextService } from './chat-context.service'
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
 
 @Injectable()
 export class GenerationsService {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, @InjectQueue('generation') private readonly queue: Queue) {}
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, private readonly chatContext: ChatContextService, @InjectQueue('generation') private readonly queue: Queue) {}
   async create(userId: string, input: CreateJobInput, trace: RequestTrace = {}) {
     const idempotencyKey = input.idempotencyKey ? `${userId}:${input.idempotencyKey}` : undefined
     if (input.idempotencyKey) {
@@ -116,7 +117,7 @@ export class GenerationsService {
       ? { ...input.options, ...(creationTool ? { creationTool: { id: creationTool.id, title: creationTool.title, instruction: creationTool.prompt, options: creationTool.options, executionMode: creationToolUsesWorker ? 'WORKER' : 'GENERIC' } } : {}), ...normalizeImageOptions(input.options, resolved.imageCapabilities) }
       : input.kind === 'VIDEO'
         ? { ...input.options, ...normalizeVideoOptions(input.options, resolved.videoCapabilities) }
-        : { ...input.options, ...(projectSkillSnapshot ? { projectSkill: projectSkillSnapshot } : {}), ...(projectInstructions ? { projectInstructions } : {}) }
+        : { ...input.options, ...(resolved.options?.contextWindow ? { contextWindow: resolved.options.contextWindow } : {}), ...(projectSkillSnapshot ? { projectSkill: projectSkillSnapshot } : {}), ...(projectInstructions ? { projectInstructions } : {}) }
     if (input.kind === 'IMAGE' || input.kind === 'COMMERCE' || input.kind === 'VIDEO') await this.assertImageAssets(userId, normalizedOptions)
     const quantity = input.kind === 'COMMERCE' ? Math.max(1, Math.min(Number(normalizedOptions.modules || 8), 12)) : input.kind === 'IMAGE' ? Math.max(1, Math.min(Number(normalizedOptions.count || 1), 10)) : 1
     let unitCreditCost = Math.max(0, resolved.creditCost)
@@ -133,9 +134,22 @@ export class GenerationsService {
     }
     const baseCreditCost = Math.max(0, unitCreditCost * quantity)
     const maxOutputTokens = input.kind === 'CHAT' ? Math.max(1, Math.min(32768, Number(normalizedOptions.maxOutputTokens || 4096))) : 0
-    const inputMessages = input.kind === 'CHAT' && input.conversationId ? await this.prisma.message.findMany({ where: { conversationId: input.conversationId, deletedAt: null }, orderBy: { createdAt: 'asc' }, take: 80, select: { role: true, content: true } }) : []
+    const inputConversation = input.kind === 'CHAT' && input.conversationId
+      ? await this.prisma.conversation.findFirst({
+          where: { id: input.conversationId, userId },
+          select: { activeLeafId: true, messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, take: 250, select: { id: true, parentId: true, role: true, content: true } } },
+        })
+      : null
+    const inputMessages = inputConversation
+      ? this.chatContext.activePath(inputConversation.messages, inputConversation.activeLeafId)
+      : []
+    const contextMessages = input.kind === 'CHAT'
+      ? this.chatContext.select(inputMessages, resolved.model, { ...input.options, maxOutputTokens, ...(resolved.options?.contextWindow ? { contextWindow: resolved.options.contextWindow } : {}) })
+      : []
+    const latestContextMessage = contextMessages.at(-1)
+    const contextIncludesPrompt = latestContextMessage?.role === 'USER' && latestContextMessage.content.trim() === input.prompt.trim()
     const estimatedInputTokens = input.kind === 'CHAT'
-      ? this.tokenizer.estimateMessages([...inputMessages, { role: 'user', content: input.prompt }, ...(projectInstructions ? [{ role: 'system', content: projectInstructions }] : []), ...(projectSkillSnapshot ? [{ role: 'system', content: projectSkillSnapshot.content }] : [])], resolved.model)
+      ? this.tokenizer.estimateMessages([...contextMessages, ...(!contextIncludesPrompt ? [{ role: 'user', content: input.prompt }] : []), ...(projectInstructions ? [{ role: 'system', content: projectInstructions }] : []), ...(projectSkillSnapshot ? [{ role: 'system', content: projectSkillSnapshot.content }] : [])], resolved.model)
       : 0
     const reservedTokenCredits = input.kind === 'CHAT' ? Math.ceil(estimatedInputTokens * resolved.inputCreditsPerMillion / 1_000_000) + Math.ceil(maxOutputTokens * resolved.outputCreditsPerMillion / 1_000_000) : 0
     const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
