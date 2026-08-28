@@ -257,7 +257,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { xinyueApi, type AdminUser, type UserGroup } from '@/api/xinyue'
+  import { customerApi as xinyueApi, type AdminUser, type UserGroup } from '@/api/xinyue/customers'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'XinyueUsers' })
   const users = ref<AdminUser[]>([])

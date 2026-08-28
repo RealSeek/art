@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { BullModule } from '@nestjs/bullmq'
 import { ThrottlerModule } from '@nestjs/throttler'
 import { ThrottlerGuard } from '@nestjs/throttler'
-import { APP_GUARD } from '@nestjs/core'
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { validateEnv } from './config/env'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
@@ -32,6 +32,9 @@ import { ResourceAccessModule } from './common/resource-access.module'
 import { CommercialModule } from './commercial/commercial.module'
 import { WorksModule } from './works/works.module'
 import { CanvasesModule } from './canvases/canvases.module'
+import { RequestContextInterceptor } from './common/request-context'
+import { FeatureFlagsModule } from './features/feature-flags.module'
+import { ExportsModule } from './exports/exports.module'
 
 @Module({
   imports: [
@@ -69,8 +72,13 @@ import { CanvasesModule } from './canvases/canvases.module'
     CommercialModule,
     WorksModule,
     CanvasesModule,
+    FeatureFlagsModule,
+    ExportsModule,
   ],
   controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },
+  ],
 })
 export class AppModule {}

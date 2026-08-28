@@ -28,7 +28,6 @@ class AssistantDto {
 class KnowledgeBaseDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string; @IsOptional() @IsString() @MaxLength(100) teamId?: string | null }
 class KnowledgeBaseAssetDto { @IsString() @MinLength(1) @MaxLength(100) assetId!: string }
 class ToolCallDto { @IsOptional() @IsObject() input?: Record<string, unknown>; @IsOptional() @IsString() approvalRequestId?: string }
-class ConnectorCredentialDto { @IsObject() credentials!: Record<string, string> }
 class ToolApprovalRequestDto { @IsOptional() @IsString() @MaxLength(1000) reason?: string }
 class TeamDto { @IsString() @MinLength(1) @MaxLength(100) name!: string; @IsOptional() @IsString() @MaxLength(2000) description?: string; @IsOptional() @IsInt() @Min(1) @Max(10000) seatLimit?: number }
 class TeamMemberDto { @IsEmail() email!: string; @IsOptional() @IsIn(['ADMIN', 'MEMBER']) role?: string }
@@ -43,7 +42,7 @@ class ToolDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
   @IsOptional() @IsString() @MaxLength(2000) description?: string
   @IsOptional() @IsString() @MaxLength(80) icon?: string
-  @IsOptional() @IsIn(['BUILT_IN', 'CONNECTOR']) kind?: string
+  @IsOptional() @IsIn(['BUILT_IN']) kind?: string
   @IsOptional() @IsIn(['NONE', 'API_KEY']) authType?: string
   @IsOptional() @IsString() @MaxLength(2000) documentationUrl?: string
   @IsOptional() @IsArray() @ArrayMaxSize(20) credentialFields?: Array<Record<string, unknown>>
@@ -82,38 +81,22 @@ export class WorkspaceController {
   assistants() { return this.prisma.assistant.findMany({ where: { enabled: true, visibility: 'PUBLIC' }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }], select: { id: true, name: true, description: true, defaultModel: true, templateIds: true, tools: { select: { toolId: true } } } }) }
 
   @Get('assistants/tools')
-  async tools(@CurrentUser() user: AuthenticatedUser) {
-    const rows = await this.prisma.toolDefinition.findMany({ where: { authType: { not: 'OAUTH2' }, OR: [{ enabled: true }, { kind: 'CONNECTOR' }] }, orderBy: [{ enabled: 'desc' }, { name: 'asc' }], select: { id: true, key: true, name: true, description: true, icon: true, kind: true, authType: true, documentationUrl: true, credentialFields: true, requiresApproval: true, scopes: true, enabled: true, credentials: { where: { userId: user.id }, select: { status: true, credentialHints: true, connectedAt: true } } } })
-    return rows.map(({ credentials, ...tool }) => ({ ...tool, connection: credentials[0] || null }))
+  tools() {
+    return this.prisma.toolDefinition.findMany({
+      where: { enabled: true, kind: 'BUILT_IN' },
+      orderBy: { name: 'asc' },
+      select: { id: true, key: true, name: true, description: true, icon: true, kind: true, authType: true, documentationUrl: true, credentialFields: true, requiresApproval: true, scopes: true, enabled: true },
+    })
   }
 
   @Get('assistants/tools/:toolId/icon')
   async toolIcon(@Param('toolId') toolId: string) {
-    const tool = await this.prisma.toolDefinition.findFirst({ where: { id: toolId, OR: [{ enabled: true }, { kind: 'CONNECTOR' }] }, select: { iconAssetId: true } })
-    if (!tool?.iconAssetId) throw new NotFoundException('连接器图标不存在')
+    const tool = await this.prisma.toolDefinition.findFirst({ where: { id: toolId, enabled: true, kind: 'BUILT_IN' }, select: { iconAssetId: true } })
+    if (!tool?.iconAssetId) throw new NotFoundException('工具图标不存在')
     const result = await this.assets.readForAdmin(tool.iconAssetId)
     return new StreamableFile(result.file, { type: result.mimeType, disposition: assetDisposition(result.mimeType, result.name) })
   }
 
-  @Post('assistants/tools/:toolId/credentials')
-  async connectTool(@CurrentUser() user: AuthenticatedUser, @Param('toolId') toolId: string, @Body() body: ConnectorCredentialDto) {
-    const tool = await this.prisma.toolDefinition.findFirst({ where: { id: toolId, kind: 'CONNECTOR', authType: 'API_KEY' }, select: { id: true, enabled: true, credentialFields: true } })
-    if (!tool) throw new NotFoundException('连接器不存在或不支持 API Key 授权')
-    const fields = Array.isArray(tool.credentialFields) ? tool.credentialFields as Array<Record<string, unknown>> : []
-    const allowed = new Set(fields.map((field) => String(field.key || '')).filter(Boolean))
-    const required = fields.filter((field) => field.required !== false).map((field) => String(field.key || '')).filter(Boolean)
-    const credentials = Object.fromEntries(Object.entries(body.credentials).filter(([key, value]) => allowed.has(key) && typeof value === 'string' && value.trim()).map(([key, value]) => [key, value.trim()]))
-    if (!Object.keys(credentials).length || required.some((key) => !credentials[key])) throw new BadRequestException('请完整填写连接器授权信息')
-    const hints = Object.fromEntries(Object.entries(credentials).map(([key, value]) => [key, value.length > 4 ? `••••${value.slice(-4)}` : '••••']))
-    await this.prisma.connectorCredential.upsert({ where: { userId_toolId: { userId: user.id, toolId } }, create: { userId: user.id, toolId, encryptedCredentials: this.crypto.encrypt(JSON.stringify(credentials)), credentialHints: hints as Prisma.InputJsonValue }, update: { encryptedCredentials: this.crypto.encrypt(JSON.stringify(credentials)), credentialHints: hints as Prisma.InputJsonValue, status: 'CONNECTED', connectedAt: new Date() } })
-    return { connected: true, configured: tool.enabled, status: 'CONNECTED', credentialHints: hints }
-  }
-
-  @Delete('assistants/tools/:toolId/credentials')
-  async disconnectTool(@CurrentUser() user: AuthenticatedUser, @Param('toolId') toolId: string) {
-    await this.prisma.connectorCredential.deleteMany({ where: { userId: user.id, toolId } })
-    return { disconnected: true }
-  }
 
   @Get('knowledge-bases')
   knowledgeBases(@CurrentUser() user: AuthenticatedUser) { return this.prisma.knowledgeBase.findMany({ where: this.access.knowledgeBaseWhere(user.id), orderBy: { updatedAt: 'desc' }, include: { creator: { select: { id: true, displayName: true } }, team: { select: { id: true, name: true } }, assets: { orderBy: { createdAt: 'desc' }, include: { asset: { select: { id: true, name: true, mimeType: true, createdAt: true } } } }, _count: { select: { assets: true, assistants: true } } } }) }

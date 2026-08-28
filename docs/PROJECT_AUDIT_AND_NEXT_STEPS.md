@@ -1,7 +1,7 @@
-# Xinyue AI 当前项目审计与后续执行基线
+# Xinyue AI 当前项目审计与后续执行基线（历史参考）
 
 审计日期：2026-08-18
-文档状态：当前唯一的产品与技术审计入口
+文档状态：2026-08-18 历史审计；当前状态以 `FINAL_CODE_AUDIT_2026-08-27.md` 和 `LOCAL_CLEANUP_AND_RESTART_2026-08-28.md` 为准
 审计原则：以当前代码、数据库迁移和可执行测试为准，不沿用旧文档中的完成标记。
 
 ## 1. 结论
@@ -282,7 +282,8 @@ Agent：LangGraph.js
 ## 13. 保留文档
 
 - `README.md`：项目入口和常用命令。
-- `docs/PROJECT_AUDIT_AND_NEXT_STEPS.md`：当前唯一审计和执行基线。
+- `docs/FINAL_CODE_AUDIT_2026-08-27.md`、`docs/NEXT_VERSION_SCOPE_AND_EXECUTION_PLAN_2026-08-27.md`：当前实施状态与下一版本边界。
+- `docs/LOCAL_CLEANUP_AND_RESTART_2026-08-28.md`：本地扫描、清理判断和重启记录。
 - `docs/DEPLOYMENT.md`：部署、升级、备份和恢复。
 - `docs/LOCAL_WORKER_PROTOCOL.md`：独立图片 Worker 协议。
 - `docs/images/README.md`：演示图目录。

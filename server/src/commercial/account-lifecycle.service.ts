@@ -98,7 +98,6 @@ export class AccountLifecycleService implements OnModuleInit {
         await tx.session.deleteMany({ where: { userId: request.userId } })
         await tx.externalIdentity.deleteMany({ where: { userId: request.userId } })
         await tx.userApiCredential.deleteMany({ where: { userId: request.userId } })
-        await tx.connectorCredential.deleteMany({ where: { userId: request.userId } })
         await tx.agentSchedule.deleteMany({ where: { userId: request.userId } })
         await tx.agentTask.deleteMany({ where: { userId: request.userId, project: { teamId: null } } })
         await tx.conversation.deleteMany({ where: { userId: request.userId, OR: [{ projectId: null }, { project: { teamId: null } }] } })

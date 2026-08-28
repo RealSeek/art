@@ -35,7 +35,7 @@ export class PluginsService {
         const entries = Object.entries(input as Record<string, unknown>)
         if (entries.length > 100) throw new BadRequestException('插件配置项过多')
         return Object.fromEntries(entries.map(([key, item]) => {
-          if (forbiddenConfigKeys.test(key)) throw new BadRequestException(`插件配置字段 ${key} 不允许使用`)
+          if (forbiddenConfigKeys.test(key) && !key.startsWith('external')) throw new BadRequestException(`插件配置字段 ${key} 不允许使用`)
           return [key, inspect(item, depth + 1)]
         }))
       }
@@ -55,6 +55,36 @@ export class PluginsService {
       version: body.version?.trim() || '1.0.0', capabilities: [...new Set(body.capabilities)], recommendedModel: body.recommendedModel?.trim() || '',
       outputRequirements: body.outputRequirements?.trim() || '', config: this.safeConfig(body.config), categoryId: body.categoryId || null,
     }
+  }
+
+  private isExternalPlugin(plugin: { config: unknown }) {
+    const config = plugin.config && typeof plugin.config === 'object' && !Array.isArray(plugin.config) ? plugin.config as Record<string, unknown> : {}
+    return typeof config.externalSource === 'string' && typeof config.externalId === 'string'
+  }
+
+  /**
+   * External marketplace entries historically declared every capability so
+   * they could be reused everywhere. Keep that data compatible, but expose a
+   * useful capability based on the stored metadata (or the skill text) so a
+   * chat skill does not appear in an image/video picker.
+   */
+  private externalCapabilities(plugin: { name: string; description: string; config: unknown }): PluginCapability[] {
+    const config = plugin.config && typeof plugin.config === 'object' && !Array.isArray(plugin.config) ? plugin.config as Record<string, unknown> : {}
+    const declared = Array.isArray(config.externalCapabilities)
+      ? config.externalCapabilities.map((value) => String(value).toUpperCase()).filter((value): value is PluginCapability => Object.values(PluginCapability).includes(value as PluginCapability))
+      : []
+    if (declared.length) return [...new Set(declared)]
+    const category = typeof config.externalCategory === 'string' ? config.externalCategory : ''
+    const value = `${plugin.name} ${plugin.description} ${category}`.toLocaleLowerCase()
+    if (/(?:office|excel|spreadsheet|document|docx|word|pdf|calendar|email|meeting|notion|办公|表格|文档|日历|邮件|会议)/i.test(value)) return [PluginCapability.OFFICE]
+    if (/(?:video|movie|animation|短视频|视频|动画)/i.test(value)) return [PluginCapability.VIDEO]
+    if (/(?:image|photo|illustration|visual|figma|canvas|图片|图像|摄影|插画|视觉|设计)/i.test(value)) return [PluginCapability.IMAGE]
+    if (/(?:commerce|商品|电商|营销|运营|销售|seo|brand|campaign)/i.test(value)) return [PluginCapability.COMMERCE]
+    return [PluginCapability.CHAT]
+  }
+
+  private effectiveCapabilities(plugin: { name: string; description: string; capabilities: PluginCapability[]; config: unknown }) {
+    return this.isExternalPlugin(plugin) ? this.externalCapabilities(plugin) : plugin.capabilities
   }
 
   async importPrivate(userId: string, fileName: string, bytes: Buffer) {
@@ -110,20 +140,36 @@ export class PluginsService {
     return this.prisma.pluginCategory.findMany({ where: publicOnly ? { enabled: true } : undefined, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], include: publicOnly ? { _count: { select: { plugins: { where: { visibility: PluginVisibility.OFFICIAL, status: PluginStatus.PUBLISHED } } } } } : undefined })
   }
 
-  installed(userId: string) {
-    return this.prisma.pluginInstallation.findMany({ where: { userId, enabled: true, plugin: { visibility: PluginVisibility.OFFICIAL, status: PluginStatus.PUBLISHED } }, orderBy: { updatedAt: 'desc' }, include: { plugin: { include: { category: true } } } }).then((rows) => rows.map((row) => ({ ...this.publicPlugin(row.plugin), installed: true, installedAt: row.installedAt })))
+  async installed(userId: string) {
+    const [officialRows, externalRows] = await Promise.all([
+      this.prisma.pluginInstallation.findMany({ where: { userId, enabled: true, plugin: { visibility: PluginVisibility.OFFICIAL, status: PluginStatus.PUBLISHED } }, orderBy: { updatedAt: 'desc' }, include: { plugin: { include: { category: true } } } }),
+      this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE, status: PluginStatus.PUBLISHED }, orderBy: { updatedAt: 'desc' }, include: { category: true } }),
+    ])
+    const official = officialRows.map((row) => ({ ...this.publicPlugin(row.plugin), installed: true, owned: false, installedAt: row.installedAt }))
+    const external = externalRows.filter((plugin) => {
+      const config = plugin.config && typeof plugin.config === 'object' && !Array.isArray(plugin.config) ? plugin.config as Record<string, unknown> : {}
+      return typeof config.externalSource === 'string' && typeof config.externalId === 'string'
+    }).map((plugin) => ({ ...this.publicPlugin(plugin), capabilities: this.effectiveCapabilities(plugin), installed: true, owned: true, installedAt: plugin.createdAt }))
+    return [...official, ...external].sort((left, right) => right.installedAt.getTime() - left.installedAt.getTime())
   }
 
-  mine(userId: string) {
-    return this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE }, orderBy: { updatedAt: 'desc' }, include: { category: true } })
+  async mine(userId: string) {
+    const rows = await this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE }, orderBy: { updatedAt: 'desc' }, include: { category: true } })
+    return rows.map((plugin) => ({ ...plugin, capabilities: this.effectiveCapabilities(plugin) }))
   }
 
   async available(userId: string, capability?: PluginCapability) {
     const [privatePlugins, installed] = await Promise.all([
-      this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE, status: PluginStatus.PUBLISHED, capabilities: capability ? { has: capability } : undefined }, orderBy: { updatedAt: 'desc' }, include: { category: true } }),
+      // External skills are instruction-only and intentionally reusable across
+      // all workspaces, even when their source metadata only declares CHAT.
+      this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE, status: PluginStatus.PUBLISHED }, orderBy: { updatedAt: 'desc' }, include: { category: true } }),
       this.prisma.pluginInstallation.findMany({ where: { userId, enabled: true, plugin: { visibility: PluginVisibility.OFFICIAL, status: PluginStatus.PUBLISHED, capabilities: capability ? { has: capability } : undefined } }, orderBy: { updatedAt: 'desc' }, include: { plugin: { include: { category: true } } } }),
     ])
-    return [...installed.map((row) => ({ ...this.publicPlugin(row.plugin), installed: true })), ...privatePlugins.map((plugin) => ({ ...this.publicPlugin(plugin), installed: false, owned: true }))]
+    const availablePrivate = privatePlugins.filter((plugin) => !capability || this.effectiveCapabilities(plugin).includes(capability))
+    return [
+      ...installed.map((row) => ({ ...this.publicPlugin(row.plugin), capabilities: this.effectiveCapabilities(row.plugin), installed: true })),
+      ...availablePrivate.map((plugin) => ({ ...this.publicPlugin(plugin), capabilities: this.effectiveCapabilities(plugin), installed: false, owned: true })),
+    ]
   }
 
   async install(userId: string, pluginId: string) {
@@ -170,10 +216,34 @@ export class PluginsService {
     return { deleted: true }
   }
 
+  async updateImportedMetadata(userId: string, id: string, config: Record<string, unknown>) {
+    const result = await this.prisma.plugin.updateMany({ where: { id, ownerId: userId, visibility: PluginVisibility.PRIVATE }, data: { config: this.safeConfig(config) } })
+    if (!result.count) throw new NotFoundException('导入技能不存在')
+    return this.prisma.plugin.findUniqueOrThrow({ where: { id } })
+  }
+
+  async findImported(userId: string, source: string, externalId: string) {
+    const rows = await this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE }, orderBy: { updatedAt: 'desc' } })
+    return rows.find((row) => {
+      const config = row.config && typeof row.config === 'object' && !Array.isArray(row.config) ? row.config as Record<string, unknown> : {}
+      return config.externalSource === source && config.externalId === externalId
+    }) || null
+  }
+
+  async externalInstallationKeys(userId: string) {
+    const rows = await this.prisma.plugin.findMany({ where: { ownerId: userId, visibility: PluginVisibility.PRIVATE }, select: { config: true } })
+    const keys = new Set<string>()
+    for (const row of rows) {
+      const config = row.config && typeof row.config === 'object' && !Array.isArray(row.config) ? row.config as Record<string, unknown> : {}
+      if (typeof config.externalSource === 'string' && typeof config.externalId === 'string') keys.add(`${config.externalSource}:${config.externalId}`)
+    }
+    return keys
+  }
+
   async resolveForUse(userId: string, pluginId: string, capability: PluginCapability, role?: UserRole) {
     const plugin = await this.prisma.plugin.findUnique({ where: { id: pluginId }, include: { installations: { where: { userId, enabled: true }, select: { userId: true } } } })
     if (!plugin || plugin.status !== PluginStatus.PUBLISHED) throw new NotFoundException('插件不存在或已停用')
-    if (!plugin.capabilities.includes(capability)) throw new BadRequestException('该插件不支持当前创作类型')
+    if (!this.effectiveCapabilities(plugin).includes(capability)) throw new BadRequestException('该插件不支持当前创作类型')
     const allowed = plugin.visibility === PluginVisibility.PRIVATE ? plugin.ownerId === userId : plugin.visibility === PluginVisibility.OFFICIAL && plugin.installations.length > 0
     if (!allowed) throw new ForbiddenException('请先安装该插件')
     return { id: plugin.id, name: plugin.name, instruction: plugin.instruction, outputRequirements: plugin.outputRequirements, recommendedModel: plugin.recommendedModel, version: plugin.version, capability }

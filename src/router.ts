@@ -5,10 +5,11 @@ const LoginPage = () => import('./views/LoginPage.vue')
 const StudioPage = () => import('./views/StudioPage.vue')
 const OfficeCenterPage = () => import('./views/OfficeCenterPage.vue')
 const PromptLibraryPage = () => import('./views/PromptLibraryPage.vue')
-const CapabilityCenterPage = () => import('./views/CapabilityCenterPage.vue')
 const WorksPage = () => import('./views/WorksPage.vue')
+const CapabilityCenterPage = () => import('./views/CapabilityCenterPage.vue')
 const CanvasLibraryPage = () => import('./views/CanvasLibraryPage.vue')
 const CanvasEditorPage = () => import('./views/CanvasEditorPage.vue')
+const ImagePromptPage = () => import('./views/ImagePromptPage.vue')
 const WorkspaceLayout = () => import('./components/WorkspaceLayout.vue')
 const ApiLandingPage = () => import('./views/ApiLandingPage.vue')
 const LegalPage = () => import('./views/LegalPage.vue')
@@ -31,8 +32,9 @@ export const router = createRouter({
         { path: '/office', name: 'office', component: OfficeCenterPage, meta: { title: '办公中心' } },
         { path: '/prompts', name: 'prompts', component: PromptLibraryPage, meta: { title: '提示词库' } },
         { path: '/capabilities', name: 'capabilities', component: CapabilityCenterPage, meta: { title: '能力中心' } },
-        { path: '/works', name: 'works', component: WorksPage, meta: { title: '作品中心' } },
+        { path: '/works', name: 'works', component: WorksPage, beforeEnter: (to) => to.query.view === 'mine' ? true : { path: '/prompts', query: { type: 'image' } }, meta: { title: '我的作品' } },
         { path: '/canvases', name: 'canvases', component: CanvasLibraryPage, meta: { title: '画布' } },
+        { path: '/image-prompt', name: 'image-prompt', component: ImagePromptPage, meta: { title: '图片反推' } },
         { path: '/canvas/:id', name: 'canvas', component: CanvasEditorPage, meta: { title: '画布编辑器' } },
         { path: '', name: 'workspace', component: StudioPage, meta: { title: '工作空间' } },
       ],

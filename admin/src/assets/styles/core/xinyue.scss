@@ -10,7 +10,18 @@
   --xinyue-line: #e6eaf0;
   --xinyue-line-strong: #d9e0ea;
   --xinyue-accent-soft: color-mix(in srgb, var(--theme-color) 10%, white);
-  --xinyue-shadow: 0 5px 18px rgb(26 39 68 / 4%);
+  --xinyue-shadow: 0 3px 12px rgb(26 39 68 / 4%);
+  --xinyue-font-page: 22px;
+  --xinyue-font-section: 15px;
+  --xinyue-font-body: 13px;
+  --xinyue-font-meta: 12px;
+  --xinyue-space-1: 4px;
+  --xinyue-space-2: 8px;
+  --xinyue-space-3: 12px;
+  --xinyue-space-4: 16px;
+  --xinyue-space-5: 20px;
+  --xinyue-radius-control: 6px;
+  --xinyue-radius-panel: 8px;
 }
 
 html.dark {
@@ -29,42 +40,99 @@ html.dark {
 #app-content .xinyue-page,
 #app-content .dashboard-page,
 #app-content .operation-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--xinyue-space-3);
   min-width: 0;
   max-width: 100%;
   color: var(--xinyue-ink);
+  font-size: var(--xinyue-font-body);
+  line-height: 1.5;
 }
 
 #app-content .xinyue-page .page-title,
 #app-content .dashboard-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--xinyue-space-4);
   min-width: 0;
-  padding: 4px 0 6px;
+  padding: var(--xinyue-space-1) 0 var(--xinyue-space-2);
 }
 
 #app-content .xinyue-page .page-title h1,
 #app-content .dashboard-heading h1 {
   color: var(--xinyue-ink);
-  font-size: 23px;
-  font-weight: 650;
+  margin: 0 0 var(--xinyue-space-1);
+  font-size: var(--xinyue-font-page);
+  font-weight: 600;
   letter-spacing: 0;
+  line-height: 1.3;
 }
 
 #app-content .xinyue-page .page-title p,
 #app-content .dashboard-heading p {
+  margin: 0;
   color: var(--xinyue-muted);
   line-height: 1.5;
+}
+
+#app-content .page-eyebrow,
+#app-content .eyebrow,
+#app-content .bar-kicker {
+  color: var(--theme-color);
+  font-size: var(--xinyue-font-meta);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 #app-content .el-card,
 #app-content .art-card,
 #app-content .page-content {
   border: 1px solid var(--xinyue-line) !important;
-  border-radius: 10px !important;
+  border-radius: var(--xinyue-radius-panel) !important;
   background: var(--xinyue-surface) !important;
   box-shadow: var(--xinyue-shadow) !important;
 }
 
 #app-content .el-card__header {
+  padding: var(--xinyue-space-4) var(--xinyue-space-5);
   border-bottom-color: var(--xinyue-line);
+}
+
+#app-content .el-card__body {
+  color: var(--xinyue-ink);
+}
+
+#app-content .card-heading,
+#app-content .card-title,
+#app-content .table-heading,
+#app-content .resource-heading {
+  min-width: 0;
+}
+
+#app-content .card-heading strong,
+#app-content .card-title strong,
+#app-content .table-heading strong,
+#app-content .resource-heading strong {
+  color: var(--xinyue-ink);
+  font-size: var(--xinyue-font-section);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+#app-content .card-heading p,
+#app-content .card-heading span,
+#app-content .card-title small,
+#app-content .table-heading span,
+#app-content .resource-heading p,
+#app-content .block-note,
+#app-content .field-help,
+#app-content .form-note,
+#app-content .note {
+  color: var(--xinyue-muted);
+  font-size: var(--xinyue-font-meta);
+  line-height: 1.5;
 }
 
 #app-content .art-table-card {
@@ -82,7 +150,7 @@ html.dark {
 #app-content .el-select__wrapper,
 #app-content .el-textarea__inner,
 #app-content .el-input-number {
-  border-radius: 7px;
+  border-radius: var(--xinyue-radius-control);
   box-shadow: 0 0 0 1px var(--xinyue-line-strong) inset !important;
 }
 
@@ -101,7 +169,7 @@ html.dark {
 .el-dialog,
 .el-drawer {
   border: 1px solid var(--xinyue-line) !important;
-  border-radius: 12px !important;
+  border-radius: var(--xinyue-radius-panel) !important;
   background: var(--xinyue-surface) !important;
   box-shadow: var(--xinyue-shadow) !important;
 }
@@ -109,7 +177,7 @@ html.dark {
 .el-dialog__header,
 .el-drawer__header {
   margin: 0 !important;
-  padding: 18px 22px !important;
+  padding: var(--xinyue-space-4) var(--xinyue-space-5) !important;
   border-bottom: 1px solid var(--xinyue-line);
 }
 
@@ -120,7 +188,7 @@ html.dark {
 
 .el-dialog__footer,
 .el-drawer__footer {
-  padding: 14px 22px !important;
+  padding: var(--xinyue-space-3) var(--xinyue-space-5) !important;
   border-top: 1px solid var(--xinyue-line);
 }
 
@@ -130,7 +198,7 @@ html.dark {
 .el-drawer .el-input__wrapper,
 .el-drawer .el-select__wrapper,
 .el-drawer .el-textarea__inner {
-  border-radius: 7px;
+  border-radius: var(--xinyue-radius-control);
   box-shadow: 0 0 0 1px var(--xinyue-line-strong) inset !important;
 }
 
@@ -146,12 +214,13 @@ html.dark {
 
 #app-content .el-tabs__item {
   color: var(--xinyue-muted);
+  font-size: var(--xinyue-font-body);
   font-weight: 500;
 }
 
 #app-content .el-tabs__item.is-active {
   color: var(--theme-color);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 #app-content .el-tabs__active-bar {
@@ -163,7 +232,7 @@ html.dark {
 #app-content .plan-grid article {
   min-width: 0;
   border: 1px solid var(--xinyue-line);
-  border-radius: 10px;
+  border-radius: var(--xinyue-radius-panel);
   background: var(--xinyue-surface);
   box-shadow: var(--xinyue-shadow);
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
@@ -187,7 +256,7 @@ html.dark {
 }
 
 #app-content .pane-action {
-  padding: 2px 0 4px;
+  padding: var(--xinyue-space-1) 0 var(--xinyue-space-2);
 }
 
 #app-content .toggle-row,
@@ -198,7 +267,46 @@ html.dark {
 
 #app-content .el-alert {
   border: 1px solid color-mix(in srgb, var(--theme-color) 20%, var(--xinyue-line));
-  border-radius: 8px;
+  border-radius: var(--xinyue-radius-panel);
+}
+
+#app-content .el-form-item__label,
+#app-content .el-button,
+#app-content .el-input,
+#app-content .el-select,
+#app-content .el-table,
+#app-content .el-descriptions {
+  font-size: var(--xinyue-font-body);
+}
+
+#app-content .filter-card > .el-card__body,
+#app-content .filters,
+#app-content .filter-bar,
+#app-content .works-filter-bar {
+  gap: var(--xinyue-space-3);
+}
+
+#app-content .metric-card strong,
+#app-content .summary-card strong,
+#app-content .metric strong {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+#app-content .metric-card span,
+#app-content .metric-card small,
+#app-content .summary-card span,
+#app-content .summary-card small,
+#app-content .metric span,
+#app-content .metric small {
+  color: var(--xinyue-muted);
+  font-size: var(--xinyue-font-meta);
+}
+
+#app-content :where(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-color) 72%, white);
+  outline-offset: 2px;
 }
 
 // 商业化页面的密度和小屏收缩。
@@ -245,5 +353,16 @@ html.dark {
   #app-content .xinyue-page .page-title h1,
   #app-content .dashboard-heading h1 {
     font-size: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app-content *,
+  #app-content *::before,
+  #app-content *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

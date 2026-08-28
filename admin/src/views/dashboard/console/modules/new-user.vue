@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-  import type { AdminUser } from '@/api/xinyue'
+  import type { AdminUser } from '@/api/xinyue/customers'
   import { xinyueText as xt } from '@/locales/xinyue'
 
   interface UserTableItem {

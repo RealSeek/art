@@ -75,7 +75,8 @@
           right: 20,
           bottom: props.showDataZoom ? 80 : 20,
           left: 20,
-          containLabel: true
+          outerBoundsMode: 'same',
+          outerBoundsContain: 'axisLabel'
         },
         tooltip: getTooltipStyle('axis', {
           axisPointer: {

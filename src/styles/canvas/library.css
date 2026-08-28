@@ -1,0 +1,139 @@
+/* Flat canvas surface: selection is shown by the outline and toolbar. */
+.canvas-workspace-sidebar,
+.canvas-flow-node,
+.canvas-flow-node.is-selected,
+.canvas-flow-node.is-media,
+.canvas-flow-node.is-image {
+  box-shadow: none;
+}
+.canvas-node-job-state:not(.is-error) {
+  background: color-mix(in srgb, var(--canvas-panel-muted) 48%, transparent);
+  box-shadow: none;
+}
+
+/* Workspace index pages share one shell. Canvas keeps its preview cards, while
+   the page chrome follows Projects and Files exactly. */
+.workspace-main > .canvas-page {
+  background: var(--studio-bg);
+  box-sizing: border-box;
+  max-width: none;
+  min-height: 100%;
+  padding: 0;
+  width: 100%;
+}
+.canvas-page .index-page-inner {
+  margin: 0 auto;
+  padding: 64px 32px 72px;
+  width: min(1180px, 100%);
+}
+.canvas-page .workspace-section-tabs { margin-bottom: 30px; }
+.canvas-page .index-page-header {
+  align-items: center;
+  margin-bottom: 30px;
+}
+.canvas-page .index-page-title { align-items: start; display: grid; gap: 7px; }
+.canvas-page .index-page-header h1 {
+  color: var(--studio-text);
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 34px;
+  margin: 0;
+}
+.canvas-page .index-page-title p {
+  color: var(--studio-muted);
+  font-size: 12px;
+  line-height: 18px;
+  margin: 0;
+}
+.canvas-page .canvas-library-actions { gap: 10px; }
+.canvas-page .canvas-primary-button,
+.canvas-page .canvas-secondary-button {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  height: 39px;
+  padding: 0 17px;
+}
+.canvas-page .canvas-primary-button {
+  background: var(--studio-inverse-bg);
+  border-color: var(--studio-inverse-bg);
+  color: var(--studio-inverse-text);
+}
+.canvas-page .canvas-primary-button:hover {
+  background: var(--studio-control-hover);
+  border-color: var(--studio-control-hover);
+  color: var(--studio-text);
+}
+.canvas-page .canvas-secondary-button {
+  background: transparent;
+  border-color: var(--studio-border);
+  color: var(--studio-text);
+}
+.canvas-page .canvas-secondary-button:hover { background: var(--studio-control); }
+.canvas-page .canvas-library-toolbar {
+  margin-bottom: 20px;
+}
+.canvas-page .canvas-library-toolbar label {
+  background: var(--studio-control);
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  height: 43px;
+  padding: 0 12px;
+  width: 240px;
+}
+.canvas-page .canvas-library-toolbar > button {
+  border-radius: 999px;
+  color: var(--studio-muted);
+  height: 36px;
+}
+.canvas-page .canvas-library-toolbar > button:hover,
+.canvas-page .canvas-library-toolbar > button.is-active {
+  background: var(--studio-control);
+  color: var(--studio-text);
+}
+.canvas-page .canvas-library-grid { gap: 16px; }
+.canvas-page .canvas-card-preview { height: 190px; }
+
+@media (max-width: 640px) {
+  .canvas-page .index-page-inner { padding: 60px 16px 48px; width: 100%; }
+  .canvas-page .workspace-section-tabs { margin-bottom: 24px; }
+  .canvas-page .index-page-header { align-items: stretch; display: grid; gap: 17px; }
+  .canvas-page .canvas-library-actions { justify-content: space-between; }
+  .canvas-page .canvas-library-actions > * { flex: 1; }
+  .canvas-page .canvas-library-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
+  .canvas-page .canvas-library-toolbar label { width: 100%; }
+}
+
+/* 画布库搜索控件与项目/文件库保持同一主题与尺寸 */
+.canvas-page .canvas-library-toolbar label {
+  background: var(--studio-control);
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  color: var(--studio-muted);
+  height: 43px;
+  width: 240px;
+}
+.canvas-page .canvas-library-toolbar label:focus-within {
+  border-color: var(--studio-focus);
+  box-shadow: 0 0 0 3px var(--studio-brand-soft);
+  color: var(--studio-brand);
+}
+.canvas-page .canvas-library-toolbar input { color: var(--studio-text); }
+.canvas-page .canvas-library-toolbar input::placeholder { color: var(--studio-muted); opacity: 1; }
+.canvas-page .canvas-library-toolbar > button { color: var(--studio-muted); }
+.canvas-page .canvas-library-toolbar > button:hover,
+.canvas-page .canvas-library-toolbar > button.is-active {
+  background: var(--studio-control);
+  color: var(--studio-text);
+}
+.canvas-page .canvas-library-empty {
+  background: var(--studio-panel);
+  border-color: var(--studio-border);
+  color: var(--studio-muted);
+}
+
+@media (max-width: 640px) {
+  .canvas-page .canvas-library-toolbar label { width: 100%; }
+}
+
+

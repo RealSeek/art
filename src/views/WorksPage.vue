@@ -1,7 +1,5 @@
 <template>
   <section class="works-page">
-    <WorkspaceSectionTabs active="works" />
-
     <header class="works-page__header">
       <div>
         <h1>作品中心</h1>
@@ -110,7 +108,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { Compass, ExternalLink, Eye, Flag, FolderHeart, Heart, Image as ImageIcon, Images, LoaderCircle, LockKeyhole, Pencil, Plus, Search, Send, Trash2, X } from 'lucide-vue-next'
-import WorkspaceSectionTabs from '../components/WorkspaceSectionTabs.vue'
 import { api, apiUrl } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 
@@ -297,4 +294,42 @@ async function submitReport() { if (!detailWork.value) return; await api(`/works
 .work-report { display: grid; gap: 7px; }.work-report select { height: 34px; padding: 0 8px; }.work-report textarea { padding: 8px; resize: vertical; }.work-report button { background: var(--studio-inverse-bg); border: 0; border-radius: 6px; color: var(--studio-inverse-text); min-height: 34px; }
 @media (max-width: 900px) { .works-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.works-editor__body { grid-template-columns: 1fr; }.works-editor__fields { border-bottom: 1px solid var(--studio-border); border-right: 0; }.work-detail { grid-template-columns: 1fr; overflow-y: auto; }.work-detail__media { max-height: 55vh; }.work-detail > aside { overflow: visible; } }
 @media (max-width: 640px) { .works-page { padding: 18px 12px 40px; }.works-page__header { align-items: flex-start; flex-direction: column; }.works-toolbar { grid-template-columns: 1fr 1fr 38px; }.works-toolbar label { grid-column: 1 / -1; }.works-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.my-works-list > article { grid-template-columns: 78px minmax(0, 1fr); }.my-work-cover { width: 78px; }.my-works-list nav { grid-column: 2; }.works-editor__row { grid-template-columns: 1fr; }.works-asset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.works-modal-layer { padding: 0; }.works-editor,.work-detail { border-radius: 0; max-height: 100dvh; min-height: 100dvh; }.work-detail__media img,.work-detail__media video { max-height: 52vh; } }
+
+/* ===== 精修 v2 ===== */
+/* 主按钮统一品牌蓝 */
+.works-primary, .works-empty button, .works-empty a { background: var(--studio-brand); border-radius: var(--studio-radius-pill); color: #fff; min-height: 40px; padding: 0 18px; transition: background var(--studio-duration-fast) ease, box-shadow var(--studio-duration-fast) ease; }
+.works-primary:hover, .works-empty button:hover, .works-empty a:hover { background: var(--studio-brand-hover); box-shadow: 0 6px 18px color-mix(in srgb, var(--studio-brand) 32%, transparent); }
+
+/* 视图切换：品牌色指示条 */
+.works-view-switch { gap: 26px; }
+.works-view-switch button { transition: color var(--studio-duration-fast) ease, border-color var(--studio-duration-fast) ease; }
+.works-view-switch button:hover:not(.is-active) { color: var(--studio-text); }
+.works-view-switch button.is-active { border-bottom-color: var(--studio-brand); border-bottom-width: 3px; color: var(--studio-brand); font-weight: 650; }
+
+/* 工具行：更高更圆，聚焦品牌描边 */
+.works-toolbar { grid-template-columns: minmax(220px, 1fr) 150px 130px 40px; }
+.works-toolbar label, .works-toolbar select, .works-toolbar > button { border-radius: var(--studio-radius-md); height: 40px; transition: border-color var(--studio-duration-fast) ease, box-shadow var(--studio-duration-fast) ease; }
+.works-toolbar label:focus-within { border-color: var(--studio-focus); box-shadow: 0 0 0 3px var(--studio-brand-soft); color: var(--studio-brand); }
+.works-toolbar select:focus { border-color: var(--studio-focus); box-shadow: 0 0 0 3px var(--studio-brand-soft); }
+.works-toolbar > button:hover { border-color: color-mix(in srgb, var(--studio-brand) 35%, var(--studio-border)); color: var(--studio-brand); }
+
+/* 作品卡片：圆角加大 + 悬浮上浮投影 */
+.work-card__preview { border-radius: 12px; transition: border-color var(--studio-duration-base) ease, box-shadow var(--studio-duration-base) ease, transform var(--studio-duration-base) var(--studio-ease); }
+.work-card__preview:hover { border-color: color-mix(in srgb, var(--studio-brand) 32%, var(--studio-border)); box-shadow: var(--studio-shadow-sm); transform: translateY(-3px); }
+
+/* 空态：品牌柔光图标座 + 更舒展的排版 */
+.works-empty { border: 1px dashed var(--studio-border); border-radius: var(--studio-radius-lg); margin-top: 8px; min-height: 320px; }
+.works-empty > span { background: var(--studio-brand-soft); border: 0; border-radius: 18px; color: var(--studio-brand); height: 64px; margin-bottom: 6px; width: 64px; }
+.works-empty strong { font-size: 16px; }
+.works-empty p { max-width: 320px; }
+
+/* 加载更多：胶囊 */
+.works-load-more { border-radius: var(--studio-radius-pill); min-height: 40px; transition: border-color var(--studio-duration-fast) ease, color var(--studio-duration-fast) ease; }
+.works-load-more:hover:not(:disabled) { border-color: var(--studio-brand); color: var(--studio-brand); }
+
+/* 我的作品行：悬浮底色 */
+.my-works-list > article { border-radius: var(--studio-radius-md); padding: 12px 10px; transition: background var(--studio-duration-fast) ease; }
+.my-works-list > article:hover { background: var(--studio-panel-soft); }
+
+@media (prefers-reduced-motion: reduce) { .works-primary, .works-view-switch button, .works-toolbar label, .works-toolbar select, .works-toolbar > button, .work-card__preview, .works-load-more, .my-works-list > article { transition: none; } .work-card__preview:hover { transform: none; } }
 </style>

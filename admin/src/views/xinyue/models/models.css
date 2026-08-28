@@ -1,0 +1,239 @@
+  .xinyue-page {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .page-title {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .page-title h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+  }
+
+  .page-title p {
+    margin: 0;
+    color: var(--art-gray-500);
+  }
+
+  .filter-card,
+  .art-table-card {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .filter-card :deep(.el-card__body) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .art-table-card :deep(.el-card__body),
+  .art-table-card :deep(.el-table) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .model-count,
+  .block-note {
+    font-size: 12px;
+    color: var(--art-gray-500);
+  }
+
+  .block-note {
+    display: block;
+    margin-top: 3px;
+  }
+
+  .badge {
+    margin-left: 7px;
+  }
+
+  .channel-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-width: 100%;
+  }
+
+  .w-full {
+    width: 100%;
+  }
+
+  .route-heading {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .route-heading > div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .route-heading small {
+    font-size: 12px;
+    color: var(--art-gray-500);
+  }
+
+  .route-list {
+    display: grid;
+    gap: 8px;
+    max-width: 100%;
+    margin: 12px 0 4px;
+    overflow-x: auto;
+  }
+
+  .route-entry {
+    display: grid;
+    gap: 8px;
+    min-width: 720px;
+    padding: 10px;
+    border: 1px solid var(--art-gray-200);
+    border-radius: 6px;
+  }
+
+  .route-row,
+  .route-labels {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.2fr) minmax(190px, 1.5fr) 130px 110px 48px 32px;
+    gap: 8px;
+    align-items: center;
+    min-width: 720px;
+  }
+
+  .route-row {
+    min-width: 0;
+  }
+
+  .route-row > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .route-row :deep(.el-select),
+  .route-row :deep(.el-input),
+  .route-row :deep(.el-input-number) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .route-row :deep(.el-switch) {
+    justify-self: center;
+  }
+
+  .route-row > :last-child {
+    justify-self: center;
+  }
+
+  .route-labels {
+    padding: 0 10px;
+    font-size: 12px;
+    color: var(--art-gray-500);
+  }
+
+  .route-video-config {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.2fr) repeat(3, minmax(145px, 1fr));
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--art-gray-200);
+  }
+
+  .route-video-config > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .route-video-field {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .route-video-field > span {
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--art-gray-500);
+  }
+
+  .model-dialog :deep(.el-dialog__body) {
+    max-width: 100%;
+    max-height: 70vh;
+    overflow: auto;
+  }
+
+  .video-pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .video-pricing-grid label {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--art-gray-200);
+    border-radius: 6px;
+  }
+
+  .video-pricing-grid label > span {
+    display: grid;
+    min-width: 0;
+  }
+
+  .video-pricing-grid small {
+    font-size: 12px;
+    color: var(--art-gray-500);
+  }
+
+  .video-pricing-grid :deep(.el-input-number) {
+    width: 132px;
+  }
+
+  @media (width <= 800px) {
+    .page-title {
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+
+    .route-heading {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .model-dialog :deep(.el-dialog) {
+      width: calc(100% - 24px) !important;
+    }
+
+    .video-pricing-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .route-row,
+    .route-labels,
+    .route-video-config {
+      grid-template-columns: 1fr;
+    }
+
+    .route-labels {
+      display: none;
+    }
+  }

@@ -42,7 +42,7 @@
 <script setup lang="ts">
   import '@/assets/styles/core/md.scss'
   import { useDateFormat } from '@vueuse/core'
-  import { ContentPage, xinyueApi } from '@/api/xinyue'
+  import { contentApi as xinyueApi, type ContentPage } from '@/api/xinyue/content'
   import { router } from '@/router'
   import { xinyueText as xt } from '@/locales/xinyue'
 

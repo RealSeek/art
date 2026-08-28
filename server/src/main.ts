@@ -8,6 +8,13 @@ import multipart from '@fastify/multipart'
 import { PrismaExceptionFilter } from './common/prisma-exception.filter'
 import { AppModule } from './app.module'
 
+// Prisma returns BigInt for quota values; expose them as decimal strings so
+// Fastify/Nest JSON serialization remains stable for API consumers.
+declare global {
+  interface BigInt { toJSON(): string }
+}
+BigInt.prototype.toJSON = function toJSON() { return this.toString() }
+
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -27,9 +34,11 @@ async function bootstrap() {
     .filter(Boolean)
   const localOrigins = [
     'http://localhost:5173',
+    'http://localhost:5174',
     'http://localhost:5175',
     'http://localhost:4173',
     'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
     'http://127.0.0.1:5175',
     'http://127.0.0.1:4173',
   ]

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { LedgerType, NotificationChannel, Prisma } from '@prisma/client'
+import { LedgerType, NotificationChannel, Prisma, TokenLedgerType } from '@prisma/client'
 import { ArrayMaxSize, IsArray, IsBoolean, IsHexColor, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
 import { createHash, randomBytes } from 'node:crypto'
 import type { FastifyRequest } from 'fastify'
@@ -10,6 +10,7 @@ import { GenerationsService } from '../generations/generations.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AdminGuard } from './admin.guard'
+import { BillingReconciliationService } from './billing-reconciliation.service'
 
 class CreateGroupDto {
   @IsString() @MinLength(1) @MaxLength(40) name!: string
@@ -49,7 +50,7 @@ class AnnouncementDto {
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminOperationsController {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly generations: GenerationsService, private readonly notifications: NotificationsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly generations: GenerationsService, private readonly notifications: NotificationsService, private readonly billingReconciliation: BillingReconciliationService) {}
 
   @Get('groups')
   async groups() {
@@ -199,15 +200,43 @@ export class AdminOperationsController {
     const days = Math.min(365, Math.max(1, Number(rawDays || 30) || 30))
     const since = new Date(Date.now() - days * 86_400_000)
     const [totals, groups] = await Promise.all([
-      this.prisma.generationJob.aggregate({ where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true } }),
-      this.prisma.generationJob.groupBy({ by: ['kind', 'model', 'provider'], where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true }, orderBy: { _sum: { revenueMicros: 'desc' } }, take: 200 }),
+      this.prisma.generationJob.aggregate({ where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, reasoningTokens: true } }),
+      this.prisma.generationJob.groupBy({ by: ['kind', 'model', 'provider'], where: { status: 'SUCCEEDED', completedAt: { gte: since } }, _count: { _all: true }, _sum: { revenueMicros: true, upstreamCostMicros: true, creditCost: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, reasoningTokens: true }, orderBy: { _sum: { revenueMicros: 'desc' } }, take: 200 }),
     ])
-    const summarize = (row: { _count: { _all: number }; _sum: { revenueMicros: number | null; upstreamCostMicros: number | null; creditCost: number | null; inputTokens: number | null; outputTokens: number | null } }) => {
+    const summarize = (row: { _count: { _all: number }; _sum: { revenueMicros: number | null; upstreamCostMicros: number | null; creditCost: number | null; inputTokens: number | null; outputTokens: number | null; cachedInputTokens: number | null; reasoningTokens: number | null } }) => {
       const revenueMicros = Number(row._sum.revenueMicros || 0), upstreamCostMicros = Number(row._sum.upstreamCostMicros || 0)
       const marginMicros = revenueMicros - upstreamCostMicros
-      return { jobs: row._count._all, revenueMicros, upstreamCostMicros, marginMicros, marginPercent: revenueMicros > 0 ? Number((marginMicros * 100 / revenueMicros).toFixed(2)) : null, creditCost: Number(row._sum.creditCost || 0), inputTokens: Number(row._sum.inputTokens || 0), outputTokens: Number(row._sum.outputTokens || 0) }
+      return { jobs: row._count._all, revenueMicros, upstreamCostMicros, marginMicros, marginPercent: revenueMicros > 0 ? Number((marginMicros * 100 / revenueMicros).toFixed(2)) : null, creditCost: Number(row._sum.creditCost || 0), inputTokens: Number(row._sum.inputTokens || 0), outputTokens: Number(row._sum.outputTokens || 0), cachedInputTokens: Number(row._sum.cachedInputTokens || 0), reasoningTokens: Number(row._sum.reasoningTokens || 0) }
     }
     return { days, since, totals: summarize(totals), groups: groups.map((row) => ({ kind: row.kind, model: row.model, provider: row.provider, ...summarize(row) })) }
+  }
+
+  @Get('finance/reconciliation')
+  reconciliation(@Query('days') rawDays?: string) {
+    return this.billingReconciliation.report(rawDays)
+  }
+
+  @Get('token-billing/quotas')
+  tokenQuotas(@Query('q') query?: string, @Query('scope') scope?: string) {
+    const limit = Math.min(500, Math.max(1, Number(query && /^\d+$/.test(query) ? query : 200)))
+    const search = query && !/^\d+$/.test(query) ? query.trim() : undefined
+    return this.prisma.userTokenQuota.findMany({
+      where: { scopeKey: scope ? { startsWith: scope } : undefined, user: search ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { displayName: { contains: search, mode: 'insensitive' } }] } : undefined },
+      orderBy: { updatedAt: 'desc' }, take: limit,
+      include: { user: { select: { id: true, email: true, displayName: true } }, subscription: { select: { id: true, plan: { select: { code: true, name: true } } } } },
+    })
+  }
+
+  @Get('token-billing/ledger')
+  tokenLedger(@Query('q') query?: string, @Query('type') type?: string) {
+    const limit = Math.min(500, Math.max(1, Number(query && /^\d+$/.test(query) ? query : 200)))
+    const search = query && !/^\d+$/.test(query) ? query.trim() : undefined
+    const validTypes = ['RESERVE', 'CHARGE', 'RELEASE', 'REFUND', 'ADJUST']
+    return this.prisma.tokenUsageLedger.findMany({
+      where: { type: type && validTypes.includes(type) ? type as TokenLedgerType : undefined, user: search ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { displayName: { contains: search, mode: 'insensitive' } }] } : undefined },
+      orderBy: { createdAt: 'desc' }, take: limit,
+      include: { user: { select: { id: true, email: true, displayName: true } }, generation: { select: { id: true, kind: true, status: true, settlementStatus: true, requestId: true, traceId: true } } },
+    })
   }
 
   @Get('redemption-codes')

@@ -36,7 +36,8 @@
   import Dynamic from './modules/dynamic-stats.vue'
   import TodoList from './modules/todo-list.vue'
   import AboutProject from './modules/about-project.vue'
-  import { xinyueApi, type AdminUser, type Overview } from '@/api/xinyue'
+  import { dashboardApi, type Overview } from '@/api/xinyue/dashboard'
+  import { customerApi, type AdminUser } from '@/api/xinyue/customers'
 
   defineOptions({ name: 'Console' })
 
@@ -47,7 +48,10 @@
   async function load() {
     loading.value = true
     try {
-      ;[overview.value, users.value] = await Promise.all([xinyueApi.overview(), xinyueApi.users()])
+      ;[overview.value, users.value] = await Promise.all([
+        dashboardApi.overview(),
+        customerApi.users()
+      ])
     } finally {
       loading.value = false
     }

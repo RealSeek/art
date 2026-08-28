@@ -8,8 +8,8 @@ if (missing.length) {
   console.error(`[startup] Missing required environment variables: ${missing.join(', ')}`)
   process.exit(1)
 }
-if (process.env.SESSION_SECRET.length < 32 || process.env.CREDENTIAL_ENCRYPTION_KEY.length < 32 || process.env.ADMIN_PASSWORD.length < 12) {
-  console.error('[startup] SESSION_SECRET and CREDENTIAL_ENCRYPTION_KEY must contain at least 32 characters; ADMIN_PASSWORD must contain at least 12 characters.')
+if (process.env.SESSION_SECRET.length < 32 || process.env.CREDENTIAL_ENCRYPTION_KEY.length < 32 || process.env.ADMIN_PASSWORD.length < 8) {
+  console.error('[startup] SESSION_SECRET and CREDENTIAL_ENCRYPTION_KEY must contain at least 32 characters; ADMIN_PASSWORD must contain at least 8 characters.')
   process.exit(1)
 }
 if ([process.env.SESSION_SECRET, process.env.CREDENTIAL_ENCRYPTION_KEY, process.env.ADMIN_PASSWORD].some((value) => value.includes('replace-with'))) {

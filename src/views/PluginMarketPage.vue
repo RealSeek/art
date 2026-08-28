@@ -15,10 +15,26 @@
         <label><Search :size="15" /><input v-model="query" placeholder="搜索技能" /></label>
         <div><button type="button" :class="{ active: !category }" @click="category = ''">全部</button><button v-for="item in categories" :key="item.id" type="button" :class="{ active: category === item.slug }" @click="category = item.slug">{{ item.name }}</button></div>
       </section>
+      <section v-else-if="activeTab === 'external'" class="plugin-filter-bar plugin-external-filter">
+        <label><Search :size="15" /><input v-model="query" placeholder="搜索外部 Skills" /></label>
+        <div><button type="button" :class="{ active: !externalCategory }" @click="externalCategory = ''">全部技能</button><button v-for="item in externalCategories" :key="item" type="button" :class="{ active: externalCategory === item }" @click="externalCategory = item">{{ item }}</button></div>
+      </section>
 
       <div v-if="error" class="plugin-feedback" role="alert"><CircleAlert :size="16" /><span>{{ error }}</span><button type="button" @click="loadAll">重试</button></div>
+      <div v-else-if="notice" class="plugin-feedback plugin-feedback--success" role="status"><Check :size="16" /><span>{{ notice }}</span><button type="button" aria-label="关闭提示" @click="notice = ''"><X :size="15" /></button></div>
       <section v-if="loading" class="plugin-empty"><LoaderCircle class="plugin-spin" :size="22" /><span>正在加载技能</span></section>
-      <section v-else-if="visiblePlugins.length" class="plugin-grid">
+      <template v-else-if="activeTab === 'external' && externalItems.length">
+        <section class="plugin-grid">
+          <article v-for="skill in externalItems" :key="`${skill.source}:${skill.id}`" class="plugin-card plugin-card--external">
+            <header><span class="plugin-card__icon"><Globe2 :size="21" /></span><div><strong>{{ skill.name }}</strong><small>{{ skill.category || '通用技能' }}<template v-if="skill.author"> · {{ skill.author }}</template><template v-if="skill.version"> · v{{ skill.version }}</template></small></div><em>{{ skill.risk === 'reviewed' ? '已审核' : '待扫描' }}</em></header>
+            <p>{{ skill.description || '外部市场技能，安装前会在服务端进行格式与安全检查。' }}</p>
+            <div class="plugin-capabilities"><span>{{ skill.installable ? '可直接安装' : '仅供浏览' }}</span><span v-if="skill.stars">{{ skill.stars }} stars</span></div>
+            <footer><a class="plugin-source-link" :href="skill.sourceUrl" target="_blank" rel="noreferrer">查看说明</a><button :class="{ primary: !skill.installed }" type="button" :disabled="busyId === `${skill.source}:${skill.id}` || !skill.installable || skill.installed" @click="installExternal(skill)"><LoaderCircle v-if="busyId === `${skill.source}:${skill.id}`" class="plugin-spin" :size="15" /><Check v-else-if="skill.installed" :size="15" /><Download v-else :size="15" />{{ skill.installed ? '已安装' : skill.installable ? '安装到技能库' : '暂不可安装' }}</button></footer>
+          </article>
+        </section>
+        <button v-if="externalItems.length < externalTotal" class="plugin-load-more" type="button" :disabled="externalLoadingMore" @click="loadMoreExternal"><LoaderCircle v-if="externalLoadingMore" class="plugin-spin" :size="15" />{{ externalLoadingMore ? '加载中' : `加载更多（剩余 ${externalTotal - externalItems.length} 项）` }}</button>
+      </template>
+      <section v-else-if="activeTab !== 'external' && visiblePlugins.length" class="plugin-grid">
         <article v-for="plugin in visiblePlugins" :key="plugin.id" class="plugin-card">
           <header><span class="plugin-card__icon"><component :is="pluginIcon(plugin.icon)" :size="21" /></span><div><strong>{{ plugin.name }}</strong><small>v{{ plugin.version }}<template v-if="plugin.category"> · {{ plugin.category.name }}</template></small></div><em v-if="plugin.featured">精选</em><em v-else-if="plugin.visibility === 'PRIVATE'">仅自己可见</em></header>
           <p>{{ plugin.description || '未填写技能说明' }}</p>
@@ -27,7 +43,7 @@
           <footer v-else><span><ShieldCheck :size="14" />不可公开或分享</span><div><button type="button" @click="openEditor(plugin)"><Pencil :size="15" />编辑</button><button class="danger" type="button" :disabled="busyId === plugin.id" aria-label="删除技能" @click="removePrivate(plugin)"><Trash2 :size="15" /></button></div></footer>
         </article>
       </section>
-      <section v-else class="plugin-empty"><Blocks :size="28" /><strong>{{ activeTab === 'mine' ? '还没有私有技能' : activeTab === 'installed' ? '还没有安装技能' : '没有找到技能' }}</strong><p>{{ activeTab === 'mine' ? '创建私有技能，用于自己的对话和任务。' : '从技能市场安装后即可在工作区调用。' }}</p></section>
+      <section v-else class="plugin-empty"><Blocks :size="28" /><strong>{{ activeTab === 'mine' ? '还没有私有技能' : activeTab === 'installed' ? '还没有安装技能' : activeTab === 'external' ? '没有匹配的社区技能' : '没有找到技能' }}</strong><p>{{ activeTab === 'mine' ? '创建私有技能，用于自己的对话和任务。' : activeTab === 'external' ? '调整关键词或切换技能分类。' : '从技能市场安装后即可在工作区调用。' }}</p></section>
     </div>
     <input ref="skillFileInput" type="file" accept=".md,.skill,.zip,application/zip,text/markdown" hidden @change="importSkill" />
 
@@ -37,27 +53,43 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
-import { Aperture, Badge, Blocks, BriefcaseBusiness, ChartNoAxesCombined, Check, CircleAlert, Clapperboard, Code2, CodeXml, Download, FileSearch, GraduationCap, Image, Landmark, LayoutTemplate, LoaderCircle, Megaphone, MessageSquare, MessagesSquare, Network, NotebookTabs, Palette, Pencil, Plus, Presentation, Scale, Search, SearchCheck, ShieldCheck, ShoppingBag, Table2, Trash2, Upload, Video, X } from 'lucide-vue-next'
+import { Aperture, Badge, Blocks, BriefcaseBusiness, ChartNoAxesCombined, Check, CircleAlert, Clapperboard, Code2, CodeXml, Download, FileSearch, Globe2, GraduationCap, Image, Landmark, LayoutTemplate, LoaderCircle, Megaphone, MessageSquare, MessagesSquare, Network, NotebookTabs, Palette, Pencil, Plus, Presentation, Scale, Search, SearchCheck, ShieldCheck, ShoppingBag, Table2, Trash2, Upload, Video, X } from 'lucide-vue-next'
 import { api } from '../services/api'
-import type { Plugin, PluginCapability, PluginCategory } from '../types'
+import type { ExternalSkill, ExternalSkillCategory, Plugin, PluginCapability, PluginCategory } from '../types'
 
 withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 
-type Tab = 'market' | 'installed' | 'mine'
-const activeTab = ref<Tab>('market'); const market = ref<Plugin[]>([]); const installed = ref<Plugin[]>([]); const mine = ref<Plugin[]>([]); const categories = ref<PluginCategory[]>([])
-const loading = ref(true); const error = ref(''); const query = ref(''); const category = ref(''); const busyId = ref(''); const saving = ref(false); const editorOpen = ref(false)
+type Tab = 'market' | 'external' | 'installed' | 'mine'
+const activeTab = ref<Tab>('market'); const market = ref<Plugin[]>([]); const externalItems = ref<ExternalSkill[]>([]); const installed = ref<Plugin[]>([]); const mine = ref<Plugin[]>([]); const categories = ref<PluginCategory[]>([])
+const loading = ref(true); const error = ref(''); const notice = ref(''); const query = ref(''); const category = ref(''); const busyId = ref(''); const saving = ref(false); const editorOpen = ref(false); const externalTotal = ref(0); const externalLoadingMore = ref(false)
+const externalCategory = ref<ExternalSkillCategory | ''>('')
+const externalCategories: ExternalSkillCategory[] = ['开发编程', '办公效率', '研究分析', '内容创作', '设计创意', '营销运营', 'Agent 自动化', '通用技能']
 const skillFileInput = ref<HTMLInputElement | null>(null)
 const emptyDraft = () => ({ id: '', name: '', description: '', instruction: '', icon: 'blocks', categoryId: '', version: '1.0.0', recommendedModel: '', outputRequirements: '', capabilities: ['CHAT'] as PluginCapability[] }); const draft = reactive(emptyDraft())
 const capabilityOptions: Array<{ id: PluginCapability; label: string }> = [{ id: 'CHAT', label: '对话' }, { id: 'IMAGE', label: '图片' }, { id: 'VIDEO', label: '视频' }, { id: 'COMMERCE', label: '电商' }, { id: 'OFFICE', label: '办公' }]
 const iconOptions = [{ id: 'blocks', label: '技能' }, { id: 'aperture', label: '创意' }, { id: 'briefcase-business', label: '办公' }, { id: 'code-2', label: '开发' }, { id: 'image', label: '图片' }, { id: 'palette', label: '设计' }, { id: 'shopping-bag', label: '电商' }, { id: 'video', label: '视频' }, { id: 'chat', label: '对话' }]
-const tabs = computed(() => [{ id: 'market' as const, label: '技能市场', icon: markRaw(Blocks), count: market.value.length }, { id: 'installed' as const, label: '已安装', icon: markRaw(Download), count: installed.value.length }, { id: 'mine' as const, label: '我的技能', icon: markRaw(ShieldCheck), count: mine.value.length }])
+const tabs = computed(() => [{ id: 'market' as const, label: '官方插件', icon: markRaw(Blocks), count: market.value.length }, { id: 'external' as const, label: '外部市场', icon: markRaw(Globe2), count: externalTotal.value || externalItems.value.length }, { id: 'installed' as const, label: '已安装', icon: markRaw(Download), count: installed.value.length }, { id: 'mine' as const, label: '我的技能', icon: markRaw(ShieldCheck), count: mine.value.length }])
 const visiblePlugins = computed(() => activeTab.value === 'installed' ? installed.value : activeTab.value === 'mine' ? mine.value : market.value)
 const icons = { aperture: Aperture, 'badge-palette': Badge, blocks: Blocks, 'briefcase-business': BriefcaseBusiness, 'chart-no-axes-combined': ChartNoAxesCombined, clapperboard: Clapperboard, 'code-2': Code2, 'file-search': FileSearch, 'graduation-cap': GraduationCap, image: Image, landmark: Landmark, 'layout-template': LayoutTemplate, megaphone: Megaphone, 'messages-square': MessagesSquare, network: Network, 'notebook-tabs': NotebookTabs, palette: Palette, presentation: Presentation, scale: Scale, 'scan-code': CodeXml, 'search-check': SearchCheck, 'shopping-bag': ShoppingBag, 'table-2': Table2, video: Video, chat: MessageSquare }
 function pluginIcon(name: string) { return markRaw(icons[name as keyof typeof icons] || Blocks) }
 function capabilityName(value: PluginCapability) { return capabilityOptions.find((item) => item.id === value)?.label || value }
-async function loadAll() { loading.value = true; error.value = ''; try { [market.value, installed.value, mine.value, categories.value] = await Promise.all([api<Plugin[]>(`/plugins/market?${new URLSearchParams({ ...(query.value ? { q: query.value } : {}), ...(category.value ? { category: category.value } : {}) })}`), api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine'), api<PluginCategory[]>('/plugins/categories')]) } catch (reason) { error.value = reason instanceof Error ? reason.message : '技能加载失败' } finally { loading.value = false } }
+async function loadExternal(append = false) { const params = new URLSearchParams({ limit: '96', ...(append ? { offset: String(externalItems.value.length) } : {}), ...(query.value ? { q: query.value } : {}), ...(externalCategory.value ? { category: externalCategory.value } : {}) }); const result = await api<{ items: ExternalSkill[]; total: number }>(`/plugins/external/search?${params}`); externalItems.value = append ? [...externalItems.value, ...result.items] : result.items; externalTotal.value = result.total }
+async function loadMoreExternal() { externalLoadingMore.value = true; error.value = ''; try { await loadExternal(true) } catch (reason) { error.value = reason instanceof Error ? reason.message : '更多外部技能加载失败' } finally { externalLoadingMore.value = false } }
+async function loadAll() { loading.value = true; error.value = ''; try { const [marketRows, installedRows, mineRows, categoryRows, externalRows] = await Promise.all([api<Plugin[]>(`/plugins/market?${new URLSearchParams({ ...(activeTab.value === 'market' && query.value ? { q: query.value } : {}), ...(category.value ? { category: category.value } : {}) })}`), api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine'), api<PluginCategory[]>('/plugins/categories'), api<{ items: ExternalSkill[]; total: number }>('/plugins/external/search?limit=96')]); market.value = marketRows; installed.value = installedRows; mine.value = mineRows; categories.value = categoryRows; externalItems.value = externalRows.items; externalTotal.value = externalRows.total } catch (reason) { error.value = reason instanceof Error ? reason.message : '技能加载失败' } finally { loading.value = false } }
 async function install(plugin: Plugin) { busyId.value = plugin.id; try { await api(`/plugins/${plugin.id}/install`, { method: 'POST' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '安装失败' } finally { busyId.value = '' } }
-async function uninstall(plugin: Plugin) { busyId.value = plugin.id; try { await api(`/plugins/${plugin.id}/install`, { method: 'DELETE' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '卸载失败' } finally { busyId.value = '' } }
+async function uninstall(plugin: Plugin) { busyId.value = plugin.id; error.value = ''; notice.value = ''; try { await api(plugin.owned && plugin.visibility === 'PRIVATE' ? `/plugins/mine/${plugin.id}` : `/plugins/${plugin.id}/install`, { method: 'DELETE' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '卸载失败' } finally { busyId.value = '' } }
+async function installExternal(skill: ExternalSkill) {
+  if (skill.installed) return
+  const key = `${skill.source}:${skill.id}`; busyId.value = key; error.value = ''; notice.value = ''
+  try {
+    const result = await api<{ warning?: string; alreadyInstalled?: boolean }>('/plugins/external/install', { method: 'POST', body: JSON.stringify({ source: skill.source, id: skill.id, sourceUrl: skill.sourceUrl, githubUrl: skill.githubUrl, downloadUrl: skill.downloadUrl, skillUrl: skill.skillUrl }) })
+    skill.installed = true
+    const [installedRows, mineRows] = await Promise.all([api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine')])
+    installed.value = installedRows; mine.value = mineRows
+    notice.value = result.warning || (result.alreadyInstalled ? '该技能已经安装' : '技能已安装，仅启用技能说明')
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : '外部技能安装失败' }
+  finally { busyId.value = '' }
+}
 function openEditor(plugin?: Plugin) { Object.assign(draft, plugin ? { id: plugin.id, name: plugin.name, description: plugin.description, instruction: plugin.instruction, icon: plugin.icon, categoryId: plugin.categoryId || '', version: plugin.version, recommendedModel: plugin.recommendedModel, outputRequirements: plugin.outputRequirements, capabilities: [...plugin.capabilities] } : emptyDraft()); editorOpen.value = true }
 async function savePrivate() { saving.value = true; error.value = ''; try { const body = JSON.stringify({ name: draft.name, description: draft.description, instruction: draft.instruction, icon: draft.icon, categoryId: draft.categoryId || undefined, version: draft.version, recommendedModel: draft.recommendedModel, outputRequirements: draft.outputRequirements, capabilities: draft.capabilities }); await api(draft.id ? `/plugins/mine/${draft.id}` : '/plugins/mine', { method: draft.id ? 'PATCH' : 'POST', body }); editorOpen.value = false; await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '保存失败' } finally { saving.value = false } }
 async function removePrivate(plugin: Plugin) { if (!window.confirm(`删除私有技能“${plugin.name}”？`)) return; busyId.value = plugin.id; try { await api(`/plugins/mine/${plugin.id}`, { method: 'DELETE' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '删除失败' } finally { busyId.value = '' } }
@@ -68,5 +100,5 @@ async function importSkill(event: Event) {
   catch (reason) { error.value = reason instanceof Error ? reason.message : 'Skill 导入失败' }
   finally { saving.value = false; input.value = '' }
 }
-let searchTimer = 0; watch([query, category], () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(loadAll, 280) }); onMounted(loadAll)
+let searchTimer = 0; watch([query, category, externalCategory], () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => activeTab.value === 'external' ? loadExternal().catch((reason) => { error.value = reason instanceof Error ? reason.message : '社区技能搜索失败' }) : loadAll(), 280) }); onMounted(loadAll)
 </script>

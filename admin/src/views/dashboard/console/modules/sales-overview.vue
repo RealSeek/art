@@ -24,7 +24,7 @@
    * 全年访问量数据
    * 记录每月的访问量统计
    */
-  import type { Overview } from '@/api/xinyue'
+  import type { Overview } from '@/api/xinyue/dashboard'
   import { xinyueText as xt } from '@/locales/xinyue'
   const { overview } = defineProps<{ overview: Overview | null }>()
   const data = computed(() => overview?.trend.map((item) => item.jobs) || [])

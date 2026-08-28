@@ -24,7 +24,6 @@
 import { createI18n } from 'vue-i18n'
 import type { I18n, I18nOptions } from 'vue-i18n'
 import { LanguageEnum } from '@/enums/appEnum'
-import { getSystemStorage } from '@/utils/storage'
 import { StorageKeyManager } from '@/utils/storage/storage-key-manager'
 
 // 同步导入语言文件
@@ -71,19 +70,6 @@ const getDefaultLanguage = (): LanguageEnum => {
     }
   } catch (error) {
     console.warn('[i18n] 从版本化存储获取语言设置失败:', error)
-  }
-
-  // 尝试从系统存储中获取语言设置
-  try {
-    const sys = getSystemStorage()
-    if (sys) {
-      const { user } = JSON.parse(sys)
-      if (user?.language && Object.values(LanguageEnum).includes(user.language)) {
-        return user.language
-      }
-    }
-  } catch (error) {
-    console.warn('[i18n] 从系统存储获取语言设置失败:', error)
   }
 
   // 返回默认语言

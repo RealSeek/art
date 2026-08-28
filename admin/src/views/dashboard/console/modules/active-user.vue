@@ -32,7 +32,7 @@
   }
 
   // 最近9个月
-  import type { Overview } from '@/api/xinyue'
+  import type { Overview } from '@/api/xinyue/dashboard'
   import { xinyueText as xt } from '@/locales/xinyue'
   const { overview } = defineProps<{ overview: Overview | null }>()
 

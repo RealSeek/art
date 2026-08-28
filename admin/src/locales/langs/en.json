@@ -39,8 +39,10 @@
     "logOutTips": "Do you want to log out?"
   },
   "search": {
-    "placeholder": "Search page",
+    "placeholder": "Search pages, features, or business terms",
     "historyTitle": "Search history",
+    "noResult": "No matching feature",
+    "noResultHint": "Try a page name, business alias, or resource keyword",
     "switchKeydown": "Navigate",
     "selectKeydown": "Select",
     "exitKeydown": "Close"
@@ -388,6 +390,7 @@
       "subscriptions": "Subscriptions & Plans",
       "payments": "Payments",
       "financeMargins": "Costs & Margins",
+      "billingReconciliation": "Billing Reconciliation",
       "byokOperations": "BYOK Operations",
       "commercialGovernance": "Commercial Governance",
       "operations": "Operations & Security",

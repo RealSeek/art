@@ -436,12 +436,12 @@
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
-    xinyueApi,
+    commerceApi as xinyueApi,
     type PaymentChannel,
     type PaymentTransaction,
     type RechargePackage,
     type RedemptionCode
-  } from '@/api/xinyue'
+  } from '@/api/xinyue/commerce'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'XinyueCommerce' })
   const providerText: Record<string, string> = {

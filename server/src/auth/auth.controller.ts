@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, HttpCode, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator'
+import { IsBoolean, IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator'
 import { Throttle } from '@nestjs/throttler'
 import { ConfigService } from '@nestjs/config'
 import type { FastifyReply, FastifyRequest } from 'fastify'
@@ -17,11 +17,12 @@ class CompleteEmailRegistrationDto {
   @IsString() @MinLength(8) @MaxLength(200) password!: string
   @IsOptional() @IsString() @MaxLength(64) inviteCode?: string
 }
-class AdminLoginDto { @IsEmail() email!: string; @IsString() @MinLength(8) password!: string }
-class AdminMfaLoginDto { @IsString() @MinLength(20) @MaxLength(200) ticket!: string; @IsString() @MinLength(6) @MaxLength(64) code!: string }
-class AdminMfaEnableDto { @IsString() @MinLength(20) @MaxLength(200) ticket!: string; @IsString() @Length(6, 6) code!: string }
-class AdminMfaCodeDto { @IsString() @MinLength(6) @MaxLength(64) code!: string }
-class AdminMfaDisableDto extends AdminMfaCodeDto { @IsString() @MinLength(8) @MaxLength(200) password!: string }
+class AdminLoginDto { @IsEmail() email!: string; @IsString() @MinLength(8) password!: string; @IsOptional() @IsBoolean() remember?: boolean }
+class AdminAccountUpdateDto {
+  @IsString() @MinLength(8) @MaxLength(200) currentPassword!: string
+  @IsOptional() @IsEmail() @MaxLength(320) email?: string
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(200) newPassword?: string
+}
 class PasswordLoginDto { @IsString() @MinLength(3) @MaxLength(320) identifier!: string; @IsString() @MinLength(8) @MaxLength(200) password!: string }
 class PasswordRegisterDto {
   @IsString() @Matches(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$/) username!: string
@@ -46,8 +47,8 @@ export class AuthController {
   private cookieSecure() {
     return this.config.get<boolean>('COOKIE_SECURE') ?? process.env.NODE_ENV === 'production'
   }
-  private setSessionCookie(response: FastifyReply, result: { token: string; expiresAt: Date }) {
-    response.setCookie('flux_session', result.token, { httpOnly: true, secure: this.cookieSecure(), sameSite: 'lax', path: '/', expires: result.expiresAt })
+  private setSessionCookie(response: FastifyReply, result: { token: string; expiresAt: Date }, persistent = true) {
+    response.setCookie('flux_session', result.token, { httpOnly: true, secure: this.cookieSecure(), sameSite: 'lax', path: '/', ...(persistent ? { expires: result.expiresAt } : {}) })
   }
   @Post('code/request') @Throttle({ default: { limit: 5, ttl: 60_000 } }) requestCode(@Body() body: RequestCodeDto) { return this.auth.requestCode(body.email) }
   @Post('code/verify') @Throttle({ default: { limit: 10, ttl: 60_000 } }) async verify(@Body() body: VerifyCodeDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
@@ -108,21 +109,13 @@ export class AuthController {
   }
   @Post('admin/login') @Throttle({ default: { limit: () => Number(process.env.ADMIN_LOGIN_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 8 : 30)), ttl: 60_000 } }) async adminLogin(@Body() body: AdminLoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
     const result = await this.auth.loginAdmin(body.email, body.password, { ip: request.ip, userAgent: request.headers['user-agent'] })
-    if ('mfaRequired' in result) return result
-    this.setSessionCookie(response, result)
+    this.setSessionCookie(response, result, body.remember !== false)
     return { user: result.user }
   }
-  @Post('admin/mfa/login') @Throttle({ default: { limit: 10, ttl: 60_000 } }) async adminMfaLogin(@Body() body: AdminMfaLoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
-    const result = await this.auth.verifyAdminMfaLogin(body.ticket, body.code, { ip: request.ip, userAgent: request.headers['user-agent'] })
-    this.setSessionCookie(response, result)
-    return { user: result.user }
+  @Get('session') async session(@Req() request: FastifyRequest) { return { user: await this.auth.peekSession(request.cookies?.flux_session as string | undefined) } }
+  @Patch('admin/account') @UseGuards(AuthGuard) async updateAdminAccount(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: AdminAccountUpdateDto) {
+    return this.auth.updateAdminAccount(user.id, request.sessionId, body, { ip: request.ip, userAgent: request.headers['user-agent'] })
   }
-  @Get('admin/mfa/status') @UseGuards(AuthGuard) adminMfaStatus(@CurrentUser() user: AuthenticatedUser) { return this.auth.adminMfaStatus(user.id) }
-  @Post('admin/mfa/setup') @UseGuards(AuthGuard) adminMfaSetup(@CurrentUser() user: AuthenticatedUser) { return this.auth.beginAdminMfaSetup(user.id) }
-  @Post('admin/mfa/enable') @UseGuards(AuthGuard) adminMfaEnable(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: AdminMfaEnableDto) { return this.auth.enableAdminMfa(user.id, request.sessionId, body.ticket, body.code, { ip: request.ip, userAgent: request.headers['user-agent'] }) }
-  @Post('admin/mfa/recovery-codes') @UseGuards(AuthGuard) adminMfaRecoveryCodes(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: AdminMfaCodeDto) { return this.auth.regenerateAdminMfaRecoveryCodes(user.id, body.code, { ip: request.ip, userAgent: request.headers['user-agent'] }) }
-  @Post('admin/mfa/verify-session') @UseGuards(AuthGuard) adminMfaVerifySession(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: AdminMfaCodeDto) { return this.auth.verifyAdminMfaSession(user.id, request.sessionId, body.code, { ip: request.ip, userAgent: request.headers['user-agent'] }) }
-  @Post('admin/mfa/disable') @UseGuards(AuthGuard) adminMfaDisable(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: AdminMfaDisableDto) { return this.auth.disableAdminMfa(user.id, request.sessionId, body.password, body.code, { ip: request.ip, userAgent: request.headers['user-agent'] }) }
   @Get('me') @UseGuards(AuthGuard) me(@CurrentUser() user: AuthenticatedUser) { return user }
   @Post('logout') @HttpCode(204) @UseGuards(AuthGuard) async logout(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) response: FastifyReply) { await this.auth.revoke(request.sessionId); response.clearCookie('flux_session', { path: '/' }) }
 

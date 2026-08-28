@@ -111,11 +111,20 @@
             <span>{{ xt('将历史资产安全迁移到当前活动存储，支持分批执行和断点续跑') }}</span>
           </div>
           <div class="resource-actions">
-            <ElButton v-if="storageMigration?.target.driver === 's3'" :loading="applyingLifecycle" @click="applyLifecycle">
+            <ElButton
+              v-if="storageMigration?.target.driver === 's3'"
+              :loading="applyingLifecycle"
+              @click="applyLifecycle"
+            >
               <ArtSvgIcon icon="ri:timer-flash-line" />
               {{ xt('应用生命周期') }}
             </ElButton>
-            <ElButton type="primary" :loading="migrating" :disabled="!storageMigration?.pending.count" @click="migrateStorage">
+            <ElButton
+              type="primary"
+              :loading="migrating"
+              :disabled="!storageMigration?.pending.count"
+              @click="migrateStorage"
+            >
               <ArtSvgIcon icon="ri:database-2-line" />
               {{ xt('迁移下一批') }}
             </ElButton>
@@ -147,9 +156,17 @@
           :status="storageMigration.pending.count ? undefined : 'success'"
         />
         <div class="storage-location-list">
-          <div v-for="location in storageMigration.locations" :key="`${location.driver}:${location.bucket}`">
-            <span>{{ location.driver.toUpperCase() }}{{ location.bucket ? ` · ${location.bucket}` : '' }}</span>
-            <strong>{{ location.count }} {{ xt('个文件') }} · {{ formatBytes(location.bytes) }}</strong>
+          <div
+            v-for="location in storageMigration.locations"
+            :key="`${location.driver}:${location.bucket}`"
+          >
+            <span
+              >{{ location.driver.toUpperCase()
+              }}{{ location.bucket ? ` · ${location.bucket}` : '' }}</span
+            >
+            <strong
+              >{{ location.count }} {{ xt('个文件') }} · {{ formatBytes(location.bytes) }}</strong
+            >
           </div>
         </div>
         <ElAlert
@@ -159,7 +176,13 @@
           show-icon
           :closable="false"
         />
-        <ElAlert v-if="storageLifecycle?.supported" :title="`${xt('生命周期规则')}：${storageLifecycle.rules.length} ${xt('条')}`" type="info" show-icon :closable="false" />
+        <ElAlert
+          v-if="storageLifecycle?.supported"
+          :title="`${xt('生命周期规则')}：${storageLifecycle.rules.length} ${xt('条')}`"
+          type="info"
+          show-icon
+          :closable="false"
+        />
       </div>
       <ElSkeleton v-else :rows="2" animated />
     </ElCard>
@@ -220,7 +243,12 @@
     pending: { count: number; bytes: number }
     locations: Array<{ driver: string; bucket: string; count: number; bytes: number }>
   }
-  type StorageLifecycle = { supported: boolean; driver: 'local' | 's3'; bucket?: string; rules: Array<{ id: string; status: string }> }
+  type StorageLifecycle = {
+    supported: boolean
+    driver: 'local' | 's3'
+    bucket?: string
+    rules: Array<{ id: string; status: string }>
+  }
 
   const router = useRouter()
   const loading = ref(false)
@@ -414,10 +442,21 @@
   }
 
   const applyLifecycle = async () => {
-    await ElMessageBox.confirm(xt('将保留现有规则，并更新 Xinyue 管理的分片上传和历史版本清理规则。'), xt('应用生命周期'), { type: 'warning' })
+    await ElMessageBox.confirm(
+      xt('将保留现有规则，并更新 Xinyue 管理的分片上传和历史版本清理规则。'),
+      xt('应用生命周期'),
+      { type: 'warning' }
+    )
     applyingLifecycle.value = true
-    try { storageLifecycle.value = await request.post<StorageLifecycle>({ url: '/v1/admin/storage/lifecycle', params: {}, showSuccessMessage: true }) }
-    finally { applyingLifecycle.value = false }
+    try {
+      storageLifecycle.value = await request.post<StorageLifecycle>({
+        url: '/v1/admin/storage/lifecycle',
+        params: {},
+        showSuccessMessage: true
+      })
+    } finally {
+      applyingLifecycle.value = false
+    }
   }
 
   onMounted(load)

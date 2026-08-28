@@ -9,6 +9,7 @@ import { assetDisposition, AssetsService, resolveRasterImageMime, resolveVideoMi
 import { ResourceAccessService } from '../common/resource-access.service'
 
 const kinds = new Set(Object.values(AssetKind))
+const uploadPurposes = new Set(['library', 'reference', 'mask', 'attachment', 'image-prompt'])
 
 class AssignAssetTeamDto { @IsOptional() @IsString() teamId?: string | null }
 
@@ -31,7 +32,7 @@ export class AssetsController {
   @Post('uploads')
   async upload(@CurrentUser() user: AuthenticatedUser, @Req() request: FastifyRequest, @Query('kind') kind: AssetKind = AssetKind.FILE, @Query('projectId') projectId?: string, @Query('purpose') purpose = 'library') {
     if (!kinds.has(kind)) throw new BadRequestException('文件类型无效')
-    if (!['library', 'reference', 'mask', 'attachment'].includes(purpose)) throw new BadRequestException('文件用途无效')
+    if (!uploadPurposes.has(purpose)) throw new BadRequestException('文件用途无效')
     const part = await request.file()
     if (!part) throw new BadRequestException('请选择文件')
     const imageMimeType = kind === AssetKind.IMAGE ? resolveRasterImageMime(part.filename, part.mimetype) : null

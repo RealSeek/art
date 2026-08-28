@@ -1,5 +1,12 @@
 <template>
   <template v-for="(item, index) in filteredMenuItems" :key="getUniqueKey(item, index)">
+    <li
+      v-if="menuOpen && level > 0 && isSectionStart(index)"
+      class="menu-section-label"
+      role="presentation"
+    >
+      {{ formatMenuTitle(item.meta.menuSection || '') }}
+    </li>
     <ElSubMenu v-if="hasChildren(item)" :index="item.path || item.meta.title" :level="level">
       <template #title>
         <div class="menu-icon flex-cc">
@@ -177,6 +184,12 @@
     return filteredChildren.length > 0
   }
 
+  const isSectionStart = (index: number): boolean => {
+    const section = filteredMenuItems.value[index]?.meta.menuSection
+    if (!section) return false
+    return filteredMenuItems.value[index - 1]?.meta.menuSection !== section
+  }
+
   /**
    * 判断是否为外部链接
    * @param item 菜单项数据
@@ -197,3 +210,16 @@
     return `${item.path || item.meta.title || 'menu'}-${props.level}-${index}`
   }
 </script>
+
+<style scoped>
+  .menu-section-label {
+    padding: 18px 18px 7px;
+    color: color-mix(in srgb, currentColor 62%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    list-style: none;
+    letter-spacing: 0;
+    pointer-events: none;
+  }
+</style>

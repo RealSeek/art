@@ -41,7 +41,7 @@
       <div v-if="loadingPrompts" class="canvas-assets-panel-empty"><LoaderCircle class="canvas-spin" :size="19" /><span>正在加载提示词</span></div>
       <div v-else-if="prompts.length" class="canvas-assets-panel-prompt-list">
         <button v-for="prompt in prompts" :key="prompt.id" type="button" @click="emit('insertPrompt', prompt)">
-          <strong>{{ prompt.title }}</strong>
+          <span class="canvas-assets-panel-prompt-heading"><strong>{{ prompt.title }}</strong><small v-if="prompt.sourceName">{{ prompt.sourceName }}</small></span>
           <span>{{ prompt.prompt || prompt.description || '点击插入提示词节点' }}</span>
         </button>
       </div>
@@ -59,7 +59,7 @@ import type { CanvasGenerationKind, CanvasNodeData } from '../types/canvas'
 export type CanvasAssetPanelItem = { id: string; kind: CanvasGenerationKind; name: string; mimeType: string; size: number; contentUrl: string; createdAt: string }
 type CanvasNodeMedia = { id: string; kind: CanvasGenerationKind; title: string; url: string }
 type CanvasNodePanelItem = { id: string; data: CanvasNodeData; selected?: boolean }
-export type CanvasPromptPanelItem = { id: string; title: string; prompt?: string; description?: string | null; mode?: 'IMAGE' | 'VIDEO' }
+export type CanvasPromptPanelItem = { id: string; title: string; prompt?: string; description?: string | null; mode?: 'IMAGE' | 'VIDEO'; sourceName?: string }
 
 const props = withDefaults(defineProps<{ projectId?: string; currentAssets: CanvasNodeMedia[]; nodes?: CanvasNodePanelItem[] }>(), { nodes: () => [] })
 const emit = defineEmits<{ close: []; insert: [asset: CanvasAssetPanelItem]; dragAsset: [asset: CanvasAssetPanelItem]; insertPrompt: [prompt: CanvasPromptPanelItem]; locate: [nodeId: string]; open: [nodeId: string] }>()
@@ -114,18 +114,18 @@ async function load() {
     const results = await Promise.allSettled([
       api<CanvasAssetPanelItem[]>('/assets?kind=IMAGE'),
       api<CanvasAssetPanelItem[]>('/assets?kind=VIDEO'),
-      api<CanvasPromptPanelItem[]>('/inspirations?mode=IMAGE'),
-      api<CanvasPromptPanelItem[]>('/inspirations?mode=VIDEO'),
+      api<{ items?: Array<{ id: string; title: string; prompt?: string; description?: string; promptType?: 'IMAGE' | 'VIDEO'; sourceName?: string }> }>('/prompt-library?type=IMAGE&page=1&pageSize=60'),
+      api<{ items?: Array<{ id: string; title: string; prompt?: string; description?: string; promptType?: 'IMAGE' | 'VIDEO'; sourceName?: string }> }>('/prompt-library?type=VIDEO&page=1&pageSize=60'),
     ])
     const [imagesResult, videosResult, imagePromptsResult, videoPromptsResult] = results
     const images = imagesResult.status === 'fulfilled' ? imagesResult.value : []
     const videos = videosResult.status === 'fulfilled' ? videosResult.value : []
-    const imagePrompts = imagePromptsResult.status === 'fulfilled' ? imagePromptsResult.value : []
-    const videoPrompts = videoPromptsResult.status === 'fulfilled' ? videoPromptsResult.value : []
+    const imagePrompts = imagePromptsResult.status === 'fulfilled' ? (imagePromptsResult.value.items || []) : []
+    const videoPrompts = videoPromptsResult.status === 'fulfilled' ? (videoPromptsResult.value.items || []) : []
     if (results.some((result) => result.status === 'rejected')) error.value = '部分画布资源加载失败，请重试。'
     const assetById = new Map([...currentAssets.value, ...images, ...videos].map((asset) => [asset.id, asset]))
     assets.value = [...assetById.values()].sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
-    prompts.value = [...imagePrompts, ...videoPrompts].filter((item, index, rows) => Boolean(item.prompt || item.description) && rows.findIndex((candidate) => candidate.id === item.id) === index)
+    prompts.value = [...imagePrompts, ...videoPrompts].map((item) => ({ id: item.id, title: item.title, prompt: item.prompt, description: item.description, mode: item.promptType, sourceName: item.sourceName })).filter((item, index, rows) => Boolean(item.prompt || item.description) && rows.findIndex((candidate) => candidate.id === item.id) === index)
   } catch (reason) { error.value = reason instanceof Error ? reason.message : '素材加载失败' }
   finally { loading.value = false; loadingPrompts.value = false }
 }

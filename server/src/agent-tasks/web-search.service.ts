@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
 import { Prisma, WebSearchChannel, WebSearchProviderType } from '@prisma/client'
 import { load } from 'cheerio'
 import { lookup } from 'node:dns/promises'
@@ -29,7 +28,8 @@ type DailyHotInput = {
   cacheMinutes?: number
 }
 type RecommendationItem = { title: string; prompt: string; targetUrl: string; source: string; category: string; publishedAt: string; sourceUrl?: string }
-type RecommendationFeed = { enabled: boolean; items: RecommendationItem[]; updatedAt?: string; stale?: boolean }
+type RecommendationFeed = { enabled: boolean; items: RecommendationItem[]; updatedAt?: string; stale?: boolean; limit?: number }
+type RecommendationSnapshot = { enabled: boolean; pool: RecommendationItem[]; limit: number; updatedAt?: string; stale: boolean; providers: string[] }
 
 const TGMENG_ENDPOINT = 'https://trendapi.tgmeng.com/api/skill/search'
 const TGMENG_CATEGORIES = ['新闻', '羊毛', '媒体', '电视', '生活', '社区', '财经', '股讯', '体育', '科技', '设计', '影音', '游戏', '健康', '教育', '期货', 'AI', '副业']
@@ -67,15 +67,16 @@ const endpoints: Record<WebSearchProviderType, string> = {
 @Injectable()
 export class WebSearchService {
   private tgmengCache: { expiresAt: number; value: RecommendationFeed } | null = null
+  private tgmengRefresh: Promise<RecommendationFeed> | null = null
+  private dailyHotRefresh: Promise<RecommendationFeed> | null = null
+  private recommendationSnapshot: { expiresAt: number; value: RecommendationSnapshot } | null = null
 
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService) {}
 
   async isAvailable() {
     const channels = await this.prisma.webSearchChannel.findMany({ where: { enabled: true, endpoint: { not: '' } } })
     if (channels.some((channel) => !this.isDailyHot(channel) && (!this.isTgmeng(channel) || this.record(channel.config).fallbackEnabled === true) && (channel.type === WebSearchProviderType.CUSTOM || channel.type === WebSearchProviderType.SEARXNG || Boolean(channel.encryptedApiKey)))) return true
-    const endpoint = this.config.get<string>('WEB_SEARCH_ENDPOINT') || ''
-    const apiKey = this.config.get<string>('WEB_SEARCH_API_KEY') || ''
-    return Boolean(endpoint && apiKey)
+    return false
   }
 
   async search(input: SearchInput) {
@@ -106,14 +107,31 @@ export class WebSearchService {
     }
     const primary = await tryChannels(primaryChannels)
     if (primary) return primary
-    const legacy = await this.legacy(input).catch((reason) => { errors.push(`环境变量渠道: ${reason instanceof Error ? reason.message : '搜索失败'}`); return null })
-    if (legacy?.results.length) return { ...legacy, query, channel: { id: 'legacy', name: '环境变量渠道', type: 'CUSTOM' }, fallbackCount: errors.length, sources: legacy.results.map(({ title, url }) => ({ title, url })) }
     const fallback = await tryChannels(fallbackChannels)
     if (fallback) return fallback
     throw new Error(`所有联网搜索渠道均不可用${errors.length ? `：${errors.join('；')}` : '，请在管理端配置搜索渠道'}`)
   }
 
   canonicalizeUrl(value: string) { return this.normalizeWebUrl(value) }
+
+  async resolveSources(input: Array<{ title: string; url: string; publishedAt?: string }>) {
+    const seen = new Set<string>()
+    const sources = input.flatMap((item) => {
+      const url = this.normalizeWebUrl(item.url)
+      if (!url || seen.has(url)) return []
+      seen.add(url)
+      return [{ title: String(item.title || url).trim().slice(0, 300), url, publishedAt: item.publishedAt ? String(item.publishedAt).slice(0, 100) : undefined }]
+    }).slice(0, 3)
+    return Promise.all(sources.map(async (source) => {
+      const page = await this.extractPage(source.url).catch(() => null)
+      return {
+        title: page?.title || source.title || source.url,
+        url: page?.url || source.url,
+        content: page?.content || undefined,
+        publishedAt: page?.publishedAt || source.publishedAt,
+      }
+    }))
+  }
 
   list() { return this.prisma.webSearchChannel.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] }).then((rows) => rows.filter((row) => !this.isSystemRecommendation(row)).map((row) => this.publicChannel(row))) }
 
@@ -146,6 +164,8 @@ export class WebSearchService {
       sources: this.dailyHotSources(input.sources ?? currentConfig.sources),
       recommendationLimit: Math.min(12, Math.max(3, Number(input.recommendationLimit ?? currentConfig.recommendationLimit ?? 8))),
       cacheMinutes: Math.min(1440, Math.max(5, Number(input.cacheMinutes ?? currentConfig.cacheMinutes ?? 30))),
+      cachedItems: currentConfig.cachedItems,
+      cacheUpdatedAt: currentConfig.cacheUpdatedAt,
     }
     const data = {
       name: 'DailyHot 多源热榜', type: WebSearchProviderType.CUSTOM, endpoint, encryptedApiKey: '', apiKeyHint: '',
@@ -154,6 +174,7 @@ export class WebSearchService {
     }
     if (current) await this.prisma.webSearchChannel.update({ where: { id: current.id }, data })
     else await this.prisma.webSearchChannel.create({ data })
+    this.recommendationSnapshot = null
     return this.dailyHotSettings()
   }
 
@@ -206,6 +227,8 @@ export class WebSearchService {
       rootCategories: this.categories(input.rootCategories ?? this.record(current?.config).rootCategories),
       recommendationLimit: Math.min(12, Math.max(3, Number(input.recommendationLimit ?? this.record(current?.config).recommendationLimit ?? 6))),
       cacheMinutes: Math.min(1440, Math.max(1, Number(input.cacheMinutes ?? this.record(current?.config).cacheMinutes ?? 10))),
+      cachedItems: this.record(current?.config).cachedItems,
+      cacheUpdatedAt: this.record(current?.config).cacheUpdatedAt,
     }
     const encryptedApiKey = license ? this.crypto.encrypt(license) : current?.encryptedApiKey || ''
     const data = {
@@ -217,6 +240,7 @@ export class WebSearchService {
     if (current) await this.prisma.webSearchChannel.update({ where: { id: current.id }, data })
     else await this.prisma.webSearchChannel.create({ data })
     this.tgmengCache = null
+    this.recommendationSnapshot = null
     return this.tgmengSettings()
   }
 
@@ -236,28 +260,33 @@ export class WebSearchService {
     }
   }
 
-  async refreshTgmeng() { return this.tgmengRecommendations(true) }
-  async refreshDailyHot() { return this.dailyHotRecommendations(true) }
+  async refreshTgmeng() { this.recommendationSnapshot = null; return this.tgmengRecommendations(true) }
+  async refreshDailyHot() { this.recommendationSnapshot = null; return this.dailyHotRecommendations(true) }
 
   async recommendations(force = false) {
+    if (!force && this.recommendationSnapshot && this.recommendationSnapshot.expiresAt > Date.now()) return this.presentRecommendations(this.recommendationSnapshot.value)
     const [dailyHot, tgmeng] = await Promise.all([this.dailyHotRecommendations(force), this.tgmengRecommendations(force)])
-    const items: RecommendationItem[] = []
+    const pool: RecommendationItem[] = []
     const seen = new Set<string>()
     for (const item of [...dailyHot.items, ...tgmeng.items]) {
       const key = item.title.trim().toLocaleLowerCase()
       if (!key || seen.has(key)) continue
       seen.add(key)
-      items.push(item)
-      if (items.length >= 12) break
+      pool.push(item)
+      if (pool.length >= 240) break
     }
     const enabled = dailyHot.enabled || tgmeng.enabled
-    return {
+    const limit = Math.min(12, Math.max(3, dailyHot.limit || tgmeng.limit || 8))
+    const snapshot = {
       enabled,
-      items,
+      pool,
+      limit,
       updatedAt: [dailyHot.updatedAt, tgmeng.updatedAt].filter(Boolean).sort().at(-1),
-      stale: enabled && ((dailyHot.enabled && dailyHot.stale) || (tgmeng.enabled && tgmeng.stale)),
+      stale: Boolean(enabled && ((dailyHot.enabled && dailyHot.stale) || (tgmeng.enabled && tgmeng.stale))),
       providers: [dailyHot.enabled ? 'dailyhot' : '', tgmeng.enabled ? 'tgmeng' : ''].filter(Boolean),
     }
+    this.recommendationSnapshot = { expiresAt: Date.now() + 300_000, value: snapshot }
+    return this.presentRecommendations(snapshot)
   }
 
   private async tgmengRecommendations(force = false): Promise<RecommendationFeed> {
@@ -265,10 +294,39 @@ export class WebSearchService {
     const config = this.record(row?.config)
     if (!row?.enabled || !row.encryptedApiKey || config.recommendationEnabled !== true) return { enabled: false, items: [] }
     if (!force && this.tgmengCache && this.tgmengCache.expiresAt > Date.now()) return this.tgmengCache.value
+    const limit = Math.min(12, Math.max(3, Number(config.recommendationLimit || 6)))
+    const cacheMinutes = Math.min(1440, Math.max(1, Number(config.cacheMinutes || 10)))
+    const cachedItems = this.recommendationItems(config.cachedItems)
+    const cacheUpdatedAt = typeof config.cacheUpdatedAt === 'string' ? config.cacheUpdatedAt : ''
+    const cacheAge = cacheUpdatedAt ? Date.now() - new Date(cacheUpdatedAt).getTime() : Number.POSITIVE_INFINITY
+    if (!force && cachedItems.length) {
+      const stale = !Number.isFinite(cacheAge) || cacheAge >= cacheMinutes * 60_000
+      const value = { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt, stale, limit }
+      this.tgmengCache = { expiresAt: stale ? Date.now() + 30_000 : Date.now() + Math.max(1_000, cacheMinutes * 60_000 - cacheAge), value }
+      if (stale) void this.refreshTgmengCache(row, config, cachedItems)
+      return value
+    }
+    if (!force) {
+      const value = { enabled: true, items: [] as RecommendationItem[], stale: true, limit }
+      this.tgmengCache = { expiresAt: Date.now() + 300_000, value }
+      void this.refreshTgmengCache(row, config, cachedItems)
+      return value
+    }
+    return this.refreshTgmengCache(row, config, cachedItems)
+  }
+
+  private refreshTgmengCache(row: WebSearchChannel, config: Record<string, unknown>, cachedItems: RecommendationItem[]) {
+    if (this.tgmengRefresh) return this.tgmengRefresh
+    this.tgmengRefresh = this.fetchTgmengRecommendations(row, config, cachedItems).finally(() => { this.tgmengRefresh = null })
+    return this.tgmengRefresh
+  }
+
+  private async fetchTgmengRecommendations(row: WebSearchChannel, config: Record<string, unknown>, cachedItems: RecommendationItem[]): Promise<RecommendationFeed> {
     try {
       const limit = Math.min(12, Math.max(3, Number(config.recommendationLimit || 6)))
-      const output = await this.executeTgmeng(row, { query: '', maxResults: limit, timeoutMs: 4000 })
-      const items = output.results.slice(0, limit).map((item) => ({
+      const poolLimit = Math.min(60, Math.max(limit * 6, 24))
+      const output = await this.executeTgmeng(row, { query: '', maxResults: poolLimit, timeoutMs: 4000 })
+      const items = output.results.slice(0, poolLimit).map((item) => ({
         title: item.title,
         prompt: `请联网搜索并介绍这个热点：${item.title}`,
         targetUrl: '',
@@ -276,14 +334,20 @@ export class WebSearchService {
         category: item.rootCategory || '',
         publishedAt: item.publishedAt || '',
       }))
-      const value = { enabled: true, items, updatedAt: new Date().toISOString(), stale: false }
+      const updatedAt = new Date().toISOString()
+      const value = { enabled: true, items, updatedAt, stale: false, limit }
       this.tgmengCache = { expiresAt: Date.now() + Math.min(1440, Math.max(1, Number(config.cacheMinutes || 10))) * 60_000, value }
+      await this.prisma.webSearchChannel.update({ where: { id: row.id }, data: { config: { ...config, cachedItems: items, cacheUpdatedAt: updatedAt } as Prisma.InputJsonValue } })
       await this.markSuccess(row.id, items.length)
+      this.recommendationSnapshot = null
       return value
-    } catch {
-      if (this.tgmengCache) return { ...this.tgmengCache.value, stale: true }
-      const value = { enabled: true, items: [], stale: true }
-      this.tgmengCache = { expiresAt: Date.now() + 60_000, value }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : '热点接口请求失败'
+      await this.markFailure(row.id, message)
+      const value = this.tgmengCache?.value.items.length
+        ? { ...this.tgmengCache.value, stale: true }
+        : { enabled: true, items: cachedItems, stale: true, limit: Math.min(12, Math.max(3, Number(config.recommendationLimit || 6))) }
+      this.tgmengCache = { expiresAt: Date.now() + 300_000, value }
       return value
     }
   }
@@ -296,21 +360,36 @@ export class WebSearchService {
     const cachedItems = this.recommendationItems(config.cachedItems)
     const cacheUpdatedAt = typeof config.cacheUpdatedAt === 'string' ? config.cacheUpdatedAt : ''
     const cacheAge = cacheUpdatedAt ? Date.now() - new Date(cacheUpdatedAt).getTime() : Number.POSITIVE_INFINITY
-    if (!force && cachedItems.length && Number.isFinite(cacheAge) && cacheAge < cacheMinutes * 60_000) {
-      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt, stale: false }
+    const limit = Math.min(12, Math.max(3, Number(config.recommendationLimit || 8)))
+    if (!force && cachedItems.length) {
+      const stale = !Number.isFinite(cacheAge) || cacheAge >= cacheMinutes * 60_000
+      if (stale) void this.refreshDailyHotCache(row, config, cachedItems)
+      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt, stale, limit }
     }
+    return this.refreshDailyHotCache(row, config, cachedItems)
+  }
+
+  private refreshDailyHotCache(row: WebSearchChannel, config: Record<string, unknown>, cachedItems: RecommendationItem[]) {
+    if (this.dailyHotRefresh) return this.dailyHotRefresh
+    this.dailyHotRefresh = this.fetchDailyHotRecommendations(row, config, cachedItems).finally(() => { this.dailyHotRefresh = null })
+    return this.dailyHotRefresh
+  }
+
+  private async fetchDailyHotRecommendations(row: WebSearchChannel, config: Record<string, unknown>, cachedItems: RecommendationItem[]): Promise<RecommendationFeed> {
     const sources = this.dailyHotSources(config.sources)
     const limit = Math.min(12, Math.max(3, Number(config.recommendationLimit || 8)))
+    const cacheUpdatedAt = typeof config.cacheUpdatedAt === 'string' ? config.cacheUpdatedAt : ''
     const settled = await Promise.allSettled(sources.map(async (source) => ({ source, rows: await this.executeDailyHot(row.endpoint, source, row.timeoutMs) })))
     const available = settled.flatMap((result) => result.status === 'fulfilled' && result.value.rows.length ? [result.value] : [])
     if (!available.length) {
       const errors = settled.flatMap((result) => result.status === 'rejected' ? [result.reason instanceof Error ? result.reason.message : '请求失败'] : [])
       await this.markFailure(row.id, errors[0] || 'DailyHot 已启用的榜单均未返回内容')
-      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt || undefined, stale: true }
+      return { enabled: true, items: cachedItems, updatedAt: cacheUpdatedAt || undefined, stale: true, limit }
     }
     const items: RecommendationItem[] = []
     const seen = new Set<string>()
-    for (let index = 0; items.length < limit; index += 1) {
+    const poolLimit = Math.min(240, Math.max(limit * 6, sources.length * 12))
+    for (let index = 0; items.length < poolLimit; index += 1) {
       let added = false
       for (const result of available) {
         const item = result.rows[index]
@@ -328,7 +407,7 @@ export class WebSearchService {
           sourceUrl: item.url,
         })
         added = true
-        if (items.length >= limit) break
+        if (items.length >= poolLimit) break
       }
       if (!added) break
     }
@@ -337,7 +416,21 @@ export class WebSearchService {
     await this.prisma.webSearchChannel.update({ where: { id: row.id }, data: { config: nextConfig as Prisma.InputJsonValue } })
     const failedCount = settled.length - available.length
     await this.markSuccess(row.id, items.length, `已刷新 ${available.length}/${settled.length} 个榜单，共 ${items.length} 条${failedCount ? `，${failedCount} 个榜单暂不可用` : ''}`)
-    return { enabled: true, items, updatedAt, stale: false }
+    this.recommendationSnapshot = null
+    return { enabled: true, items, updatedAt, stale: false, limit }
+  }
+
+  private presentRecommendations(snapshot: RecommendationSnapshot) {
+    return { ...snapshot, items: this.shuffle(snapshot.pool).slice(0, snapshot.limit) }
+  }
+
+  private shuffle<T>(items: T[]) {
+    const output = [...items]
+    for (let index = output.length - 1; index > 0; index -= 1) {
+      const next = Math.floor(Math.random() * (index + 1))
+      ;[output[index], output[next]] = [output[next], output[index]]
+    }
+    return output
   }
 
   async create(input: ChannelInput) {
@@ -607,14 +700,6 @@ export class WebSearchService {
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224
   }
 
-  private async legacy(input: SearchInput) {
-    const endpoint = this.config.get<string>('WEB_SEARCH_ENDPOINT') || ''
-    const apiKey = this.config.get<string>('WEB_SEARCH_API_KEY') || ''
-    if (!endpoint || !apiKey) return null
-    const channel = { id: 'legacy', name: '环境变量渠道', type: WebSearchProviderType.TAVILY, endpoint, encryptedApiKey: this.crypto.encrypt(apiKey), apiKeyHint: '', enabled: true, priority: -999, timeoutMs: 30000, maxResults: 8, config: null, lastHealthStatus: null, lastHealthMessage: '', lastHealthAt: null, lastSuccessAt: null, lastFailureAt: null, consecutiveFailures: 0, cooldownUntil: null, totalRequests: 0, totalFailures: 0, createdAt: new Date(), updatedAt: new Date() } satisfies WebSearchChannel
-    return this.execute(channel, input)
-  }
-
   private markSuccess(id: string, count: number, message?: string) { return this.prisma.webSearchChannel.updateMany({ where: { id }, data: { totalRequests: { increment: 1 }, consecutiveFailures: 0, cooldownUntil: null, lastSuccessAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'healthy', lastHealthMessage: message || `最近调用成功，返回 ${count} 条结果` } }) }
   private async markFailure(id: string, message: string) { const channel = await this.prisma.webSearchChannel.findUnique({ where: { id }, select: { consecutiveFailures: true } }); if (!channel) return; const failures = channel.consecutiveFailures + 1; return this.prisma.webSearchChannel.update({ where: { id }, data: { totalRequests: { increment: 1 }, totalFailures: { increment: 1 }, consecutiveFailures: failures, lastFailureAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), cooldownUntil: new Date(Date.now() + Math.min(300, 15 * 2 ** Math.min(4, failures - 1)) * 1000) } }) }
   private channelData(input: ChannelInput): Prisma.WebSearchChannelCreateInput { const apiKey = input.apiKey?.trim() || ''; const endpoint = (input.endpoint || endpoints[input.type]).trim(); if (!endpoint) throw new BadRequestException('请填写搜索地址'); return { name: input.name.trim(), type: input.type, endpoint, encryptedApiKey: apiKey ? this.crypto.encrypt(apiKey) : '', apiKeyHint: apiKey ? this.crypto.hint(apiKey) : '', enabled: input.enabled ?? false, priority: input.priority ?? 0, timeoutMs: input.timeoutMs ?? 30000, maxResults: input.maxResults ?? 8, config: (input.config || {}) as Prisma.InputJsonValue } }
@@ -638,7 +723,7 @@ export class WebSearchService {
       const title = String(row.title || '').trim()
       if (!title) return []
       return [{ title, prompt: String(row.prompt || title), targetUrl: String(row.targetUrl || ''), source: String(row.source || ''), category: String(row.category || ''), publishedAt: String(row.publishedAt || ''), sourceUrl: String(row.sourceUrl || '') }]
-    }).slice(0, 12)
+    }).slice(0, 240)
   }
   private record(value: Prisma.JsonValue | null | undefined): Record<string, any> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {} }
   private atPath(value: unknown, path: string): unknown {

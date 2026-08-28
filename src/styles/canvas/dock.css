@@ -1,0 +1,145 @@
+/* Final Agent dock alignment with the reference canvas. Keep these rules last
+   so the composer remains stable when older canvas themes are loaded. */
+.canvas-editor-page { --canvas-sidebar-width: 404px; }
+.canvas-workspace-sidebar { width: var(--canvas-sidebar-width); background: var(--canvas-panel, #fff); border-left: 1px solid var(--canvas-border, #e5e7eb); box-shadow: -8px 0 24px rgba(15, 23, 42, .04); grid-template-rows: 52px 44px minmax(0, 1fr); }
+.canvas-workspace-sidebar.is-production { grid-template-rows: 52px minmax(0, 1fr); }
+.canvas-workspace-sidebar.is-properties { grid-template-rows: minmax(0, 1fr); }
+.canvas-sidebar-resize-handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; border: 0; background: transparent; cursor: col-resize; z-index: 3; }
+.canvas-sidebar-resize-handle:hover, .canvas-sidebar-resize-handle:focus-visible { background: color-mix(in srgb, var(--canvas-accent, #2563eb) 30%, transparent); outline: none; }
+.canvas-agent-dock { min-height: 0; display: flex; flex-direction: column; padding: 18px 18px 14px; overflow: hidden; }
+.canvas-agent-welcome { flex: 0 0 auto; background: #eef6fc; border: 1px solid #d8eaf7; border-radius: 14px; padding: 16px; }
+.canvas-agent-welcome h2 { margin: 0; color: #162536; font-size: 17px; line-height: 24px; font-weight: 650; }
+.canvas-agent-welcome p { margin: 7px 0 10px; color: #66788a; font-size: 12px; line-height: 1.65; }
+.canvas-agent-welcome button { width: max-content; height: 30px; padding: 0 10px; background: transparent; color: #315a7a; border: 1px solid #c7deef; border-radius: 7px; box-shadow: none; }
+.canvas-agent-welcome button:hover { background: #fff; box-shadow: none; transform: none; }
+.canvas-agent-welcome-icon { align-self: center; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #4d8cb8; background: rgba(255,255,255,.7); }
+.canvas-agent-starter-heading { margin: 20px 2px 10px; color: #708090; font-size: 12px; }
+.canvas-agent-starters { min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.canvas-agent-starters button { min-height: 58px; padding: 10px; border: 1px solid #e2e8ef; border-radius: 10px; background: #fff; text-align: left; }
+.canvas-agent-starters button:hover { border-color: #b8d2e5; background: #f8fbfd; transform: none; box-shadow: none; }
+.canvas-agent-reference-assets { display: flex; justify-content: space-between; align-items: center; margin: 14px 2px 8px; color: #7c8995; font-size: 11px; }
+.canvas-agent-reference-assets button { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: #4c7da0; font-size: 11px; }
+.canvas-agent-composer { flex: 0 0 auto; margin-top: auto; border: 1px solid #dce4ea; border-radius: 16px; background: #fff; padding: 10px; box-shadow: 0 4px 16px rgba(26, 52, 73, .06); }
+.canvas-agent-composer-main { display: flex; gap: 8px; align-items: flex-start; }
+.canvas-agent-composer textarea { min-height: 56px; flex: 1; resize: none; border: 0; outline: 0; padding: 3px 0; background: transparent; color: #233240; font: inherit; font-size: 13px; line-height: 1.55; }
+.canvas-agent-composer textarea::placeholder { color: #9aa8b4; }
+.canvas-agent-add-reference { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border: 1px solid #dce4ea; border-radius: 8px; background: #f8fafb; color: #708090; }
+.canvas-agent-composer-controls { display: flex; align-items: center; gap: 6px; border-top: 1px solid #edf1f4; padding-top: 8px; }
+.canvas-agent-composer-controls select { max-width: 128px; border: 0; background: transparent; color: #556675; font-size: 11px; outline: 0; }
+.canvas-agent-composer-controls .plugin-selector { min-width: 0; width: auto; }
+.canvas-agent-composer-controls .plugin-selector > button { height: 30px; min-width: 0; max-width: 116px; padding: 0 6px; font-size: 11px; }
+.canvas-agent-composer-controls .plugin-selector > button span { max-width: 76px; }
+.canvas-agent-model-control, .canvas-agent-parameter-control { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: #708090; }
+.canvas-agent-model-control { max-width: 116px; }
+.canvas-agent-model-control select { min-width: 0; max-width: 92px; text-overflow: ellipsis; }
+.canvas-agent-parameter-control { max-width: 102px; }
+.canvas-agent-parameter-control select { min-width: 0; max-width: 80px; text-overflow: ellipsis; }
+.canvas-agent-planning-toggle { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #9aa8b4; }
+.canvas-agent-planning-toggle.is-active { background: #eef6fc; color: #4d8cb8; }
+.canvas-agent-send { display: grid; place-items: center; margin-left: auto; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 9px; background: #253746; color: #fff; }
+.canvas-agent-send:disabled { opacity: .35; cursor: not-allowed; }
+.canvas-node-job-state.is-error { inset: auto 10px 10px; min-height: 0; flex-direction: row; justify-content: flex-start; gap: 7px; padding: 8px 9px; border: 1px solid rgba(219, 75, 75, .2); border-radius: 9px; background: rgba(255, 247, 247, .94); color: var(--canvas-danger); text-align: left; }
+.canvas-node-job-state.is-error svg { flex: 0 0 auto; height: 16px; width: 16px; }
+.canvas-node-job-state.is-error strong { flex: 0 0 auto; font-size: 11px; color: #b33f3f; }
+.canvas-node-job-state.is-error small { flex: 1; min-width: 0; max-width: none; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+.canvas-node-job-state.is-error button { flex: 0 0 auto; height: 26px; padding: 0 7px; border-color: rgba(219, 75, 75, .18); background: #fff; color: #9d4444; }
+.canvas-appearance-menu { position: absolute; left: 50%; bottom: 58px; z-index: 40; width: 250px; padding: 12px; border: 1px solid var(--canvas-border, #e5e7eb); border-radius: 12px; background: var(--canvas-panel, #fff); box-shadow: 0 12px 28px rgba(15, 23, 42, .12); transform: translateX(-50%); }
+.canvas-appearance-menu header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--studio-text); font-size: 13px; }
+.canvas-appearance-menu header button { display: grid; place-items: center; width: 26px; height: 26px; border: 0; background: transparent; color: var(--studio-muted); }
+.canvas-appearance-menu label { display: flex; align-items: center; justify-content: space-between; padding: 7px 4px; color: var(--studio-muted); font-size: 12px; }
+.canvas-appearance-menu select { border: 1px solid var(--studio-border); border-radius: 6px; padding: 4px 6px; background: var(--studio-control); color: var(--studio-text); font-size: 11px; }
+.canvas-appearance-presets { display: flex; width: 100%; align-items: center; gap: 8px; margin-top: 8px; padding: 9px; border: 1px solid var(--studio-border); border-radius: 8px; background: var(--studio-control); color: var(--studio-text); text-align: left; }
+.canvas-appearance-presets span { display: grid; flex: 1; gap: 2px; }
+.canvas-appearance-presets small { color: var(--studio-muted); font-size: 10px; }
+@media (max-width: 760px) {
+  .canvas-workspace-sidebar { width: min(100vw, var(--canvas-sidebar-width)); }
+  .canvas-agent-starters { grid-template-columns: 1fr; }
+  .canvas-agent-composer-controls { flex-wrap: wrap; }
+}
+
+/* Keep the asset drawer deterministic across tabs. The previous grid shell
+   allocated the flexible row to the toolbar, leaving the library grid with a
+   collapsed height and stretched thumbnails. */
+.canvas-assets-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.canvas-assets-panel > header,
+.canvas-assets-panel > nav,
+.canvas-assets-panel > .canvas-assets-panel-toolbar,
+.canvas-assets-panel > .canvas-assets-panel-hint,
+.canvas-assets-panel > .canvas-assets-panel-error {
+  flex: 0 0 auto;
+}
+.canvas-assets-panel > .canvas-assets-panel-grid,
+.canvas-assets-panel > .canvas-node-panel-list,
+.canvas-assets-panel > .canvas-assets-panel-prompt-list,
+.canvas-assets-panel > .canvas-assets-panel-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.canvas-assets-panel-grid {
+  align-content: start;
+  grid-auto-rows: max-content;
+  overflow-y: auto;
+}
+.canvas-assets-panel-grid img,
+.canvas-assets-panel-grid video {
+  aspect-ratio: 1 / 1;
+  height: auto;
+  min-height: 112px;
+  object-fit: cover;
+}
+.canvas-agent-composer-controls {
+  min-height: 30px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.canvas-agent-composer-controls > * { flex: 0 1 auto; }
+.canvas-agent-composer-controls .canvas-agent-send { flex: 0 0 32px; }
+.canvas-agent-model-control,
+.canvas-agent-parameter-control { white-space: nowrap; }
+.canvas-agent-composer-controls .plugin-selector--compact { flex: 0 0 32px; min-width: 32px; width: 32px; }
+.canvas-agent-composer-controls .plugin-selector--compact > button { box-sizing: border-box; display: inline-flex; height: 32px; justify-content: center; max-width: 32px; min-width: 32px; padding: 0; width: 32px; }
+.canvas-agent-composer-controls .plugin-selector--compact > button span,
+.canvas-agent-composer-controls .plugin-selector--compact > button .plugin-selector__chevron { display: none; }
+.canvas-agent-model-control { flex: 0 0 112px; max-width: 112px; }
+.canvas-agent-model-control select { flex: 1 1 auto; min-width: 0; max-width: 86px; }
+.canvas-agent-parameter-control { flex: 0 0 118px; max-width: 118px; }
+.canvas-agent-parameter-control select { flex: 1 1 auto; min-width: 0; max-width: 92px; }
+.canvas-agent-composer-controls .plugin-selector > button,
+.canvas-agent-planning-toggle,
+.canvas-agent-add-reference,
+.canvas-agent-send { box-sizing: border-box; }
+
+/* Header actions share one hit area and one quiet surface. This prevents the
+   upload/export controls from looking larger than Agent when a pointer is
+   over one of them. */
+.canvas-editor-header-actions { align-items: center; gap: 4px; }
+.canvas-editor-header-actions > .canvas-icon-button,
+.canvas-editor-header-actions > .canvas-agent-header-button,
+.canvas-editor-header-actions > .canvas-header-stat,
+.canvas-editor-header-actions > .canvas-account-button { flex: 0 0 34px; height: 34px; }
+.canvas-editor-header-actions > .canvas-agent-header-button { flex-basis: auto; min-width: 94px; }
+.canvas-editor-header-actions > .canvas-header-stat { min-width: 68px; }
+.canvas-editor-header-actions > .canvas-account-button { width: 34px; }
+.canvas-editor-header-actions > .canvas-icon-button:hover:not(:disabled),
+.canvas-editor-header-actions > .canvas-icon-button:focus-visible { background: var(--canvas-panel-muted); }
+.canvas-editor-header-actions > .canvas-icon-button:focus-visible,
+.canvas-editor-header-actions > .canvas-agent-header-button:focus-visible,
+.canvas-editor-header-actions > .canvas-header-stat:focus-visible,
+.canvas-editor-header-actions > .canvas-account-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--canvas-accent) 55%, transparent); outline-offset: 2px; }
+@media (max-width: 460px) {
+  .canvas-agent-composer-controls { flex-wrap: wrap; overflow: visible; }
+}
+
+
+/* Prompt cards use the same compact rhythm as the main prompt library. */
+.canvas-assets-panel-prompt-list { align-content: start; grid-auto-rows: 116px; }
+.canvas-assets-panel-prompt-list button { box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 116px; min-height: 116px; overflow: hidden; }
+.canvas-assets-panel-prompt-heading { display: grid; gap: 3px; min-width: 0; }
+.canvas-assets-panel-prompt-list strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-assets-panel-prompt-list button > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.canvas-assets-panel-prompt-heading small { color: var(--studio-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+

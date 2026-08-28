@@ -6,7 +6,7 @@ Xinyue AI 的统一 NestJS API、任务队列和商业业务服务。完整产�
 
 - NestJS 11、Fastify、Prisma、PostgreSQL 17
 - Redis 7、BullMQ、LangGraph.js
-- HttpOnly Cookie 会话、管理员 TOTP MFA
+- HttpOnly Cookie 会话与管理员权限控制
 - 本地磁盘或 S3 兼容对象存储
 - SMTP 邮件、站内通知和 HMAC Webhook
 - SSE 对话流、生成进度和 Agent 任务事件
@@ -30,7 +30,7 @@ API 地址为 `http://localhost:3100/v1`。用户端和管理端开发服务器�
 
 ## 已实现领域
 
-- 邮箱验证码、邮箱/密码、Linux.do OAuth、可撤销会话和管理员 MFA
+- 邮箱验证码、邮箱/密码、Linux.do OAuth 和可撤销会话
 - 用户、分组、订阅、充值、支付、退款、兑换码和创作点流水
 - 管理员渠道、模型路由、健康检查、故障切换、价格版本和用户 BYOK
 - 对话、附件、图片/视频/商品生成、流式输出、取消、重试和失败退款

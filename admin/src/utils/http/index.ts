@@ -20,7 +20,6 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig
 } from 'axios'
-import { ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/modules/user'
 import { ApiStatus } from './status'
 import { HttpError, handleError, showError, showSuccess, type ErrorResponse } from './error'
@@ -37,7 +36,6 @@ const UNAUTHORIZED_DEBOUNCE_TIME = 3000
 /** 401防抖状态 */
 let isUnauthorizedErrorShown = false
 let unauthorizedTimer: NodeJS.Timeout | null = null
-let mfaStepUpPromise: Promise<void> | null = null
 
 /** 扩展 AxiosRequestConfig */
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
@@ -88,64 +86,14 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError<ErrorResponse>) => {
-    const isMfaVerification = error.config?.url?.includes('/auth/admin/mfa/verify-session')
     const requestUrl = error.config?.url || ''
-    const isLoginRequest = requestUrl.includes('/auth/admin/login') || requestUrl.includes('/auth/admin/mfa/login')
+    const isLoginRequest = requestUrl.includes('/auth/admin/login')
     const isSessionProbe = requestUrl.includes('/auth/me')
-    if (error.response?.status === ApiStatus.unauthorized && !isMfaVerification && !isLoginRequest)
+    if (error.response?.status === ApiStatus.unauthorized && !isLoginRequest)
       handleUnauthorizedError(undefined, isSessionProbe)
-    if (error.response?.status === 428) {
-      const errorCode = error.response.data?.code
-      if (errorCode === 'ADMIN_MFA_REQUIRED') {
-        const responseMessage = error.response.data?.message
-        ElMessage.warning(
-          Array.isArray(responseMessage)
-            ? responseMessage.join('，')
-            : responseMessage || '请先启用后台 MFA'
-        )
-        window.location.hash = '/enterprise/settings?tab=security'
-      }
-      if (errorCode === 'ADMIN_MFA_STEP_UP_REQUIRED' && error.config) {
-        await requestMfaStepUp()
-        return axiosInstance.request(error.config)
-      }
-    }
     return Promise.reject(handleError(error))
   }
 )
-
-async function requestMfaStepUp() {
-  if (mfaStepUpPromise) return mfaStepUpPromise
-  mfaStepUpPromise = (async () => {
-    while (true) {
-      const { value } = await ElMessageBox.prompt(
-        '请输入身份验证器中的 6 位动态验证码，也可以使用一枚恢复码。',
-        '验证敏感操作',
-        {
-          confirmButtonText: '验证并继续',
-          cancelButtonText: '取消',
-          inputPlaceholder: '动态验证码或恢复码',
-          inputPattern: /^(?:\d{6}|[A-Za-z0-9-]{12,32})$/,
-          inputErrorMessage: '请输入 6 位动态验证码或有效恢复码',
-          closeOnClickModal: false
-        }
-      )
-      try {
-        await axiosInstance.post('/v1/auth/admin/mfa/verify-session', { code: value.trim() })
-        return
-      } catch (error) {
-        if (error instanceof HttpError && error.code === ApiStatus.unauthorized) {
-          ElMessage.error(error.message)
-          continue
-        }
-        throw error
-      }
-    }
-  })().finally(() => {
-    mfaStepUpPromise = null
-  })
-  return mfaStepUpPromise
-}
 
 /** 统一创建HttpError */
 function createHttpError(message: string, code: number) {

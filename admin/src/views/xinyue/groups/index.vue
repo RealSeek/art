@@ -250,7 +250,8 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { xinyueApi, type AdminUser, type ModelPreset, type UserGroup } from '@/api/xinyue'
+  import { customerApi as xinyueApi, type AdminUser, type UserGroup } from '@/api/xinyue/customers'
+  import { modelApi, type ModelPreset } from '@/api/xinyue/models'
   import { xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'XinyueGroups' })
   const groups = ref<UserGroup[]>([])
@@ -294,7 +295,7 @@
       ;[groups.value, users.value, models.value] = await Promise.all([
         xinyueApi.groups(),
         xinyueApi.users(),
-        xinyueApi.models()
+        modelApi.models()
       ])
     } finally {
       loading.value = false

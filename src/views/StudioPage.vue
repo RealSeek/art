@@ -1,180 +1,19 @@
 <template>
-    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="[`chat-ui--${chatUiPreset}`, { 'has-messages': hasChatThread, 'is-artifact-open': activeArtifact }]">
+    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="[`chat-ui--${chatUiPreset}`, `chat-layout--w-${chatLayout.contentWidth}`, `chat-layout--header-${chatLayout.header}`, `chat-layout--home-${chatLayout.homeLayout}`, `chat-layout--msg-${chatLayout.messageStyle}`, { 'has-messages': hasChatThread, 'is-artifact-open': activeArtifact }]">
       <div class="chat-dialog-pane">
-      <header class="chat-page__header"><h1 class="chat-page__title">Xinyue AI</h1><div class="chat-page__header-actions"><button v-if="auth.isAuthenticated" class="temporary-chat-toggle" :class="{ active: store.temporaryChat }" type="button" :aria-pressed="store.temporaryChat" :aria-label="store.temporaryChat ? '退出临时聊天' : '开启临时聊天'" :title="store.temporaryChat ? '退出临时聊天' : '临时聊天'" @click="toggleTemporaryChat"><MessageCircleDashed :size="19" /></button><div v-else-if="catalog.loginEnabled" class="chat-page__auth-actions"><RouterLink to="/login?redirect=/chat">登录</RouterLink><RouterLink v-if="catalog.registrationAvailable" class="is-primary" to="/login?redirect=/chat&amp;register=1">免费注册</RouterLink></div></div></header>
+      <header class="chat-page__header"><h1 class="chat-page__title">Xinyue AI</h1><div v-if="hasChatThread && chatModels.length" class="chat-model-switcher"><button type="button" :aria-expanded="headerModelOpen" :aria-label="`切换模型，当前为${activeChatModelLabel}`" :title="`模型：${activeChatModelLabel}`" @click="toggleHeaderModelMenu"><ModelBadge :model="activeChatModel || { displayName: activeChatModelLabel }" size="sm" /><span>{{ activeChatModelLabel }}</span><ChevronDown :size="14" /></button><div v-if="headerModelOpen" class="chat-model-switcher__backdrop" @click="headerModelOpen = false" /><div v-if="headerModelOpen" class="chat-model-switcher__popover"><ModelCatalogPicker :models="chatModels" :model-value="model" @select="handleHeaderSelectModel" /></div></div><div class="chat-page__header-actions"><button v-if="auth.isAuthenticated" class="temporary-chat-toggle" :class="{ active: store.temporaryChat }" type="button" :aria-pressed="store.temporaryChat" :aria-label="store.temporaryChat ? '退出临时聊天' : '开启临时聊天'" :title="store.temporaryChat ? '退出临时聊天' : '临时聊天'" @click="toggleTemporaryChat"><MessageCircleDashed :size="19" /></button><div v-else-if="catalog.loginEnabled" class="chat-page__auth-actions"><RouterLink to="/login?redirect=/chat">登录</RouterLink><RouterLink v-if="catalog.registrationAvailable" class="is-primary" to="/login?redirect=/chat&amp;register=1">免费注册</RouterLink></div></div></header>
       <div v-if="store.lastError" class="studio-feedback" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
 
       <div class="chat-center" :class="{ 'chat-center--thread': hasChatThread }">
-        <div v-if="!hasChatThread" class="chat-home-identity" :class="{ 'is-temporary': store.temporaryChat }">
-          <span v-if="chatUiPreset === 'kimi'" class="chat-home-wordmark">XINYUE</span>
-          <h2 v-if="chatHomeTitle"><Sparkles v-if="chatUiPreset === 'qianwen' && !store.temporaryChat" class="chat-home-qianwen-mark" :size="30" fill="currentColor" />{{ chatHomeTitle }}</h2>
-          <h2 v-else-if="store.temporaryChat">临时聊天</h2>
-          <p v-if="chatHomeSubtitle">{{ chatHomeSubtitle }}</p>
-        </div>
-        <div v-if="hasChatThread" ref="thread" class="chat-thread" @scroll="syncMessageNavigator">
-          <template v-for="entry in chatTimeline" :key="`${entry.kind}-${entry.id}`">
-            <div v-if="entry.message" class="message-row" :class="[`message-row--${entry.message.role}`, { 'is-jump-highlight': jumpHighlightId === entry.message.id }]" :data-message-id="entry.message.id" :data-user-message="entry.message.role === 'user' ? 'true' : undefined">
-              <form v-if="editingMessageId === entry.message.id" class="message-editor" @submit.prevent="saveMessageEdit(entry.message.id)">
-                <textarea v-model="editingMessageContent" rows="3" maxlength="50000" aria-label="编辑消息" @keydown.esc="cancelMessageEdit" />
-                <footer><button type="button" @click="cancelMessageEdit">取消</button><button type="submit" :disabled="!editingMessageContent.trim() || store.isGenerating">保存并提交</button></footer>
-              </form>
-              <template v-else>
-                <section v-if="entry.message.role === 'assistant' && entry.message.webSearch" class="message-web-search" :class="`is-${entry.message.webSearch.status}`">
-                  <button type="button" :aria-expanded="searchSourcesExpanded(entry.message.id)" :disabled="entry.message.webSearch.status === 'searching' || !entry.message.webSearch.sources.length" @click="toggleSearchSources(entry.message.id)">
-                    <LoaderCircle v-if="entry.message.webSearch.status === 'searching'" class="message-web-search__spinner" :size="16" />
-                    <Globe2 v-else :size="16" />
-                    <span>
-                      <strong>{{ webSearchSummary(entry.message.webSearch) }}</strong>
-                      <small v-if="entry.message.webSearch.status === 'failed'">{{ entry.message.webSearch.error || '当前搜索渠道暂时不可用' }}</small>
-                    </span>
-                    <ChevronDown v-if="entry.message.webSearch.sources.length" :size="15" :class="{ 'is-open': searchSourcesExpanded(entry.message.id) }" />
-                  </button>
-                  <div v-if="entry.message.webSearch.sources.length && searchSourcesExpanded(entry.message.id)" class="message-web-search__sources">
-                    <a v-for="(source, sourceIndex) in entry.message.webSearch.sources" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">
-                      <span>{{ sourceIndex + 1 }}</span><strong>{{ source.title }}</strong><small>{{ sourceDomain(source.url) }}</small><ArrowRight :size="14" />
-                    </a>
-                  </div>
-                </section>
-                <article :class="`message message--${entry.message.role}`">
-                  <ChatMessageContent v-if="entry.message.role === 'assistant'" :content="entry.message.content" @preview="openCodeArtifact" />
-                  <template v-else>{{ entry.message.content }}</template>
-                </article>
-                <nav v-if="entry.message.id !== 'welcome'" class="message-actions" :aria-label="`${entry.message.role === 'user' ? '用户' : '助手'}消息操作`">
-                  <button type="button" :title="copiedMessageId === entry.message.id ? '已复制' : '复制'" @click="copyMessage(entry.message)"><Check v-if="copiedMessageId === entry.message.id" :size="15" /><Copy v-else :size="15" /></button>
-                  <button v-if="entry.message.role === 'user'" type="button" title="编辑消息" :disabled="store.isGenerating" @click="startMessageEdit(entry.message)"><Pencil :size="15" /></button>
-                  <template v-else>
-                    <button type="button" title="重新生成" :disabled="store.isGenerating" @click="retryAssistantMessage(entry.message.id)"><RefreshCw :size="15" /></button>
-                    <button type="button" title="有帮助" :class="{ 'is-active': entry.message.feedback === 'UP' }" :aria-pressed="entry.message.feedback === 'UP'" @click="setMessageFeedback(entry.message.id, 'UP')"><ThumbsUp :size="15" /></button>
-                    <button type="button" title="没有帮助" :class="{ 'is-active': entry.message.feedback === 'DOWN' }" :aria-pressed="entry.message.feedback === 'DOWN'" @click="setMessageFeedback(entry.message.id, 'DOWN')"><ThumbsDown :size="15" /></button>
-                  </template>
-                </nav>
-                <nav v-if="shouldShowFollowUps(entry.message)" class="message-follow-ups" aria-label="你可能还想问">
-                  <button v-for="suggestion in followUpsForMessage(entry.message)" :key="suggestion" type="button" :disabled="store.isGenerating" @click="useFollowUpSuggestion(suggestion)">
-                    <span>{{ suggestion }}</span><ArrowRight :size="15" />
-                  </button>
-                </nav>
-              </template>
-            </div>
-            <section v-else-if="entry.generation" class="image-generation-response" :class="[`is-${entry.generation.status.toLowerCase()}`, { 'is-video-generation': entry.generation.mode === 'videos' }]" aria-live="polite">
-              <template v-if="entry.generation.status === 'QUEUED' || entry.generation.status === 'RUNNING'">
-                <header><LoaderCircle :size="18" /><strong>正在创建{{ entry.generation.mode === 'videos' ? '视频' : '图片' }}</strong><button type="button" class="image-generation-stop" :disabled="store.cancelingJobId === entry.generation.id" :aria-label="`停止${entry.generation.mode === 'videos' ? '视频' : '图片'}生成`" :title="`停止${entry.generation.mode === 'videos' ? '视频' : '图片'}生成`" @click="stopGeneration(entry.generation)"><LoaderCircle v-if="store.cancelingJobId === entry.generation.id" class="generation-stop-spin" :size="14" /><Square v-else :size="14" fill="currentColor" />{{ store.cancelingJobId === entry.generation.id ? '停止中' : '停止' }}</button></header>
-                <div class="image-generation-stage"><span>正在创建{{ entry.generation.mode === 'videos' ? '视频' : '图片' }}</span><i aria-hidden="true" /></div>
-              </template>
-              <template v-else-if="entry.generation.status === 'SUCCEEDED'">
-                <header><Check :size="18" /><strong>{{ entry.generation.mode === 'videos' ? '视频' : '图片' }}已生成</strong></header>
-                <div class="image-generation-results">
-                  <article v-for="asset in entry.generation.assets" :key="asset.id" class="image-generation-result" :class="{ 'image-generation-result--video': entry.generation.mode === 'videos' }">
-                    <button v-if="entry.generation.mode === 'videos'" class="video-generation-preview" type="button" :title="`站内查看：${asset.title}`" @click="previewAsset = asset">
-                      <video class="image-generation-result__video" :src="asset.contentUrl" muted preload="metadata" playsinline />
-                      <span aria-hidden="true"><Play :size="17" fill="currentColor" /></span>
-                    </button>
-                    <button v-else class="image-generation-result__preview" type="button" :title="`站内查看：${asset.title}`" @click="previewAsset = asset"><img :src="asset.contentUrl" :alt="asset.title" /></button>
-                    <nav v-if="entry.generation.mode === 'videos'" class="video-result-actions" aria-label="视频操作">
-                      <button type="button" title="站内查看视频" @click="previewAsset = asset"><Maximize2 :size="16" /><span>查看</span></button>
-                      <button type="button" title="下载视频" @click="downloadGeneratedAsset(asset)"><Download :size="16" /><span>下载</span></button>
-                      <button type="button" title="重新生成视频" :disabled="store.isGenerating" @click="retryVideoGeneration(entry.generation)"><RefreshCw :size="15" /><span>重新生成</span></button>
-                    </nav>
-                    <nav v-else class="image-result-actions" aria-label="图片操作">
-                      <button type="button" title="下载图片" aria-label="下载图片" @click="downloadGeneratedAsset(asset)"><Download :size="18" /></button>
-                      <button type="button" title="用作参考" aria-label="用作参考" @click="useGeneratedAssetAsReference(asset, entry.generation)"><ImagePlus :size="18" /></button>
-                    </nav>
-                  </article>
-                </div>
-                <nav v-if="entry.generation.mode !== 'videos'" class="image-generation-actions" aria-label="生成结果操作">
-                  <button type="button" :disabled="store.isGenerating" @click="retryImageGeneration(entry.generation)"><RefreshCw :size="15" /><span>重新生成</span></button>
-                  <button v-if="entry.generation.assets[0]" type="button" @click="useGeneratedAssetAsReference(entry.generation.assets[0], entry.generation)"><ImagePlus :size="15" /><span>用作参考</span></button>
-                </nav>
-              </template>
-              <template v-else>
-                <div class="image-generation-failure">
-                  <strong>{{ entry.generation.status === 'CANCELLED' ? `${entry.generation.mode === 'videos' ? '视频' : '图片'}生成已停止` : '生成失败，请调整内容后重试' }}</strong>
-                  <p>{{ entry.generation.error || '任务未能完成，创作点已按规则退回。' }}</p>
-                  <button type="button" :disabled="store.isGenerating" @click="entry.generation.mode === 'videos' ? retryVideoGeneration(entry.generation) : retryImageGeneration(entry.generation)"><RefreshCw :size="15" />重新生成</button>
-                </div>
-              </template>
-            </section>
-          </template>
-          <article v-if="showChatThinking" class="message message--assistant message--thinking">{{ t('studio.thinking') }}</article>
-        </div>
+        <ChatHome :has-chat-thread="hasChatThread" />
+        <ChatThread ref="chatThread" :has-chat-thread="hasChatThread" :jump-highlight-id="jumpHighlightId" :model="model" :web-search-enabled="webSearchEnabled" :active-chat-response-mode="activeChatResponseMode" :sync-message-navigator="syncMessageNavigator" @open-artifact="openCodeArtifact" @preview-asset="previewAsset = $event" @use-reference="useGeneratedAssetAsReference" @retry-image="retryImageGeneration" @retry-video="retryVideoGeneration" @download-asset="downloadGeneratedAsset" @follow-up="useFollowUpSuggestion" />
 
-        <section v-if="!hasChatThread && chatUiPreset === 'doubao'" class="chat-home-suggestions" aria-label="推荐问题">
-          <span>为你推荐</span>
+        <section v-if="!hasChatThread && chatUiPreset === 'doubao' && doubaoRecommendations.length" class="chat-home-suggestions" aria-label="当前热点">
+          <span>当前热点</span>
           <button v-for="suggestion in doubaoRecommendations" :key="suggestion.title" type="button" @click="useChatSuggestion(suggestion)">{{ suggestion.title }}</button>
         </section>
 
-        <form class="chat-composer" @submit.prevent="submitMessage">
-          <div v-if="attachments.length" class="attachment-list" aria-label="待发送附件">
-            <article v-for="(asset, index) in attachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
-              <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
-              <div v-else class="attachment-file-copy">
-                <span class="attachment-file-icon"><FileText :size="20" /></span>
-                <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
-              </div>
-              <button class="attachment-remove" type="button" :aria-label="`移除附件 ${asset.title}`" title="移除附件" @click="attachments.splice(index, 1)"><X :size="14" /></button>
-            </article>
-          </div>
-          <button type="button" aria-label="添加文件等" title="添加文件等" :class="{ 'is-open': attachmentOpen }" :disabled="uploading" @click="toggleAttachmentMenu"><Plus :size="20" /></button>
-          <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="chatComposerPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
-          <nav v-if="showChatComposerShortcutBar" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
-            <button v-if="chatComposerControls.modeEnabled" class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><component :is="activeChatModeIcon" :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
-            <button v-if="chatUiPreset === 'doubao' && chatComposerControls.modelSelectorEnabled" class="chat-home-inline-model" :class="{ 'is-open': modelOpen }" type="button" :aria-expanded="modelOpen" :aria-label="`选择模型，当前为${activeChatModelLabel}`" :disabled="!chatModels.length" @click="toggleModelMenu"><span aria-hidden="true">#</span><strong>{{ activeChatModelLabel }}</strong><ChevronDown :size="12" /></button>
-            <button v-if="chatComposerControls.webSearchEnabled" class="composer-web-search" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
-            <button v-for="item in visibleChatShortcuts" :key="item.id" type="button" @click="executeChatQuickAction(item)">
-              <component :is="quickActionIcon(item.icon)" :size="16" /><span>{{ item.label }}</span>
-            </button>
-            <button v-if="chatComposerControls.moreEnabled && chatMoreShortcuts.length" class="chat-home-more-trigger" :class="{ 'is-open': chatMoreMenuOpen }" type="button" :aria-expanded="chatMoreMenuOpen" @click="toggleChatMoreMenu"><LayoutGrid :size="16" /><span>更多</span></button>
-          </nav>
-          <div v-if="!hasChatThread && chatUiPreset === 'kimi' && chatComposerControls.modeEnabled" class="chat-kimi-modes" aria-label="回答模式"><button type="button" :class="{ 'is-active': activeChatMode === '快速' }" @click="activeChatMode = '快速'">快速</button><button type="button" :class="{ 'is-active': activeChatMode === '进阶' }" @click="activeChatMode = '进阶'">进阶</button><ChevronDown :size="14" /></div>
-          <CapabilitySelector v-if="auth.isAuthenticated" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
-          <button v-if="chatComposerControls.webSearchEnabled && chatUiPreset !== 'doubao' && (hasChatThread || chatUiPreset !== 'qianwen')" class="composer-web-search composer-web-search--standalone" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
-          <div v-if="chatComposerControls.modelSelectorEnabled && (hasChatThread || chatUiPreset !== 'gpt')" class="composer-control composer-model">
-            <button v-if="chatUiPreset !== 'doubao'" type="button" :aria-label="`选择模型，当前为${activeChatModelLabel}`" :title="`模型：${activeChatModelLabel}`" @click="toggleModelMenu">
-              <span>{{ activeChatModelLabel }}</span><ChevronDown :size="15" />
-            </button>
-            <div v-if="modelOpen" class="composer-popover model-popover model-popover--catalog">
-              <ModelCatalogPicker :models="chatModels" :model-value="model" @select="selectModel" />
-            </div>
-          </div>
-          <button class="composer-voice" :class="{ 'is-listening': voiceListening && voiceTarget === 'chat' }" type="button" :aria-label="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening && voiceTarget === 'chat'" :title="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '语音输入'" @click="toggleVoice('chat')"><Mic :size="17" /></button>
-          <button class="chat-composer-submit" :class="{ 'is-voice-entry': showChatVoiceEntry }" :type="store.isGenerating || showChatVoiceEntry ? 'button' : 'submit'" :aria-label="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : chatModelAvailable ? '发送' : '暂无可用模型'" :title="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : chatModelAvailable ? '发送，Enter' : '暂无可用聊天模型，请联系管理员或添加个人 API 密钥'" :disabled="!store.isGenerating && !showChatVoiceEntry && (!draft.trim() && !attachments.length || !chatModelAvailable)" @click="handleChatSubmitAction"><Square v-if="store.isGenerating" :size="14" fill="currentColor" /><AudioLines v-else-if="showChatVoiceEntry" :size="18" /><ArrowUp v-else :size="20" /></button>
-          <Transition name="composer-menu"><div v-if="chatModeMenuOpen" class="chat-home-floating-menu chat-home-mode-menu" role="menu"><button v-for="option in chatModeOptions" :key="option.label" type="button" role="menuitemradio" :aria-checked="activeChatMode === option.label" @click="selectChatMode(option.label)"><component :is="option.icon" :size="17" /><span><strong>{{ option.label }}</strong><small v-if="option.note">{{ option.note }}</small></span><em v-if="option.badge">{{ option.badge }}</em><Check v-if="activeChatMode === option.label" :size="15" /></button></div></Transition>
-          <Transition name="composer-menu">
-            <div v-if="chatMoreMenuOpen" class="chat-home-floating-menu chat-home-more-menu" role="menu">
-              <button v-for="item in chatMoreShortcuts" :key="item.id" type="button" role="menuitem" @click="executeChatQuickAction(item)"><component :is="quickActionIcon(item.icon)" :size="17" /><span><strong>{{ item.label }}</strong></span></button>
-            </div>
-          </Transition>
-        </form>
-
-        <div v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-kimi-resource-bar"><button type="button" @click="openFilePicker('chat-file')"><Paperclip :size="16" />选择文件</button><button type="button" @click="openConfiguredDestination(kimiProject.targetUrl)"><Folder :size="16" />{{ kimiProject.label }}</button></div>
-
-        <nav v-if="!hasChatThread && ['kimi', 'gpt'].includes(chatUiPreset) && (visibleChatShortcuts.length || (chatComposerControls.moreEnabled && chatMoreShortcuts.length))" class="chat-home-shortcuts" :aria-label="`${chatUiLabel}快捷入口`">
-          <button v-for="item in visibleChatShortcuts" :key="item.id" type="button" @click="executeChatQuickAction(item)">
-            <component :is="quickActionIcon(item.icon)" :size="16" /><span>{{ item.label }}</span>
-          </button>
-          <button v-if="chatComposerControls.moreEnabled && chatMoreShortcuts.length" class="chat-home-more-trigger" :class="{ 'is-open': chatMoreMenuOpen }" type="button" :aria-expanded="chatMoreMenuOpen" @click="toggleChatMoreMenu"><LayoutGrid :size="16" /><span>更多</span></button>
-        </nav>
-        <section v-if="!hasChatThread && chatUiPreset === 'qianwen' && qianwenBanners.length" class="chat-home-qianwen-carousel" aria-label="推荐服务">
-          <nav aria-label="切换推荐服务"><button v-for="(_, index) in qianwenBanners" :key="index" type="button" :class="{ 'is-active': qianwenBannerIndex === index }" :aria-label="`查看第 ${index + 1} 项`" @click="qianwenBannerIndex = index" /></nav>
-          <button class="chat-home-qianwen-banner" type="button" @click="openConfiguredDestination(activeQianwenBanner.targetUrl)">
-            <span class="chat-home-qianwen-banner__visual" :style="activeQianwenBanner.imageUrl ? { backgroundImage: `url(${activeQianwenBanner.imageUrl})` } : undefined"><Presentation v-if="!activeQianwenBanner.imageUrl" :size="23" /></span><span><strong>{{ activeQianwenBanner.title }}</strong><small>{{ activeQianwenBanner.description }}</small></span><em>{{ activeQianwenBanner.buttonText }}</em>
-          </button>
-        </section>
-        <Transition name="composer-menu">
-          <div v-if="attachmentOpen" class="composer-attachment-panel" :class="{ 'is-library-panel': promptTemplatesOpen }">
-            <section v-if="promptTemplatesOpen" class="prompt-template-picker" aria-label="提示词模板">
-              <header><div class="prompt-template-heading"><span><FileText :size="17" /></span><div><strong>提示词模板</strong><small>{{ filteredPromptTemplates.length }} 个可用模板</small></div></div><button type="button" aria-label="关闭提示词模板" title="关闭" @click="promptTemplatesOpen = false; attachmentOpen = false"><X :size="16" /></button></header>
-              <label class="prompt-template-search"><Search :size="15" /><input v-model.trim="promptTemplateQuery" placeholder="搜索模板" /></label>
-              <nav v-if="promptTemplateCategories.length" class="prompt-template-categories" aria-label="模板分类"><button type="button" :class="{ 'is-active': !promptTemplateCategory }" @click="promptTemplateCategory = ''">全部</button><button v-for="item in promptTemplateCategories" :key="item" type="button" :class="{ 'is-active': promptTemplateCategory === item }" @click="promptTemplateCategory = item">{{ item }}</button></nav>
-              <div class="prompt-template-list"><button v-for="item in filteredPromptTemplates" :key="item.id" type="button" class="prompt-template-option" @click="usePromptTemplate(item)"><span><strong>{{ item.title }}</strong><small>{{ item.description || item.prompt }}</small></span><span class="prompt-template-option-meta"><em>{{ item.category }}</em><ChevronRight :size="15" /></span></button><p v-if="!filteredPromptTemplates.length" class="prompt-template-empty"><FileText :size="22" /><strong>没有匹配的模板</strong></p></div>
-            </section>
-            <template v-else>
-              <button type="button" @click="openFilePicker('chat-file')"><Paperclip :size="19" /><span><strong>添加照片和文件</strong></span></button>
-              <button type="button" @click="attachmentOpen = false; router.push('/image')"><ImageIcon :size="20" /><span><strong>创建图片</strong><small>可视化呈现任何内容</small></span></button>
-              <button type="button" @click="openPromptLibrary()"><LibraryBig :size="19" /><span><strong>提示词库</strong><small>浏览图片、视频和文字提示词</small></span></button>
-              <button type="button" @click="togglePromptTemplates"><FileText :size="19" /><span><strong>提示词模板</strong><small>使用后台预设内容</small></span><LoaderCircle v-if="promptTemplatesLoading" class="admin-spin" :size="15" /></button>
-            </template>
-          </div>
-        </Transition>
+        <ChatComposer ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:web-search-enabled="webSearchEnabled" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="hasChatThread" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
       </div>
 
       <button v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-home-explore" type="button" @click="router.push('/prompts')">
@@ -200,161 +39,9 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <section v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" class="studio-create-page">
-      <div class="create-page-inner">
-        <div class="creation-heading">
-          <h1>{{ activeMode === 'commerce' ? t('studio.commerce') : t('workspace.creation') }}</h1>
-          <p>{{ activeMode === 'commerce' ? '从商品参考图到成套营销素材' : '让创作随灵感而生' }}</p>
-        </div>
-        <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
-        <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
-        <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
-          <div class="creation-prompt-row">
-            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeGenerationInput" />
-          </div>
-          <div v-if="creationAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
-            <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
-              <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
-              <div v-else class="attachment-file-copy">
-                <span class="attachment-file-icon"><FileText :size="18" /></span>
-                <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
-              </div>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="creationAttachments.splice(index, 1)"><X :size="13" /></button>
-            </article>
-            <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
-              <img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" />
-              <span class="attachment-mask-label">蒙版</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="maskAttachment = null"><X :size="13" /></button>
-            </article>
-          </div>
-          <div class="creation-controls">
-            <div class="creation-control-track">
-              <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
-              <i class="creation-control-divider" aria-hidden="true" />
-              <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
-                <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>
-                <button type="button" :class="{ 'is-active': activeMode === 'videos' }" :aria-pressed="activeMode === 'videos'" @click="switchCreationMode('videos')">视频</button>
-              </div>
-              <div class="creation-option-buttons">
-                <button type="button" :class="{ 'is-open': creationMenu === 'model' }" :disabled="!activeCreationModels.length" :title="activeCreationModels.length ? '选择模型' : '暂无可用模型'" @click.stop="toggleCreationMenu('model', $event)"><Sparkles :size="16" /><span class="creation-control-label">模型</span>{{ activeCreationModelLabel }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button v-if="activeMode === 'commerce'" type="button" :class="{ 'is-open': creationMenu === 'type' }" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" /><span class="creation-control-label">类型</span>{{ creationType }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><SlidersHorizontal :size="16" /><span class="creation-control-label">{{ activeMode === 'commerce' ? '平台' : '比例' }}</span>{{ activeMode === 'videos' ? videoAspectRatio : activeMode === 'commerce' ? commercePlatform : autoMode }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span><template v-if="activeMode === 'images'">{{ imageStyle }}</template><template v-else-if="activeMode === 'videos'">{{ videoResolution }}</template><template v-else>{{ commerceModules }} 模块</template><ChevronDown class="creation-control-chevron" :size="14" /></button>
-              </div>
-              <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
-              <div class="creation-more-wrap">
-                <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
-                <Teleport to="body">
-                <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
-                  <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />添加蒙版</button>
-                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('quality', $event)"><BadgeCheck :size="16" />{{ quality }}画质<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
-                </div>
-                </Teleport>
-              </div>
-              <span class="creation-cost" :title="`本次预计扣除 ${currentGenerationCost} 创作点`"><Sparkles :size="13" />{{ currentGenerationCost }} 点</span>
-            </div>
-            <button class="creation-submit" :class="{ 'is-listening': voiceListening && voiceTarget === 'creation' }" :type="canSubmitCreation ? 'submit' : 'button'" :disabled="hasCreationInput && !activeCreationModelAvailable" :aria-label="canSubmitCreation ? '开始生成' : hasCreationInput ? '暂无可用模型' : voiceListening && voiceTarget === 'creation' ? '停止语音输入' : '语音输入'" :title="hasCreationInput && !activeCreationModelAvailable ? '暂无可用模型，请联系管理员或添加个人 API 密钥' : undefined" @click="!hasCreationInput && toggleVoice('creation')"><ArrowUp v-if="hasCreationInput" :size="20" /><Mic v-else :size="19" /></button>
-          </div>
-          <Teleport to="body">
-            <div v-if="creationMenu" ref="creationOptionsMenu" class="creation-options-menu creation-options-menu--floating" :class="`creation-options-menu--${creationMenu}`" :style="creationMenuStyle">
-              <ModelCatalogPicker v-if="creationMenu === 'model'" :models="activeCreationModels" :model-value="activeCreationModel" :title="creationMenuTitle" @select="selectCreationOption" />
-              <strong v-else>{{ creationMenuTitle }}</strong>
-              <div v-if="creationMenu === 'size'" class="creation-ratio-grid">
-                <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span class="creation-ratio-shape" :class="ratioShapeClass(option)"><i /><i v-if="option === '自动'" /></span><span>{{ option }}</span></button>
-              </div>
-              <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}<small v-if="creationOptionPrice(option)">{{ creationOptionPrice(option) }} 点</small></span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
-            </div>
-          </Teleport>
-        </form>
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :current-generation-cost="currentGenerationCost" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoResolution" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :current-video-credit="currentVideoCredit" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :creation-option-price="creationOptionPrice" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
 
-        <section v-if="activeMode === 'images'" class="creation-tools" aria-label="图片快捷工具">
-          <button v-for="tool in imageTools" :key="tool.id" type="button" :class="{ 'is-active': selectedImageToolId === tool.id }" :aria-pressed="selectedImageToolId === tool.id" @click="selectImageTool(tool)">
-            <span>{{ tool.title }}</span><img v-if="tool.imageUrl" :src="tool.imageUrl" :alt="`${tool.title}示例`" /><span v-else class="creation-tool-fallback-icon" aria-hidden="true"><component :is="imageToolIcon(tool)" :size="22" /></span>
-          </button>
-        </section>
-
-        <section class="inspiration-section">
-          <header>
-            <h2>{{ activeMode === 'images' || activeMode === 'videos' ? '灵感中心' : t('studio.inspiration') }}</h2>
-            <div class="inspiration-header-actions">
-              <button v-if="activeMode === 'images' || activeMode === 'videos'" class="inspiration-more" type="button" @click="openPromptLibrary(activeMode === 'videos' ? 'VIDEO' : 'IMAGE')">更多灵感<ArrowRight :size="16" /></button>
-              <nav class="inspiration-navigation" aria-label="浏览生成灵感">
-                <button class="inspiration-arrow inspiration-arrow--previous" type="button" aria-label="上一组" title="上一组" :disabled="!canScrollInspirationPrevious" @click="scrollInspiration(-1)"><ChevronLeft :size="20" /></button>
-                <button class="inspiration-arrow inspiration-arrow--next" type="button" aria-label="下一组" title="下一组" :disabled="!canScrollInspirationNext" @click="scrollInspiration(1)"><ChevronRight :size="20" /></button>
-              </nav>
-            </div>
-          </header>
-          <div class="inspiration-browser">
-            <div ref="inspirationRail" class="inspiration-rail" @scroll="syncInspirationNavigation">
-              <div v-if="!activeInspirations.length" class="inspiration-loading" aria-label="正在加载灵感"><i v-for="index in 5" :key="index" /></div>
-              <button v-for="item in activeInspirations" :key="item.id" type="button" class="inspiration-card" :class="{ 'is-selected': selectedInspirationId === item.id, 'is-video': activeMode === 'videos' }" :aria-label="`查看灵感：${item.title}`" @click="openInspiration(item)">
-                <video v-if="activeMode === 'videos' && item.videoUrl" :src="item.videoUrl" :poster="item.imageUrl" muted loop playsinline preload="metadata" :aria-label="`${item.title} 视频预览`" @mouseenter="playInspirationVideo" @mouseleave="pauseInspirationVideo" />
-                <img v-else :src="item.imageUrl" :alt="item.title" />
-                <span v-if="item.badge">{{ item.badge }}</span>
-                <i v-if="activeMode === 'videos'" class="inspiration-card__play" aria-hidden="true"><Play :size="18" fill="currentColor" /></i>
-                <strong>{{ item.title }}</strong>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="creation-output">
-          <h2>{{ activeMode === 'images' ? t('studio.myImages') : activeMode === 'videos' ? t('studio.myVideos') : t('studio.myCommerce') }}</h2>
-          <template v-if="activeMode === 'videos'">
-            <div v-if="pendingVideoRuns.length" class="video-runs video-runs--pending">
-              <article v-for="run in pendingVideoRuns" :key="run.id" class="video-run-card" :class="`is-${run.status.toLowerCase()}`">
-                <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration || 5 }} 秒 · {{ run.request.aspectRatio || '16:9' }}</small></div>
-                <footer><span><strong>{{ run.model }}</strong><small>{{ run.request.creditCost ?? currentVideoCredit }} 点</small></span><nav><button type="button" title="停止生成" :disabled="store.cancelingJobId === run.id" @click="stopGeneration(run)"><Square :size="14" fill="currentColor" /></button></nav></footer>
-                <p>{{ run.prompt }}</p>
-              </article>
-            </div>
-            <template v-if="modeAssets.length">
-              <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" reusable regeneratable @delete="deleteAsset" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" />
-              <button v-if="visibleModeAssets.length < modeAssets.length" class="creation-output__more" type="button" @click="modeAssetLimit += 12">加载更多视频</button>
-            </template>
-            <div v-else-if="auth.isAuthenticated && !store.workspaceHydrated" class="creation-gallery-skeleton" aria-label="正在加载视频"><i v-for="index in 6" :key="index" /></div>
-            <p v-else-if="!pendingVideoRuns.length">你创建的视频会显示在这里</p>
-          </template>
-          <div v-else-if="activeMode === 'commerce' && commerceRuns.length" class="commerce-runs">
-            <div v-for="run in commerceRuns" :key="run.id" class="commerce-run-card" :class="{ 'is-running': ['QUEUED', 'RUNNING'].includes(run.status), 'is-clickable': Boolean(run.assets.length) }" :role="run.assets.length ? 'button' : undefined" :tabindex="run.assets.length ? 0 : undefined" @click="run.assets.length && (selectedCommerceRun = run)" @keydown.enter="run.assets.length && (selectedCommerceRun = run)">
-              <div class="commerce-run-card__preview">
-                <template v-if="run.assets.length"><img v-for="asset in run.assets.slice(0, 4)" :key="asset.id" :src="asset.contentUrl" :alt="asset.moduleLabel || asset.title" /><span><Images :size="14" />{{ run.assets.length }} 张</span></template>
-                <span v-else class="commerce-run-card__progress"><LoaderCircle v-if="['QUEUED', 'RUNNING'].includes(run.status)" :size="22" /><span>{{ run.status === 'FAILED' ? run.error || '生成失败' : run.status === 'CANCELLED' ? '生成已停止' : '正在生成商品图' }}</span><button v-if="['QUEUED', 'RUNNING'].includes(run.status)" type="button" class="commerce-run-card__stop" :disabled="store.cancelingJobId === run.id" aria-label="停止商品图生成" title="停止商品图生成" @click.stop="stopGeneration(run)"><LoaderCircle v-if="store.cancelingJobId === run.id" class="generation-stop-spin" :size="14" /><Square v-else :size="14" fill="currentColor" />{{ store.cancelingJobId === run.id ? '停止中' : '停止生成' }}</button></span>
-              </div>
-              <span class="commerce-run-card__copy"><strong>{{ run.request.creationType || '商品素材包' }}</strong><small>{{ run.prompt }}</small></span>
-            </div>
-          </div>
-          <div v-else-if="auth.isAuthenticated && !store.workspaceHydrated" class="creation-gallery-skeleton" aria-label="正在加载图片"><i v-for="index in 6" :key="index" /></div>
-          <template v-else-if="modeAssets.length">
-            <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" :reusable="activeMode === 'images'" :regeneratable="activeMode === 'images'" @delete="deleteAsset" @reuse="useGeneratedAssetAsReference" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" />
-            <button v-if="visibleModeAssets.length < modeAssets.length" class="creation-output__more" type="button" @click="modeAssetLimit += 12">加载更多图片</button>
-          </template>
-          <p v-else>{{ activeMode === 'images' ? '你创建的图片会显示在这里' : '你制作的商品素材包和详情页会显示在这里' }}</p>
-        </section>
-      </div>
-    </section>
-
-    <section v-else-if="activeMode === 'projects'" :key="activeMode" class="studio-index-page projects-page">
-      <div class="index-page-inner">
-        <WorkspaceSectionTabs active="projects" />
-        <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
-        <div v-if="projectNotice" class="project-notice" role="status"><Check :size="15" /><span>{{ projectNotice }}</span><button type="button" aria-label="关闭提示" @click="projectNotice = ''"><X :size="15" /></button></div>
-        <header class="index-page-header"><div class="index-page-title"><h1>{{ t('studio.projects') }}</h1><p>集中管理对话、文件、工作流和版本历史。</p></div><div><label class="workspace-search"><Search :size="16" /><input v-model="projectSearch" :placeholder="t('studio.search')" /></label><button class="index-new-button" type="button" @click="projectModalOpen = true"><Plus :size="17" />{{ t('studio.create') }}</button></div></header>
-        <div class="index-tabs"><button :class="{ 'is-active': projectTab === 'active' }" type="button" @click="projectTab = 'active'"><span>项目</span><small>{{ activeProjectCount }}</small></button><button :class="{ 'is-active': projectTab === 'archived' }" type="button" @click="projectTab = 'archived'"><span>已归档</span><small>{{ archivedProjectCount }}</small></button></div>
-        <div class="project-table-head"><span>名称</span><span>项目内容</span><span>修改时间</span><span>操作</span></div>
-        <div v-if="auth.isAuthenticated && store.workspaceHydrating && !store.projects.length" class="project-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
-        <div v-else-if="filteredProjects.length" class="project-table">
-          <article v-for="project in filteredProjects" :key="project.id" class="project-row" :class="{ 'is-active': project.id === store.currentProjectId }"><button type="button" :title="project.archived ? '已归档项目不能设为当前项目' : '设为当前项目'" :disabled="project.archived" @click="selectCurrentProject(project)"><span class="project-row-name"><Folder :size="18" /><span><strong>{{ project.name }}</strong><small>{{ project.brief }}<em v-if="project.team">{{ project.team.name }}</em></small></span></span><span class="project-row-content">{{ project.conversationCount }} 个对话 · {{ project.assetCount }} 个文件 · {{ project.versionCount }} 个版本</span><time>{{ formatDate(project.updatedAt) }}</time></button><div><button type="button" :aria-label="`打开${project.name}详情`" title="项目详情" @click="openProjectDetails(project)"><Settings2 :size="16" /></button><button v-if="project.accessRole === 'OWNER'" type="button" :aria-label="project.archived ? `恢复${project.name}` : `归档${project.name}`" :title="project.archived ? '恢复' : '归档'" @click="toggleProjectArchive(project.id, !project.archived)"><ArchiveRestore v-if="project.archived" :size="16" /><Archive v-else :size="16" /></button><button v-if="project.accessRole === 'OWNER'" type="button" :aria-label="`删除${project.name}`" title="删除" @click="deleteProject(project.id, project.name)"><Trash2 :size="16" /></button></div></article>
-        </div>
-        <div v-else class="project-empty"><span class="index-empty-icon"><ArchiveRestore v-if="projectTab === 'archived'" :size="25" /><Folder v-else :size="25" /></span><strong>{{ projectSearch ? '没有匹配的项目' : projectTab === 'archived' ? '还没有已归档项目' : '创建你的第一个项目' }}</strong><p>{{ projectSearch ? '换一个关键词继续查找。' : projectTab === 'archived' ? '归档后的项目会保留聊天、文件和版本，并显示在这里。' : '把同一主题的聊天、文件和工作流集中管理，后续内容会自动归入当前项目。' }}</p><button v-if="projectSearch" type="button" @click="projectSearch = ''">清除搜索</button><button v-else-if="projectTab === 'active'" type="button" @click="projectModalOpen = true"><Plus :size="15" />创建项目</button></div>
-      </div>
-    </section>
+    <ProjectsPanel v-else-if="activeMode === 'projects'" :key="activeMode" v-model:project-notice="projectNotice" :open-project-details="openProjectDetails" />
 
     <section v-else-if="activeMode === 'assets'" :key="activeMode" class="studio-index-page library-page">
       <div class="index-page-inner">
@@ -383,65 +70,13 @@
       </div>
     </section>
 
-    <input ref="fileInput" class="visually-hidden" type="file" multiple :accept="fileAccept" @change="handleFiles" />
+    <input :ref="setFileInput" class="visually-hidden" type="file" multiple :accept="fileAccept" @change="handleFiles" />
     <InspirationPreview v-if="inspirationPreview" :inspiration="inspirationPreview" :type-label="activeMode === 'commerce' ? '商品图灵感' : activeMode === 'videos' ? '视频灵感' : '图片灵感'" @close="inspirationPreview = null" @use="useInspiration(inspirationPreview)" />
     <CommerceGallery v-if="selectedCommerceRun" :run="selectedCommerceRun" @close="selectedCommerceRun = null" @reuse="useCommerceAsset" />
     <GeneratedImagePreview v-if="previewAsset" :asset="previewAsset" @close="previewAsset = null" @delete="deletePreviewAsset" @download="downloadGeneratedAsset(previewAsset)" @reuse="useGeneratedAssetAsReference(previewAsset)" @quote="useAssetPrompt(previewAsset)" @regenerate="retryAssetGeneration(previewAsset)" />
 
     <Teleport to="body">
-      <div v-if="projectModalOpen" class="studio-modal-backdrop" @click.self="closeProjectModal">
-        <form class="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-modal-title" @submit.prevent="createProject">
-          <header><h2 id="project-modal-title">创建项目</h2><div><button type="button" aria-label="项目设置" :class="{ 'is-active': projectAdvanced }" @click="projectAdvanced = !projectAdvanced"><Settings2 :size="19" /></button><button type="button" aria-label="关闭" @click="closeProjectModal"><X :size="20" /></button></div></header>
-          <label class="project-name-label"><span>项目名称</span><div><Folder :size="18" /><input v-model="projectName" autofocus maxlength="40" placeholder="例如：品牌内容计划" /></div></label>
-          <label v-if="projectAdvanced" class="project-brief-label"><span>项目说明</span><textarea v-model="projectBrief" maxlength="2000" placeholder="说明项目目标、背景和交付要求" /></label>
-          <div class="project-create-tip"><Lightbulb :size="18" /><p>{{ projectAdvanced ? '项目创建后可继续设置说明、成员和默认指令。' : '项目功能可将聊天、文件和自定义指令集中保存，以便用于持续进行的工作，或者单纯用于整理内容，让一切更加井然有序。' }}</p></div>
-          <p v-if="projectError" class="modal-error">{{ projectError }}</p>
-          <footer><button type="submit" :disabled="!projectName.trim()">创建项目</button></footer>
-        </form>
-      </div>
-      <div v-if="projectDetailOpen" class="studio-modal-backdrop project-detail-backdrop" @click.self="closeProjectDetails">
-        <section class="project-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="project-detail-title">
-          <header class="project-detail-header"><div><span class="project-detail-eyebrow">PROJECT WORKSPACE</span><h2 id="project-detail-title">{{ projectDetail?.name || '项目详情' }}</h2><p>修订 {{ projectDetail?.revision || 1 }} · {{ projectDetail?.workflowConfig.steps.length || 0 }} 个工作步骤</p></div><button type="button" aria-label="关闭项目详情" title="关闭" @click="closeProjectDetails"><X :size="20" /></button></header>
-          <div v-if="projectDetailError" class="modal-error">{{ projectDetailError }}</div>
-          <div v-if="projectDetailLoading" class="project-detail-loading"><LoaderCircle class="admin-spin" :size="18" />正在加载项目</div>
-          <div v-else class="project-detail-body">
-            <div class="project-detail-main">
-              <section class="project-detail-section project-content-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">CONTENT</span><h3>项目内容</h3></div><span class="project-content-total">{{ projectDetail?.conversationCount || 0 }} 个对话 · {{ projectDetail?.assetCount || 0 }} 个文件</span></div><div class="project-content-grid"><div><h4>最近对话</h4><button v-for="conversation in projectDetail?.conversations || []" :key="conversation.id" class="project-content-row" type="button" @click="openProjectConversation(conversation.id)"><MessageSquare :size="15" /><span><strong>{{ conversation.title }}</strong><small>{{ conversation.model }} · {{ formatDate(conversation.updatedAt) }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.conversations.length" class="project-content-empty">在选中此项目后开始对话，对话会显示在这里。</p></div><div><h4>项目文件</h4><button v-for="asset in projectDetail?.assets || []" :key="asset.id" class="project-content-row" type="button" @click="openProjectAsset(asset)"><ImageIcon v-if="asset.kind === 'image'" :size="15" /><Video v-else-if="asset.kind === 'video'" :size="15" /><FileText v-else :size="15" /><span><strong>{{ asset.title }}</strong><small>{{ asset.tags.join(' · ') }}</small></span><ChevronRight :size="15" /></button><p v-if="!projectDetail?.assets.length" class="project-content-empty">上传到项目或在项目中生成的文件会显示在这里。</p></div></div></section>
-              <section class="project-detail-section">
-                <div class="project-section-heading"><div><span class="project-detail-eyebrow">COLLABORATION</span><h3>项目成员</h3></div><span class="project-content-total">{{ (projectDetail?.members.length || 0) + 1 }} 人</span></div>
-                <div class="project-team-assignment"><div><strong>团队共享</strong><small>{{ projectDetail?.team ? `团队成员可访问项目对话与文件 · ${projectDetail.team.name}` : '当前仅项目成员可访问' }}</small></div><select v-if="projectSkillStatus?.canManage" v-model="projectTeamId" aria-label="项目团队归属"><option value="">不归属团队</option><option v-for="team in manageableProjectTeams" :key="team.id" :value="team.id">{{ team.name }}</option></select><button v-if="projectSkillStatus?.canManage" type="button" :disabled="projectTeamBusy || projectTeamId === (projectDetail?.teamId || '')" @click="assignProjectTeam">{{ projectTeamBusy ? '保存中' : '保存归属' }}</button></div>
-                <div class="project-member-list">
-                  <article><span class="project-member-avatar">{{ projectDetail?.owner?.displayName?.slice(0, 1) || '主' }}</span><div><strong>{{ projectDetail?.owner?.displayName || '项目所有者' }}</strong><small>{{ projectDetail?.owner?.email || '所有者' }}</small></div><em>所有者</em></article>
-                  <article v-for="member in projectDetail?.members || []" :key="member.userId"><span class="project-member-avatar">{{ member.user.displayName.slice(0, 1) }}</span><div><strong>{{ member.user.displayName }}</strong><small>{{ member.user.email || '未绑定邮箱' }}</small></div><select v-if="projectDetail?.accessRole === 'OWNER'" :value="member.role" :disabled="projectMemberBusy === member.userId" @change="updateProjectMemberRole(member.userId, ($event.target as HTMLSelectElement).value as 'ADMIN' | 'MEMBER')"><option value="MEMBER">成员</option><option value="ADMIN">管理员</option></select><em v-else>{{ member.role === 'ADMIN' ? '管理员' : '成员' }}</em><button v-if="projectDetail?.accessRole === 'OWNER'" type="button" title="移除成员" :disabled="projectMemberBusy === member.userId" @click="removeProjectMember(member.userId)"><Trash2 :size="14" /></button></article>
-                </div>
-                <form v-if="projectDetail?.accessRole === 'OWNER'" class="project-member-form" @submit.prevent="addProjectMember"><input v-model.trim="projectMemberEmail" type="email" maxlength="200" placeholder="输入已注册用户的邮箱" /><select v-model="projectMemberRole"><option value="MEMBER">成员</option><option value="ADMIN">管理员</option></select><button type="submit" :disabled="projectMemberBusy === 'add' || !projectMemberEmail"><Plus :size="15" />添加成员</button></form>
-              </section>
-              <section class="project-detail-section">
-                <div class="project-section-heading"><div><span class="project-detail-eyebrow">PROJECT SKILL</span><h3>项目技能</h3></div><span class="project-content-total">{{ projectSkillStatus?.active?.enabled ? `v${projectSkillStatus.active.version} 已启用` : '未启用' }}</span></div>
-                <p class="project-version-note">项目技能会作为项目级工作规范，自动应用于后续聊天和 Agent 任务。</p>
-                <div v-if="projectSkillStatus?.canManage" class="project-skill-editor"><input v-model="projectSkillName" maxlength="80" placeholder="技能名称" /><textarea v-model="projectSkillContent" maxlength="50000" rows="7" placeholder="输入项目长期使用的流程、约束、风格和验收标准" /><div><button type="button" class="project-secondary-button" :disabled="projectSkillBusy || !projectSkillStatus?.active?.enabled" @click="disableProjectSkill">停用技能</button><button type="button" class="project-primary-button" :disabled="projectSkillBusy || !projectSkillName.trim() || !projectSkillContent.trim()" @click="saveProjectSkill"><Save :size="15" />保存为新版本</button></div></div>
-                <div v-else-if="projectSkillStatus?.active" class="project-skill-readonly"><strong>{{ projectSkillStatus.active.name }}</strong><pre>{{ projectSkillStatus.active.content }}</pre></div>
-                <div class="project-skill-summary"><select v-model="projectSkillConversationId"><option value="">选择自己的项目对话</option><option v-for="conversation in projectDetail?.conversations || []" :key="conversation.id" :value="conversation.id">{{ conversation.title }}</option></select><input v-model="projectSkillSummaryRequest" maxlength="2000" placeholder="可选：说明需要提炼的规则" /><button type="button" :disabled="projectSkillBusy || !projectSkillConversationId" @click="summarizeProjectSkill">AI 总结</button></div>
-                <div v-if="projectSkillCandidate" class="project-skill-candidate"><header><div><strong>{{ projectSkillCandidate.name }}</strong><small>{{ projectSkillCandidate.changeSummary }}</small></div><button v-if="projectSkillStatus?.canManage" type="button" :disabled="projectSkillBusy" @click="activateProjectSkillCandidate">采用此版本</button></header><pre>{{ projectSkillCandidate.content }}</pre></div>
-                <details v-if="projectSkillStatus?.versions.length" class="project-skill-history"><summary>技能版本历史 · {{ projectSkillStatus.versions.length }}</summary><article v-for="version in projectSkillStatus.versions" :key="version.id"><div><strong>v{{ version.version }} · {{ version.name }}</strong><small>{{ version.changeSummary || '未填写变更说明' }} · {{ version.createdBy?.displayName || '系统' }}</small></div><button v-if="projectSkillStatus?.canManage && !version.active" type="button" :disabled="projectSkillBusy" @click="restoreProjectSkill(version.version)"><RotateCcw :size="13" />恢复</button></article></details>
-              </section>
-              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">WORKFLOW</span><h3>工作流设置</h3></div><span class="project-revision">v{{ projectDetail?.revision || 1 }}</span></div>
-                <div class="project-form-grid"><label><span>项目状态</span><select v-model="projectWorkflowStatus" :disabled="!projectSkillStatus?.canManage"><option value="PLANNING">规划中</option><option value="IN_PROGRESS">进行中</option><option value="REVIEW">待审核</option><option value="COMPLETED">已完成</option><option value="ARCHIVED">已归档</option></select></label><label><span>默认模型</span><input v-model="projectDefaultModel" :disabled="!projectSkillStatus?.canManage" maxlength="160" placeholder="跟随系统默认模型" /></label></div>
-                <label class="project-form-field"><span>默认项目指令</span><textarea v-model="projectInstructions" :disabled="!projectSkillStatus?.canManage" maxlength="4000" rows="4" placeholder="每次在此项目中开始工作时使用的背景和约束" /></label>
-                <div class="project-form-grid"><label><span>默认助手</span><select v-model="projectDefaultAssistantId" :disabled="!projectSkillStatus?.canManage"><option value="">不使用默认助手</option><option v-for="assistant in assistants" :key="assistant.id" :value="assistant.id">{{ assistant.name }}</option></select></label><label><span>版本标签</span><input v-model="projectVersionLabel" :disabled="!projectSkillStatus?.canManage" maxlength="80" placeholder="例如：第一轮方案" /></label></div>
-                <label class="project-form-field"><span>默认提示词</span><textarea v-model="projectDefaultPrompt" :disabled="!projectSkillStatus?.canManage" maxlength="10000" rows="3" placeholder="工作流开始时自动带入的提示词" /></label>
-                <label class="project-form-field"><span>交付要求</span><textarea v-model="projectOutputRequirements" :disabled="!projectSkillStatus?.canManage" maxlength="10000" rows="3" placeholder="定义最终产物、格式和验收标准" /></label>
-              </section>
-              <section class="project-detail-section"><div class="project-section-heading"><div><span class="project-detail-eyebrow">STEPS</span><h3>工作流步骤</h3></div><button v-if="projectSkillStatus?.canManage" class="project-inline-button" type="button" @click="addProjectStep"><Plus :size="15" />新增步骤</button></div>
-                <div v-if="projectSteps.length" class="project-steps"><article v-for="(step, index) in projectSteps" :key="step.id" class="project-step"><span class="project-step-number">{{ String(index + 1).padStart(2, '0') }}</span><div class="project-step-fields"><input v-model="step.title" :disabled="!projectSkillStatus?.canManage" maxlength="120" placeholder="步骤名称" /><input v-model="step.description" :disabled="!projectSkillStatus?.canManage" maxlength="1000" placeholder="这一步的目标和交付物" /></div><select v-model="step.status" :disabled="!projectSkillStatus?.canManage" aria-label="步骤状态"><option value="TODO">待开始</option><option value="IN_PROGRESS">进行中</option><option value="DONE">已完成</option></select><button v-if="projectSkillStatus?.canManage" type="button" aria-label="删除步骤" title="删除步骤" @click="removeProjectStep(index)"><Trash2 :size="15" /></button></article></div>
-                <div v-else class="project-steps-empty"><Layers3 :size="20" /><span>还没有工作步骤，从拆解第一项任务开始。</span></div>
-              </section>
-              <footer class="project-detail-actions"><button type="button" class="project-secondary-button" @click="closeProjectDetails">关闭</button><button v-if="projectSkillStatus?.canManage" type="button" class="project-primary-button" :disabled="projectSaving" @click="saveProjectWorkflow"><LoaderCircle v-if="projectSaving" class="admin-spin" :size="15" /><Save v-else :size="15" />保存工作流</button></footer>
-            </div>
-            <aside class="project-version-panel"><div class="project-section-heading"><div><span class="project-detail-eyebrow">HISTORY</span><h3>版本历史</h3></div><button v-if="projectSkillStatus?.canManage" type="button" class="project-icon-button" title="创建版本检查点" aria-label="创建版本检查点" @click="createProjectCheckpoint"><Plus :size="16" /></button></div><p class="project-version-note">每次保存都会自动留下版本，可随时查看；所有者和管理员可以恢复。</p><div v-if="projectVersions.length" class="project-versions"><article v-for="version in projectVersions" :key="version.id" class="project-version" :class="{ 'is-current': version.version === projectDetail?.revision }"><div class="project-version-dot"></div><div class="project-version-copy"><div><strong>v{{ version.version }}</strong><span>{{ version.label || '未命名版本' }}</span></div><p>{{ version.changeSummary || '未填写修改摘要' }}</p><time>{{ formatDate(version.createdAt) }}</time><div class="project-version-actions"><button type="button" class="project-restore-button" @click="projectVersionPreview = projectVersionPreview?.id === version.id ? null : version"><FileText :size="13" />{{ projectVersionPreview?.id === version.id ? '收起快照' : '查看快照' }}</button><button v-if="projectSkillStatus?.canManage" type="button" class="project-restore-button" :disabled="version.version === projectDetail?.revision || projectRestoringVersion === version.version" @click="restoreProject(version)"><RotateCcw :size="13" />{{ projectRestoringVersion === version.version ? '恢复中' : version.version === projectDetail?.revision ? '当前版本' : '恢复此版本' }}</button></div><pre v-if="projectVersionPreview?.id === version.id" class="project-version-snapshot">{{ formatProjectSnapshot(version.snapshot) }}</pre></div></article></div><div v-else class="project-steps-empty"><History :size="20" /><span>暂无版本历史</span></div></aside>
-          </div>
-        </section>
-      </div>
+      <ProjectDetailDialog v-if="projectDetailOpen" v-model:project-team-id="projectTeamId" v-model:project-version-preview="projectVersionPreview" v-model:project-skill-name="projectSkillName" v-model:project-skill-content="projectSkillContent" v-model:project-skill-conversation-id="projectSkillConversationId" v-model:project-skill-summary-request="projectSkillSummaryRequest" v-model:project-workflow-status="projectWorkflowStatus" v-model:project-default-model="projectDefaultModel" v-model:project-default-assistant-id="projectDefaultAssistantId" v-model:project-instructions="projectInstructions" v-model:project-default-prompt="projectDefaultPrompt" v-model:project-output-requirements="projectOutputRequirements" v-model:project-version-label="projectVersionLabel" v-model:project-member-email="projectMemberEmail" v-model:project-member-role="projectMemberRole" :project-detail="projectDetail" :project-versions="projectVersions" :project-detail-loading="projectDetailLoading" :project-detail-error="projectDetailError" :project-skill-status="projectSkillStatus" :project-skill-candidate="projectSkillCandidate" :project-member-busy="projectMemberBusy" :project-team-busy="projectTeamBusy" :project-skill-busy="projectSkillBusy" :project-saving="projectSaving" :project-restoring-version="projectRestoringVersion" :project-steps="projectSteps" :manageable-project-teams="manageableProjectTeams" :assistants="assistants" :close-project-details="closeProjectDetails" :format-date="formatDate" :open-project-conversation="openProjectConversation" :open-project-asset="openProjectAsset" :assign-project-team="assignProjectTeam" :add-project-member="addProjectMember" :update-project-member-role="updateProjectMemberRole" :remove-project-member="removeProjectMember" :save-project-skill="saveProjectSkill" :disable-project-skill="disableProjectSkill" :summarize-project-skill="summarizeProjectSkill" :activate-project-skill-candidate="activateProjectSkillCandidate" :restore-project-skill="restoreProjectSkill" :add-project-step="addProjectStep" :remove-project-step="removeProjectStep" :save-project-workflow="saveProjectWorkflow" :create-project-checkpoint="createProjectCheckpoint" :restore-project="restoreProject" :format-project-snapshot="formatProjectSnapshot" />
       <div v-if="assetTeamTarget" class="studio-modal-backdrop" @click.self="assetTeamTarget = null">
         <section class="asset-team-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-team-title"><header><div><h2 id="asset-team-title">文件团队归属</h2><p>{{ assetTeamTarget.title }}</p></div><button type="button" aria-label="关闭" @click="assetTeamTarget = null"><X :size="20" /></button></header><label><span>可访问范围</span><select v-model="assetTeamId"><option value="">仅自己</option><option v-for="team in manageableProjectTeams" :key="team.id" :value="team.id">{{ team.name }}</option></select></label><p v-if="assetTeamTarget.teamId && !manageableProjectTeams.some((team) => team.id === assetTeamTarget?.teamId)" class="modal-error">该文件由团队管理员管理，你可以查看但不能调整归属。</p><footer><button type="button" @click="assetTeamTarget = null">取消</button><button type="button" :disabled="assetTeamBusy || !canManageAssetTeam" @click="saveAssetTeam">{{ assetTeamBusy ? '保存中' : '保存' }}</button></footer></section>
       </div>
@@ -449,58 +84,44 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
-import { catalogModelKey, catalogModelLabel, findCatalogModel, type CatalogModel, type ModelCapability } from '../utils/model-catalog'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from 'vue'
+import { catalogModelKey, catalogModelLabel, findCatalogModel, isAgentModelEligible, type CatalogModel, type ModelCapability } from '../utils/model-catalog'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import {
-  Archive, ArchiveRestore, ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, BriefcaseBusiness, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Code2, Copy, Eraser, FileText, FileType2, Folder,
-  Download, Globe2, Image as ImageIcon, ImagePlus, Images, KeyRound, Layers3, LayoutGrid, LibraryBig, Lightbulb, List, ListFilter, Paperclip, Presentation,
-  History, Languages, LoaderCircle, Maximize2, MessageCircleDashed, MessageSquare, Mic, MousePointer2, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, ScanSearch, Search, Settings2, SlidersHorizontal, Sparkles, Square, Table2, ThumbsDown, ThumbsUp, Trash2, Upload, Video, WandSparkles, X, Zap,
-} from 'lucide-vue-next'
+import { Brush, Check, ChevronDown, ChevronRight, Copy, Eraser, KeyRound, LayoutGrid, Lightbulb, List, ListFilter, Maximize2, MessageCircleDashed, Plus, ScanSearch, Search, Upload, WandSparkles, X } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
-import ChatMessageContent from '../components/ChatMessageContent.vue'
 import CodeArtifactPanel from '../components/CodeArtifactPanel.vue'
 import GeneratedImagePreview from '../components/GeneratedImagePreview.vue'
 import InspirationPreview from '../components/InspirationPreview.vue'
-import ModelCatalogPicker from '../components/ModelCatalogPicker.vue'
-import PluginSelector from '../components/PluginSelector.vue'
-import CapabilitySelector from '../components/CapabilitySelector.vue'
 import WorkspaceSectionTabs from '../components/WorkspaceSectionTabs.vue'
+import ChatComposer from '../components/chat/ChatComposer.vue'
+import ChatHome from '../components/chat/ChatHome.vue'
+import ChatThread from '../components/chat/ChatThread.vue'
+import ModelBadge from '../components/common/ModelBadge.vue'
+import ModelCatalogPicker from '../components/ModelCatalogPicker.vue'
+import CreationPanel from '../components/creation/CreationPanel.vue'
+import ProjectDetailDialog from '../components/projects/ProjectDetailDialog.vue'
+import ProjectsPanel from '../components/projects/ProjectsPanel.vue'
+import type { ImageTool, Inspiration } from '../components/creation/creation-shared'
 import { useAuthStore } from '../stores/auth'
-import { useCatalogStore, type ChatQuickAction, type ChatUiPreset } from '../stores/catalog'
+import { useCatalogStore, type ChatQuickAction, type ChatRecommendation, type ChatUiPreset } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
-import type { CodeArtifact, GenerationRun, Message, MessageWebSearch, PluginCapability, Project, ProjectSkillCandidate, ProjectSkillStatus, ProjectStepStatus, ProjectVersion, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
+import type { CodeArtifact, GenerationRun, PluginCapability, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { api } from '../services/api'
 import { consumeCreationPrompt, type PendingCreationPrompt } from '../utils/prompt-transfer'
-import { createClientId } from '../utils/client-id'
-import { createFollowUpSuggestions } from '../utils/follow-up-suggestions'
-import { isDedicatedImageTool, mergeImageTools, type ImageToolOptions, type ImageToolType } from '../utils/image-tools'
+import { getChatLayout } from '../layouts/chat-presets'
+import { isDedicatedImageTool, mergeImageTools, type ImageToolType } from '../utils/image-tools'
+import { useChatMessageNavigator } from '../composables/chat/useChatMessageNavigator'
+import { useChatConversationLifecycle } from '../composables/chat/useChatConversationLifecycle'
+import { useChatSubmission, type ChatCapability } from '../composables/chat/useChatSubmission'
+import { useStudioFileUpload } from '../composables/studio/useStudioFileUpload'
+import { useStudioModelCatalog } from '../composables/studio/useStudioModelCatalog'
+import { useStudioProjectWorkspace } from '../composables/studio/useStudioProjectWorkspace'
+import { isGenerationActive } from '../utils/generation-run-state'
 
-interface Inspiration {
-  id: string
-  title: string
-  prompt: string
-  badge: string
-  imageUrl: string
-  videoUrl?: string
-  model?: string | null
-  options?: Record<string, unknown> | null
-}
-interface ImageTool extends Inspiration { enabled?: boolean; options?: ImageToolOptions | null }
 
-interface PromptTemplate {
-  id: string
-  title: string
-  description: string
-  prompt: string
-  category: string
-  variables: string[] | null
-}
 interface AssistantOption { id: string; name: string; description: string; defaultModel?: string }
-
-type FilePurpose = 'chat-file' | 'creation' | 'mask' | 'library'
 
 const route = useRoute()
 const router = useRouter()
@@ -509,161 +130,43 @@ const store = useStudioStore()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const chatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
-const chatUiLabel = computed(() => ({ gpt: 'GPT', doubao: '豆包', qianwen: '千问', kimi: 'Kimi' })[chatUiPreset.value])
-const chatHomeTitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '临时聊天' : ({ gpt: '我们先从哪里开始呢？', doubao: '有什么我能帮你的吗？', qianwen: '你好，我是 Xinyue AI', kimi: '' })[chatUiPreset.value])
-const chatHomeSubtitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '这次聊天不会出现在历史记录中，也不会用于改进模型。' : '')
-const chatComposerPlaceholder = computed(() => store.temporaryChat ? '临时聊天' : ({ gpt: '有问题，随便问', doubao: '发消息...', qianwen: '向 Xinyue AI 提问', kimi: '尽管问，或做个 Agent 任务...' })[chatUiPreset.value])
-const showChatVoiceEntry = computed(() => ['gpt', 'doubao'].includes(chatUiPreset.value) && !draft.value.trim() && !attachments.value.length)
+const chatLayout = computed(() => getChatLayout(chatUiPreset.value))
 const doubaoRecommendations = computed(() => catalog.settings.chatHomeContent.doubaoRecommendations)
 const qianwenBanners = computed(() => catalog.settings.chatHomeContent.qianwenBanners)
 const qianwenBannerIndex = ref(0)
-const activeQianwenBanner = computed(() => qianwenBanners.value[qianwenBannerIndex.value] || qianwenBanners.value[0] || { title: '', description: '', buttonText: '', imageUrl: '', targetUrl: '/office' })
-const kimiProject = computed(() => catalog.settings.chatHomeContent.kimiProject)
 let qianwenBannerTimer = 0
-const quickActionIcons: Record<string, typeof ImageIcon> = {
-  sparkles: Sparkles,
-  video: Video,
-  music: Music2,
-  image: ImageIcon,
-  podcast: Mic,
-  table: Table2,
-  writing: FileText,
-  transcribe: Mic,
-  ppt: Presentation,
-  translate: Languages,
-  research: Search,
-  answer: FileText,
-  code: Code2,
-  document: FileText,
-  website: Globe2,
-  design: WandSparkles,
-  office: BriefcaseBusiness,
-}
-const quickActionIcon = (name: string) => quickActionIcons[name] || Sparkles
-const chatComposerControls = computed(() => catalog.settings.chatHomeContent.composerControls[chatUiPreset.value])
-const chatHomeShortcuts = computed(() => [...(catalog.settings.chatHomeContent.quickActions[chatUiPreset.value] || [])]
-  .filter((item) => item.enabled)
-  .sort((left, right) => left.sortOrder - right.sortOrder || left.label.localeCompare(right.label, 'zh-CN')))
-const visibleChatShortcuts = computed(() => chatHomeShortcuts.value.filter((item) => item.placement === 'BAR'))
-const chatMoreShortcuts = computed(() => chatHomeShortcuts.value.filter((item) => item.placement === 'MORE'))
-const showChatComposerShortcutBar = computed(() => {
-  if (!['doubao', 'qianwen'].includes(chatUiPreset.value)) return false
-  if (chatUiPreset.value === 'qianwen' && hasChatThread.value) return false
-  const controls = chatComposerControls.value
-  return Boolean(visibleChatShortcuts.value.length || controls.modeEnabled || controls.webSearchEnabled || (controls.moreEnabled && (chatMoreShortcuts.value.length || controls.modelSelectorEnabled)))
-})
-const chatModeOptions = computed<Array<{ label: string; icon: typeof Sparkles; note: string; badge?: string }>>(() => chatUiPreset.value === 'qianwen'
-  ? [
-      { label: '快速', icon: Sparkles, note: '快速直接地回答' },
-      { label: '思考研究', icon: Search, note: '深度推理、多轮搜索' },
-    ]
-  : [
-      { label: '快速', icon: Zap, note: '' },
-      { label: '专家', icon: ScanSearch, note: '' },
-      { label: '工作任务', icon: MousePointer2, note: '' },
-    ])
 const activeChatMode = ref('快速')
-const activeChatModeIcon = computed(() => chatModeOptions.value.find((item) => item.label === activeChatMode.value)?.icon || Sparkles)
 const activeChatResponseMode = computed<'fast' | 'expert'>(() => ['专家', '进阶', '思考研究'].includes(activeChatMode.value) ? 'expert' : 'fast')
 const webSearchPreferenceKey = 'xinyue:chat:web-search'
 const webSearchEnabled = ref(window.localStorage.getItem(webSearchPreferenceKey) === 'true')
-const expandedSearchMessages = ref<string[]>([])
-const chatModeMenuOpen = ref(false)
-const chatMoreMenuOpen = ref(false)
+const pendingRecommendationSource = ref<{ prompt: string; source: WebSearchSource } | null>(null)
 const draft = ref('')
-const composerInput = ref<HTMLTextAreaElement | null>(null)
+const chatThread = ref<InstanceType<typeof ChatThread> | null>(null)
+const thread = computed(() => chatThread.value?.threadEl() ?? null)
+const chatComposer = ref<InstanceType<typeof ChatComposer> | null>(null)
+const composerInput = computed(() => chatComposer.value?.composerInputEl() ?? null)
+const creationPanel = ref<InstanceType<typeof CreationPanel> | null>(null)
+const creationComposer = computed(() => creationPanel.value?.creationComposerEl() ?? null)
+const generationInput = computed(() => creationPanel.value?.generationInputEl() ?? null)
+const creationMoreTrigger = computed(() => creationPanel.value?.creationMoreTriggerEl() ?? null)
+const creationMorePanel = computed(() => creationPanel.value?.creationMorePanelEl() ?? null)
+const creationOptionsMenu = computed(() => creationPanel.value?.creationOptionsMenuEl() ?? null)
 const activeArtifact = ref<CodeArtifact | null>(null)
-const thread = ref<HTMLElement | null>(null)
-const messageNavigatorOpen = ref(false)
-const activeMessageJumpId = ref('')
-const jumpHighlightId = ref('')
-let jumpHighlightTimer = 0
-let messageNavigatorCloseTimer = 0
-const attachmentOpen = ref(false)
-const modelOpen = ref(false)
-const promptTemplatesOpen = ref(false)
-const promptTemplatesLoading = ref(false)
-const promptTemplates = ref<PromptTemplate[]>([])
-const promptTemplateQuery = ref('')
-const promptTemplateCategory = ref('')
 const assistantMenuOpen = ref(false)
 const assistants = ref<AssistantOption[]>([])
 const assistantId = ref('')
 const chatPluginId = ref('')
 const creationPluginId = ref('')
 const attachments = ref<StudioAsset[]>([])
-const fileInput = ref<HTMLInputElement | null>(null)
-const filePurpose = ref<FilePurpose>('chat-file')
-const projectModalOpen = ref(false)
-const projectName = ref('')
-const projectBrief = ref('')
-const projectError = ref('')
-const projectAdvanced = ref(false)
-const projectDetailOpen = ref(false)
-const projectDetailLoading = ref(false)
-const projectSaving = ref(false)
-const projectRestoringVersion = ref<number | null>(null)
-const projectDetailError = ref('')
-const projectDetail = ref<Project | null>(null)
-const projectVersions = ref<ProjectVersion[]>([])
-const projectVersionPreview = ref<ProjectVersion | null>(null)
-const projectMemberEmail = ref('')
-const projectMemberRole = ref<'ADMIN' | 'MEMBER'>('MEMBER')
-const projectMemberBusy = ref('')
-type ProjectTeam = { id: string; name: string; ownerId: string; members: Array<{ userId: string; role: string }> }
-const projectTeams = ref<ProjectTeam[]>([])
-const projectTeamId = ref('')
-const projectTeamBusy = ref(false)
-const manageableProjectTeams = computed(() => projectTeams.value.filter((team) => team.ownerId === auth.session?.id || team.members.some((member) => member.userId === auth.session?.id && member.role === 'ADMIN')))
-const assetTeamTarget = ref<StudioAsset | null>(null)
-const assetTeamId = ref('')
-const assetTeamBusy = ref(false)
-const canManageAssetTeam = computed(() => Boolean(assetTeamTarget.value && !assetTeamTarget.value.projectId && (assetTeamTarget.value.owner?.id === auth.session?.id || manageableProjectTeams.value.some((team) => team.id === assetTeamTarget.value?.teamId))))
-const projectSkillStatus = ref<ProjectSkillStatus | null>(null)
-const projectSkillCandidate = ref<ProjectSkillCandidate | null>(null)
-const projectSkillName = ref('')
-const projectSkillContent = ref('')
-const projectSkillConversationId = ref('')
-const projectSkillSummaryRequest = ref('')
-const projectSkillBusy = ref(false)
-const projectWorkflowStatus = ref<ProjectWorkflowStatus>('PLANNING')
-const projectDefaultModel = ref('')
-const projectDefaultAssistantId = ref('')
-const projectInstructions = ref('')
-const projectDefaultPrompt = ref('')
-const projectOutputRequirements = ref('')
-const projectVersionLabel = ref('')
-const projectSteps = ref<{ id: string; title: string; description: string; status: ProjectStepStatus; sortOrder: number }[]>([])
-const uploading = ref(false)
 const previewAsset = ref<StudioAsset | null>(null)
 const copiedKey = ref('')
 const model = ref('')
-const editingMessageId = ref('')
-const editingMessageContent = ref('')
-const copiedMessageId = ref('')
 type SpeechRecognizer = { lang: string; interimResults: boolean; continuous: boolean; onresult: ((event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; start: () => void; stop: () => void }
 type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const voiceTarget = ref<'chat' | 'creation'>('chat')
 watch(webSearchEnabled, (enabled) => window.localStorage.setItem(webSearchPreferenceKey, String(enabled)))
-function toggleWebSearch() {
-  webSearchEnabled.value = !webSearchEnabled.value
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-}
-function searchSourcesExpanded(messageId: string) { return expandedSearchMessages.value.includes(messageId) }
-function toggleSearchSources(messageId: string) {
-  expandedSearchMessages.value = searchSourcesExpanded(messageId) ? expandedSearchMessages.value.filter((id) => id !== messageId) : [...expandedSearchMessages.value, messageId]
-}
-function webSearchSummary(search: MessageWebSearch) {
-  if (search.status === 'searching') return '正在联网搜索'
-  if (search.status === 'failed') return '联网搜索未完成'
-  return `搜索 ${search.queries.length} 个关键词，参考 ${search.sources.length} 篇资料`
-}
-function sourceDomain(value: string) {
-  try { return new URL(value).hostname.replace(/^www\./, '') } catch { return value }
-}
 async function applyQuickActionModel(item: ChatQuickAction) {
   if (!item.modelKey) return true
   await loadModelCatalog()
@@ -675,48 +178,13 @@ async function applyQuickActionModel(item: ChatQuickAction) {
   selectModel(configuredModel.key)
   return true
 }
-async function executeChatQuickAction(item: ChatQuickAction) {
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-  store.clearError()
-  if (!await applyQuickActionModel(item)) return
-  if (item.webSearch) webSearchEnabled.value = true
-  if (item.actionType === 'OFFICE') {
-    await router.push({
-      path: '/office',
-      query: {
-        tool: item.target || 'daily',
-        ...(item.modelKey ? { model: item.modelKey } : {}),
-        ...(item.prompt ? { prompt: item.prompt } : {}),
-        ...(item.webSearch ? { webSearch: 'true' } : {}),
-      },
-    })
-    return
-  }
-  if (item.actionType === 'ROUTE') {
-    if (/^https?:\/\//i.test(item.target)) {
-      openConfiguredDestination(item.target)
-      return
-    }
-    const resolved = router.resolve(item.target || '/chat')
-    await router.push({
-      path: resolved.path,
-      hash: resolved.hash,
-      query: {
-        ...resolved.query,
-        ...(item.prompt ? { prompt: item.prompt } : {}),
-        ...(item.modelKey ? { model: item.modelKey } : {}),
-      },
-    })
-    return
-  }
-  draft.value = item.prompt
-  void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
-}
-function useChatSuggestion(suggestion: { title: string; prompt: string; targetUrl?: string }) {
+function useChatSuggestion(suggestion: ChatRecommendation) {
   if (suggestion.targetUrl) { openConfiguredDestination(suggestion.targetUrl); return }
   draft.value = suggestion.prompt || suggestion.title
-  if (/联网搜索/.test(draft.value)) webSearchEnabled.value = true
+  pendingRecommendationSource.value = suggestion.sourceUrl
+    ? { prompt: draft.value.trim(), source: { title: suggestion.source ? `${suggestion.title} - ${suggestion.source}` : suggestion.title, url: suggestion.sourceUrl, publishedAt: suggestion.publishedAt } }
+    : null
+  if (pendingRecommendationSource.value || /联网搜索/.test(draft.value)) webSearchEnabled.value = true
   void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
 }
 function openConfiguredDestination(target: string) {
@@ -740,20 +208,20 @@ async function toggleTemporaryChat() {
 }
 const catalogModels = ref<CatalogModel[]>([])
 const modelCatalogError = ref('')
-let modelCatalogRequest: Promise<CatalogModel[]> | null = null
-let modelCatalogLoadedAt = 0
 const chatModels = computed<CatalogModel[]>(() => catalogModels.value.filter((item) => item.capability === 'CHAT'))
+const activeCapability = ref<ChatCapability>('CHAT')
+const capabilityModelSelections = reactive<Record<ChatCapability, string>>({ CHAT: '', IMAGE: '', VIDEO: '', AGENT: '' })
+const capabilityModels = computed(() => {
+  const capability = activeCapability.value === 'AGENT' ? 'CHAT' : activeCapability.value
+  return catalogModels.value.filter((item) => item.capability === capability && (activeCapability.value !== 'AGENT' || isAgentModelEligible(item)))
+})
+const activeCapabilityModel = computed(() => capabilityModelSelections[activeCapability.value] || (activeCapability.value === 'CHAT' ? model.value : activeCapability.value === 'IMAGE' ? imageModel.value : activeCapability.value === 'VIDEO' ? videoModel.value : model.value))
+const activeCapabilityModelLabel = computed(() => catalogModelLabel(catalogModels.value, activeCapabilityModel.value, activeCapability.value === 'AGENT' ? 'CHAT' : activeCapability.value as ModelCapability) || '暂无可用模型')
+const capabilityModelAvailable = computed(() => Boolean(findCatalogModel(capabilityModels.value, activeCapabilityModel.value, activeCapability.value === 'AGENT' ? 'CHAT' : activeCapability.value as ModelCapability)))
 const chatModelAvailable = computed(() => Boolean(findCatalogModel(chatModels.value, model.value, 'CHAT')))
 const activeChatModelLabel = computed(() => catalogModelLabel(chatModels.value, model.value, 'CHAT') || '暂无可用模型')
-const promptTemplateCategories = computed(() => [...new Set(promptTemplates.value.map((item) => item.category).filter(Boolean))].sort())
-const filteredPromptTemplates = computed(() => promptTemplates.value.filter((item) => {
-  const haystack = `${item.title} ${item.description} ${item.prompt}`.toLowerCase()
-  return (!promptTemplateCategory.value || item.category === promptTemplateCategory.value) && (!promptTemplateQuery.value || haystack.includes(promptTemplateQuery.value.toLowerCase()))
-}))
 const creationPluginCapability = computed<PluginCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
 const generationPrompt = ref('')
-const generationInput = ref<HTMLTextAreaElement | null>(null)
-const creationComposer = ref<HTMLFormElement | null>(null)
 const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
 const imageModel = ref('')
@@ -804,34 +272,97 @@ const currentImageCredit = computed(() => { const size = imageSizeForRatio(autoM
 const currentVideoCredit = computed(() => activeVideoCapabilities.value.pricing[`${videoResolution.value}:${videoDuration.value}`] ?? (selectedVideoModel.value?.effectiveCreditCost ?? selectedVideoModel.value?.flatCreditCost ?? 10) * (videoResolution.value === '1080p' ? 2 : videoResolution.value === '2160p' ? 4 : 1) * Math.max(1, Math.ceil(videoDuration.value / 5)))
 const currentGenerationCost = computed(() => activeMode.value === 'images' ? currentImageCredit.value * imageCount.value : activeMode.value === 'videos' ? currentVideoCredit.value : (selectedCommerceModel.value?.effectiveCreditCost ?? selectedCommerceModel.value?.flatCreditCost ?? 1) * commerceModules.value)
 
-function hasImagePreview(asset: StudioAsset) {
-  return Boolean(asset.contentUrl) && (asset.kind === 'image' || asset.mimeType?.startsWith('image/'))
-}
+const { loadModelCatalog, refreshModelCatalogOnFocus, refreshModelCatalog } = useStudioModelCatalog({
+  models: catalogModels,
+  error: modelCatalogError,
+  chatModel: model,
+  imageModel,
+  videoModel,
+  commerceModel,
+  capabilitySelections: capabilityModelSelections,
+}, {
+  requestModels: () => api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }),
+  currentConversationId: () => store.currentConversationId,
+  syncImageSelection,
+  syncVideoSelection,
+})
 
-function attachmentMeta(asset: StudioAsset) {
-  const extension = asset.title.includes('.') ? asset.title.split('.').pop()?.toUpperCase() : undefined
-  const type = extension || asset.mimeType?.split('/').pop()?.toUpperCase() || '文件'
-  if (!asset.size) return type
-  if (asset.size < 1024) return `${type} · ${asset.size} B`
-  if (asset.size < 1024 * 1024) return `${type} · ${(asset.size / 1024).toFixed(1)} KB`
-  return `${type} · ${(asset.size / (1024 * 1024)).toFixed(1)} MB`
-}
+const { submitMessage } = useChatSubmission({
+  draft,
+  attachments,
+  activeCapability,
+  activeCapabilityModel,
+  capabilityModelAvailable,
+  model,
+  assistantId,
+  pluginId: chatPluginId,
+  webSearchEnabled,
+  responseMode: activeChatResponseMode,
+  pendingRecommendationSource,
+}, {
+  isGenerating: () => store.isGenerating,
+  requireAuth: () => requireAuth('/chat'),
+  loadModels: () => loadModelCatalog({ force: true }),
+  setError: (message) => { store.lastError = message },
+  closePopovers: () => chatComposer.value?.closePopovers(),
+  resizeComposer,
+  scrollThreadToBottom: () => scrollThreadToBottom(),
+  currentConversationId: () => store.currentConversationId,
+  buildGenerationOptions: ({ capability, content, assetIds }) => {
+    const isVideo = capability === 'VIDEO'
+    return {
+      mode: isVideo ? 'videos' : 'images',
+      prompt: content,
+      model: activeCapabilityModel.value,
+      ratio: imageSizeForRatio(autoMode.value),
+      quality: isVideo ? undefined : providerQuality(quality.value),
+      count: isVideo ? 1 : imageCount.value,
+      referenceAssetIds: assetIds,
+      outputFormat: isVideo ? undefined : providerOutputFormat(outputFormat.value),
+      background: isVideo ? undefined : providerBackground(imageBackground.value),
+      resolution: isVideo ? videoResolution.value : undefined,
+      duration: isVideo ? videoDuration.value : undefined,
+      aspectRatio: isVideo ? videoAspectRatio.value : undefined,
+      creditCost: isVideo ? currentVideoCredit.value : currentImageCredit.value * imageCount.value,
+    }
+  },
+  startGeneration: (...args) => store.startGeneration(...args),
+  sendChat: (content, input) => store.sendMessage(content, input),
+  shouldRestoreDraft: (reason) => reason instanceof ChatSendError && reason.restoreDraft,
+})
+
 const creationMenu = ref<'model' | 'type' | 'size' | 'style' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'quality' | 'modules' | 'count' | 'format' | 'background' | null>(null)
 const creationMenuAnchor = ref<HTMLElement | null>(null)
 const creationMenuAnchorRect = ref<{ left: number; right: number; top: number; bottom: number; width: number } | null>(null)
-const creationOptionsMenu = ref<HTMLElement | null>(null)
 const creationMenuStyle = ref<Record<string, string>>({})
 const creationOptionsOpen = ref(false)
-const creationMoreTrigger = ref<HTMLButtonElement | null>(null)
-const creationMorePanel = ref<HTMLElement | null>(null)
 const creationMorePanelStyle = ref<Record<string, string>>({ visibility: 'hidden' })
 const creationPluginOpen = ref(false)
-const inspirationRail = ref<HTMLElement | null>(null)
-const canScrollInspirationPrevious = ref(false)
-const canScrollInspirationNext = ref(false)
-const projectSearch = ref('')
-const projectTab = ref<'active' | 'archived'>('active')
 const projectNotice = ref('')
+const {
+  projectDetailOpen, projectDetailLoading, projectSaving, projectRestoringVersion,
+  projectDetailError, projectDetail, projectVersions, projectVersionPreview,
+  projectMemberEmail, projectMemberRole, projectMemberBusy, projectTeamId, projectTeamBusy,
+  manageableProjectTeams, projectSkillStatus, projectSkillCandidate, projectSkillName,
+  projectSkillContent, projectSkillConversationId, projectSkillSummaryRequest, projectSkillBusy,
+  projectWorkflowStatus, projectDefaultModel, projectDefaultAssistantId, projectInstructions,
+  projectDefaultPrompt, projectOutputRequirements, projectVersionLabel, projectSteps,
+  assetTeamTarget, assetTeamId, assetTeamBusy, canManageAssetTeam, formatDate,
+  closeProjectDetails, formatProjectSnapshot, openProjectDetails, assignProjectTeam,
+  addProjectMember, updateProjectMemberRole, removeProjectMember, saveProjectSkill,
+  disableProjectSkill, summarizeProjectSkill, activateProjectSkillCandidate,
+  restoreProjectSkill, addProjectStep, removeProjectStep, saveProjectWorkflow,
+  createProjectCheckpoint, restoreProject, openProjectConversation, openProjectAsset,
+  openAssetTeamDialog, saveAssetTeam
+} = useStudioProjectWorkspace({
+  assistants,
+  currentUserId: computed(() => auth.session?.id),
+  projectNotice,
+  previewAsset,
+  loadAssistants,
+  requireAuth,
+  downloadAsset: downloadGeneratedAsset
+})
 const assetSearch = ref('')
 const assetTab = ref('all')
 const assetFilter = ref('all')
@@ -858,21 +389,54 @@ const activeMode = computed<StudioMode>(() => {
   if (routeModeMap[raw]) return routeModeMap[raw]
   return modes.includes(raw as StudioMode) ? raw as StudioMode : 'chat'
 })
-type ChatTimelineEntry = { id: string; kind: 'message' | 'generation'; createdAt: number; message?: Message; generation?: GenerationRun }
+const { fileAccept, uploading, setFileInput, openFilePicker, handleFiles } = useStudioFileUpload({
+  activeMode,
+  chatAttachments: attachments,
+  creationAttachments,
+  maskAttachment,
+}, {
+  requireAuth,
+  currentProjectId: () => store.currentProjectId,
+  uploadFiles: (...args) => store.uploadFiles(...args),
+  closeComposerPopovers: () => chatComposer.value?.closePopovers(),
+  closeNewMenu: () => { newMenuOpen.value = false },
+  clearError: store.clearError,
+  setError: (message) => { store.lastError = message },
+})
 const hasChatThread = computed(() => store.messages.some((message) => message.id !== 'welcome') || store.generations.length > 0)
 const chatMessages = computed(() => hasChatThread.value ? store.messages.filter((message) => message.id !== 'welcome') : store.messages)
-const latestAssistantMessageId = computed(() => [...chatMessages.value].reverse().find((message) => message.role === 'assistant' && !message.id.startsWith('stream:'))?.id || '')
-const showChatThinking = computed(() => {
-  if (!store.isGenerating || store.activeGeneration) return false
-  const latest = store.messages.at(-1)
-  return !latest || latest.role !== 'assistant' || latest.id === 'welcome' || !latest.content.trim()
+const {
+  messageJumps,
+  messageNavigatorOpen,
+  activeMessageJumpId,
+  jumpHighlightId,
+  compactMessageJump,
+  openMessageNavigator,
+  scheduleMessageNavigatorClose,
+  closeMessageNavigatorOnBlur,
+  syncMessageNavigator,
+  jumpToMessage,
+  scrollThreadToBottom,
+} = useChatMessageNavigator({
+  messages: chatMessages,
+  thread,
+  conversationId: () => store.currentConversationId,
 })
-const chatTimeline = computed<ChatTimelineEntry[]>(() => [
-  ...chatMessages.value.map((message) => ({ id: message.id, kind: 'message' as const, createdAt: message.createdAt, message })),
-  ...store.generations.map((generation) => ({ id: generation.id, kind: 'generation' as const, createdAt: generation.createdAt, generation })),
-].sort((left, right) => left.createdAt - right.createdAt || (left.kind === right.kind ? 0 : left.kind === 'message' ? -1 : 1)))
-const messageJumps = computed(() => chatMessages.value.filter((message) => message.role === 'user'))
-const fileAccept = computed(() => filePurpose.value === 'creation' || filePurpose.value === 'mask' ? 'image/*' : '*/*')
+useChatConversationLifecycle({
+  activeMode,
+  model,
+  catalogModels,
+  assistantId,
+  assistants,
+  currentConversationId: () => store.currentConversationId,
+  openingConversationId: () => store.openingConversationId,
+  conversations: () => store.conversations,
+  generations: () => store.generations,
+  messages: () => store.messages,
+  isGenerating: () => store.isGenerating,
+  clearArtifact: () => { activeArtifact.value = null },
+  scrollThreadToBottom,
+})
 const activeInspirations = computed(() => activeMode.value === 'commerce' ? commerceInspirations.value : activeMode.value === 'videos' ? videoInspirations.value : imageInspirations.value)
 const selectedImageTool = computed(() => activeMode.value === 'images' ? imageTools.value.find((tool) => tool.id === selectedImageToolId.value) || null : null)
 const hasCreationInput = computed(() => Boolean(generationPrompt.value.trim()) || Boolean(selectedImageTool.value && creationAttachments.value.length))
@@ -889,12 +453,9 @@ const pendingVideoRuns = computed(() => {
   const runs = [...store.videoRuns]
   if (store.activeGeneration?.mode === 'videos' && !runs.some((run) => run.id === store.activeGeneration?.id)) runs.unshift(store.activeGeneration)
   return runs
-    .filter((run) => run.status === 'QUEUED' || run.status === 'RUNNING')
+    .filter((run) => isGenerationActive(run.status))
     .sort((left, right) => right.createdAt - left.createdAt)
 })
-const filteredProjects = computed(() => store.projects.filter((project) => Boolean(project.archived) === (projectTab.value === 'archived') && project.name.toLowerCase().includes(projectSearch.value.trim().toLowerCase())))
-const activeProjectCount = computed(() => store.projects.filter((project) => !project.archived).length)
-const archivedProjectCount = computed(() => store.projects.filter((project) => project.archived).length)
 const filteredAssets = computed(() => store.recentAssets.filter((asset) => {
   const matchesTab = assetTab.value === 'all' || (assetTab.value === 'generated' ? asset.purpose === 'generated' : assetTab.value === 'reference' ? asset.purpose === 'reference' || asset.purpose === 'mask' : asset.kind === assetTab.value)
   const matchesSource = assetFilter.value === 'all' || (assetFilter.value === 'uploaded' ? asset.source === 'upload' : asset.source === 'generated')
@@ -953,23 +514,8 @@ function outputFormatLabel(value: string): typeof outputFormat.value { return va
 watchEffect(() => store.setMode(activeMode.value))
 watch(activeMode, async (mode) => { closeCreationMenu(); creationOptionsOpen.value = false; creationPluginOpen.value = false; selectedInspirationId.value = ''; inspirationPreview.value = null; modeAssetLimit.value = 12; store.clearError(); if (mode === 'chat' && auth.isAuthenticated) void store.resumeCurrentChat(); if (mode === 'images' && !imageInspirations.value.length) await loadInspirations('IMAGE'); if ((mode === 'images' || mode === 'videos') && !imageTools.value.length) await loadImageTools(); if (mode === 'videos' && !videoInspirations.value.length) await loadInspirations('VIDEO'); if (mode === 'commerce' && !commerceInspirations.value.length) await loadInspirations('COMMERCE'); await nextTick(); syncInspirationNavigation() })
 watch([assetSearch, assetTab, assetFilter], () => { libraryAssetLimit.value = 30 })
-watch(() => store.currentConversationId, () => {
-  const conversation = store.conversations.find((item) => item.id === store.currentConversationId)
-  if (conversation?.model) model.value = catalogModelKey(chatModels.value, conversation.model, 'CHAT')
-  messageNavigatorOpen.value = false
-  activeArtifact.value = null
-  void nextTick(syncMessageNavigator)
-})
-watch(() => store.openingConversationId, (conversationId, previousConversationId) => {
-  if (conversationId || !previousConversationId || store.currentConversationId !== previousConversationId) return
-  void scrollThreadToBottom('auto')
-})
-watch(assistantId, (id) => { const assistant = assistants.value.find((item) => item.id === id); if (assistant?.defaultModel) model.value = catalogModelKey(chatModels.value, assistant.defaultModel, 'CHAT') })
-watch(messageJumps, (messages) => { if (!messages.some((message) => message.id === activeMessageJumpId.value)) activeMessageJumpId.value = messages.at(-1)?.id || ''; void nextTick(syncMessageNavigator) })
 watch(() => route.query.generation, () => { void syncGenerationRoute() })
 watch([activeMode, () => route.query.prompt], () => { void syncTransferredPrompt() })
-watch(() => store.generations.map((generation) => `${generation.id}:${generation.status}:${generation.assets.length}`).join('|'), () => { if (activeMode.value === 'chat') void scrollThreadToBottom() })
-watch(() => store.messages.map((message) => `${message.id}:${message.content.length}`).join('|'), () => { if (activeMode.value === 'chat' && store.isGenerating) void scrollThreadToBottom('auto') })
 watch(generationPrompt, () => { void nextTick().then(resizeGenerationInput) })
 
 let promptTransferSequence = 0
@@ -1016,8 +562,6 @@ async function syncTransferredPrompt() {
 
 onMounted(async () => {
   document.addEventListener('xinyue:close-popovers', closeWorkspacePopovers)
-  document.addEventListener('pointerdown', closeChatComposerPopoversOnOutside)
-  document.addEventListener('keydown', closeChatComposerPopoversOnEscape)
   await syncTransferredPrompt()
   const inspirationLoad = activeMode.value === 'images' ? Promise.all([loadInspirations('IMAGE'), loadImageTools()]) : activeMode.value === 'videos' ? Promise.all([loadInspirations('VIDEO'), loadImageTools()]) : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
   await Promise.all([catalog.load(), inspirationLoad, loadModelCatalog({ applyDefaults: true, force: true }), auth.isAuthenticated ? loadAssistants() : Promise.resolve()])
@@ -1043,11 +587,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   document.removeEventListener('xinyue:close-popovers', closeWorkspacePopovers)
-  document.removeEventListener('pointerdown', closeChatComposerPopoversOnOutside)
-  document.removeEventListener('keydown', closeChatComposerPopoversOnEscape)
   voiceRecognizer.value?.stop()
-  window.clearTimeout(jumpHighlightTimer)
-  window.clearTimeout(messageNavigatorCloseTimer)
   window.removeEventListener('resize', syncInspirationNavigation)
   window.removeEventListener('resize', positionCreationMenu)
   window.removeEventListener('scroll', positionCreationMenu, true)
@@ -1060,50 +600,11 @@ onUnmounted(() => {
   window.clearInterval(qianwenBannerTimer)
 })
 
-async function loadModelCatalog(options: { applyDefaults?: boolean; force?: boolean } = {}) {
-  if (!options.force && catalogModels.value.length && Date.now() - modelCatalogLoadedAt < 15_000) return catalogModels.value
-  try {
-    modelCatalogError.value = ''
-    modelCatalogRequest ||= api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' })
-    catalogModels.value = await modelCatalogRequest
-    modelCatalogLoadedAt = Date.now()
-    const defaultChat = catalogModels.value.find((item) => item.capability === 'CHAT' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'CHAT')
-    const defaultImage = catalogModels.value.find((item) => item.capability === 'IMAGE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'IMAGE')
-    const defaultVideo = catalogModels.value.find((item) => item.capability === 'VIDEO' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'VIDEO')
-    const defaultCommerce = catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'COMMERCE')
-    const chatSelection = findCatalogModel(catalogModels.value, model.value, 'CHAT')
-    const imageSelection = findCatalogModel(catalogModels.value, imageModel.value, 'IMAGE')
-    const videoSelection = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
-    const commerceSelection = findCatalogModel(catalogModels.value, commerceModel.value, 'COMMERCE')
-    if (!store.currentConversationId && defaultChat && (options.applyDefaults || !chatSelection)) model.value = defaultChat.key
-    else if (chatSelection) model.value = chatSelection.key
-    if (defaultImage && (options.applyDefaults || !imageSelection)) imageModel.value = defaultImage.key
-    else if (imageSelection) imageModel.value = imageSelection.key
-    if (defaultVideo && (options.applyDefaults || !videoSelection)) videoModel.value = defaultVideo.key
-    else if (videoSelection) videoModel.value = videoSelection.key
-    if (defaultCommerce && (options.applyDefaults || !commerceSelection)) commerceModel.value = defaultCommerce.key
-    else if (commerceSelection) commerceModel.value = commerceSelection.key
-    syncImageSelection()
-    syncVideoSelection()
-  } catch (reason) {
-    modelCatalogError.value = reason instanceof Error ? `模型目录加载失败：${reason.message}` : '模型目录加载失败，请重新加载。'
-  }
-  finally { modelCatalogRequest = null }
-  return catalogModels.value
-}
-function refreshModelCatalogOnFocus() {
-  if (Date.now() - modelCatalogLoadedAt >= 2_000) void loadModelCatalog({ force: true })
-}
-function refreshModelCatalog() { void loadModelCatalog({ force: true }) }
 async function loadAssistants() { try { assistants.value = await api<AssistantOption[]>('/assistants') } catch { assistants.value = [] } }
 
 function closeWorkspacePopovers() {
-  attachmentOpen.value = false
-  modelOpen.value = false
+  chatComposer.value?.closePopovers()
   assistantMenuOpen.value = false
-  promptTemplatesOpen.value = false
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
   closeCreationMenu()
   creationOptionsOpen.value = false
   creationMorePanelStyle.value = { visibility: 'hidden' }
@@ -1112,19 +613,6 @@ function closeWorkspacePopovers() {
 function collapseWorkspacePopovers() {
   closeWorkspacePopovers()
   document.dispatchEvent(new Event('xinyue:close-popovers'))
-}
-function closeChatComposerPopoversOnOutside(event: PointerEvent) {
-  const target = event.target as HTMLElement | null
-  if (target?.closest('.chat-home-floating-menu, .chat-home-mode-trigger, .chat-home-more-trigger, .chat-home-inline-model, .model-popover, .composer-model')) return
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-  modelOpen.value = false
-}
-function closeChatComposerPopoversOnEscape(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || (!chatModeMenuOpen.value && !chatMoreMenuOpen.value && !modelOpen.value)) return
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-  modelOpen.value = false
 }
 
 async function loadImageTools() {
@@ -1156,87 +644,44 @@ async function loadInspirations(mode: 'IMAGE' | 'VIDEO' | 'COMMERCE') {
   }
 }
 
-function toggleChatModeMenu() {
-  chatModeMenuOpen.value = !chatModeMenuOpen.value
-  chatMoreMenuOpen.value = false
-  attachmentOpen.value = false
-  modelOpen.value = false
-  assistantMenuOpen.value = false
+function openPromptLibrary(type?: 'IMAGE' | 'VIDEO' | 'TEXT') { void router.push(type ? { path: '/prompts', query: { type: type.toLowerCase() } } : '/prompts') }
+function selectModel(value: string) { const key = catalogModelKey(chatModels.value, value, 'CHAT'); model.value = key; capabilityModelSelections.CHAT = key; if (auth.isAuthenticated) void store.setConversationModel(key).catch((reason) => { store.lastError = reason instanceof Error ? reason.message : '模型保存失败' }) }
+function selectCapabilityModel(value: string) {
+  const capability = activeCapability.value === 'AGENT' ? 'CHAT' : activeCapability.value
+  const key = catalogModelKey(catalogModels.value, value, capability as ModelCapability)
+  capabilityModelSelections[activeCapability.value] = key
+  if (activeCapability.value === 'CHAT' || activeCapability.value === 'AGENT') selectModel(key)
+  else if (activeCapability.value === 'IMAGE') { imageModel.value = key; syncImageSelection() }
+  else if (activeCapability.value === 'VIDEO') { videoModel.value = key; syncVideoSelection() }
 }
-function toggleChatMoreMenu() {
-  const willOpen = !chatMoreMenuOpen.value
-  chatMoreMenuOpen.value = willOpen
-  chatModeMenuOpen.value = false
-  attachmentOpen.value = false
-  modelOpen.value = false
-  assistantMenuOpen.value = false
+const headerModelOpen = ref(false)
+const activeChatModel = computed(() => findCatalogModel(chatModels.value, model.value, 'CHAT'))
+function toggleHeaderModelMenu() {
+  headerModelOpen.value = !headerModelOpen.value
+  if (headerModelOpen.value && !chatModels.value.length) void loadModelCatalog({ force: true })
 }
-function selectChatMode(label: string) {
-  chatModeMenuOpen.value = false
-  if (label === '工作任务') { void router.push('/office?mode=agent'); return }
-  activeChatMode.value = label
-}
-function toggleAttachmentMenu() { attachmentOpen.value = !attachmentOpen.value; modelOpen.value = false; assistantMenuOpen.value = false; promptTemplatesOpen.value = false; chatModeMenuOpen.value = false; chatMoreMenuOpen.value = false }
-function toggleModelMenu() {
-  modelOpen.value = !modelOpen.value
-  attachmentOpen.value = false
-  assistantMenuOpen.value = false
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-  if (modelOpen.value) void loadModelCatalog({ force: true })
-}
-function openPromptLibrary(type?: 'IMAGE' | 'VIDEO' | 'TEXT') { attachmentOpen.value = false; void router.push(type ? { path: '/prompts', query: { type: type.toLowerCase() } } : '/prompts') }
-async function togglePromptTemplates() {
-  promptTemplatesOpen.value = !promptTemplatesOpen.value
-  if (!promptTemplatesOpen.value || promptTemplates.value.length) return
-  promptTemplatesLoading.value = true
-  try {
-    const rows = await api<PromptTemplate[]>('/prompt-templates')
-    promptTemplates.value = rows.map((item) => ({ ...item, variables: Array.isArray(item.variables) ? item.variables : [] }))
-  } catch (reason) {
-    store.lastError = reason instanceof Error ? reason.message : '提示词模板加载失败'
-  } finally { promptTemplatesLoading.value = false }
-}
-function usePromptTemplate(item: PromptTemplate) {
-  draft.value = draft.value.trim() ? `${draft.value.trim()}\n\n${item.prompt}` : item.prompt
-  promptTemplatesOpen.value = false
-  attachmentOpen.value = false
-  void nextTick(() => { resizeComposer(); composerInput.value?.focus() })
-}
-function compactMessageJump(content: string) { return content.replace(/\s+/g, ' ').trim().slice(0, 76) }
-function openMessageNavigator() { window.clearTimeout(messageNavigatorCloseTimer); messageNavigatorOpen.value = true }
-function scheduleMessageNavigatorClose() { window.clearTimeout(messageNavigatorCloseTimer); messageNavigatorCloseTimer = window.setTimeout(() => { messageNavigatorOpen.value = false }, 220) }
-function closeMessageNavigatorOnBlur(event: FocusEvent) { if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) messageNavigatorOpen.value = false }
-function syncMessageNavigator() {
-  const container = thread.value
-  if (!container || !messageJumps.value.length) return
-  const anchor = container.getBoundingClientRect().top + Math.min(120, container.clientHeight * 0.28)
-  const elements = [...container.querySelectorAll<HTMLElement>('[data-user-message="true"]')]
-  const nearest = elements.reduce<{ id: string; distance: number } | null>((best, element) => {
-    const id = element.dataset.messageId || ''
-    const distance = Math.abs(element.getBoundingClientRect().top - anchor)
-    return id && (!best || distance < best.distance) ? { id, distance } : best
-  }, null)
-  if (nearest) activeMessageJumpId.value = nearest.id
-}
-function jumpToMessage(messageId: string) {
-  const target = [...(thread.value?.querySelectorAll<HTMLElement>('[data-user-message="true"]') || [])].find((element) => element.dataset.messageId === messageId)
-  if (!target) return
-  activeMessageJumpId.value = messageId
-  messageNavigatorOpen.value = false
-  jumpHighlightId.value = messageId
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  window.clearTimeout(jumpHighlightTimer)
-  jumpHighlightTimer = window.setTimeout(() => { if (jumpHighlightId.value === messageId) jumpHighlightId.value = '' }, 1400)
-}
-function selectModel(value: string) { const key = catalogModelKey(chatModels.value, value, 'CHAT'); model.value = key; modelOpen.value = false; chatMoreMenuOpen.value = false; if (auth.isAuthenticated) void store.setConversationModel(key).catch((reason) => { store.lastError = reason instanceof Error ? reason.message : '模型保存失败' }) }
+function handleHeaderSelectModel(value: string) { headerModelOpen.value = false; selectModel(value) }
 function resizeComposer() {
   if (!composerInput.value) return
   composerInput.value.style.height = 'auto'
-  const maxHeight = chatUiPreset.value === 'doubao' ? 36 : 160
+  // 各布局统一自适应：移动端最多 36vh，桌面最多 240px
+  const viewportLimit = Math.floor(window.innerHeight * 0.36)
+  const maxHeight = window.innerWidth <= 640 ? Math.min(180, viewportLimit) : Math.min(240, viewportLimit)
   const height = Math.min(composerInput.value.scrollHeight, maxHeight)
   composerInput.value.style.height = `${height}px`
   composerInput.value.style.overflowY = composerInput.value.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  // 同步 composer 实时几何给 CSS 变量，附件面板/建议区据此跟随定位
+  const form = composerInput.value.closest('.chat-composer')
+  const host = form?.parentElement
+  if (form && host) {
+    const rect = form.getBoundingClientRect()
+    const hostRect = host.getBoundingClientRect()
+    host.style.setProperty('--composer-height', `${Math.round(rect.height)}px`)
+    host.style.setProperty('--composer-top', `${Math.round(rect.top - hostRect.top - host.clientTop)}px`)
+    host.style.setProperty('--composer-left', `${Math.round(rect.left - hostRect.left - host.clientLeft)}px`)
+    host.style.setProperty('--composer-width', `${Math.round(rect.width)}px`)
+    host.style.setProperty('--composer-space-above', `${Math.round(rect.top)}px`)
+  }
 }
 function resizeGenerationInput() {
   const input = generationInput.value
@@ -1275,31 +720,6 @@ function toggleVoice(target: 'chat' | 'creation' = 'chat') {
   voiceListening.value = true
   try { recognizer.start() } catch { voiceListening.value = false; voiceRecognizer.value = null; store.lastError = '语音输入启动失败' }
 }
-function handleChatSubmitAction() {
-  if (store.isGenerating) { void store.cancelActiveJob(); return }
-  if (showChatVoiceEntry.value) toggleVoice('chat')
-}
-function scrollShortcutRail(event: WheelEvent) {
-  const rail = event.currentTarget as HTMLElement | null
-  if (!rail || Math.abs(event.deltaX) > Math.abs(event.deltaY) || rail.scrollWidth <= rail.clientWidth) return
-  rail.scrollLeft += event.deltaY
-  event.preventDefault()
-}
-function startMessageEdit(message: { id: string; content: string }) { editingMessageId.value = message.id; editingMessageContent.value = message.content }
-function cancelMessageEdit() { editingMessageId.value = ''; editingMessageContent.value = '' }
-function copyMessage(message: { id: string; content: string }) {
-  navigator.clipboard?.writeText(message.content).catch(() => undefined)
-  copiedMessageId.value = message.id
-  window.setTimeout(() => { if (copiedMessageId.value === message.id) copiedMessageId.value = '' }, 1600)
-}
-function followUpsForMessage(message: Message) {
-  const index = store.messages.findIndex((item) => item.id === message.id)
-  const prompt = store.messages.slice(0, index).reverse().find((item) => item.role === 'user')?.content || ''
-  return createFollowUpSuggestions(prompt, message.content, message.suggestions)
-}
-function shouldShowFollowUps(message: Message) {
-  return message.role === 'assistant' && message.id === latestAssistantMessageId.value && !store.isGenerating && Boolean(followUpsForMessage(message).length)
-}
 async function useFollowUpSuggestion(value: string) {
   if (store.isGenerating) return
   draft.value = value
@@ -1308,65 +728,6 @@ async function useFollowUpSuggestion(value: string) {
   await submitMessage()
 }
 function openCodeArtifact(artifact: CodeArtifact) { activeArtifact.value = artifact }
-async function saveMessageEdit(messageId: string) {
-  if (!editingMessageContent.value.trim()) return
-  try { await store.branchMessage(messageId, editingMessageContent.value, model.value, webSearchEnabled.value, activeChatResponseMode.value); cancelMessageEdit(); await scrollThreadToBottom() }
-  catch { /* Store exposes the server error in-page. */ }
-}
-async function retryAssistantMessage(assistantMessageId: string) {
-  const assistantIndex = store.messages.findIndex((message) => message.id === assistantMessageId)
-  const source = store.messages.slice(0, assistantIndex).reverse().find((message) => message.role === 'user')
-  if (!source) return
-  try { await store.branchMessage(source.id, source.content, model.value, webSearchEnabled.value, activeChatResponseMode.value); await scrollThreadToBottom() }
-  catch { /* Store exposes the server error in-page. */ }
-}
-async function setMessageFeedback(messageId: string, value: 'UP' | 'DOWN') {
-  const message = store.messages.find((item) => item.id === messageId)
-  const nextValue = message?.feedback === value ? null : value
-  try { await store.setMessageFeedback(messageId, nextValue) }
-  catch (reason) { store.lastError = reason instanceof Error ? reason.message : '反馈提交失败' }
-}
-async function scrollThreadToBottom(behavior: ScrollBehavior = 'smooth') { await nextTick(); thread.value?.scrollTo({ top: thread.value.scrollHeight, behavior }) }
-function handleComposerKeydown(event: KeyboardEvent) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage() } }
-async function submitMessage() {
-  if (store.isGenerating) return
-  if (!requireAuth('/chat')) return
-  const content = draft.value.trim() || (attachments.value.length ? '请分析我上传的文件。' : '')
-  if (!content) return
-  await loadModelCatalog({ force: true })
-  if (!chatModelAvailable.value) { store.lastError = '暂无可用聊天模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥'; return }
-  const pendingAttachments = [...attachments.value]
-  draft.value = ''
-  attachments.value = []
-  attachmentOpen.value = false; modelOpen.value = false
-  await nextTick()
-  resizeComposer()
-  try {
-    await store.sendMessage(content, { model: model.value, assistantId: assistantId.value || undefined, pluginId: chatPluginId.value || undefined, assetIds: pendingAttachments.map((asset) => asset.id), webSearchEnabled: webSearchEnabled.value, responseMode: activeChatResponseMode.value })
-    await scrollThreadToBottom()
-  } catch (reason) {
-    if (reason instanceof ChatSendError && reason.restoreDraft) {
-      if (!draft.value.trim()) draft.value = content
-      if (!attachments.value.length) attachments.value = pendingAttachments
-    }
-    await nextTick()
-    resizeComposer()
-  }
-}
-function openFilePicker(purpose: FilePurpose) { if (!requireAuth(activeMode.value === 'assets' ? '/workspace?tab=files' : activeMode.value === 'commerce' ? '/commerce' : activeMode.value === 'images' ? '/image' : activeMode.value === 'videos' ? '/video' : '/chat')) return; filePurpose.value = purpose; attachmentOpen.value = false; newMenuOpen.value = false; if (fileInput.value) { fileInput.value.value = ''; fileInput.value.click() } }
-async function handleFiles(event: Event) {
-  const files = Array.from((event.target as HTMLInputElement).files || [])
-  if (!files.length) return
-  uploading.value = true; store.clearError()
-  try {
-    const purpose = filePurpose.value === 'creation' ? 'reference' : filePurpose.value === 'mask' ? 'mask' : filePurpose.value === 'chat-file' ? 'attachment' : 'library'
-    const uploaded = await store.uploadFiles(files, filePurpose.value === 'creation' || filePurpose.value === 'mask' ? 'IMAGE' : undefined, store.currentProjectId || undefined, purpose)
-    if (filePurpose.value === 'chat-file') attachments.value.push(...uploaded)
-    else if (filePurpose.value === 'creation') creationAttachments.value.push(...uploaded)
-    else if (filePurpose.value === 'mask') maskAttachment.value = uploaded[0] || null
-  } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件上传失败' }
-  finally { uploading.value = false }
-}
 function closeCreationMenu() {
   creationMenu.value = null
   creationMenuAnchor.value = null
@@ -1502,7 +863,7 @@ async function submitGeneration() {
   if (!activeCreationModelAvailable.value) { store.lastError = `暂无可用的${activeMode.value === 'videos' ? '视频' : activeMode.value === 'commerce' ? '商品视觉' : '图片'}模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥`; return }
   if (selectedImageTool.value && !creationAttachments.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; openFilePicker('creation'); return }
   try {
-    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForRatio(autoMode.value), quality: providerQuality(quality.value), style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, model.value)
+    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForRatio(autoMode.value), quality: providerQuality(quality.value), style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, creditCost: currentGenerationCost.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
     generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
     if (submittedMode === 'commerce') return
     await openGenerationConversation(job.id)
@@ -1564,7 +925,7 @@ async function retryAssetGeneration(asset: StudioAsset) {
 }
 
 async function stopGeneration(generation: GenerationRun) {
-  if (!['QUEUED', 'RUNNING'].includes(generation.status)) return
+  if (!isGenerationActive(generation.status)) return
   await store.cancelGeneration(generation.id)
 }
 
@@ -1631,18 +992,7 @@ async function useCommerceAsset(asset: StudioAsset | undefined, generation: Gene
   creationComposer.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   generationInput.value?.focus({ preventScroll: true })
 }
-function syncInspirationNavigation() {
-  const rail = inspirationRail.value
-  if (!rail) { canScrollInspirationPrevious.value = false; canScrollInspirationNext.value = false; return }
-  const maximum = Math.max(0, rail.scrollWidth - rail.clientWidth)
-  canScrollInspirationPrevious.value = rail.scrollLeft > 2
-  canScrollInspirationNext.value = rail.scrollLeft < maximum - 2
-}
-function scrollInspiration(direction: number) {
-  const rail = inspirationRail.value
-  if (!rail) return
-  rail.scrollBy({ left: direction * Math.max(470, rail.clientWidth * 0.72), behavior: 'smooth' })
-}
+function syncInspirationNavigation() { creationPanel.value?.syncInspirationNavigation() }
 function openInspiration(item: Inspiration) {
   selectedInspirationId.value = item.id
   inspirationPreview.value = item
@@ -1675,186 +1025,7 @@ async function useInspiration(item: Inspiration | null) {
   creationComposer.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   generationInput.value?.focus({ preventScroll: true })
 }
-function formatDate(value: number) { return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(value) }
-function closeProjectModal() { projectModalOpen.value = false; projectName.value = ''; projectBrief.value = ''; projectError.value = ''; projectAdvanced.value = false }
-async function createProject() { if (!requireAuth('/workspace?tab=projects')) return; if (!projectName.value.trim()) { projectError.value = '请输入项目名称'; return } try { await store.createProject(projectName.value, projectBrief.value); closeProjectModal() } catch (reason) { projectError.value = reason instanceof Error ? reason.message : '项目创建失败' } }
-function closeProjectDetails() {
-  projectDetailOpen.value = false
-  projectDetail.value = null
-  projectVersions.value = []
-  projectVersionPreview.value = null
-  projectSkillStatus.value = null
-  projectSkillCandidate.value = null
-  projectMemberEmail.value = ''
-  projectDetailError.value = ''
-  projectTeamId.value = ''
-}
-function formatProjectSnapshot(snapshot: ProjectVersion['snapshot']) { return JSON.stringify(snapshot, null, 2) }
-function fillProjectEditor(project: Project) {
-  projectDetail.value = project
-  projectWorkflowStatus.value = project.workflowStatus
-  projectDefaultModel.value = project.defaultModel
-  projectDefaultAssistantId.value = project.defaultAssistantId || ''
-  projectInstructions.value = project.instructions || ''
-  projectDefaultPrompt.value = project.workflowConfig.defaultPrompt
-  projectOutputRequirements.value = project.workflowConfig.outputRequirements
-  projectSteps.value = project.workflowConfig.steps.map((step, index) => ({ ...step, sortOrder: index }))
-  projectVersionLabel.value = ''
-  projectTeamId.value = project.teamId || ''
-}
-async function openProjectDetails(project: Project) {
-  if (!requireAuth('/workspace?tab=projects')) return
-  projectDetailOpen.value = true
-  projectDetailLoading.value = true
-  projectDetailError.value = ''
-  try {
-    const assistantPromise = assistants.value.length ? Promise.resolve() : loadAssistants()
-    const teamPromise = projectTeams.value.length ? Promise.resolve(projectTeams.value) : api<ProjectTeam[]>('/teams')
-    const [detail, versions, skillStatus, , teamRows] = await Promise.all([store.loadProjectDetail(project.id), store.loadProjectVersions(project.id), api<ProjectSkillStatus>(`/projects/${project.id}/skill`), assistantPromise, teamPromise])
-    projectTeams.value = teamRows
-    fillProjectEditor(detail)
-    projectVersions.value = versions
-    applyProjectSkillStatus(skillStatus)
-  } catch (reason) {
-    projectDetailError.value = reason instanceof Error ? reason.message : '项目详情加载失败'
-  } finally { projectDetailLoading.value = false }
-}
-async function assignProjectTeam() {
-  if (!projectDetail.value || projectTeamBusy.value) return
-  projectTeamBusy.value = true; projectDetailError.value = ''
-  try { await api(`/projects/${projectDetail.value.id}/team`, { method: 'PATCH', body: JSON.stringify({ teamId: projectTeamId.value || null }) }); await refreshProjectDetail(); projectNotice.value = projectTeamId.value ? '项目及现有文件已共享到团队' : '项目已移出团队空间' }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目归属更新失败' }
-  finally { projectTeamBusy.value = false }
-}
-function applyProjectSkillStatus(status: ProjectSkillStatus) {
-  projectSkillStatus.value = status
-  projectSkillName.value = status.active?.name || ''
-  projectSkillContent.value = status.active?.content || ''
-}
-async function refreshProjectDetail() {
-  if (!projectDetail.value) return
-  const [detail, skillStatus] = await Promise.all([store.loadProjectDetail(projectDetail.value.id), api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)])
-  fillProjectEditor(detail)
-  applyProjectSkillStatus(skillStatus)
-}
-async function addProjectMember() {
-  if (!projectDetail.value || !projectMemberEmail.value || projectMemberBusy.value) return
-  projectMemberBusy.value = 'add'; projectDetailError.value = ''
-  try { await api(`/projects/${projectDetail.value.id}/members`, { method: 'POST', body: JSON.stringify({ email: projectMemberEmail.value, role: projectMemberRole.value }) }); projectMemberEmail.value = ''; await refreshProjectDetail() }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员添加失败' }
-  finally { projectMemberBusy.value = '' }
-}
-async function updateProjectMemberRole(userId: string, role: 'ADMIN' | 'MEMBER') {
-  if (!projectDetail.value || projectMemberBusy.value) return
-  projectMemberBusy.value = userId
-  try { await api(`/projects/${projectDetail.value.id}/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }); await refreshProjectDetail() }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员角色更新失败' }
-  finally { projectMemberBusy.value = '' }
-}
-async function removeProjectMember(userId: string) {
-  if (!projectDetail.value || projectMemberBusy.value || !window.confirm('确认将该用户移出项目？')) return
-  projectMemberBusy.value = userId
-  try { await api(`/projects/${projectDetail.value.id}/members/${userId}`, { method: 'DELETE' }); await refreshProjectDetail() }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '成员移除失败' }
-  finally { projectMemberBusy.value = '' }
-}
-async function saveProjectSkill() {
-  if (!projectDetail.value || projectSkillBusy.value) return
-  projectSkillBusy.value = true; projectDetailError.value = ''
-  try { await api(`/projects/${projectDetail.value.id}/skill/manual`, { method: 'POST', body: JSON.stringify({ name: projectSkillName.value, content: projectSkillContent.value }) }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能保存失败' }
-  finally { projectSkillBusy.value = false }
-}
-async function disableProjectSkill() {
-  if (!projectDetail.value || projectSkillBusy.value) return
-  projectSkillBusy.value = true
-  try { await api(`/projects/${projectDetail.value.id}/skill`, { method: 'DELETE' }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能停用失败' }
-  finally { projectSkillBusy.value = false }
-}
-async function summarizeProjectSkill() {
-  if (!projectDetail.value || !projectSkillConversationId.value || projectSkillBusy.value) return
-  projectSkillBusy.value = true; projectSkillCandidate.value = null
-  try { projectSkillCandidate.value = await api<ProjectSkillCandidate>(`/projects/${projectDetail.value.id}/skill/summarize`, { method: 'POST', body: JSON.stringify({ conversationId: projectSkillConversationId.value, request: projectSkillSummaryRequest.value }) }) }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能总结失败' }
-  finally { projectSkillBusy.value = false }
-}
-async function activateProjectSkillCandidate() {
-  if (!projectDetail.value || !projectSkillCandidate.value || projectSkillBusy.value) return
-  projectSkillBusy.value = true
-  try { const candidate = projectSkillCandidate.value; await api(`/projects/${projectDetail.value.id}/skill/activate-summary`, { method: 'POST', body: JSON.stringify({ name: candidate.name, content: candidate.content, changeSummary: candidate.changeSummary, sourceConversationId: candidate.sourceConversation.id }) }); projectSkillCandidate.value = null; applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能启用失败' }
-  finally { projectSkillBusy.value = false }
-}
-async function restoreProjectSkill(version: number) {
-  if (!projectDetail.value || projectSkillBusy.value) return
-  projectSkillBusy.value = true
-  try { await api(`/projects/${projectDetail.value.id}/skill/versions/${version}/restore`, { method: 'POST' }); applyProjectSkillStatus(await api<ProjectSkillStatus>(`/projects/${projectDetail.value.id}/skill`)) }
-  catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '项目技能恢复失败' }
-  finally { projectSkillBusy.value = false }
-}
-function addProjectStep() { projectSteps.value.push({ id: createClientId(), title: '', description: '', status: 'TODO', sortOrder: projectSteps.value.length }) }
-function removeProjectStep(index: number) { projectSteps.value.splice(index, 1); projectSteps.value.forEach((step, stepIndex) => { step.sortOrder = stepIndex }) }
-async function saveProjectWorkflow() {
-  if (!projectDetail.value || projectSaving.value) return
-  const invalid = projectSteps.value.find((step) => !step.title.trim())
-  if (invalid) { projectDetailError.value = '请为每个工作流步骤填写名称'; return }
-  projectSaving.value = true
-  projectDetailError.value = ''
-  try {
-    const project = await store.updateProjectWorkflow(projectDetail.value.id, { workflowStatus: projectWorkflowStatus.value, workflowConfig: { steps: projectSteps.value.map((step) => ({ id: step.id, title: step.title.trim(), description: step.description.trim(), status: step.status })), defaultPrompt: projectDefaultPrompt.value.trim(), outputRequirements: projectOutputRequirements.value.trim() }, defaultModel: projectDefaultModel.value.trim(), defaultAssistantId: projectDefaultAssistantId.value || null, instructions: projectInstructions.value.trim(), versionLabel: projectVersionLabel.value.trim() || undefined, changeSummary: '保存项目工作流' })
-    fillProjectEditor(project)
-    projectVersions.value = await store.loadProjectVersions(project.id)
-  } catch (reason) {
-    projectDetailError.value = reason instanceof Error ? reason.message : '工作流保存失败'
-  } finally { projectSaving.value = false }
-}
-async function createProjectCheckpoint() {
-  if (!projectDetail.value) return
-  try {
-    await store.createProjectVersion(projectDetail.value.id, { label: `检查点 ${projectDetail.value.revision + 1}`, changeSummary: '手动创建版本检查点' })
-    const project = await store.loadProjectDetail(projectDetail.value.id)
-    fillProjectEditor(project)
-    projectVersions.value = await store.loadProjectVersions(project.id)
-  } catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '版本创建失败' }
-}
-async function restoreProject(version: ProjectVersion) {
-  if (!projectDetail.value || projectRestoringVersion.value !== null) return
-  if (!window.confirm(`确认恢复到 v${version.version}？当前内容会自动保存为新版本。`)) return
-  projectRestoringVersion.value = version.version
-  projectDetailError.value = ''
-  try {
-    const project = await store.restoreProjectVersion(projectDetail.value.id, version.version)
-    fillProjectEditor(project)
-    projectVersions.value = await store.loadProjectVersions(project.id)
-  } catch (reason) { projectDetailError.value = reason instanceof Error ? reason.message : '版本恢复失败' }
-  finally { projectRestoringVersion.value = null }
-}
-async function toggleProjectArchive(projectId: string, archived: boolean) {
-  try {
-    const project = store.projects.find((item) => item.id === projectId)
-    await store.setProjectArchived(projectId, archived)
-    projectNotice.value = `“${project?.name || '项目'}”已${archived ? '归档' : '恢复'}`
-    window.setTimeout(() => { projectNotice.value = '' }, 3000)
-  } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目状态更新失败' }
-}
-function selectCurrentProject(project: Project) { store.selectProject(project.id); projectNotice.value = `已切换到项目“${project.name}”，后续对话、上传和生成内容会归入该项目。`; window.setTimeout(() => { projectNotice.value = '' }, 3600) }
-async function openProjectConversation(conversationId: string) { closeProjectDetails(); await router.push('/chat'); await store.openConversation(conversationId) }
-function openProjectAsset(asset: StudioAsset) { if (asset.kind === 'image' || asset.kind === 'video') previewAsset.value = asset; else downloadGeneratedAsset(asset) }
-async function deleteProject(projectId: string, name: string) { if (!window.confirm(`确认删除“${name}”？此操作无法撤销。`)) return; try { await store.deleteProject(projectId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '项目删除失败' } }
 async function deleteAsset(assetId: string) { try { await store.deleteAsset(assetId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件删除失败' } }
-async function openAssetTeamDialog(asset: StudioAsset) {
-  if (!projectTeams.value.length) projectTeams.value = await api<ProjectTeam[]>('/teams').catch(() => [])
-  assetTeamTarget.value = asset
-  assetTeamId.value = asset.teamId || ''
-}
-async function saveAssetTeam() {
-  if (!assetTeamTarget.value || !canManageAssetTeam.value || assetTeamBusy.value) return
-  assetTeamBusy.value = true
-  try { await api(`/assets/${assetTeamTarget.value.id}/team`, { method: 'PATCH', body: JSON.stringify({ teamId: assetTeamId.value || null }) }); await store.refreshAssets(); assetTeamTarget.value = null; projectNotice.value = assetTeamId.value ? '文件已共享到团队' : '文件已设为个人文件' }
-  catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件归属更新失败' }
-  finally { assetTeamBusy.value = false }
-}
 function requireAuth(redirect: string) { if (auth.isAuthenticated) return true; void router.push(`/login?redirect=${encodeURIComponent(redirect)}`); return false }
 function imageRatioForSize(value: string) {
   if (imageRatios.includes(value)) return value

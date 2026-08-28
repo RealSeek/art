@@ -148,8 +148,12 @@
 </template>
 
 <script setup lang="ts">
-  import { xinyueApi, type Overview, type UsageReport } from '@/api/xinyue'
-  import { xinyueText as xt } from '@/locales/xinyue'
+  import {
+    dashboardApi as xinyueApi,
+    type Overview,
+    type UsageReport
+  } from '@/api/xinyue/dashboard'
+  import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
   import { router } from '@/router'
 
   defineOptions({ name: 'Analysis' })
@@ -200,9 +204,11 @@
       tone: 'orange'
     },
     {
-      label: xt('输出内容'),
-      value: String(report.value?.summary.outputs || 0),
-      note: `${xt('新增用户')} ${overview.value?.newUsers || 0}`,
+      label: 'Token 用量',
+      value: new Intl.NumberFormat(xinyueLocale()).format(
+        (report.value?.summary.inputTokens || 0) + (report.value?.summary.outputTokens || 0)
+      ),
+      note: `缓存 ${new Intl.NumberFormat(xinyueLocale()).format(report.value?.summary.cachedInputTokens || 0)} · 推理 ${new Intl.NumberFormat(xinyueLocale()).format(report.value?.summary.reasoningTokens || 0)}`,
       icon: 'ri:image-2-line',
       tone: 'purple'
     }

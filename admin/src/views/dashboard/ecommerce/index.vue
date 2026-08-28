@@ -141,15 +141,16 @@
 </template>
 
 <script setup lang="ts">
+  import { type Overview } from '@/api/xinyue/dashboard'
+  import { dashboardApi } from '@/api/xinyue/dashboard'
   import {
-    xinyueApi,
-    type Overview,
+    commerceApi,
     type PaymentReconciliation,
     type PaymentSummary,
     type PaymentTransaction,
-    type RechargePackage,
-    type SubscriptionPlan
-  } from '@/api/xinyue'
+    type RechargePackage
+  } from '@/api/xinyue/commerce'
+  import { subscriptionApi, type SubscriptionPlan } from '@/api/xinyue/subscriptions'
   import { router } from '@/router'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'Ecommerce' })
@@ -288,11 +289,11 @@
     try {
       ;[overview.value, summary.value, reconciliation.value, plans.value, packages.value] =
         await Promise.all([
-          xinyueApi.overview(),
-          xinyueApi.paymentSummary(),
-          xinyueApi.paymentReconciliation(),
-          xinyueApi.plans(),
-          xinyueApi.rechargePackages()
+          dashboardApi.overview(),
+          commerceApi.paymentSummary(),
+          commerceApi.paymentReconciliation(),
+          subscriptionApi.plans(),
+          commerceApi.rechargePackages()
         ])
       transactions.value = summary.value?.recent || []
     } finally {

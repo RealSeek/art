@@ -28,39 +28,49 @@
       </ElInput>
       <ElScrollbar class="mt-5" max-height="370px" ref="searchResultScrollbar" always>
         <div class="result w-full" v-show="searchResult.length">
-          <div
-            class="box !mt-0 c-p text-base leading-none"
+          <button
+            type="button"
+            class="box search-result-row !mt-0 text-base leading-none"
             v-for="(item, index) in searchResult"
-            :key="index"
+            :key="resultKey(item, index)"
+            :class="isHighlighted(index) ? 'highlighted' : ''"
+            @click="searchGoPage(item)"
+            @mouseenter="highlightOnHover(index)"
           >
-            <div
-              class="mt-2 h-12 flex-cb rounded-custom-sm bg-g-200/80 px-4 text-sm text-g-700"
-              :class="isHighlighted(index) ? 'highlighted !bg-theme/70 !text-white' : ''"
-              @click="searchGoPage(item)"
-              @mouseenter="highlightOnHover(index)"
-            >
-              {{ formatMenuTitle(item.meta.title) }}
+            <span class="search-result-icon" aria-hidden="true">
+              <ArtSvgIcon :icon="item.meta.icon || 'ri:file-list-3-line'" />
+            </span>
+            <span class="search-result-copy">
+              <strong>{{ formatMenuTitle(item.meta.title) }}</strong>
+              <small v-if="searchResultPath(item)">{{ searchResultPath(item) }}</small>
+            </span>
+            <span class="search-result-enter" aria-hidden="true">
               <ArtSvgIcon v-show="isHighlighted(index)" icon="fluent:arrow-enter-left-20-filled" />
-            </div>
-          </div>
+            </span>
+          </button>
+        </div>
+
+        <div v-show="searchVal && searchResult.length === 0" class="search-empty">
+          <ArtSvgIcon icon="ri:search-line" />
+          <strong>{{ $t('search.noResult') }}</strong>
+          <small>{{ $t('search.noResultHint') }}</small>
         </div>
 
         <div v-show="!searchVal && searchResult.length === 0 && historyResult.length > 0">
           <p class="text-xs text-g-500">{{ $t('search.historyTitle') }}</p>
-          <div class="mt-1.5 w-full">
+          <div class="mt-1.5 w-full history-result">
             <div
-              class="box mt-2 h-12 c-p flex-cb rounded-custom-sm bg-g-200/80 px-4 text-sm text-g-800"
+              class="box search-history-row mt-2 c-p"
               v-for="(item, index) in historyResult"
-              :key="index"
-              :class="
-                historyHIndex === index
-                  ? 'highlighted !bg-theme/70 !text-white [&_.selected-icon]:!text-white'
-                  : ''
-              "
+              :key="resultKey(item, index)"
+              :class="historyHIndex === index ? 'highlighted [&_.selected-icon]:!text-white' : ''"
               @click="searchGoPage(item)"
               @mouseenter="highlightOnHoverHistory(index)"
             >
-              {{ formatMenuTitle(item.meta.title) }}
+              <span class="search-result-copy">
+                <strong>{{ formatMenuTitle(item.meta.title) }}</strong>
+                <small v-if="searchResultPath(item)">{{ searchResultPath(item) }}</small>
+              </span>
               <div
                 class="size-5 selected-icon select-none rounded-full text-g-500 flex-cc c-p"
                 @click.stop="deleteHistory(index)"
@@ -101,6 +111,7 @@
   import { useMenuStore } from '@/store/modules/menu'
   import { formatMenuTitle } from '@/utils/router'
   import { handleMenuJump } from '@/utils/navigation'
+  import { searchMenuItems } from '@/utils/menu-search'
   import { type ScrollbarInstance } from 'element-plus'
 
   defineOptions({ name: 'ArtGlobalSearch' })
@@ -128,6 +139,7 @@
   })
 
   onUnmounted(() => {
+    mittBus.off('openSearchDialog', openSearchDialog)
     document.removeEventListener('keydown', handleKeydown)
   })
 
@@ -168,66 +180,42 @@
 
   // 搜索逻辑
   const search = (val: string) => {
-    if (val) {
-      searchResult.value = flattenAndFilterMenuItems(menuList.value, val)
-    } else {
-      searchResult.value = []
-    }
-  }
-
-  const flattenAndFilterMenuItems = (items: AppRouteRecord[], val: string): AppRouteRecord[] => {
-    const lowerVal = val.toLowerCase()
-    const result: AppRouteRecord[] = []
-
-    const flattenAndMatch = (item: AppRouteRecord) => {
-      if (item.meta?.isHide) return
-
-      const lowerItemTitle = formatMenuTitle(item.meta.title).toLowerCase()
-
-      if (item.children && item.children.length > 0) {
-        item.children.forEach(flattenAndMatch)
-        return
-      }
-
-      if (
-        lowerItemTitle.includes(lowerVal) &&
-        ((item.path && item.path.trim()) || item.meta.link || item.meta.isIframe)
-      ) {
-        result.push({ ...item, children: undefined })
-      }
-    }
-
-    items.forEach(flattenAndMatch)
-    return result
+    highlightedIndex.value = 0
+    searchResult.value = searchMenuItems(menuList.value, val, formatMenuTitle)
   }
 
   // 高亮控制并实现滚动条跟随
   const highlightPrevious = () => {
     isKeyboardNavigating.value = true
     if (searchVal.value) {
+      if (!searchResult.value.length) return resetKeyboardNavigation()
       highlightedIndex.value =
         (highlightedIndex.value - 1 + searchResult.value.length) % searchResult.value.length
       scrollToHighlightedItem()
     } else {
+      if (!historyResult.value.length) return resetKeyboardNavigation()
       historyHIndex.value =
         (historyHIndex.value - 1 + historyResult.value.length) % historyResult.value.length
       scrollToHighlightedHistoryItem()
     }
-    // 延迟重置键盘导航状态，防止立即被 hover 覆盖
-    setTimeout(() => {
-      isKeyboardNavigating.value = false
-    }, 100)
+    resetKeyboardNavigation()
   }
 
   const highlightNext = () => {
     isKeyboardNavigating.value = true
     if (searchVal.value) {
+      if (!searchResult.value.length) return resetKeyboardNavigation()
       highlightedIndex.value = (highlightedIndex.value + 1) % searchResult.value.length
       scrollToHighlightedItem()
     } else {
+      if (!historyResult.value.length) return resetKeyboardNavigation()
       historyHIndex.value = (historyHIndex.value + 1) % historyResult.value.length
       scrollToHighlightedHistoryItem()
     }
+    resetKeyboardNavigation()
+  }
+
+  const resetKeyboardNavigation = () => {
     setTimeout(() => {
       isKeyboardNavigating.value = false
     }, 100)
@@ -294,6 +282,11 @@
   const isHighlighted = (index: number) => {
     return highlightedIndex.value === index
   }
+
+  const resultKey = (item: AppRouteRecord, index: number) =>
+    String(item.path || item.meta.link || item.name || index)
+
+  const searchResultPath = (item: AppRouteRecord) => (item.meta.searchBreadcrumb || []).join(' / ')
 
   const searchBlur = () => {
     highlightedIndex.value = 0
@@ -367,6 +360,10 @@
 </script>
 <style lang="scss" scoped>
   .layout-search {
+    :deep(.el-dialog) {
+      max-width: calc(100vw - 24px);
+    }
+
     :deep(.search-modal) {
       background-color: rgb(0 0 0 / 20%);
     }
@@ -390,6 +387,125 @@
       :deep(.el-input__inner) {
         color: var(--art-gray-800) !important;
       }
+    }
+
+    .search-result-row,
+    .search-history-row {
+      align-items: center;
+      background: var(--art-gray-200);
+      border: 1px solid transparent;
+      border-radius: calc(var(--custom-radius) / 2 + 2px);
+      color: var(--art-gray-800);
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 32px minmax(0, 1fr) 24px;
+      margin-top: 8px;
+      min-height: 58px;
+      padding: 7px 12px;
+      text-align: left;
+      transition:
+        background-color 120ms ease,
+        border-color 120ms ease,
+        color 120ms ease;
+      width: 100%;
+    }
+
+    .search-result-row:first-child {
+      margin-top: 0;
+    }
+
+    .search-history-row {
+      grid-template-columns: minmax(0, 1fr) 24px;
+    }
+
+    .search-result-row:hover,
+    .search-history-row:hover {
+      border-color: color-mix(in srgb, var(--main-color) 24%, transparent);
+    }
+
+    .search-result-row.highlighted,
+    .search-history-row.highlighted {
+      background: color-mix(in srgb, var(--main-color) 78%, var(--art-gray-100));
+      color: white;
+    }
+
+    .search-result-icon {
+      align-items: center;
+      background: color-mix(in srgb, var(--main-color) 10%, var(--art-gray-100));
+      border-radius: 7px;
+      color: var(--main-color);
+      display: flex;
+      font-size: 16px;
+      height: 32px;
+      justify-content: center;
+      width: 32px;
+    }
+
+    .highlighted .search-result-icon {
+      background: rgb(255 255 255 / 16%);
+      color: white;
+    }
+
+    .search-result-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .search-result-copy strong {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 18px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search-result-copy small {
+      color: var(--art-gray-500);
+      font-size: 10px;
+      line-height: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .highlighted .search-result-copy small {
+      color: rgb(255 255 255 / 72%);
+    }
+
+    .search-result-enter {
+      align-items: center;
+      display: flex;
+      height: 24px;
+      justify-content: center;
+      width: 24px;
+    }
+
+    .search-empty {
+      align-items: center;
+      color: var(--art-gray-500);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      justify-content: center;
+      min-height: 180px;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .search-empty > svg {
+      font-size: 24px;
+      margin-bottom: 4px;
+    }
+
+    .search-empty strong {
+      color: var(--art-gray-700);
+      font-size: 13px;
+    }
+
+    .search-empty small {
+      font-size: 11px;
     }
   }
 

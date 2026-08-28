@@ -88,17 +88,28 @@ export const useAuthStore = defineStore('auth', {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session))
     },
     async refresh() {
+      // The server session is HttpOnly, so localStorage is only a client-side
+      // hint. Reconcile with the non-erroring session probe so an admin portal
+      // login (or another tab) unlocks the user workspace without a second
+      // sign-in step, while public pages do not emit a predictable 401.
       try {
-        const user = await api<{ id: string; email: string | null; username?: string; displayName?: string; authMethod?: string }>('/auth/me')
+        const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string; authMethod?: string } | null }>('/auth/session')
+        const user = response.user
+        if (!user) {
+          this.session = null
+          window.localStorage.removeItem(STORAGE_KEY)
+          return
+        }
         const method = ['password', 'email', 'linuxdo'].includes(user.authMethod || '') ? user.authMethod as AuthSession['provider'] : 'community'
         this.session = { id: user.id, email: user.email || '', username: user.username, displayName: user.displayName, provider: method, signedInAt: this.session?.signedInAt || Date.now() }
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session))
       } catch (error) {
-        if (error instanceof ApiError && error.status === 401 && this.session?.provider !== 'community') {
+        if (error instanceof ApiError && error.status === 401) {
           this.session = null
           window.localStorage.removeItem(STORAGE_KEY)
         }
-        // Local/community sessions remain available when the server is offline.
+        // A public page without a cookie simply remains signed out. Network
+        // failures do not erase a local session so offline work can continue.
       }
     },
     async signOut() {

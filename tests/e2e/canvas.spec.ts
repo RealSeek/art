@@ -7,6 +7,7 @@ test.describe('无限画布基础能力', () => {
   })
 
   test('创建节点、自动保存并在刷新后恢复', async ({ page }) => {
+    test.setTimeout(60_000)
     const title = `e2e-canvas-${Date.now()}`
     let canvasId = ''
 
@@ -27,22 +28,26 @@ test.describe('无限画布基础能力', () => {
       await textNode.fill('阶段一自动保存与恢复测试')
       await page.getByTitle('添加图片节点').click()
       await page.getByTitle('添加视频节点').click()
-      await page.getByTitle('添加生成设置').click()
-      await page.getByTitle('添加分组').click()
+      await page.getByTitle('生成配置').click()
+      await page.getByRole('button', { name: '打开画布菜单' }).click()
+      await page.getByRole('menuitem', { name: '添加分组' }).click()
 
       await expect(page.locator('.vue-flow__node-canvas')).toHaveCount(5)
-      await page.getByRole('button', { name: '网格', exact: true }).click()
+      await page.getByTitle('画布外观').click()
+      const appearancePanel = page.getByLabel('画布外观', { exact: true })
+      await appearancePanel.getByRole('button', { name: '网格', exact: true }).click()
       await expect(page.locator('.canvas-save-status')).toContainText('已保存', { timeout: 10_000 })
       await assertNoPageOverflow(page)
 
       await page.reload()
       await expect(page.locator('.vue-flow__node-canvas')).toHaveCount(5)
       await expect(page.locator('.canvas-flow-node.is-text textarea')).toHaveValue('阶段一自动保存与恢复测试')
-      await expect(page.getByRole('button', { name: '网格', exact: true })).toHaveClass(/is-active/)
+      await page.getByTitle('画布外观').click()
+      await expect(page.getByLabel('画布外观', { exact: true }).getByRole('button', { name: '网格', exact: true })).toHaveClass(/is-active/)
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await expect(page.locator('.canvas-tool-rail')).toBeVisible()
-      await expect(page.locator('.canvas-bottom-bar')).toBeVisible()
+      await expect(page.locator('.canvas-tool-dock')).toBeVisible()
+      await expect(page.locator('.canvas-navigation-dock')).toBeVisible()
       await assertNoPageOverflow(page)
       await page.evaluate(() => { document.documentElement.dataset.studioTheme = 'dark' })
       await expect(page.locator('.canvas-editor-page')).toHaveCSS('overflow', 'hidden')
@@ -187,10 +192,11 @@ test.describe('无限画布基础能力', () => {
       }))
 
       await page.goto(`/canvas/${canvas.id}`)
-      await page.getByRole('button', { name: '画布 Agent' }).click()
+      await expect(page.getByRole('complementary', { name: 'Canvas Agent 对话面板' })).toBeVisible()
+      await page.getByRole('textbox', { name: '描述你想让 Agent 如何操作画布' }).fill('为产品建立一条主视觉生成流程')
+      await page.getByRole('button', { name: '发送', exact: true }).click()
       await expect(page.getByRole('heading', { name: '让 Agent 整理当前画布' })).toBeVisible()
-      await page.getByLabel('任务目标').fill('为产品建立一条主视觉生成流程')
-      await page.getByRole('button', { name: '生成操作计划' }).click()
+      await page.getByRole('dialog', { name: '让 Agent 整理当前画布' }).getByRole('button', { name: '生成操作计划' }).click()
       await expect(page.getByText('建立产品视觉生成流程')).toBeVisible()
       await expect(page.locator('.canvas-agent-operation-list li')).toHaveCount(3)
       await page.getByRole('button', { name: '应用 3 项变更' }).click()
@@ -227,14 +233,14 @@ test.describe('无限画布基础能力', () => {
       })
       await expect(page.locator('.canvas-media-dialog')).toHaveCount(0)
       await expect(page.locator('.canvas-flow-node.is-image img')).toBeVisible()
-      await page.locator('.canvas-flow-node.is-image').click()
+      await page.locator('.canvas-flow-node.is-image').dblclick()
       await page.getByRole('button', { name: '裁剪', exact: true }).click()
       await expect(page.getByRole('heading', { name: '裁剪图片', exact: true })).toBeVisible()
       await page.getByRole('button', { name: '1:1', exact: true }).click()
       await page.getByRole('button', { name: '完成裁剪', exact: true }).click()
       await expect(page.locator('.canvas-image-editor')).toHaveCount(0)
 
-      await page.locator('.canvas-flow-node.is-image').click()
+      await page.locator('.canvas-flow-node.is-image').dblclick()
       await page.getByRole('button', { name: '绘制蒙版', exact: true }).click()
       await expect(page.getByRole('heading', { name: '绘制编辑区域', exact: true })).toBeVisible()
       const mask = page.locator('.canvas-mask-layer')

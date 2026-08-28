@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
@@ -17,7 +19,6 @@ export type PromptLibrarySource = {
   promptType: PromptLibraryType;
   upstreamName: string;
   defaultDisplayName: string;
-  legacyDisplayNames?: string[];
   url?: string;
   fallbackUrl?: string;
   homepage: string;
@@ -25,6 +26,7 @@ export type PromptLibrarySource = {
     | "normalized"
     | "upma"
     | "local"
+    | "works"
     | "shortfilm-builder"
     | "generateprompt-html"
     | "youmind-image-sitemap"
@@ -82,7 +84,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "UPMA · GPT Image 2 提示词",
     defaultDisplayName: "商业视觉精选",
-    legacyDisplayNames: ["GPT Image 2 精选一"],
     url: "https://cdn.jsdelivr.net/gh/freestylefly/awesome-gpt-image-2@main/data/cases.json",
     fallbackUrl:
       "https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data/cases.json",
@@ -96,7 +97,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "YouMind · Image Prompts",
     defaultDisplayName: "图片灵感精选",
-    legacyDisplayNames: ["GPT Image 2 精选二", "YouMind 图片灵感"],
     homepage: "https://youmind.com/zh-CN/prompts/image",
     format: "youmind-image-sitemap",
     defaultSortOrder: 20,
@@ -106,7 +106,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "YouMind OpenLab · Nano Banana Pro",
     defaultDisplayName: "创意图片精选",
-    legacyDisplayNames: ["Nano Banana Pro 精选"],
     url: `${SOURCE_BASE}/youmind-nano-banana-pro.json`,
     fallbackUrl: `${SOURCE_FALLBACK_BASE}/youmind-nano-banana-pro.json`,
     homepage:
@@ -119,7 +118,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "Banana Prompt Quicker",
     defaultDisplayName: "通用图片模板",
-    legacyDisplayNames: ["通用图片提示词"],
     url: `${SOURCE_BASE}/banana-prompt-quicker.json`,
     fallbackUrl: `${SOURCE_FALLBACK_BASE}/banana-prompt-quicker.json`,
     homepage: "https://glidea.github.io/banana-prompt-quicker/",
@@ -131,7 +129,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "DavidWu · GPT Image 2",
     defaultDisplayName: "图片创作案例",
-    legacyDisplayNames: ["GPT Image 2 创意库"],
     url: `${SOURCE_BASE}/davidwu-gpt-image2-prompts.json`,
     fallbackUrl: `${SOURCE_FALLBACK_BASE}/davidwu-gpt-image2-prompts.json`,
     homepage: "https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts",
@@ -143,7 +140,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "ZeroLu · Awesome GPT Image",
     defaultDisplayName: "视觉风格精选",
-    legacyDisplayNames: ["GPT Image 精选"],
     url: `${SOURCE_BASE}/awesome-gpt-image.json`,
     fallbackUrl: `${SOURCE_FALLBACK_BASE}/awesome-gpt-image.json`,
     homepage: "https://github.com/ZeroLu/awesome-gpt-image",
@@ -155,7 +151,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "IMAGE",
     upstreamName: "ImgEdify · Awesome GPT-4o",
     defaultDisplayName: "图文设计精选",
-    legacyDisplayNames: ["GPT-4o 图片提示词"],
     url: `${SOURCE_BASE}/awesome-gpt4o-image-prompts.json`,
     fallbackUrl: `${SOURCE_FALLBACK_BASE}/awesome-gpt4o-image-prompts.json`,
     homepage: "https://github.com/ImgEdify/Awesome-GPT4o-Image-Prompts",
@@ -168,7 +163,6 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "VIDEO",
     upstreamName: "GeneratePrompt · Video Prompts",
     defaultDisplayName: "热门视频精选",
-    legacyDisplayNames: ["GeneratePrompt 视频灵感"],
     url: "https://generateprompt.net/zh/video-prompts",
     homepage: "https://generateprompt.net/zh/video-prompts",
     format: "generateprompt-html",
@@ -179,10 +173,27 @@ const SOURCES: PromptLibrarySource[] = [
     promptType: "VIDEO",
     upstreamName: "YouMind · Video Prompts",
     defaultDisplayName: "视频灵感精选",
-    legacyDisplayNames: ["YouMind 视频灵感"],
     homepage: "https://youmind.com/zh-CN/prompts/video",
     format: "youmind-sitemap",
     defaultSortOrder: 110,
+  },
+  {
+    id: "published-works-image",
+    promptType: "IMAGE",
+    upstreamName: "Xinyue AI 公开作品",
+    defaultDisplayName: "社区图片作品",
+    homepage: "/prompts",
+    format: "works",
+    defaultSortOrder: 200,
+  },
+  {
+    id: "published-works-video",
+    promptType: "VIDEO",
+    upstreamName: "Xinyue AI 公开作品",
+    defaultDisplayName: "社区视频作品",
+    homepage: "/prompts",
+    format: "works",
+    defaultSortOrder: 210,
   },
 ];
 
@@ -236,27 +247,20 @@ const TAG_TRANSLATIONS: Record<string, string> = {
 };
 
 @Injectable()
-export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
+export class PromptLibraryService implements OnModuleInit {
   private readonly cache = new Map<string, SourceCache>();
   private readonly loading = new Map<string, Promise<SourceCache>>();
-  private refreshTimer?: NodeJS.Timeout;
+  constructor(private readonly prisma: PrismaService, @InjectQueue("prompt-library") private readonly queue: Queue) {}
 
-  constructor(private readonly prisma: PrismaService) {}
-
-  onModuleInit() {
+  async onModuleInit() {
     setTimeout(() => {
       void this.configuredSources()
         .then((sources) => Promise.all(sources.map((source) => this.loadSource(source))))
         .catch(() => undefined);
     }, 1_000).unref();
-    this.refreshTimer = setInterval(() => {
-      void this.refreshAll().catch(() => undefined);
-    }, AUTO_REFRESH_MS);
-    this.refreshTimer.unref();
-  }
-
-  onModuleDestroy() {
-    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    await this.queue.upsertJobScheduler("prompt-library-refresh", { every: AUTO_REFRESH_MS }, {
+      name: "refresh", data: {}, opts: { removeOnComplete: 20, removeOnFail: 100 },
+    });
   }
 
   async list(input: {
@@ -266,6 +270,7 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
     tag?: string;
     page?: number;
     pageSize?: number;
+    cursor?: string;
   }) {
     const promptType = this.parsePromptType(input.promptType);
     const sources = (await this.configuredSources()).filter(
@@ -299,14 +304,16 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
     );
     const pageSize = Math.max(1, Math.min(60, input.pageSize || 24));
     const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-    const page = Math.min(pages, Math.max(1, input.page || 1));
+    const cursorIndex = this.decodeCursor(input.cursor);
+    const page = input.cursor ? Math.floor(cursorIndex / pageSize) + 1 : Math.min(pages, Math.max(1, input.page || 1));
+    const start = input.cursor ? cursorIndex : (page - 1) * pageSize;
+    const pageItems = filtered.slice(start, start + pageSize);
     return {
-      items: filtered
-        .slice((page - 1) * pageSize, page * pageSize)
-        .map((item) => this.publicItem(item)),
+      items: pageItems.map((item) => this.publicItem(item)),
       total: filtered.length,
       page,
       pageSize,
+      nextCursor: start + pageItems.length < filtered.length ? this.encodeCursor(start + pageItems.length) : null,
       sources: await this.publicSources(sources),
       tags: this.collectTags(queryMatches),
       partial: selectedSources.some((source) =>
@@ -409,6 +416,7 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
     sourceId?: string;
     page?: number;
     pageSize?: number;
+    cursor?: string;
   }) {
     const requestedType = input.promptType
       ? this.parsePromptType(input.promptType)
@@ -430,17 +438,33 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
           .toLocaleLowerCase()
           .includes(query),
     );
-    const pageSize = Math.max(1, Math.min(5000, input.pageSize || 20));
+    const pageSize = Math.max(1, Math.min(100, input.pageSize || 20));
     const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-    const page = Math.min(pages, Math.max(1, input.page || 1));
+    const cursorIndex = this.decodeCursor(input.cursor);
+    const page = input.cursor ? Math.floor(cursorIndex / pageSize) + 1 : Math.min(pages, Math.max(1, input.page || 1));
+    const start = input.cursor ? cursorIndex : (page - 1) * pageSize;
+    const pageItems = filtered.slice(start, start + pageSize);
     return {
-      items: filtered
-        .slice((page - 1) * pageSize, page * pageSize)
-        .map((item) => ({ ...item, promptTypeLabel: this.promptTypeLabel(item.promptType) })),
+      items: pageItems.map((item) => ({ ...item, promptTypeLabel: this.promptTypeLabel(item.promptType) })),
       total: filtered.length,
       page,
       pageSize,
+      nextCursor: start + pageItems.length < filtered.length ? this.encodeCursor(start + pageItems.length) : null,
     };
+  }
+
+  private encodeCursor(index: number) {
+    return Buffer.from(String(Math.max(0, index)), 'utf8').toString('base64url');
+  }
+
+  private decodeCursor(cursor?: string) {
+    if (!cursor) return 0;
+    try {
+      const value = Number(Buffer.from(cursor, 'base64url').toString('utf8'));
+      return Number.isInteger(value) && value >= 0 ? value : 0;
+    } catch {
+      return 0;
+    }
   }
 
   async updateItem(
@@ -534,10 +558,7 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
       const config = configs.get(source.id);
       return {
         ...source,
-        displayName:
-          config?.displayName && !source.legacyDisplayNames?.includes(config.displayName)
-            ? config.displayName
-            : source.defaultDisplayName,
+        displayName: config?.displayName || source.defaultDisplayName,
         enabled: config?.enabled ?? true,
         sortOrder: config?.sortOrder ?? source.defaultSortOrder,
       };
@@ -673,6 +694,53 @@ export class PromptLibraryService implements OnModuleInit, OnModuleDestroy {
     stale?: SourceCache,
   ): Promise<SourceCache> {
     try {
+      if (source.format === "works") {
+        const rows = await this.prisma.publishedWork.findMany({
+          where: {
+            lifecycleStatus: "ACTIVE",
+            publishedVersion: {
+              moderationStatus: "APPROVED",
+              visibility: "PUBLIC",
+              publicPrompt: { not: "" },
+              assets: { some: { asset: { kind: source.promptType === "VIDEO" ? "VIDEO" : "IMAGE" } } },
+            },
+          },
+          orderBy: [{ isFeatured: "desc" }, { updatedAt: "desc" }],
+          take: 5000,
+          include: { user: { select: { displayName: true } }, publishedVersion: { include: { assets: { orderBy: { sortOrder: "asc" }, include: { asset: { select: { id: true, kind: true } } } } } } },
+        });
+        const items = rows.flatMap((work) => {
+          const version = work.publishedVersion;
+          if (!version?.publicPrompt?.trim()) return [];
+          const media = version.assets.filter((item) => item.asset.kind === (source.promptType === "VIDEO" ? "VIDEO" : "IMAGE"));
+          if (!media.length) return [];
+          const first = media[0].asset;
+          const mediaUrl = `/v1/gallery/${work.slug}/assets/${first.id}`;
+          const author = version.authorDisplay === "HIDDEN" ? "匿名创作者" : version.authorDisplay === "CUSTOM" ? version.customAuthor : work.user.displayName;
+          return [{
+            id: `${source.id}:${work.id}:${version.id}`,
+            sourceId: source.id,
+            sourceName: source.displayName,
+            promptType: source.promptType,
+            title: version.title,
+            prompt: version.publicPrompt,
+            description: version.description,
+            tags: version.tags,
+            author,
+            imageModel: source.promptType === "VIDEO" ? "社区视频作品" : "社区图片作品",
+            coverUrl: mediaUrl,
+            previewVideoUrl: source.promptType === "VIDEO" ? mediaUrl : "",
+            referenceImageUrls: source.promptType === "IMAGE" ? [mediaUrl] : [],
+            sourceUrl: `/gallery/${work.slug}`,
+            syncedAt: version.reviewedAt?.toISOString() || version.updatedAt.toISOString(),
+            enabled: true,
+            overridden: false,
+          } satisfies PromptLibraryItem];
+        });
+        const next = this.cacheResult(items);
+        this.cache.set(source.id, next);
+        return next;
+      }
       if (source.format === "local") {
         const next = {
           items: this.localItems(source),

@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-ops">
+  <div class="xinyue-page agent-ops">
     <header class="page-title">
       <div><h1>Agent 运营中心</h1><p>监控自主任务、运行轮次、审批中断和定时计划</p></div>
       <ElButton :loading="loading" @click="load"

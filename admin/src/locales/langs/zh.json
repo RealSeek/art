@@ -39,8 +39,10 @@
     "logOutTips": "您是否要退出登录?"
   },
   "search": {
-    "placeholder": "搜索页面",
+    "placeholder": "搜索页面、功能或业务关键词",
     "historyTitle": "搜索历史",
+    "noResult": "没有找到相关功能",
+    "noResultHint": "可尝试页面名、业务别名或资源关键词",
     "switchKeydown": "切换",
     "selectKeydown": "选择",
     "exitKeydown": "关闭"
@@ -388,6 +390,7 @@
       "subscriptions": "订阅与套餐",
       "payments": "充值与支付",
       "financeMargins": "成本与毛利",
+      "billingReconciliation": "异常账单",
       "byokOperations": "用户密钥运营",
       "commercialGovernance": "商业治理",
       "operations": "运营与安全",

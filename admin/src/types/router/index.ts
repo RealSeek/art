@@ -66,6 +66,14 @@ export interface RouteMeta extends Record<string | number | symbol, unknown> {
   authMark?: string
   /** 父级路径 */
   parentPath?: string
+  /** 全局搜索使用的业务别名，不影响菜单标题 */
+  searchKeywords?: string[]
+  /** 全局搜索结果中的所属业务路径 */
+  searchBreadcrumb?: string[]
+  /** 后台资源标识 */
+  resource?: string
+  /** 长菜单内的业务段落标题，不参与路由匹配 */
+  menuSection?: string
 }
 
 /**

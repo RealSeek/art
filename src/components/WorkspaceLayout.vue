@@ -20,9 +20,10 @@ const activeMode = computed<StudioMode>(() => {
     office: 'office',
     prompts: 'prompts',
     plugins: 'plugins',
+    capabilities: 'plugins',
     workspace: 'workspace',
-    works: 'workspace',
     canvases: 'workspace',
+    'image-prompt': 'workspace',
     canvas: 'workspace',
   }
   return modes[String(route.name)] || 'api'

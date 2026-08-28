@@ -4,6 +4,7 @@ import App from './App.vue'
 import { router } from './router'
 import { i18n } from './i18n'
 import { useAuthStore } from './stores/auth'
+import './styles/tokens.css'
 import './styles/main.css'
 import './styles/workspace.css'
 import './styles/landing.css'
@@ -13,6 +14,7 @@ import './styles/prompt-library.css'
 import './styles/office.css'
 import './styles/plugins.css'
 import './styles/canvas.css'
+import './styles/image-prompt.css'
 
 const app = createApp(App)
 const pinia = createPinia()

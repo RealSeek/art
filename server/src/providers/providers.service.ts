@@ -7,6 +7,15 @@ import { CredentialCryptoService } from './credential-crypto.service'
 import { normalizeSiteContent } from './site-content'
 import { CapabilityRegistryService } from './capability-registry.service'
 import { DiscoveredModel, ModelDiscoveryService } from './model-discovery.service'
+import { normalizeChatHomeContent } from './chat-home-content'
+import { ProviderHealthService } from './provider-health.service'
+import { ProviderRoutingService } from './provider-routing.service'
+import {
+  orderPlatformRoutes,
+  orderPrivateRoutes,
+  providerSourceRequirement,
+  userCredentialCreditCost
+} from './provider-routing'
 
 type ProviderInput = {
   name: string
@@ -22,6 +31,10 @@ type ProviderInput = {
   allowUserKeys?: boolean
   customHeaders?: Record<string, string>
   metadata?: Record<string, unknown>
+}
+
+function routeOptionsRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 type ModelVendorInput = {
@@ -112,6 +125,9 @@ type SystemSettingsInput = Partial<{
   siteContent: Record<string, unknown>
   defaultChatModelKey: string
   defaultImageModelKey: string
+  imagePromptEnabled: boolean
+  imagePromptModelKey: string
+  imagePromptBillingMode: string
   userByokEnabled: boolean
   inviteRewardCredits: number
   referralEnabled: boolean
@@ -171,6 +187,8 @@ export type ResolvedProvider = {
   videoCapabilities?: Record<string, unknown>
   creditRatePercent: number
   apiProtocol: 'openai' | 'anthropic' | 'gemini'
+  /** Model/route request hints such as reasoning_effort or enable_thinking. */
+  options?: Record<string, unknown>
   nativeSearchProvider?: 'openai' | 'anthropic' | 'gemini' | 'xai' | 'qwen' | 'doubao'
 }
 
@@ -191,59 +209,6 @@ type VideoCapabilities = {
 type VideoCapabilityRoute = {
   options: Prisma.JsonValue | null
   provider: { type: ProviderType; enabled: boolean; encryptedApiKey: string }
-}
-
-const DEFAULT_CHAT_HOME_CONTENT = {
-  doubaoRecommendations: [],
-  qianwenBanners: [
-    { title: 'Xinyue 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
-    { title: '多格式办公文件交付', description: '生成可继续编辑的 PPTX、DOCX 与 XLSX 文件', buttonText: '开始办公任务', imageUrl: '', targetUrl: '/office' },
-    { title: '会议材料整理', description: '根据会议文字或文档提炼议题、结论与待办', buttonText: '整理会议材料', imageUrl: '', targetUrl: '/office?tool=meeting' },
-  ],
-  kimiProject: { label: '选择项目', targetUrl: '/workspace?tab=projects' },
-  composerControls: {
-    gpt: { modeEnabled: false, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: false },
-    doubao: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
-    qianwen: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
-    kimi: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
-  },
-  quickActions: {
-    gpt: [],
-    doubao: [
-      { id: 'doubao-video', label: '视频生成', icon: 'video', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/video', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
-      { id: 'doubao-music', label: '音乐创作方案', icon: 'music', placement: 'BAR', actionType: 'PROMPT', prompt: '请根据以下描述策划音乐风格、结构、歌词方向与制作方案：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
-      { id: 'doubao-image', label: '图像生成', icon: 'image', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
-      { id: 'doubao-podcast', label: 'AI 播客', icon: 'podcast', placement: 'BAR', actionType: 'PROMPT', prompt: '请策划一份 AI 播客脚本：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
-      { id: 'doubao-table', label: 'AI 表格', icon: 'table', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'spreadsheet', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
-      { id: 'doubao-writing', label: '帮我写作', icon: 'writing', placement: 'BAR', actionType: 'OFFICE', prompt: '请帮我撰写：', target: 'writing', modelKey: '', webSearch: false, enabled: true, sortOrder: 60 },
-      { id: 'doubao-transcribe', label: '会议纪要', icon: 'transcribe', placement: 'BAR', actionType: 'OFFICE', prompt: '请根据我提供的会议文字或文档整理会议纪要：', target: 'meeting', modelKey: '', webSearch: false, enabled: true, sortOrder: 70 },
-      { id: 'doubao-ppt', label: 'PPT 生成', icon: 'ppt', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
-      { id: 'doubao-translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译以下内容：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
-      { id: 'doubao-research', label: '深入研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 30 },
-      { id: 'doubao-answer', label: '解题答疑', icon: 'answer', placement: 'MORE', actionType: 'PROMPT', prompt: '请分步解答以下问题：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
-      { id: 'doubao-analysis', label: '数据分析', icon: 'table', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'analysis', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
-    ],
-    qianwen: [
-      { id: 'qianwen-office', label: '办公助理', icon: 'office', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'daily', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
-      { id: 'qianwen-ppt', label: 'PPT 创作', icon: 'ppt', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
-      { id: 'qianwen-video', label: 'AI 生视频', icon: 'video', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/video', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
-      { id: 'qianwen-image', label: 'AI 生图', icon: 'image', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
-      { id: 'qianwen-code', label: '代码', icon: 'code', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'development', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
-      { id: 'qianwen-translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译以下内容：', target: '', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
-      { id: 'qianwen-writing', label: 'AI 写作', icon: 'writing', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'writing', modelKey: '', webSearch: false, enabled: true, sortOrder: 30 },
-      { id: 'qianwen-research', label: '研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 40 },
-      { id: 'qianwen-meeting', label: '会议纪要', icon: 'transcribe', placement: 'MORE', actionType: 'OFFICE', prompt: '请根据我提供的会议文字或文档整理会议纪要：', target: 'meeting', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
-    ],
-    kimi: [
-      { id: 'kimi-ppt', label: 'PPT', icon: 'ppt', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'ppt', modelKey: '', webSearch: false, enabled: true, sortOrder: 10 },
-      { id: 'kimi-agent', label: '集群', icon: 'office', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'daily', modelKey: '', webSearch: false, enabled: true, sortOrder: 20 },
-      { id: 'kimi-research', label: '深度研究', icon: 'research', placement: 'BAR', actionType: 'PROMPT', prompt: '请深入研究并给出可核验的资料来源：', target: '', modelKey: '', webSearch: true, enabled: true, sortOrder: 30 },
-      { id: 'kimi-document', label: '文档', icon: 'document', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'report', modelKey: '', webSearch: false, enabled: true, sortOrder: 40 },
-      { id: 'kimi-website', label: '网站', icon: 'website', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'development', modelKey: '', webSearch: false, enabled: true, sortOrder: 50 },
-      { id: 'kimi-table', label: '表格', icon: 'table', placement: 'BAR', actionType: 'OFFICE', prompt: '', target: 'spreadsheet', modelKey: '', webSearch: false, enabled: true, sortOrder: 60 },
-      { id: 'kimi-design', label: '设计', icon: 'design', placement: 'BAR', actionType: 'ROUTE', prompt: '', target: '/image', modelKey: '', webSearch: false, enabled: true, sortOrder: 70 },
-    ],
-  },
 }
 
 const DEFAULT_PRESETS = [
@@ -344,7 +309,7 @@ const DEFAULT_PROVIDER_TEMPLATES = [
 
 @Injectable()
 export class ProvidersService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly modelDiscovery: ModelDiscoveryService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly modelDiscovery: ModelDiscoveryService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService) {}
 
   async onModuleInit() {
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
@@ -1106,7 +1071,7 @@ export class ProvidersService implements OnModuleInit {
       sub2apiUserInfoUrl: _sub2apiUserInfoUrl,
       ...safe
     } = row
-    const chatHomeContent = this.chatHomeContent(row.chatHomeContent)
+    const chatHomeContent = normalizeChatHomeContent(row.chatHomeContent)
     if (admin) return {
       ...safe,
       chatHomeContent,
@@ -1139,9 +1104,14 @@ export class ProvidersService implements OnModuleInit {
       chatUiPreset: row.chatUiPreset,
       chatHomeContent: {
         ...chatHomeContent,
+        // Live hot topics are served by /v1/catalog/recommendations. Never
+        // expose an old manually saved list as if it were current data.
+        doubaoRecommendations: [],
         quickActions: await this.capabilities.filterPublished(chatHomeContent.quickActions),
       },
       siteContent: normalizeSiteContent(row.siteContent),
+      imagePromptEnabled: row.imagePromptEnabled,
+      imagePromptBillingMode: row.imagePromptBillingMode,
       userByokEnabled: row.userByokEnabled,
       rechargeEnabled: row.rechargeEnabled,
       currency: row.currency,
@@ -1155,7 +1125,7 @@ export class ProvidersService implements OnModuleInit {
   async updateSystemSettings(input: SystemSettingsInput) {
     const { smtpPassword, linuxDoClientSecret, chatHomeContent, siteContent, ...settings } = input
     const data: Prisma.SystemSettingUpdateInput = { ...settings }
-    if (chatHomeContent) data.chatHomeContent = this.chatHomeContent(chatHomeContent) as Prisma.InputJsonValue
+    if (chatHomeContent) data.chatHomeContent = normalizeChatHomeContent(chatHomeContent) as Prisma.InputJsonValue
     if (siteContent) data.siteContent = normalizeSiteContent(siteContent) as unknown as Prisma.InputJsonValue
     if (smtpPassword) {
       data.encryptedSmtpPassword = this.crypto.encrypt(smtpPassword)
@@ -1173,103 +1143,6 @@ export class ProvidersService implements OnModuleInit {
     }
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: data, create: { id: 'global', ...data } as Prisma.SystemSettingCreateInput })
     return this.getSystemSettings(true)
-  }
-
-  private chatHomeContent(value: Prisma.JsonValue | Record<string, unknown> | null | undefined) {
-    const input = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-    const text = (item: unknown, fallback = '', max = 500) => typeof item === 'string' ? item.trim().slice(0, max) : fallback
-    const legacyRoutes: Record<string, string> = {
-      '/agents': '/office',
-      '/files': '/workspace?tab=files',
-      '/plugins': '/capabilities?tab=skills',
-      '/projects': '/workspace?tab=projects',
-      '/studio': '/chat',
-    }
-    const destination = (item: unknown, fallback: string) => {
-      const value = text(item, fallback, 1000)
-      if (value.startsWith('/')) return legacyRoutes[value] || value
-      try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.toString() : fallback } catch { return fallback }
-    }
-    const defaultRecommendations = DEFAULT_CHAT_HOME_CONTENT.doubaoRecommendations as Array<{ title: string; prompt: string; targetUrl: string }>
-    const recommendations = Array.isArray(input.doubaoRecommendations) ? input.doubaoRecommendations : defaultRecommendations
-    const defaultBanners = DEFAULT_CHAT_HOME_CONTENT.qianwenBanners
-    const banners = Array.isArray(input.qianwenBanners) ? input.qianwenBanners : defaultBanners
-    const rawProject = input.kimiProject && typeof input.kimiProject === 'object' && !Array.isArray(input.kimiProject) ? input.kimiProject as Record<string, unknown> : DEFAULT_CHAT_HOME_CONTENT.kimiProject
-    const rawControls = input.composerControls && typeof input.composerControls === 'object' && !Array.isArray(input.composerControls) ? input.composerControls as Record<string, unknown> : {}
-    const rawActions = input.quickActions && typeof input.quickActions === 'object' && !Array.isArray(input.quickActions) ? input.quickActions as Record<string, unknown> : {}
-    const presets = ['gpt', 'doubao', 'qianwen', 'kimi'] as const
-    const bool = (item: unknown, fallback: boolean) => typeof item === 'boolean' ? item : fallback
-    const integer = (item: unknown, fallback: number) => typeof item === 'number' && Number.isFinite(item) ? Math.max(-10000, Math.min(10000, Math.trunc(item))) : fallback
-    const composerControls = Object.fromEntries(presets.map((preset) => {
-      const fallback = DEFAULT_CHAT_HOME_CONTENT.composerControls[preset]
-      const row = rawControls[preset] && typeof rawControls[preset] === 'object' && !Array.isArray(rawControls[preset]) ? rawControls[preset] as Record<string, unknown> : {}
-      return [preset, {
-        modeEnabled: bool(row.modeEnabled, fallback.modeEnabled),
-        webSearchEnabled: bool(row.webSearchEnabled, fallback.webSearchEnabled),
-        modelSelectorEnabled: bool(row.modelSelectorEnabled, fallback.modelSelectorEnabled),
-        moreEnabled: bool(row.moreEnabled, fallback.moreEnabled),
-      }]
-    }))
-    const quickActions = Object.fromEntries(presets.map((preset) => {
-      const fallback = DEFAULT_CHAT_HOME_CONTENT.quickActions[preset]
-      const rows = Array.isArray(rawActions[preset]) ? rawActions[preset] : fallback
-      const seen = new Set<string>()
-      const actions = rows.slice(0, 30).map((item, index) => {
-        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
-        const fallbackRow = fallback[index % Math.max(1, fallback.length)] as Record<string, unknown> | undefined
-        const baseId = text(row.id, text(fallbackRow?.id, `${preset}-action-${index + 1}`, 80), 80).replace(/[^a-zA-Z0-9_-]/g, '-')
-        let id = baseId || `${preset}-action-${index + 1}`
-        while (seen.has(id)) id = `${baseId}-${index + 1}`
-        seen.add(id)
-        const actionType = ['PROMPT', 'OFFICE', 'ROUTE'].includes(String(row.actionType)) ? String(row.actionType) : text(fallbackRow?.actionType, 'PROMPT', 20)
-        const placement = ['BAR', 'MORE'].includes(String(row.placement)) ? String(row.placement) : text(fallbackRow?.placement, 'MORE', 20)
-        const action = {
-          id,
-          label: text(row.label, text(fallbackRow?.label, '', 60), 60),
-          icon: text(row.icon, text(fallbackRow?.icon, 'sparkles', 30), 30).toLowerCase(),
-          placement,
-          actionType,
-          prompt: text(row.prompt, text(fallbackRow?.prompt, '', 4000), 4000),
-          target: actionType === 'ROUTE' ? destination(row.target, text(fallbackRow?.target, '/', 1000)) : text(row.target, text(fallbackRow?.target, '', 120), 120),
-          modelKey: text(row.modelKey, text(fallbackRow?.modelKey, '', 100), 100),
-          webSearch: bool(row.webSearch, Boolean(fallbackRow?.webSearch)),
-          enabled: bool(row.enabled, fallbackRow ? Boolean(fallbackRow.enabled) : true),
-          sortOrder: integer(row.sortOrder, typeof fallbackRow?.sortOrder === 'number' ? fallbackRow.sortOrder : (index + 1) * 10),
-        }
-        if (action.id === 'doubao-music' && action.label === '音乐生成') {
-          action.label = '音乐创作方案'
-          action.prompt = '请根据以下描述策划音乐风格、结构、歌词方向与制作方案：'
-        }
-        if (action.id === 'doubao-transcribe' && action.label === '录音转写') {
-          action.label = '会议纪要'
-          action.prompt = '请根据我提供的会议文字或文档整理会议纪要：'
-        }
-        if (action.id === 'qianwen-meeting' && action.label === '录音纪要') {
-          action.label = '会议纪要'
-          action.prompt ||= '请根据我提供的会议文字或文档整理会议纪要：'
-        }
-        return action
-      }).filter((item) => item.label)
-      return [preset, actions]
-    }))
-    return {
-      doubaoRecommendations: recommendations.slice(0, 12).map((item, index) => {
-        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
-        const fallback = defaultRecommendations.length ? defaultRecommendations[index % defaultRecommendations.length] : undefined
-        return { title: text(row.title, fallback?.title || '', 160), prompt: text(row.prompt, fallback?.prompt || '', 2000), targetUrl: destination(row.targetUrl, fallback?.targetUrl || '') }
-      }).filter((item) => item.title),
-      qianwenBanners: banners.slice(0, 8).map((item, index) => {
-        const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
-        const fallback = defaultBanners[index % defaultBanners.length]
-        const title = text(row.title, fallback.title, 120)
-        if (title === 'Xinyue 输入法 App 全新上线') return DEFAULT_CHAT_HOME_CONTENT.qianwenBanners[1]
-        if (title === '一键生成录音纪要') return DEFAULT_CHAT_HOME_CONTENT.qianwenBanners[2]
-        return { title, description: text(row.description, fallback.description, 240), buttonText: text(row.buttonText, fallback.buttonText, 40), imageUrl: destination(row.imageUrl, ''), targetUrl: destination(row.targetUrl, fallback.targetUrl) }
-      }).filter((item) => item.title),
-      kimiProject: { label: text(rawProject.label, DEFAULT_CHAT_HOME_CONTENT.kimiProject.label, 60), targetUrl: destination(rawProject.targetUrl, DEFAULT_CHAT_HOME_CONTENT.kimiProject.targetUrl) },
-      composerControls,
-      quickActions,
-    }
   }
 
   private externalUrl(input: string) {
@@ -1568,23 +1441,28 @@ export class ProvidersService implements OnModuleInit {
     const now = Date.now()
     const available = model.routes.filter((route) => route.credential.enabled && (!route.credential.expiresAt || route.credential.expiresAt.getTime() > now) && (!route.cooldownUntil || route.cooldownUntil.getTime() <= now) && (!route.credential.cooldownUntil || route.credential.cooldownUntil.getTime() <= now))
     if (!available.length) throw new BadRequestException('私有模型没有可用密钥，请检测密钥或调整路由')
-    const weighted = available.map((route) => ({ route, priority: route.priority || route.credential.priority, weight: Math.max(1, route.weight || route.credential.weight), random: Math.random() }))
-    if (model.routingStrategy === 'WEIGHTED') weighted.sort((a, b) => (b.random ** (1 / b.weight)) - (a.random ** (1 / a.weight)))
-    else weighted.sort((a, b) => b.priority - a.priority || a.route.createdAt.getTime() - b.route.createdAt.getTime())
-    if (model.routingStrategy === 'ROUND_ROBIN' && weighted.length > 1) {
-      const offset = Math.floor(Date.now() / 1000) % weighted.length
-      weighted.push(...weighted.splice(0, offset))
-    }
+    const orderedRoutes = this.routing.orderPrivate(
+      available.map((route) => ({
+        value: route,
+        priority: route.priority || route.credential.priority,
+        weight: route.weight || route.credential.weight,
+        createdAt: route.createdAt
+      })),
+      model.routingStrategy
+    )
     const apiProtocol: ResolvedProvider['apiProtocol'] = model.apiProtocol === 'anthropic' || model.apiProtocol === 'gemini' ? model.apiProtocol : 'openai'
-    return weighted.map(({ route }) => ({
+    const modelOptions = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? model.options as Record<string, unknown> : {}
+    return orderedRoutes.map((route) => ({
       source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, creditValueMicros: settings.creditValueMicros, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: 0, outputCreditsPerMillion: 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
-      imageCapabilities: model.options && typeof model.options === 'object' && !Array.isArray(model.options) && typeof (model.options as Record<string, unknown>).imageCapabilities === 'object' ? (model.options as Record<string, Record<string, unknown>>).imageCapabilities : undefined,
-      videoCapabilities: model.options && typeof model.options === 'object' && !Array.isArray(model.options) && typeof (model.options as Record<string, unknown>).videoCapabilities === 'object' ? (model.options as Record<string, Record<string, unknown>>).videoCapabilities : undefined,
+      options: modelOptions,
+      imageCapabilities: modelOptions.imageCapabilities && typeof modelOptions.imageCapabilities === 'object' ? modelOptions.imageCapabilities as Record<string, unknown> : undefined,
+      videoCapabilities: modelOptions.videoCapabilities && typeof modelOptions.videoCapabilities === 'object' ? modelOptions.videoCapabilities as Record<string, unknown> : undefined,
     }))
   }
 
   async resolveCandidates(userId: string, requestedModel: string | undefined, capability: ModelCapability, requirements: Record<string, unknown> = {}): Promise<ResolvedProvider[]> {
-    const privateCandidates = await this.resolvePrivateCandidates(userId, requestedModel, capability)
+    const requiredSource = this.routing.sourceRequirement(requirements.providerSource)
+    const privateCandidates = requiredSource === 'platform' ? null : await this.resolvePrivateCandidates(userId, requiredSource === 'user' ? undefined : requestedModel, capability)
     if (privateCandidates) return privateCandidates
     const { preset, model, creditCost, policy, settings } = await this.resolvePreset(userId, requestedModel, capability)
     const candidates: ResolvedProvider[] = []
@@ -1605,11 +1483,11 @@ export class ProvidersService implements OnModuleInit {
       apiProtocol,
     }
 
-    if (settings?.userByokEnabled && policy.allowUserByok && preset?.allowUserKey !== false && (preset?.provider?.allowUserKeys ?? true)) {
+    if (requiredSource !== 'platform' && settings?.userByokEnabled && policy.allowUserByok && preset?.allowUserKey !== false && (preset?.provider?.allowUserKeys ?? true)) {
       const credentials = await this.prisma.userApiCredential.findMany({ where: { userId, enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
       const compatibleTypes = new Set([preset?.provider?.type, ...(preset?.providerRoutes || []).map((route) => route.provider.type)].filter(Boolean))
       const ordered = [...credentials].sort((a, b) => Number(compatibleTypes.has(b.providerType)) - Number(compatibleTypes.has(a.providerType)))
-      for (const credential of ordered) candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(credential.baseUrl, apiProtocol, presetOptions), inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0 })
+      for (const credential of ordered) candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost: this.routing.credentialCreditCost(requiredSource, creditCost), ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(credential.baseUrl, apiProtocol, presetOptions), inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, ...(requiredSource === 'user' ? { inputCreditsPerMillion: 0, outputCreditsPerMillion: 0 } : {}) })
     }
 
     const now = Date.now()
@@ -1618,19 +1496,25 @@ export class ProvidersService implements OnModuleInit {
     const readyRoutes = configuredRoutes.filter((route) => !route.provider.cooldownUntil || route.provider.cooldownUntil.getTime() <= now)
     // Cooldown keeps an unhealthy route behind healthy alternatives. It must not make the only
     // configured route look unbound, otherwise admins cannot verify a corrected upstream.
-    const routes = (readyRoutes.length ? readyRoutes : configuredRoutes)
-      .map((route) => ({ route, priority: route.priority ?? route.provider.priority, weight: Math.max(1, route.weight ?? route.provider.weight), random: Math.random() }))
-      .sort((a, b) => b.priority - a.priority || (b.random ** (1 / b.weight)) - (a.random ** (1 / a.weight)))
-    for (const { route } of routes) candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(route.provider.baseUrl, apiProtocol, route.options, presetOptions, route.provider.metadata), videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
+    const routes = this.routing.orderPlatform(
+      (readyRoutes.length ? readyRoutes : configuredRoutes).map((route) => ({
+        value: route,
+        priority: route.priority ?? route.provider.priority,
+        weight: route.weight ?? route.provider.weight
+      }))
+    )
+    if (requiredSource !== 'user') for (const route of routes) candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, options: { ...presetOptions, ...routeOptionsRecord(route.options) }, nativeSearchProvider: this.nativeSearchProvider(route.provider.baseUrl, apiProtocol, route.options, presetOptions, route.provider.metadata), videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
 
-    if (!allConfiguredRoutes.length && preset?.provider?.enabled && this.providerReady(preset.provider)) {
-      candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(preset.provider.baseUrl, apiProtocol, presetOptions, preset.provider.metadata) })
+    if (requiredSource !== 'user' && !allConfiguredRoutes.length && preset?.provider?.enabled && this.providerReady(preset.provider)) {
+      candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(preset.provider.baseUrl, apiProtocol, presetOptions, preset.provider.metadata) })
     }
 
     const envKey = this.config.get<string>('AI_PROVIDER_API_KEY') || ''
     const envBase = this.config.get<string>('AI_PROVIDER_BASE_URL') || 'https://api.openai.com/v1'
-    if (envKey) candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: this.normalizeBaseUrl(envBase), apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, nativeSearchProvider: this.nativeSearchProvider(envBase, apiProtocol, presetOptions) })
+    if (requiredSource !== 'user' && envKey) candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: this.normalizeBaseUrl(envBase), apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(envBase, apiProtocol, presetOptions) })
     if (!candidates.length && capability === ModelCapability.VIDEO && allConfiguredRoutes.length && !configuredRoutes.length) throw new BadRequestException('当前视频规格没有可用上游渠道，请调整分辨率、时长或画面比例')
+    if (!candidates.length && requiredSource === 'user') throw new ServiceUnavailableException('图片反推当前由用户 BYOK 承担费用，请先在设置中添加可用的个人 API 密钥和聊天模型')
+    if (!candidates.length && requiredSource === 'platform') throw new ServiceUnavailableException('图片反推尚未绑定可用的平台视觉模型渠道')
     if (!candidates.length) throw new ServiceUnavailableException('模型未绑定可用渠道，请在管理端配置并通过渠道检测，或在设置中添加可用的个人 API 密钥')
     return candidates
   }
@@ -1640,36 +1524,11 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async recordProviderResult(providerId: string | undefined, success: boolean, message = '') {
-    if (!providerId) return
-    if (success) {
-      await this.prisma.providerChannel.updateMany({ where: { id: providerId }, data: { consecutiveFailures: 0, cooldownUntil: null, lastSuccessAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'healthy', lastHealthMessage: message || '最近调用成功' } })
-      return
-    }
-    const provider = await this.prisma.providerChannel.findUnique({ where: { id: providerId }, select: { consecutiveFailures: true } })
-    if (!provider) return
-    const failures = provider.consecutiveFailures + 1
-    const cooldownSeconds = failures >= 3 ? Math.min(300, 15 * 2 ** Math.min(failures - 3, 5)) : 0
-    await this.prisma.providerChannel.update({ where: { id: providerId }, data: { consecutiveFailures: failures, lastFailureAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), cooldownUntil: cooldownSeconds ? new Date(Date.now() + cooldownSeconds * 1000) : null } })
+    return this.health.recordProviderResult(providerId, success, message)
   }
 
   async recordCandidateResult(candidate: Pick<ResolvedProvider, 'providerId' | 'credentialId' | 'routeId'>, success: boolean, message = '') {
-    await this.recordProviderResult(candidate.providerId, success, message)
-    if (!candidate.credentialId) return
-    const now = new Date()
-    if (success) {
-      await Promise.all([
-        this.prisma.userApiCredential.updateMany({ where: { id: candidate.credentialId }, data: { lastHealthStatus: 'healthy', lastHealthMessage: message || '最近调用成功', lastHealthAt: now, lastSuccessAt: now, lastUsedAt: now, cooldownUntil: null, totalRequests: { increment: 1 } } }),
-        candidate.routeId ? this.prisma.userModelRoute.updateMany({ where: { id: candidate.routeId }, data: { lastHealthStatus: 'healthy', lastHealthMessage: message || '最近调用成功', lastHealthAt: now, consecutiveFailures: 0, cooldownUntil: null } }) : Promise.resolve(),
-      ])
-      return
-    }
-    const route = candidate.routeId ? await this.prisma.userModelRoute.findUnique({ where: { id: candidate.routeId }, select: { consecutiveFailures: true } }) : null
-    const failures = (route?.consecutiveFailures || 0) + 1
-    const cooldownSeconds = Math.min(300, 15 * 2 ** Math.min(4, Math.max(0, failures - 1)))
-    await Promise.all([
-      this.prisma.userApiCredential.updateMany({ where: { id: candidate.credentialId }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), lastHealthAt: now, lastFailureAt: now, lastUsedAt: now, cooldownUntil: new Date(Date.now() + cooldownSeconds * 1000), totalRequests: { increment: 1 }, totalFailures: { increment: 1 } } }),
-      candidate.routeId ? this.prisma.userModelRoute.updateMany({ where: { id: candidate.routeId }, data: { lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), lastHealthAt: now, consecutiveFailures: failures, cooldownUntil: new Date(Date.now() + cooldownSeconds * 1000) } }) : Promise.resolve(),
-    ])
+    return this.health.recordCandidateResult(candidate, success, message)
   }
 
   recordCredentialUsage(credentialId: string | undefined, inputTokens: number, outputTokens: number) {

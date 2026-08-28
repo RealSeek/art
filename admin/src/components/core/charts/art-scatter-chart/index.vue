@@ -64,7 +64,8 @@
           right: 20,
           bottom: 20,
           left: 20,
-          containLabel: true
+          outerBoundsMode: 'same',
+          outerBoundsContain: 'axisLabel'
         },
         tooltip: props.showTooltip
           ? getTooltipStyle('item', {

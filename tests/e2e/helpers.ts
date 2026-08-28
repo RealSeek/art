@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 
-export const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@flux.local'
-export const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
+export const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
+export const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
 type SessionCookie = { name: string; value: string; domain: string; path: string; expires: number; httpOnly: boolean; secure: boolean; sameSite: 'Strict' | 'Lax' | 'None' }
 let cachedSessionCookie: SessionCookie | undefined
 

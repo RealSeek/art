@@ -1,5 +1,5 @@
 <template>
-  <section class="canvas-editor-page" :class="{ 'is-inspector-open': nodeConfigOpen && selectedNode, 'is-short-drama': isDramaCanvas, 'is-assets-open': assetsPanelOpen, 'is-sidebar-open': sidebarOpen, 'has-selection-actions': selectionCount > 1 || selectedEdgeCount }">
+  <section class="canvas-editor-page" :class="{ 'is-inspector-open': nodeConfigOpen && selectedNode, 'is-short-drama': isDramaCanvas, 'is-assets-open': assetsPanelOpen, 'is-sidebar-open': sidebarOpen, 'has-selection-actions': selectionCount > 1 || selectedEdgeCount }" :style="{ '--canvas-sidebar-width': `${canvasSidebarWidth}px` }">
     <header class="canvas-editor-header">
       <button type="button" class="canvas-icon-button canvas-menu-trigger" aria-label="打开画布菜单" title="打开画布菜单" :class="{ 'is-active': canvasMenuOpen }" @click="canvasMenuOpen = !canvasMenuOpen"><Menu :size="20" /></button>
       <button type="button" class="canvas-icon-button canvas-back-trigger" aria-label="返回画布列表" title="返回画布列表" @click="goBack"><ArrowLeft :size="19" /></button>
@@ -63,7 +63,6 @@
         :default-edge-options="defaultEdgeOptions"
         :delete-key-code="null"
         :multi-selection-key-code="['Meta', 'Control', 'Shift']"
-        selection-key-code="Shift"
         :pan-on-drag="effectivePanMode"
         zoom-on-scroll
         :pan-on-scroll="false"
@@ -86,7 +85,7 @@
         @drop.prevent="handleCanvasDrop"
       >
         <Background v-if="background !== 'none'" :variant="background === 'lines' ? BackgroundVariant.Lines : BackgroundVariant.Dots" :gap="22" :size="1.2" color="var(--canvas-grid)" />
-        <MiniMap pannable zoomable :node-color="miniMapColor" />
+        <MiniMap v-if="miniMapOpen" pannable zoomable :node-color="miniMapColor" />
         <Controls :show-interactive="false" position="bottom-left" />
         <template #node-canvas="{ id }">
           <CanvasFlowNode
@@ -107,23 +106,39 @@
             @configure="openNodeSettings(id)"
             @derive="deriveNode(id, $event)"
             @download="downloadNodeAsset(id)"
+            @edit="openImageEditor(id, 'crop')"
           />
         </template>
       </VueFlow>
 
-      <aside v-if="sidebarOpen" class="canvas-workspace-sidebar" :class="{ 'is-properties': workspacePanel === 'properties' }">
+      <div v-if="!nodes.length" class="canvas-empty-guide" aria-hidden="false">
+        <div class="canvas-empty-guide-card">
+          <span class="canvas-empty-guide-badge"><Sparkles :size="14" />AI 创作画布</span>
+          <h2>从一个想法开始</h2>
+          <p>双击画布空白处快速创建节点，也可以从下面任一起点出发。</p>
+          <div class="canvas-empty-guide-actions">
+            <button type="button" @click="addNode('TEXT')"><FileText :size="16" /><span><strong>写一段创意</strong><small>提示词、脚本或说明</small></span></button>
+            <button type="button" @click="addNode('IMAGE')"><ImageIcon :size="16" /><span><strong>生成图片</strong><small>从文字到视觉方案</small></span></button>
+            <button type="button" @click="presetMenuOpen = true"><PanelsTopLeft :size="16" /><span><strong>套用创作预设</strong><small>一键建立节点链路</small></span></button>
+          </div>
+          <span class="canvas-empty-guide-hint"><Keyboard :size="13" />点击右上角快捷键图标，查看全部快捷操作</span>
+        </div>
+      </div>
+
+      <aside v-if="sidebarOpen" class="canvas-workspace-sidebar" :class="{ 'is-agent': workspacePanel === 'agent', 'is-production': workspacePanel === 'production', 'is-properties': workspacePanel === 'properties' }" :aria-label="workspacePanel === 'agent' ? 'Canvas Agent 对话面板' : undefined">
+        <button v-if="workspacePanel === 'agent'" type="button" class="canvas-sidebar-resize-handle" aria-label="调整右侧面板宽度" @mousedown="startCanvasSidebarResize" />
         <nav v-if="workspacePanel === 'agent' || workspacePanel === 'production'" class="canvas-workspace-tabs canvas-workspace-tabs--single" :aria-label="workspacePanel === 'agent' ? '画布 Agent' : '短剧制作台'">
           <button v-if="workspacePanel === 'agent'" type="button" class="canvas-agent-sidebar-header is-active" @click="agentSidebarOpen = false"><span class="canvas-agent-sidebar-icon"><Bot :size="18" /></span><span class="canvas-agent-sidebar-copy"><strong>Agent</strong><small>画布助手 · 让创意落地更简单</small></span></button>
           <button v-else type="button" class="is-active" @click="productionSidebarOpen = false"><ChartNoAxesGantt :size="16" />短剧制作台</button>
         </nav>
 
-        <nav v-if="workspacePanel === 'agent'" class="canvas-agent-dock-tabs" aria-label="画布 Agent 视图"><div><button type="button" :class="{ 'is-active': agentDockView === 'create' || agentDockView === 'connect' }" @click="agentDockView = agentAvailable ? 'create' : 'connect'">对话</button><button type="button" :class="{ 'is-active': agentDockView === 'history' }" @click="agentDockView = 'history'; void loadAgentHistory()"><History :size="15" />历史 <span>{{ agentHistory.length }}</span></button><button type="button" :class="{ 'is-active': agentDockView === 'logs' }" @click="agentDockView = 'logs'; void loadAgentHistory()">日志</button></div><button class="canvas-agent-new-chat" type="button" @click="agentDockView = 'create'; agentGoal = ''"><Plus :size="15" />新建对话</button></nav>
+        <nav v-if="workspacePanel === 'agent'" class="canvas-agent-dock-tabs" aria-label="Agent 面板"><div><button type="button" role="tab" :aria-selected="agentDockView === 'create' || agentDockView === 'connect'" :class="{ 'is-active': agentDockView === 'create' || agentDockView === 'connect' }" @click="agentDockView = agentAvailable ? 'create' : 'connect'">对话</button><button type="button" role="tab" :aria-selected="agentDockView === 'history'" :class="{ 'is-active': agentDockView === 'history' }" @click="agentDockView = 'history'; void loadAgentHistory()"><History :size="15" />历史 <span v-if="agentHistory.length">{{ agentHistory.length }}</span></button></div><button class="canvas-agent-new-chat" type="button" @click="agentDockView = 'create'; agentGoal = ''"><Plus :size="15" />新建对话</button></nav>
 
         <section v-if="workspacePanel === 'agent'" class="canvas-agent-dock">
           <section v-if="agentDockView === 'connect'" class="canvas-agent-connect" aria-live="polite"><div class="canvas-agent-connect-status"><span class="canvas-agent-status-dot" :class="{ 'is-ready': agentAvailable }" /><div><strong>{{ agentAvailable ? 'Agent 已就绪' : 'Agent 未配置' }}</strong><small>{{ agentAvailable ? `${agentModelsCount} 个可用模型，可直接执行画布计划` : '管理端尚未配置可用 Agent 模型' }}</small></div></div><div class="canvas-agent-connect-detail"><span>运行方式</span><strong>工作台 Agent 服务</strong><small>当前画布会随任务提交到已配置的服务，结果需确认后才会写回节点。</small></div><button type="button" class="canvas-agent-connect-link" @click="openWorkspaceSettings('api')">查看模型与服务配置 <ArrowRight :size="14" /></button></section>
           <template v-else-if="agentDockView === 'create'">
-          <section class="canvas-agent-welcome"><div><strong>你好，我是你的画布助手</strong><p>我可以帮你生成图像、优化布局、撰写文案、梳理思路、提取关键信息，让创意更高效实现。</p></div><Sparkles :size="30" /><button type="button" @click="agentGoal = '分析当前画布，并给出下一步可执行的创作方案。'">了解 Agent 能做什么 <ArrowRight :size="15" /></button></section>
-          <span class="canvas-agent-starter-heading">你可以试试</span>
+          <section class="canvas-agent-welcome"><div><h2>你好，我是你的画布助手</h2><p>我可以帮你生成图像、优化布局、撰写文案、梳理思路、提取关键信息，让创意更高效实现。</p><button type="button" @click="agentGoal = '请介绍一下你能如何协助我完成当前画布。'">了解 Agent 能做什么 <ArrowRight :size="15" /></button></div><span class="canvas-agent-welcome-icon" aria-hidden="true"><Sparkles :size="30" /></span></section>
+          <span class="canvas-agent-starter-heading">你可以试试 <Sparkles :size="14" /></span>
           <div class="canvas-agent-starters" aria-label="常用画布操作">
             <button type="button" @click="addAgentStarter('image')"><ImageIcon :size="17" /><span><strong>生成一套新品发布海报</strong><small>营造促销氛围，突出产品亮点</small></span></button>
             <button type="button" @click="addAgentStarter('layout')"><PanelsTopLeft :size="17" /><span><strong>优化当前画布布局</strong><small>提升对齐与信息效率</small></span></button>
@@ -132,16 +147,27 @@
             <button type="button" @click="agentGoal = '将当前画布中的文案与图片按对应关系进行批量替换。'"><Copy :size="17" /><span><strong>批量替换文案与图片</strong><small>保持风格一致，批量应用</small></span></button>
             <button type="button" @click="agentGoal = '基于当前画布生成三套可对比的设计方案。'"><Layers3 :size="17" /><span><strong>生成多套设计方案</strong><small>提供多种风格供选择</small></span></button>
           </div>
-          <section class="canvas-agent-reference-assets"><span>本轮参考素材</span><button type="button" title="打开资产面板添加参考素材" @click="assetsPanelOpen = true; agentSidebarOpen = false"><Plus :size="15" />添加参考素材</button></section>
-          <label class="canvas-agent-dock-input"><textarea v-model="agentGoal" rows="4" maxlength="4000" placeholder="描述目标，例如：将这些素材整理成三种商品视觉方向..." /><button type="button" :disabled="!agentAvailable || !agentGoal.trim()" @click="openAgentPlan"><Sparkles :size="16" />生成计划</button></label>
+          <section class="canvas-agent-reference-assets"><span>本轮参考素材</span><button type="button" title="打开资产面板添加参考素材" @click="assetsPanelOpen = true"><Plus :size="15" />添加参考素材</button></section>
+          <section class="canvas-agent-composer" :class="{ 'is-disabled': !agentAvailable }">
+            <div class="canvas-agent-composer-main">
+              <button type="button" class="canvas-agent-add-reference" title="添加参考素材" aria-label="添加参考素材" @click="assetsPanelOpen = true"><Plus :size="18" /></button>
+              <textarea v-model="agentGoal" rows="3" maxlength="4000" aria-label="描述你想让 Agent 如何操作画布" placeholder="描述你想让 Agent 如何操作画布" @keydown.enter.exact.prevent="openAgentPlan" />
+            </div>
+            <div class="canvas-agent-composer-controls">
+              <PluginSelector v-model="agentPluginId" capability="CHAT" compact />
+              <button type="button" class="canvas-agent-planning-toggle" :class="{ 'is-active': agentSmartPlanning }" :aria-pressed="agentSmartPlanning" :aria-label="agentSmartPlanning ? '智能规划已开启，点击关闭' : '智能规划已关闭，点击开启'" title="智能规划" @click="agentSmartPlanning = !agentSmartPlanning"><Lightbulb :size="16" /></button>
+              <label class="canvas-agent-model-control" title="选择生成模型"><Bot :size="15" /><select v-model="agentModel" :disabled="!agentAvailable" aria-label="选择生成模型"><option value="" disabled>选择模型</option><option v-for="candidate in agentModels" :key="candidate.key" :value="candidate.key">{{ candidate.displayName }}</option></select></label>
+              <label class="canvas-agent-parameter-control" title="生成参数"><SlidersHorizontal :size="15" /><select v-model.number="agentGenerationCount" aria-label="生成参数"><option :value="1">智能 · 1张</option><option :value="2">智能 · 2张</option><option :value="4">智能 · 4张</option></select></label>
+              <button type="button" class="canvas-agent-send" :disabled="!agentAvailable || !agentGoal.trim()" title="发送" aria-label="发送" @click="openAgentPlan"><ArrowUp :size="18" /></button>
+            </div>
+          </section>
           <p v-if="!agentAvailable" class="canvas-agent-dock-notice">管理端尚未配置可用 Agent 模型。</p>
           </template>
           <section v-else-if="agentDockView === 'history'" class="canvas-agent-history" aria-live="polite">
             <div v-if="agentHistoryLoading" class="canvas-agent-history-empty"><LoaderCircle class="canvas-spin" :size="17" />正在读取历史</div>
             <div v-else-if="!agentHistory.length" class="canvas-agent-history-empty"><History :size="20" /><span>当前画布还没有 Agent 计划</span></div>
-            <article v-for="task in agentHistory" :key="task.id"><div><strong>{{ task.goal }}</strong><small>{{ task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '刚刚' }}</small></div><span :data-status="task.status">{{ agentTaskStatus(task.status) }}</span></article>
+            <button v-for="task in agentHistory" :key="task.id" type="button" class="canvas-agent-history-item" @click="openAgentHistoryTask(task)"><div><strong>{{ task.goal }}</strong><small>{{ task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '刚刚' }}</small></div><span :data-status="task.status">{{ agentTaskStatus(task.status) }}</span></button>
           </section>
-          <section v-else class="canvas-agent-history canvas-agent-log-list" aria-live="polite"><div v-if="agentHistoryLoading" class="canvas-agent-history-empty"><LoaderCircle class="canvas-spin" :size="17" />正在读取日志</div><div v-else-if="!agentHistory.length" class="canvas-agent-history-empty"><History :size="20" /><span>当前画布还没有 Agent 运行日志</span></div><article v-for="task in agentHistory" :key="`log-${task.id}`"><div><strong>{{ agentTaskStatus(task.status) }} · {{ task.goal }}</strong><small>{{ task.updatedAt ? new Date(task.updatedAt).toLocaleString() : '刚刚' }}</small></div><span :data-status="task.status">{{ task.status }}</span></article></section>
         </section>
 
         <CanvasDramaProductionPanel
@@ -238,10 +264,8 @@
         <section v-else class="canvas-properties-empty"><SlidersHorizontal :size="22" /><strong>选择一个节点</strong><span>节点的媒体、提示词、模型和生成参数会显示在这里。</span></section>
       </aside>
 
-      <nav class="canvas-tool-dock canvas-tool-rail" aria-label="画布工具">
-        <button type="button" :class="{ 'is-active': !canvasPanMode }" title="选择工具" aria-label="选择工具" @click="canvasPanMode = false"><MousePointer2 :size="18" /></button>
-        <button type="button" :class="{ 'is-active': canvasPanMode }" title="抓手工具" aria-label="抓手工具" @click="canvasPanMode = true"><Hand :size="18" /></button>
-        <i aria-hidden="true" />
+      <nav class="canvas-tool-dock" aria-label="画布工具">
+        <button type="button" class="is-active" :title="canvasPanMode ? '切换到框选模式' : '切换到小手模式'" :aria-label="canvasPanMode ? '切换到框选模式' : '切换到小手模式'" @click="canvasPanMode = !canvasPanMode"><Hand v-if="canvasPanMode" :size="18" /><MousePointer2 v-else :size="18" /></button>
         <button type="button" :disabled="!history.length" title="撤销" aria-label="撤销" @click="undo"><Undo2 :size="18" /></button>
         <button type="button" :disabled="!future.length" title="重做" aria-label="重做" @click="redo"><Redo2 :size="18" /></button>
         <i aria-hidden="true" />
@@ -250,24 +274,38 @@
         <button type="button" title="添加全景图节点" aria-label="添加全景图节点" @click="addPanoramaNode"><Globe2 :size="19" /></button>
         <button type="button" title="添加视频节点" aria-label="添加视频节点" @click="addNode('VIDEO')"><Video :size="19" /></button>
         <button type="button" title="添加音频节点" aria-label="添加音频节点" @click="addNode('AUDIO')"><Music2 :size="19" /></button>
-        <button type="button" title="从文件库添加图片" aria-label="从文件库添加图片" @click="void addMediaFromLibrary()"><FolderOpen :size="19" /></button>
-        <button type="button" title="上传图片或视频到画布" aria-label="上传图片或视频到画布" @click="mediaUploadInput?.click()"><Upload :size="19" /></button>
+        <button type="button" title="生成配置" aria-label="生成配置" @click="addNode('CONFIG')"><SlidersHorizontal :size="19" /></button>
+        <button type="button" title="上传素材" aria-label="上传素材" @click="mediaUploadInput?.click()"><Upload :size="19" /></button>
         <i aria-hidden="true" />
-        <button type="button" title="添加生成设置" aria-label="添加生成设置" @click="addNode('CONFIG')"><Sparkles :size="19" /></button>
-        <button type="button" title="添加分组" aria-label="添加分组" @click="addNode('GROUP')"><Layers3 :size="19" /></button>
-        <button type="button" :class="{ 'is-active': presetMenuOpen }" title="创作预设" aria-label="创作预设" @click="presetMenuOpen = !presetMenuOpen"><PanelsTopLeft :size="19" /></button>
-        <i aria-hidden="true" />
-        <button type="button" :class="{ 'is-active': background === 'dots' }" title="点阵" aria-label="点阵" @click="setBackground('dots')"><Dot :size="19" /></button>
-        <button type="button" :class="{ 'is-active': background === 'lines' }" title="网格" aria-label="网格" @click="setBackground('lines')"><Grid2X2 :size="18" /></button>
-        <button type="button" :class="{ 'is-active': background === 'none' }" title="空白" aria-label="空白" @click="setBackground('none')"><Square :size="18" /></button>
+        <button type="button" :class="{ 'is-active': assetsPanelOpen }" title="资产" aria-label="资产" @click="assetsPanelOpen = !assetsPanelOpen"><FolderOpen :size="19" /></button>
+        <button type="button" title="一键整理画布" aria-label="一键整理画布" @click="autoArrangeCanvas"><Network :size="19" /></button>
+        <button type="button" :class="{ 'is-active': canvasAppearanceOpen }" title="画布外观" aria-label="画布外观" @click="canvasAppearanceOpen = !canvasAppearanceOpen"><Palette :size="19" /></button>
         <button type="button" :disabled="!nodes.length && !edges.length" title="清空画布" aria-label="清空画布" @click="clearCanvasOpen = true"><Eraser :size="18" /></button>
       </nav>
 
+      <section v-if="canvasAppearanceOpen" class="canvas-appearance-menu" aria-label="画布外观">
+        <header><strong>画布外观</strong><button type="button" title="关闭" aria-label="关闭画布外观" @click="canvasAppearanceOpen = false"><X :size="15" /></button></header>
+        <span>背景样式</span>
+        <div><button type="button" :class="{ 'is-active': background === 'dots' }" @click="setBackground('dots')"><Dot :size="17" />点阵</button><button type="button" :class="{ 'is-active': background === 'lines' }" @click="setBackground('lines')"><Grid2X2 :size="16" />网格</button><button type="button" :class="{ 'is-active': background === 'none' }" @click="setBackground('none')"><Square :size="16" />空白</button></div>
+        <button type="button" class="canvas-appearance-presets" @click="presetMenuOpen = true; canvasAppearanceOpen = false"><PanelsTopLeft :size="16" /><span><strong>创作预设</strong><small>快速建立可编辑节点链路</small></span><ArrowRight :size="14" /></button>
+      </section>
+
       <div v-if="selectionCount > 1 || selectedEdgeCount" class="canvas-selection-actions">
         <span>{{ selectedEdgeCount ? '已选连线' : `已选 ${selectionCount} 项` }}</span>
-        <button v-if="selectionCount > 1" type="button" title="横向等距排列" aria-label="横向等距排列" @click="arrangeSelected('horizontal')"><Columns3 :size="15" />横排</button>
-        <button v-if="selectionCount > 1" type="button" title="纵向等距排列" aria-label="纵向等距排列" @click="arrangeSelected('vertical')"><Rows3 :size="15" />纵排</button>
-        <button v-if="selectionCount" type="button" title="复制选中节点" @click="duplicateSelected"><Copy :size="15" />复制</button>
+        <template v-if="selectionCount > 1">
+          <div class="canvas-selection-align" role="group" aria-label="对齐选中节点">
+            <button type="button" title="左对齐" aria-label="左对齐" @click="alignSelected('left')"><AlignStartVertical :size="14" /></button>
+            <button type="button" title="水平居中" aria-label="水平居中" @click="alignSelected('hcenter')"><AlignCenterVertical :size="14" /></button>
+            <button type="button" title="右对齐" aria-label="右对齐" @click="alignSelected('right')"><AlignEndVertical :size="14" /></button>
+            <button type="button" title="顶对齐" aria-label="顶对齐" @click="alignSelected('top')"><AlignStartHorizontal :size="14" /></button>
+            <button type="button" title="垂直居中" aria-label="垂直居中" @click="alignSelected('vmiddle')"><AlignCenterHorizontal :size="14" /></button>
+            <button type="button" title="底对齐" aria-label="底对齐" @click="alignSelected('bottom')"><AlignEndHorizontal :size="14" /></button>
+          </div>
+          <button type="button" title="横向等距排列" aria-label="横向等距排列" @click="arrangeSelected('horizontal')"><Columns3 :size="15" />横排</button>
+          <button type="button" title="纵向等距排列" aria-label="纵向等距排列" @click="arrangeSelected('vertical')"><Rows3 :size="15" />纵排</button>
+        </template>
+        <button v-if="selectionCount" type="button" title="缩放至选中节点" @click="void focusSelected()"><Focus :size="15" />聚焦</button>
+        <button v-if="selectionCount" type="button" title="复制选中节点 Ctrl+D" @click="duplicateSelected"><Copy :size="15" />复制</button>
         <button v-if="selectionCount > 1" type="button" title="建立分组" @click="wrapSelectedInGroup"><Layers3 :size="15" />分组</button>
         <button type="button" class="is-danger" title="删除选中节点" @click="deleteSelected"><Trash2 :size="15" />删除</button>
       </div>
@@ -277,8 +315,8 @@
         <button v-for="preset in canvasPresets" :key="preset.key" type="button" @click="applyCanvasPreset(preset.key)"><span><component :is="preset.icon" :size="17" /></span><span><strong>{{ preset.label }}</strong><small>{{ preset.description }}</small></span></button>
       </section>
 
-      <div class="canvas-navigation-dock canvas-bottom-bar" aria-label="画布导航">
-        <button type="button" title="缩小" aria-label="缩小" @click="zoomCanvas(-0.15)"><Minus :size="17" /></button><input class="canvas-zoom-slider" type="range" min="5" max="400" step="1" :value="Math.round(viewport.zoom * 100)" aria-label="放大/缩小画布" @input="setZoomFromControl" /><output>{{ Math.round(viewport.zoom * 100) }}%</output><button type="button" title="放大" aria-label="放大" @click="zoomCanvas(0.15)"><Plus :size="17" /></button><button type="button" title="适应画布" aria-label="适应画布" @click="void fitView({ padding: 0.18, duration: 260 })"><Scan :size="16" /></button>
+      <div class="canvas-navigation-dock" aria-label="画布导航">
+        <button type="button" :class="{ 'is-active': miniMapOpen }" :title="miniMapOpen ? '关闭小地图' : '打开小地图'" :aria-label="miniMapOpen ? '关闭小地图' : '打开小地图'" @click="miniMapOpen = !miniMapOpen"><Compass :size="17" /></button><button type="button" title="重置视图" aria-label="重置视图" @click="void fitView({ padding: 0.18, duration: 260 })"><Focus :size="16" /></button><input class="canvas-zoom-slider" type="range" min="5" max="500" step="1" :value="Math.round(viewport.zoom * 100)" aria-label="放大/缩小画布" @input="setZoomFromControl" /><output>{{ Math.round(viewport.zoom * 100) }}%</output><button type="button" title="快捷键" aria-label="快捷键" @click="shortcutHelpOpen = true"><CircleHelp :size="16" /></button>
       </div>
 
       <div v-if="canvasContextMenu" class="canvas-context-menu" :style="{ left: `${canvasContextMenu.x}px`, top: `${canvasContextMenu.y}px` }" role="menu">
@@ -315,14 +353,14 @@
 
     <CanvasMediaDialog v-if="mediaPickerNode" :kind="mediaPickerKind" :project-id="projectId || undefined" @close="mediaPickerNodeId = ''" @select="useMediaAsset" />
     <CanvasImageEditorDialog v-if="imageEditorNode" :src="imageEditorNode.data.url!" :mode="imageEditorMode" :busy="imageEditorUploading" @close="closeImageEditor" @apply="applyImageEdit" />
-    <CanvasAgentDialog v-if="agentOpen" :canvas-id="String(route.params.id)" :canvas-title="title" :project-id="projectId || undefined" :document="serializeDocument()" :models="catalogModels" :initial-goal="agentGoal" @close="agentOpen = false" @apply="applyAgentOperations" />
+    <CanvasAgentDialog v-if="agentOpen" :canvas-id="String(route.params.id)" :canvas-title="title" :project-id="projectId || undefined" :document="serializeDocument()" :models="catalogModels" :initial-goal="agentGoal" :initial-model="agentModel" :initial-plugin-id="agentPluginId" :smart-planning="agentSmartPlanning" :generation-count="agentGenerationCount" :initial-task-id="selectedAgentTaskId" @close="agentOpen = false" @apply="applyAgentOperations" />
     <div v-if="clearCanvasOpen" class="canvas-modal-backdrop" @click.self="clearCanvasOpen = false">
       <section class="canvas-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-canvas-title">
         <header><div><span>不可撤销操作</span><h2 id="clear-canvas-title">清空当前画布</h2><p>所有节点和连线都会被移除，画布资产仍保留在文件库中。</p></div><button type="button" aria-label="关闭" @click="clearCanvasOpen = false"><X :size="19" /></button></header>
         <footer><button type="button" @click="clearCanvasOpen = false">取消</button><button type="button" class="is-danger" @click="clearCanvas">清空画布</button></footer>
       </section>
     </div>
-    <div v-if="shortcutHelpOpen" class="canvas-modal-backdrop canvas-shortcut-backdrop" @click.self="shortcutHelpOpen = false"><section class="canvas-shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-help-title"><header><div><span>CANVAS SHORTCUTS</span><h2 id="shortcut-help-title">快捷键</h2><p>在画布上快速完成常用操作。</p></div><button type="button" aria-label="关闭快捷键" @click="shortcutHelpOpen = false"><X :size="19" /></button></header><dl><div><dt>Space / Control</dt><dd>按住临时切换抓手</dd></div><div><dt>Ctrl / Cmd + Z</dt><dd>撤销</dd></div><div><dt>Ctrl / Cmd + Shift + Z</dt><dd>重做</dd></div><div><dt>Ctrl / Cmd + C / V</dt><dd>复制 / 粘贴节点</dd></div><div><dt>Delete / Backspace</dt><dd>删除选中节点或连线</dd></div><div><dt>Esc</dt><dd>关闭菜单并取消选择</dd></div></dl><footer><button type="button" class="is-primary" @click="shortcutHelpOpen = false">完成</button></footer></section></div>
+    <div v-if="shortcutHelpOpen" class="canvas-modal-backdrop canvas-shortcut-backdrop" @click.self="shortcutHelpOpen = false"><section class="canvas-shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-help-title"><header><div><span>CANVAS SHORTCUTS</span><h2 id="shortcut-help-title">快捷键</h2><p>在画布上快速完成常用操作。</p></div><button type="button" aria-label="关闭快捷键" @click="shortcutHelpOpen = false"><X :size="19" /></button></header><dl><div><dt>Space / Control</dt><dd>按住临时切换抓手</dd></div><div><dt>Ctrl / Cmd + Z</dt><dd>撤销</dd></div><div><dt>Ctrl / Cmd + Shift + Z</dt><dd>重做</dd></div><div><dt>Ctrl / Cmd + C / V</dt><dd>复制 / 粘贴节点</dd></div><div><dt>Ctrl / Cmd + D</dt><dd>快速复制选中节点</dd></div><div><dt>Ctrl / Cmd + 0</dt><dd>缩放至适应画布</dd></div><div><dt>Ctrl / Cmd + Shift + F</dt><dd>缩放至选中节点</dd></div><div><dt>Ctrl / Cmd + / -</dt><dd>放大 / 缩小画布</dd></div><div><dt>方向键</dt><dd>微调选中节点位置（Shift 加速）</dd></div><div><dt>双击空白处</dt><dd>快速创建节点</dd></div><div><dt>Delete / Backspace</dt><dd>删除选中节点或连线</dd></div><div><dt>Esc</dt><dd>关闭菜单并取消选择</dd></div></dl><footer><button type="button" class="is-primary" @click="shortcutHelpOpen = false">完成</button></footer></section></div>
   </section>
 </template>
 
@@ -333,7 +371,7 @@ import { Background, BackgroundVariant } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { VueFlow, MarkerType, useVueFlow, type Connection, type EdgeMouseEvent, type ViewportTransform } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
-import { ArrowLeft, ArrowRight, Bell, Blend, BookOpen, Bot, Brush, ChartNoAxesGantt, Check, CheckCircle2, CircleAlert, Clapperboard, Cloud, Columns3, Copy, Crop, Dot, Download, Eraser, Expand, FileText, Film, FolderOpen, Globe2, Grid2X2, Hand, History, Image as ImageIcon, Keyboard, Layers3, LibraryBig, Link2, ListTree, LoaderCircle, Maximize2, Menu, Minus, Moon, MousePointer2, Music2, PanelsTopLeft, Plus, Redo2, Rows3, Scan, SlidersHorizontal, Sparkles, Square, Sun, Trash2, Undo2, Upload, Users, Video, WandSparkles, X } from 'lucide-vue-next'
+import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, ArrowLeft, ArrowRight, ArrowUp, Bell, Blend, BookOpen, Bot, Brush, ChartNoAxesGantt, Check, CheckCircle2, CircleAlert, CircleHelp, Clapperboard, Cloud, Columns3, Compass, Copy, Crop, Dot, Download, Eraser, Expand, FileText, Film, Focus, FolderOpen, Globe2, Grid2X2, Hand, History, Image as ImageIcon, Keyboard, Layers3, LibraryBig, Link2, Lightbulb, ListTree, LoaderCircle, Maximize2, Menu, Moon, MousePointer2, Music2, Network, Palette, PanelsTopLeft, Plus, Redo2, Rows3, Scan, SlidersHorizontal, Sparkles, Square, Sun, Trash2, Undo2, Upload, Users, Video, WandSparkles, X } from 'lucide-vue-next'
 import CanvasAgentDialog from '../components/CanvasAgentDialog.vue'
 import CanvasAssetsPanel, { type CanvasAssetPanelItem, type CanvasPromptPanelItem } from '../components/CanvasAssetsPanel.vue'
 import CanvasDramaProductionPanel, { type DramaBatchState, type DramaProductionSummary } from '../components/CanvasDramaProductionPanel.vue'
@@ -341,41 +379,23 @@ import CanvasDramaShotInspector from '../components/CanvasDramaShotInspector.vue
 import CanvasImageEditorDialog from '../components/CanvasImageEditorDialog.vue'
 import CanvasMediaDialog, { type CanvasMediaAsset, type CanvasMediaKind } from '../components/CanvasMediaDialog.vue'
 import CanvasFlowNode from '../components/CanvasFlowNode.vue'
+import PluginSelector from '../components/PluginSelector.vue'
 import { api, streamApiEvents } from '../services/api'
 import type { CanvasAgentOperation, CanvasBackground, CanvasDocumentPayload, CanvasDramaStage, CanvasGenerationKind, CanvasGenerationOptions, CanvasImageToolOptions, CanvasImageToolType, CanvasKind, CanvasNodeData, CanvasNodeKind, CanvasRecord } from '../types/canvas'
 import { emptyCanvasDocument } from '../types/canvas'
 import { createClientId } from '../utils/client-id'
-import { findCatalogModel, isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
+import { isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
 import { splitShortDramaScript, type ShortDramaShotDraft } from '../utils/short-drama'
 import { isDedicatedImageTool, mergeImageTools, type ImageToolOptions, type ImageToolRecord } from '../utils/image-tools'
 import { useAuthStore } from '../stores/auth'
 import { useStudioStore } from '../stores/studio'
 import { updateStoredSettings } from '../utils/settings-storage'
+import { useCanvasHistory, type FlowEdge, type FlowNode } from '../composables/canvas/useCanvasHistory'
+import { useCanvasPersistence, type CanvasSaveState } from '../composables/canvas/useCanvasPersistence'
+import { useCanvasGenerationMonitor, type CanvasGenerationJob } from '../composables/canvas/useCanvasGenerationMonitor'
+import { useCanvasKeyboard } from '../composables/canvas/useCanvasKeyboard'
+import { useCanvasGenerationOptions } from '../composables/canvas/useCanvasGenerationOptions'
 
-type FlowNode = {
-  id: string
-  type: string
-  position: { x: number; y: number }
-  data: CanvasNodeData
-  style?: Record<string, string | number>
-  selected?: boolean
-  dimensions?: { width: number; height: number }
-}
-type FlowEdge = { id: string; source: string; target: string; type?: string; markerEnd?: MarkerType; label?: string; selected?: boolean }
-type LocalSnapshot = { nodes: FlowNode[]; edges: FlowEdge[]; viewport: ViewportTransform; background: CanvasBackground }
-type CanvasClipboard = { nodes: FlowNode[]; edges: FlowEdge[] }
-type CanvasJobAsset = { id: string; kind: 'IMAGE' | 'VIDEO'; name: string; mimeType: string; size: number; contentUrl: string; createdAt: string }
-type CanvasGenerationJob = {
-  id: string
-  kind: CanvasGenerationKind
-  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
-  model: string
-  creditCost?: number
-  errorMessage?: string | null
-  outputs?: Array<{ asset: CanvasJobAsset }>
-}
-type ImageCapabilitySet = { sizes: string[]; qualities: string[]; outputFormats: string[]; backgrounds: string[]; maxCount: number; defaultSize: string; defaultQuality: string; resolutionPricing: Record<string, number> }
-type VideoCapabilitySet = { resolutions: string[]; durations: number[]; aspectRatios: string[]; defaultResolution: string; defaultDuration: number; defaultAspectRatio: string; pricing: Record<string, number> }
 type CanvasImageTool = ImageToolRecord & { options?: (ImageToolOptions & CanvasImageToolOptions) | null }
 type CanvasAgentHistoryItem = { id: string; title: string; goal: string; status: string; updatedAt?: string }
 type NodeCreateMenu = { x: number; y: number; flowX: number; flowY: number; sourceId?: string }
@@ -386,14 +406,13 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const studio = useStudioStore()
-const flow = useVueFlow({ id: 'xinyue-canvas' })
+const flow = useVueFlow('xinyue-canvas')
 const { fitView, setViewport, screenToFlowCoordinate } = flow
 const nodes = ref<FlowNode[]>([])
 const edges = ref<FlowEdge[]>([])
 const viewport = ref<ViewportTransform>({ x: 0, y: 0, zoom: 1 })
 const background = ref<CanvasBackground>('dots')
 const canvasPanMode = ref(false)
-const temporaryPanActive = ref(false)
 const kind = ref<CanvasKind>('FREEFORM')
 const activeDramaStage = ref<CanvasDramaStage>('SCRIPT')
 const title = ref('未命名画布')
@@ -403,11 +422,8 @@ const loading = ref(true)
 const loadError = ref('')
 const hydrated = ref(false)
 const dirty = ref(false)
-const saveState = ref<'saved' | 'dirty' | 'saving' | 'error'>('saved')
+const saveState = ref<CanvasSaveState>('saved')
 const saveError = ref('')
-const history = ref<LocalSnapshot[]>([])
-const future = ref<LocalSnapshot[]>([])
-const clipboard = ref<CanvasClipboard>({ nodes: [], edges: [] })
 const importInput = ref<HTMLInputElement | null>(null)
 const mediaUploadInput = ref<HTMLInputElement | null>(null)
 const catalogModels = ref<CatalogModel[]>([])
@@ -422,15 +438,23 @@ const imageEditorMode = ref<'crop' | 'mask'>('crop')
 const imageEditorUploading = ref(false)
 const agentOpen = ref(false)
 const agentGoal = ref('')
+const agentModel = ref('')
 const agentDockView = ref<'connect' | 'create' | 'history' | 'logs'>('create')
 const agentHistory = ref<CanvasAgentHistoryItem[]>([])
 const agentHistoryLoading = ref(false)
+const selectedAgentTaskId = ref('')
 const assetsPanelOpen = ref(false)
 const canvasMenuOpen = ref(false)
 const presetMenuOpen = ref(false)
 const clearCanvasOpen = ref(false)
 const pendingPanelAsset = ref<CanvasAssetPanelItem | null>(null)
 const agentSidebarOpen = ref(false)
+const canvasSidebarWidth = ref(404)
+const miniMapOpen = ref(false)
+const canvasAppearanceOpen = ref(false)
+const agentPluginId = ref('')
+const agentSmartPlanning = ref(true)
+const agentGenerationCount = ref(1)
 const shortcutHelpOpen = ref(false)
 const canvasDark = ref(document.documentElement.dataset.studioTheme !== 'light')
 const unreadNotifications = ref(0)
@@ -441,12 +465,75 @@ const canvasContextMenu = ref<{ x: number; y: number; flowX: number; flowY: numb
 const nodeCreateMenu = ref<NodeCreateMenu | null>(null)
 const connectionStartNodeId = ref('')
 const imageEditorNode = computed(() => nodes.value.find((node) => node.id === imageEditorNodeId.value && node.data.kind === 'IMAGE' && node.data.url && node.data.assetId) || null)
-const monitoringJobs = new Map<string, Promise<void>>()
 const outpaintFields: Array<{ key: keyof CanvasImageToolOptions; label: string }> = [{ key: 'outpaintLeft', label: '左扩展' }, { key: 'outpaintRight', label: '右扩展' }, { key: 'outpaintTop', label: '上扩展' }, { key: 'outpaintBottom', label: '下扩展' }]
-let saveTimer = 0
-let saving = false
-let savePending = false
-let applyingHistory = false
+const {
+  applyingHistory,
+  checkpoint,
+  copySelected,
+  deleteSelected,
+  future,
+  history,
+  pasteNodes,
+  redo,
+  resetHistory,
+  undo,
+} = useCanvasHistory({ nodes, edges, viewport, background, hydrated, dirty, saveState, setViewport, scheduleSave: () => scheduleSave() })
+
+const { saveLabel, scheduleSave, saveNow, handleBeforeUnload } = useCanvasPersistence({
+  title,
+  revision,
+  hydrated,
+  dirty,
+  loadError,
+  saveState,
+  saveError,
+  documentState: () => [nodes.value, edges.value, background.value],
+  serializeDocument,
+}, {
+  isApplyingHistory: () => applyingHistory.value,
+  saveRecord: (input) => api<CanvasRecord>(`/canvases/${String(route.params.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  }),
+})
+
+const {
+  temporaryPanActive,
+  handleKeyboard,
+  handleKeyboardUp,
+  resetTemporaryPan,
+  handleClipboardPaste
+} = useCanvasKeyboard({
+  nodes,
+  edges,
+  save: saveNow,
+  undo,
+  redo,
+  copySelected,
+  pasteNodes,
+  duplicateSelected,
+  fitView: () => fitView({ padding: 0.18, duration: 260 }),
+  focusSelected,
+  zoom: zoomCanvas,
+  nudgeSelected,
+  closeTransientUi: closeTransientCanvasUi,
+  deselectAll,
+  deleteSelected,
+  screenToFlowCoordinate,
+  uploadFiles: uploadCanvasFiles,
+  addTextNode: (position) => addNodeAtFlow('TEXT', position),
+  updateNodeData
+})
+
+const { monitorGeneration, cancelGeneration } = useCanvasGenerationMonitor({
+  nodeExists: (nodeId) => nodes.value.some((node) => node.id === nodeId),
+  jobIdForNode: (nodeId) => nodes.value.find((node) => node.id === nodeId)?.data.jobId,
+  updateNode: updateNodeData,
+  applyResult: applyGenerationResult,
+  streamJob: (jobId, onUpdate) => streamApiEvents<CanvasGenerationJob>(`/generations/${jobId}/events`, onUpdate),
+  fetchJob: (jobId) => api<CanvasGenerationJob>(`/generations/${jobId}`),
+  cancelJob: (jobId) => api<CanvasGenerationJob>(`/generations/${jobId}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
+})
 
 const defaultEdgeOptions = { type: 'smoothstep', markerEnd: MarkerType.ArrowClosed, style: { stroke: 'var(--canvas-edge)', strokeWidth: 1.7 } }
 const selectedNode = computed(() => nodes.value.find((node) => node.selected) || null)
@@ -455,10 +542,10 @@ const selectedEdgeCount = computed(() => edges.value.filter((edge) => edge.selec
 const effectivePanMode = computed(() => temporaryPanActive.value ? !canvasPanMode.value : canvasPanMode.value)
 const sidebarOpen = computed(() => agentSidebarOpen.value || productionSidebarOpen.value || (nodeConfigOpen.value && Boolean(selectedNode.value)))
 const canvasMedia = computed<Array<{ id: string; kind: CanvasGenerationKind; title: string; url: string }>>(() => nodes.value.flatMap((node) => (node.data.kind === 'IMAGE' || node.data.kind === 'VIDEO') && node.data.url ? [{ id: node.id, kind: node.data.kind, title: node.data.title, url: node.data.url }] : []))
-const saveLabel = computed(() => saveState.value === 'saving' ? '保存中' : saveState.value === 'dirty' ? '未保存' : saveState.value === 'error' ? saveError.value || '保存失败' : '已保存')
 const isDramaCanvas = computed(() => kind.value === 'SHORT_DRAMA')
 const agentAvailable = computed(() => catalogModels.value.some(isAgentModelEligible))
 const agentModelsCount = computed(() => catalogModels.value.filter(isAgentModelEligible).length)
+const agentModels = computed(() => catalogModels.value.filter(isAgentModelEligible))
 const canvasPresets: CanvasPreset[] = [
   { key: 'visual-story', label: '创意到视频', description: '文案、图片和视频的一条创作链路', icon: Video },
   { key: 'image-variation', label: '图片多方向', description: '从同一创意快速探索两种视觉方向', icon: ImageIcon },
@@ -523,22 +610,17 @@ const dramaStages: Array<{ key: CanvasDramaStage; order: string; label: string; 
   { key: 'PRODUCTION', order: '04', label: '成片', icon: Film },
 ]
 
-watch([nodes, edges, background], () => {
-  if (!hydrated.value || applyingHistory) return
-  dirty.value = true
-  saveState.value = 'dirty'
-  scheduleSave()
-}, { deep: true })
-
-watch(title, () => {
-  if (!hydrated.value) return
-  dirty.value = true
-  saveState.value = 'dirty'
-  scheduleSave()
-})
-
 watch(selectedNode, (node) => {
   if (!node) nodeConfigOpen.value = false
+})
+
+// Highlight edges connected to running generations so the data flow is visible.
+watch(() => nodes.value.map((node) => `${node.id}:${node.data.status || ''}`).join('|'), () => {
+  const active = new Set(nodes.value.filter((node) => node.data.status === 'QUEUED' || node.data.status === 'RUNNING').map((node) => node.id))
+  edges.value.forEach((edge) => {
+    const animated = active.has(edge.source) || active.has(edge.target)
+    if (Boolean(edge.animated) !== animated) edge.animated = animated
+  })
 })
 
 onMounted(() => {
@@ -553,12 +635,13 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.clearTimeout(saveTimer)
   window.removeEventListener('keydown', handleKeyboard)
   window.removeEventListener('keyup', handleKeyboardUp)
   window.removeEventListener('blur', resetTemporaryPan)
   window.removeEventListener('paste', handleClipboardPaste)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
 })
 
 onBeforeRouteLeave(async () => {
@@ -579,13 +662,14 @@ async function loadCanvas() {
     if (recordResult.status === 'rejected') throw recordResult.reason
     const record = recordResult.value
     applyCanvasCatalogResults(modelsResult, toolsResult)
+    agentModel.value = agentModels.value.find((item) => item.isDefault)?.key || agentModels.value[0]?.key || ''
     title.value = record.title
     kind.value = record.kind
     projectId.value = record.projectId || ''
     revision.value = record.revision
     applyDocument(record.document || emptyCanvasDocument())
-    history.value = []
-    future.value = []
+    resetHistory()
+    loading.value = false
     await nextTick()
     await setViewport(record.document?.viewport || { x: 0, y: 0, zoom: 1 })
     void loadAgentHistory()
@@ -594,7 +678,9 @@ async function loadCanvas() {
     // actionable rather than presenting a dead button.
     agentSidebarOpen.value = true
     workspacePanel.value = 'agent'
-    agentDockView.value = agentAvailable.value ? 'create' : 'connect'
+    // Keep the complete Agent workspace visible before a model is configured;
+    // the action button and notice explain the missing setup in place.
+    agentDockView.value = 'create'
     dirty.value = false
     saveState.value = 'saved'
     hydrated.value = true
@@ -632,7 +718,7 @@ async function reloadCanvasCatalog() {
 }
 
 function applyDocument(document: CanvasDocumentPayload) {
-  applyingHistory = true
+  applyingHistory.value = true
   background.value = document.background || 'dots'
   viewport.value = document.viewport || { x: 0, y: 0, zoom: 1 }
   nodes.value = (document.nodes || []).map((node) => ({
@@ -644,7 +730,7 @@ function applyDocument(document: CanvasDocumentPayload) {
     selected: false,
   }))
   edges.value = (document.edges || []).map((edge) => ({ ...edge, type: 'smoothstep', markerEnd: MarkerType.ArrowClosed }))
-  nextTick(() => { applyingHistory = false })
+  nextTick(() => { applyingHistory.value = false })
 }
 
 function serializeDocument(): CanvasDocumentPayload {
@@ -672,150 +758,27 @@ function styleNumber(style: FlowNode['style'], key: 'width' | 'height', fallback
 }
 
 function isMediaNode(node: FlowNode | null | undefined) { return node?.data.kind === 'IMAGE' || node?.data.kind === 'VIDEO' || node?.data.kind === 'AUDIO' }
-function isGenerationNode(node: FlowNode | null | undefined) { return node?.data.kind === 'IMAGE' || node?.data.kind === 'VIDEO' || node?.data.kind === 'CONFIG' }
-function activeGenerationKind(node: FlowNode): CanvasGenerationKind { return node.data.kind === 'VIDEO' || node.data.generationKind === 'VIDEO' ? 'VIDEO' : 'IMAGE' }
-function modelsForNode(node: FlowNode) { const capability = activeGenerationKind(node); return catalogModels.value.filter((model) => model.capability === capability && model.enabled !== false) }
-function defaultModel(kind: CanvasGenerationKind) { const models = catalogModels.value.filter((model) => model.capability === kind && model.enabled !== false); return models.find((model) => model.isDefault)?.key || models[0]?.key || '' }
-function flowNodeModelOptions(id: string) {
-  const node = nodes.value.find((item) => item.id === id)
-  return node ? modelsForNode(node).map((model) => ({ key: model.key, displayName: model.displayName })) : []
-}
-function flowNodeGenerationSummary(id: string) {
-  const node = nodes.value.find((item) => item.id === id)
-  if (!node || !isGenerationNode(node)) return ''
-  const options = generationOptions(node)
-  const summary = activeGenerationKind(node) === 'VIDEO' ? `${options.resolution} · ${options.duration}s · ${options.aspectRatio}` : `${String(options.size).replace('x', ' × ')} · ${options.quality}`
-  const refs = generationContext(node).referenceAssetIds.length
-  return refs ? `${summary} · ${refs} 个参考` : summary
-}
-
-function upstreamNodes(nodeId: string) {
-  const visited = new Set<string>()
-  const result: FlowNode[] = []
-  const visit = (targetId: string) => {
-    for (const edge of edges.value.filter((item) => item.target === targetId)) {
-      if (visited.has(edge.source)) continue
-      visited.add(edge.source)
-      const source = nodes.value.find((node) => node.id === edge.source)
-      if (!source) continue
-      result.push(source)
-      visit(source.id)
-    }
-  }
-  visit(nodeId)
-  return result
-}
-
-function generationContext(node: FlowNode) {
-  const upstream = upstreamNodes(node.id)
-  const textNodes = upstream.filter((item) => item.data.kind === 'TEXT' && item.data.content.trim())
-  const config = upstream.find((item) => item.data.kind === 'CONFIG' && activeGenerationKind(item) === activeGenerationKind(node))
-  const referenceAssetIds = [...new Set(upstream.filter((item) => item.data.kind === 'IMAGE' && item.data.assetId).map((item) => item.data.assetId!))].slice(0, 4)
-  const dramaPrompt = node.data.shotId ? [
-    node.data.sceneName ? `场景：${node.data.sceneName}` : '',
-    node.data.characterNames?.length ? `角色：${node.data.characterNames.join('、')}` : '',
-    node.data.cameraMotion ? `运镜：${node.data.cameraMotion}` : '',
-    node.data.dialogue ? `对白：${node.data.dialogue}` : '',
-    node.data.narration ? `旁白：${node.data.narration}` : '',
-    node.data.continuity?.shotSize ? `景别：${node.data.continuity.shotSize}` : '',
-    node.data.continuity?.cameraAngle ? `机位角度：${node.data.continuity.cameraAngle}` : '',
-    node.data.continuity?.composition ? `构图：${node.data.continuity.composition}` : '',
-    node.data.continuity?.characterBlocking ? `人物站位：${node.data.continuity.characterBlocking}` : '',
-    node.data.continuity?.gazeDirection ? `视线方向：${node.data.continuity.gazeDirection}` : '',
-    node.data.continuity?.actionStart ? `动作起始：${node.data.continuity.actionStart}` : '',
-    node.data.continuity?.actionEnd ? `动作结束：${node.data.continuity.actionEnd}` : '',
-    node.data.continuity?.axisRule ? `轴线规则：${node.data.continuity.axisRule}` : '',
-    node.data.continuity?.notes ? `衔接备注：${node.data.continuity.notes}` : '',
-  ].filter(Boolean).join('\n') : ''
-  const prompts = [node.data.prompt, config?.data.prompt, ...textNodes.map((item) => item.data.content), dramaPrompt].map((item) => item?.trim()).filter((item): item is string => Boolean(item))
-  return { prompt: [...new Set(prompts)].join('\n\n'), textCount: textNodes.length, referenceAssetIds, config }
-}
-
-function generationModel(node: FlowNode) {
-  const kind = activeGenerationKind(node)
-  const inherited = node.data.kind === 'CONFIG' ? '' : generationContext(node).config?.data.model || ''
-  const activeTool = node.data.kind === 'IMAGE' ? activeImageTool(node) : undefined
-  const toolModel = isDedicatedImageTool(activeTool) ? activeTool?.model || '' : ''
-  return toolModel || node.data.model || inherited || defaultModel(kind)
-}
-
-function imageCapabilities(node: FlowNode): ImageCapabilitySet {
-  const raw = findCatalogModel(catalogModels.value, generationModel(node), 'IMAGE')?.options?.imageCapabilities || {}
-  const sizes = raw.sizes?.length ? raw.sizes : ['1024x1024', '1536x1024', '1024x1536']
-  const qualities = raw.qualities?.length ? raw.qualities : ['low', 'medium', 'high']
-  const outputFormats = raw.outputFormats?.length ? raw.outputFormats : ['png', 'jpeg', 'webp']
-  const backgrounds = raw.backgrounds?.length ? raw.backgrounds : ['auto', 'opaque', 'transparent']
-  return { sizes, qualities, outputFormats, backgrounds, maxCount: Math.max(1, Math.min(10, raw.maxCount || 1)), defaultSize: raw.defaultSize && sizes.includes(raw.defaultSize) ? raw.defaultSize : sizes[0], defaultQuality: raw.defaultQuality && qualities.includes(raw.defaultQuality) ? raw.defaultQuality : qualities[0], resolutionPricing: raw.resolutionPricing || {} }
-}
-
-function videoCapabilities(node: FlowNode): VideoCapabilitySet {
-  const raw = findCatalogModel(catalogModels.value, generationModel(node), 'VIDEO')?.options?.videoCapabilities || {}
-  const resolutions = raw.resolutions?.length ? raw.resolutions : ['720p']
-  const durations = raw.durations?.length ? raw.durations : [5, 10]
-  const aspectRatios = raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1']
-  return { resolutions, durations, aspectRatios, defaultResolution: raw.defaultResolution && resolutions.includes(raw.defaultResolution) ? raw.defaultResolution : resolutions[0], defaultDuration: raw.defaultDuration && durations.includes(raw.defaultDuration) ? raw.defaultDuration : durations[0], defaultAspectRatio: raw.defaultAspectRatio && aspectRatios.includes(raw.defaultAspectRatio) ? raw.defaultAspectRatio : aspectRatios[0], pricing: raw.pricing || {} }
-}
-
-function generationOptions(node: FlowNode): CanvasGenerationOptions {
-  const inherited = node.data.kind === 'CONFIG' ? {} : generationContext(node).config?.data.generationOptions || {}
-  const current = { ...inherited, ...(node.data.generationOptions || {}) }
-  if (activeGenerationKind(node) === 'VIDEO') {
-    const capabilities = videoCapabilities(node)
-    return { ...current, resolution: capabilities.resolutions.includes(String(current.resolution)) ? current.resolution : capabilities.defaultResolution, duration: capabilities.durations.includes(Number(current.duration)) ? Number(current.duration) : capabilities.defaultDuration, aspectRatio: capabilities.aspectRatios.includes(String(current.aspectRatio)) ? current.aspectRatio : capabilities.defaultAspectRatio }
-  }
-  const capabilities = imageCapabilities(node)
-  return { ...current, size: capabilities.sizes.includes(String(current.size)) ? current.size : capabilities.defaultSize, quality: capabilities.qualities.includes(String(current.quality)) ? current.quality : capabilities.defaultQuality, count: Math.max(1, Math.min(capabilities.maxCount, Number(current.count || 1))), outputFormat: capabilities.outputFormats.includes(String(current.outputFormat)) ? current.outputFormat as CanvasGenerationOptions['outputFormat'] : capabilities.outputFormats[0] as CanvasGenerationOptions['outputFormat'], background: capabilities.backgrounds.includes(String(current.background)) ? current.background as CanvasGenerationOptions['background'] : capabilities.backgrounds[0] as CanvasGenerationOptions['background'] }
-}
-
-function generationCreditCost(node: FlowNode) {
-  const kind = activeGenerationKind(node)
-  const model = findCatalogModel(catalogModels.value, generationModel(node), kind)
-  const base = model?.effectiveCreditCost ?? model?.flatCreditCost ?? 0
-  const options = generationOptions(node)
-  if (kind === 'VIDEO') {
-    const configured = videoCapabilities(node).pricing[`${options.resolution}:${options.duration}`]
-    if (configured !== undefined) return configured
-    const multiplier = options.resolution === '2160p' ? 4 : options.resolution === '1080p' ? 2 : 1
-    return base * multiplier * Math.max(1, Math.ceil(Number(options.duration || 5) / 5))
-  }
-  const edge = Math.max(...String(options.size).split('x').map(Number))
-  const tier = edge >= 4096 ? '4K' : edge >= 2048 ? '2K' : '1K'
-  const configured = imageCapabilities(node).resolutionPricing[tier]
-  return (configured ?? base * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1)) * Number(options.count || 1)
-}
-
-function imageSizeLabel(value: string) { const [width, height] = value.split('x').map(Number); const tier = Math.max(width || 0, height || 0) >= 4096 ? '4K' : Math.max(width || 0, height || 0) >= 2048 ? '2K' : '1K'; return `${tier} · ${width === height ? '正方形' : width > height ? '横向' : '竖向'}` }
-function qualityLabel(value: string) { return value === 'low' ? '低' : value === 'high' ? '高' : '标准' }
-
-function scheduleSave() {
-  if (!hydrated.value) return
-  window.clearTimeout(saveTimer)
-  saveTimer = window.setTimeout(() => void saveNow(), 900)
-}
-
-async function saveNow() {
-  window.clearTimeout(saveTimer)
-  if (!dirty.value || loadError.value) return
-  if (saving) { savePending = true; return }
-  saving = true
-  saveState.value = 'saving'
-  const savedDocument = serializeDocument()
-  const savedTitle = title.value.trim() || '未命名画布'
-  try {
-    const record = await api<CanvasRecord>(`/canvases/${String(route.params.id)}`, { method: 'PATCH', body: JSON.stringify({ expectedRevision: revision.value, title: savedTitle, document: savedDocument }) })
-    revision.value = record.revision
-    dirty.value = JSON.stringify(savedDocument) !== JSON.stringify(serializeDocument()) || savedTitle !== (title.value.trim() || '未命名画布')
-    saveState.value = dirty.value ? 'dirty' : 'saved'
-    saveError.value = ''
-  } catch (reason) {
-    saveState.value = 'error'
-    saveError.value = reason instanceof Error ? reason.message : '保存失败'
-  } finally {
-    saving = false
-    if (savePending || dirty.value && saveState.value !== 'error') { savePending = false; scheduleSave() }
-  }
-}
-
+const {
+  isGenerationNode,
+  activeGenerationKind,
+  modelsForNode,
+  defaultModel,
+  flowNodeModelOptions,
+  flowNodeGenerationSummary,
+  generationContext,
+  generationModel,
+  imageCapabilities,
+  videoCapabilities,
+  generationOptions,
+  generationCreditCost,
+  imageSizeLabel,
+  qualityLabel
+} = useCanvasGenerationOptions({
+  nodes,
+  edges,
+  catalogModels,
+  activeImageTool
+})
 function addNode(kind: CanvasNodeKind) {
   const nodeIndex = nodes.value.length
   const position = screenToFlowCoordinate({
@@ -968,12 +931,6 @@ async function uploadCanvasFiles(files: File[], origin: { x: number; y: number }
   }
 }
 
-async function addMediaFromLibrary() {
-  const id = addNodeAtFlow('IMAGE', screenToFlowCoordinate({ x: window.innerWidth / 2, y: window.innerHeight / 2 }))
-  await nextTick()
-  openMediaPicker(id)
-}
-
 function insertCanvasAsset(asset: CanvasAssetPanelItem, position = screenToFlowCoordinate({ x: window.innerWidth / 2, y: window.innerHeight / 2 })) {
   const kind: CanvasNodeKind = asset.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE'
   const id = addNodeAtFlow(kind, position)
@@ -1056,10 +1013,12 @@ function openAgentPanel() {
   nodeCreateMenu.value = null
   canvasContextMenu.value = null
   presetMenuOpen.value = false
-  agentOpen.value = true
-  agentSidebarOpen.value = false
+  agentOpen.value = false
+  agentSidebarOpen.value = !agentSidebarOpen.value
   productionSidebarOpen.value = false
   nodeConfigOpen.value = false
+  workspacePanel.value = 'agent'
+  if (agentSidebarOpen.value) agentDockView.value = 'create'
 }
 
 async function keepCanvasNodeVisible(id: string) {
@@ -1136,7 +1095,33 @@ function agentTaskStatus(status: string) {
 
 function openAgentPlan() {
   if (!agentGoal.value.trim() || !agentAvailable.value) return
+  selectedAgentTaskId.value = ''
+  if (!agentModel.value) agentModel.value = agentModels.value.find((item) => item.isDefault)?.key || agentModels.value[0]?.key || ''
   agentOpen.value = true
+}
+
+function openAgentHistoryTask(item: CanvasAgentHistoryItem) {
+  agentGoal.value = item.goal
+  selectedAgentTaskId.value = item.id
+  agentOpen.value = true
+}
+
+function startCanvasSidebarResize(event: MouseEvent) {
+  event.preventDefault()
+  const move = (current: MouseEvent) => {
+    const nextWidth = Math.max(340, Math.min(560, window.innerWidth - current.clientX))
+    canvasSidebarWidth.value = nextWidth
+  }
+  const stop = () => {
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', stop)
+  }
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', stop, { once: true })
 }
 
 function addAgentStarter(action: 'image' | 'plan' | 'group' | 'layout') {
@@ -1241,6 +1226,44 @@ function duplicateSelected() {
   pasteNodes()
 }
 
+function nudgeSelected(event: KeyboardEvent) {
+  const selected = nodes.value.filter((node) => node.selected)
+  if (!selected.length) return
+  event.preventDefault()
+  if (!event.repeat) checkpoint()
+  const step = event.shiftKey ? 12 : 1
+  const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
+  const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
+  selected.forEach((node) => { node.position = { x: node.position.x + dx, y: node.position.y + dy } })
+}
+
+function alignSelected(mode: 'left' | 'hcenter' | 'right' | 'top' | 'vmiddle' | 'bottom') {
+  const selected = nodes.value.filter((node) => node.selected)
+  if (selected.length < 2) return
+  checkpoint()
+  const boxes = selected.map((node) => ({ node, width: styleNumber(node.style, 'width', 280), height: styleNumber(node.style, 'height', 220) }))
+  const minX = Math.min(...boxes.map((box) => box.node.position.x))
+  const maxX = Math.max(...boxes.map((box) => box.node.position.x + box.width))
+  const minY = Math.min(...boxes.map((box) => box.node.position.y))
+  const maxY = Math.max(...boxes.map((box) => box.node.position.y + box.height))
+  for (const box of boxes) {
+    const next = { ...box.node.position }
+    if (mode === 'left') next.x = minX
+    else if (mode === 'hcenter') next.x = (minX + maxX) / 2 - box.width / 2
+    else if (mode === 'right') next.x = maxX - box.width
+    else if (mode === 'top') next.y = minY
+    else if (mode === 'vmiddle') next.y = (minY + maxY) / 2 - box.height / 2
+    else next.y = maxY - box.height
+    box.node.position = next
+  }
+}
+
+async function focusSelected() {
+  const ids = nodes.value.filter((node) => node.selected).map((node) => node.id)
+  if (!ids.length) return
+  await fitView({ nodes: ids, padding: 0.24, maxZoom: 1.2, duration: 260 })
+}
+
 function arrangeSelected(direction: 'horizontal' | 'vertical') {
   const selected = nodes.value.filter((node) => node.selected)
   if (selected.length < 2) return
@@ -1253,6 +1276,20 @@ function arrangeSelected(direction: 'horizontal' | 'vertical') {
     node.position = direction === 'horizontal' ? { x: cursor, y: startY } : { x: startX, y: cursor }
     cursor += styleNumber(node.style, direction === 'horizontal' ? 'width' : 'height', direction === 'horizontal' ? 280 : 220) + 32
   }
+}
+
+function autoArrangeCanvas() {
+  if (!nodes.value.length) return
+  checkpoint()
+  const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.value.length)))
+  const gapX = 48
+  const gapY = 42
+  const columnWidths = Array.from({ length: columns }, (_, column) => Math.max(...nodes.value.filter((_, index) => index % columns === column).map((node) => styleNumber(node.style, 'width', 280)), 280))
+  const rowHeights = Array.from({ length: Math.ceil(nodes.value.length / columns) }, (_, row) => Math.max(...nodes.value.slice(row * columns, (row + 1) * columns).map((node) => styleNumber(node.style, 'height', 220)), 220))
+  const xOffsets = columnWidths.map((_, index) => columnWidths.slice(0, index).reduce((sum, width) => sum + width + gapX, 0))
+  const yOffsets = rowHeights.map((_, index) => rowHeights.slice(0, index).reduce((sum, height) => sum + height + gapY, 0))
+  nodes.value = nodes.value.map((node, index) => ({ ...node, position: { x: xOffsets[index % columns], y: yOffsets[Math.floor(index / columns)] } }))
+  scheduleSave()
 }
 
 function wrapSelectedInGroup() {
@@ -1534,7 +1571,7 @@ function updateViewport(next: ViewportTransform) {
 
 function updateNodeData(id: string, patch: Partial<CanvasNodeData>) {
   nodes.value = nodes.value.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node)
-  if (hydrated.value && !applyingHistory) {
+  if (hydrated.value && !applyingHistory.value) {
     dirty.value = true
     saveState.value = 'dirty'
     scheduleSave()
@@ -1691,37 +1728,6 @@ async function generateNode(id: string) {
   }
 }
 
-async function monitorGeneration(nodeId: string, jobId: string) {
-  if (monitoringJobs.has(jobId)) return monitoringJobs.get(jobId)
-  const monitor = (async () => {
-    try {
-      let job: CanvasGenerationJob
-      try {
-        job = await streamApiEvents<CanvasGenerationJob>(`/generations/${jobId}/events`, (current) => {
-          if (nodes.value.some((node) => node.id === nodeId)) updateNodeData(nodeId, { status: current.status, creditCost: current.creditCost })
-        })
-      } catch {
-        job = await pollGeneration(jobId, (current) => updateNodeData(nodeId, { status: current.status, creditCost: current.creditCost }))
-      }
-      applyGenerationResult(nodeId, job)
-    } catch (reason) {
-      if (nodes.value.some((node) => node.id === nodeId)) updateNodeData(nodeId, { status: 'FAILED', error: reason instanceof Error ? reason.message : '任务状态读取失败' })
-    } finally { monitoringJobs.delete(jobId) }
-  })()
-  monitoringJobs.set(jobId, monitor)
-  return monitor
-}
-
-async function pollGeneration(jobId: string, onUpdate: (job: CanvasGenerationJob) => void) {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
-    const job = await api<CanvasGenerationJob>(`/generations/${jobId}`)
-    onUpdate(job)
-    if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.status)) return job
-    await new Promise((resolve) => window.setTimeout(resolve, 1000))
-  }
-  throw new Error('生成任务等待超时，请稍后重新打开画布查看。')
-}
-
 function applyGenerationResult(nodeId: string, job: CanvasGenerationJob) {
   const target = nodes.value.find((node) => node.id === nodeId)
   if (!target) return
@@ -1741,15 +1747,6 @@ function applyGenerationResult(nodeId: string, job: CanvasGenerationJob) {
     nodes.value.push({ id, type: 'canvas', position: { x: target.position.x + (index + 1) * (width + 32), y: target.position.y }, data: { ...target.data, title: `${target.data.title} ${index + 2}`, url: asset.contentUrl, assetId: asset.id, mimeType: asset.mimeType, status: 'SUCCEEDED', jobId: job.id, error: '' }, style: { width: `${width}px`, height: `${height}px` } })
     edges.value.push({ id: createClientId(), source: target.id, target: id, type: 'smoothstep', markerEnd: MarkerType.ArrowClosed, label: '生成变体' })
   })
-}
-
-async function cancelGeneration(id: string) {
-  const node = nodes.value.find((item) => item.id === id)
-  if (!node?.data.jobId) return
-  try {
-    const job = await api<CanvasGenerationJob>(`/generations/${node.data.jobId}/cancel`, { method: 'POST', body: JSON.stringify({}) })
-    updateNodeData(id, { status: job.status, error: job.status === 'CANCELLED' ? '任务已取消' : job.errorMessage || '' })
-  } catch (reason) { updateNodeData(id, { error: reason instanceof Error ? reason.message : '取消任务失败' }) }
 }
 
 function duplicateNode(id: string) {
@@ -1811,120 +1808,6 @@ function clearCanvas() {
   clearCanvasOpen.value = false
 }
 
-function checkpoint(_event?: unknown) {
-  if (!hydrated.value || applyingHistory) return
-  const snapshot = currentSnapshot()
-  const last = history.value.at(-1)
-  if (!last || JSON.stringify(last) !== JSON.stringify(snapshot)) history.value.push(snapshot)
-  if (history.value.length > 60) history.value.shift()
-  future.value = []
-}
-
-function undo() {
-  const snapshot = history.value.pop()
-  if (!snapshot) return
-  future.value.push(currentSnapshot())
-  applySnapshot(snapshot)
-}
-
-function redo() {
-  const snapshot = future.value.pop()
-  if (!snapshot) return
-  history.value.push(currentSnapshot())
-  applySnapshot(snapshot)
-}
-
-function currentSnapshot(): LocalSnapshot { return { nodes: clone(nodes.value), edges: clone(edges.value), viewport: { ...viewport.value }, background: background.value } }
-function applySnapshot(snapshot: LocalSnapshot) {
-  applyingHistory = true
-  nodes.value = clone(snapshot.nodes)
-  edges.value = clone(snapshot.edges)
-  viewport.value = { ...snapshot.viewport }
-  background.value = snapshot.background
-  void setViewport(snapshot.viewport)
-  nextTick(() => { applyingHistory = false; dirty.value = true; saveState.value = 'dirty'; scheduleSave() })
-}
-
-function copySelected() {
-  const selectedIds = new Set(nodes.value.filter((node) => node.selected).map((node) => node.id))
-  if (!selectedIds.size) return
-  clipboard.value = {
-    nodes: clone(nodes.value.filter((node) => selectedIds.has(node.id))),
-    edges: clone(edges.value.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target))),
-  }
-}
-function pasteNodes() {
-  if (!clipboard.value.nodes.length) return
-  checkpoint()
-  const ids = new Map<string, string>()
-  nodes.value.forEach((node) => { node.selected = false })
-  const pasted = clipboard.value.nodes.map((node) => { const id = createClientId(); ids.set(node.id, id); return { ...clone(node), id, position: { x: node.position.x + 36, y: node.position.y + 36 }, selected: true } })
-  const pastedEdges = clipboard.value.edges.flatMap((edge) => {
-    const source = ids.get(edge.source)
-    const target = ids.get(edge.target)
-    return source && target ? [{ ...clone(edge), id: createClientId(), source, target, selected: false }] : []
-  })
-  nodes.value.push(...pasted)
-  edges.value.push(...pastedEdges)
-  clipboard.value = { nodes: clone(pasted), edges: clone(pastedEdges) }
-}
-
-function deleteSelected() {
-  const ids = new Set(nodes.value.filter((node) => node.selected).map((node) => node.id))
-  const edgeIds = new Set(edges.value.filter((edge) => edge.selected).map((edge) => edge.id))
-  if (!ids.size && !edgeIds.size) return
-  checkpoint()
-  nodes.value = nodes.value.filter((node) => !ids.has(node.id))
-  edges.value = edges.value.filter((edge) => !edgeIds.has(edge.id) && !ids.has(edge.source) && !ids.has(edge.target))
-}
-
-function handleKeyboard(event: KeyboardEvent) {
-  const target = event.target as HTMLElement | null
-  const editing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'))
-  if (!editing && (event.code === 'Space' || event.key === 'Control')) {
-    event.preventDefault()
-    temporaryPanActive.value = true
-    return
-  }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void saveNow(); return }
-  if (editing) return
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); return }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') { event.preventDefault(); copySelected(); return }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') { event.preventDefault(); pasteNodes(); return }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); nodes.value.forEach((node) => { node.selected = true }); edges.value.forEach((edge) => { edge.selected = false }); return }
-  if (event.key === 'Escape') { event.preventDefault(); closeTransientCanvasUi(); deselectAll(); return }
-  if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); deleteSelected() }
-}
-
-function handleKeyboardUp(event: KeyboardEvent) {
-  if (event.code === 'Space' || event.key === 'Control') {
-    temporaryPanActive.value = false
-    if (event.code === 'Space') event.preventDefault()
-  }
-}
-
-function resetTemporaryPan() { temporaryPanActive.value = false }
-
-function handleClipboardPaste(event: ClipboardEvent) {
-  const target = event.target as HTMLElement | null
-  if (target?.matches('input, textarea, select, [contenteditable="true"]')) return
-  const image = Array.from(event.clipboardData?.items || []).find((item) => item.type.startsWith('image/'))?.getAsFile()
-  const text = event.clipboardData?.getData('text/plain').trim()
-  if (image) {
-    event.preventDefault()
-    const origin = screenToFlowCoordinate({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
-    void uploadCanvasFiles([image], origin)
-    return
-  }
-  if (text) {
-    event.preventDefault()
-    const id = addNodeAtFlow('TEXT', screenToFlowCoordinate({ x: window.innerWidth / 2, y: window.innerHeight / 2 }))
-    updateNodeData(id, { title: '粘贴文本', content: text.slice(0, 20_000) })
-  }
-}
-
-function handleBeforeUnload(event: BeforeUnloadEvent) { if (dirty.value) event.preventDefault() }
 function closeTransientCanvasUi() {
   canvasContextMenu.value = null
   canvasMenuOpen.value = false
@@ -1961,14 +1844,14 @@ function updateDramaShotData(patch: Partial<CanvasNodeData>) {
       ...(patch.duration !== undefined && node.data.kind === 'VIDEO' ? { generationOptions: { ...(node.data.generationOptions || {}), duration: patch.duration } } : {}),
     },
   } : node)
-  if (hydrated.value && !applyingHistory) {
+  if (hydrated.value && !applyingHistory.value) {
     dirty.value = true
     saveState.value = 'dirty'
     scheduleSave()
   }
 }
 function setBackground(value: CanvasBackground) { checkpoint(); background.value = value }
-function miniMapColor(node: { data?: unknown }) { return ({ TEXT: '#64748b', IMAGE: '#22a06b', VIDEO: '#e07a34', AUDIO: '#a66dd4', GROUP: '#94a3b8', CONFIG: '#4f7cff' } as Record<string, string>)[(node.data as CanvasNodeData | undefined)?.kind || ''] || '#64748b' }
+function miniMapColor(node: { data?: unknown }) { return ({ TEXT: '#64748b', IMAGE: '#22a06b', VIDEO: '#e07a34', AUDIO: '#a66dd4', GROUP: '#94a3b8', CONFIG: '#4d6bfe' } as Record<string, string>)[(node.data as CanvasNodeData | undefined)?.kind || ''] || '#64748b' }
 function nodeKindLabel(kind: CanvasNodeKind) { return ({ TEXT: '文本', IMAGE: '图片', VIDEO: '视频', AUDIO: '音频', GROUP: '分组', CONFIG: '生成设置' })[kind] }
 function flowNodeData(id: string) { return nodes.value.find((node) => node.id === id)?.data || { kind: 'TEXT' as const, title: '文本', content: '' } }
 

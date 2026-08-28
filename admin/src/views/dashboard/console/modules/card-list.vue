@@ -37,7 +37,7 @@
    * 卡片统计数据列表
    * 展示总访问次数、在线访客数、点击量和新用户等核心数据指标
    */
-  import type { Overview } from '@/api/xinyue'
+  import type { Overview } from '@/api/xinyue/dashboard'
   import { xinyueText as xt } from '@/locales/xinyue'
 
   const props = defineProps<{ overview: Overview | null }>()

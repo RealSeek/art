@@ -444,13 +444,7 @@ export const useSettingStore = defineStore(
   {
     persist: {
       key: 'setting',
-      storage: localStorage,
-      // 企业管理端使用 Art Design Pro 原生左侧导航，迁移旧版混合布局偏好。
-      afterHydrate: ({ store }) => {
-        if (store.menuType !== MenuTypeEnum.LEFT) {
-          store.menuType = MenuTypeEnum.LEFT
-        }
-      }
+      storage: localStorage
     }
   }
 )

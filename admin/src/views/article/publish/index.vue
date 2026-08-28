@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-  import { xinyueApi } from '@/api/xinyue'
+  import { contentApi as xinyueApi } from '@/api/xinyue/content'
   import { router } from '@/router'
   import { xinyueText as xt } from '@/locales/xinyue'
 

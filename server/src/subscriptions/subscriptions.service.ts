@@ -16,6 +16,14 @@ type PlanInput = {
   originalPriceCents?: number | null
   currency?: string
   includedCredits?: number
+  monthlyQuotaUnits?: number
+  dailyQuotaUnits?: number
+  tokenOverageRate?: number
+  tokenQuotaResetDay?: number
+  tokenQuotaCarryOver?: boolean
+  tokenQuotaMode?: 'BILLABLE_UNITS'
+  tokenOverageMode?: 'BLOCK' | 'OVERAGE_CREDITS'
+  byokMode?: 'QUOTA' | 'FREE'
   trialDays?: number
   concurrency?: number
   allowByok?: boolean
@@ -43,9 +51,9 @@ export class SubscriptionsService implements OnModuleInit {
   async onModuleInit() {
     if (!await this.prisma.subscriptionPlan.count()) {
       await this.prisma.subscriptionPlan.createMany({ data: [
-        { code: 'free', name: '免费版', description: '适合体验基础对话和图片创作', billingCycle: 'MONTHLY', priceCents: 0, includedCredits: 0, trialDays: 0, concurrency: 1, allowByok: true, imageAccess: true, commerceAccess: false, sortOrder: 10 },
-        { code: 'plus', name: 'Plus', description: '适合持续创作，包含更高并发和商品视觉', billingCycle: 'MONTHLY', priceCents: 6800, includedCredits: 500, trialDays: 7, concurrency: 3, allowByok: true, imageAccess: true, videoAccess: true, commerceAccess: true, recommended: true, sortOrder: 20 },
-        { code: 'pro', name: 'Pro', description: '面向专业团队和高频生成任务', billingCycle: 'MONTHLY', priceCents: 19800, includedCredits: 2000, trialDays: 0, concurrency: 10, allowByok: true, apiAccess: true, imageAccess: true, videoAccess: true, commerceAccess: true, batchAccess: true, sortOrder: 30 },
+        { code: 'free', name: '免费版', description: '适合体验基础对话和图片创作', billingCycle: 'MONTHLY', priceCents: 0, includedCredits: 0, monthlyQuotaUnits: 1000000n, dailyQuotaUnits: 100000n, concurrency: 1, allowByok: true, imageAccess: true, commerceAccess: false, sortOrder: 10 },
+        { code: 'plus', name: 'Plus', description: '适合持续创作，包含更高并发和商品视觉', billingCycle: 'MONTHLY', priceCents: 6800, includedCredits: 500, monthlyQuotaUnits: 10000000n, dailyQuotaUnits: 1000000n, concurrency: 3, allowByok: true, imageAccess: true, videoAccess: true, commerceAccess: true, recommended: true, sortOrder: 20 },
+        { code: 'pro', name: 'Pro', description: '面向专业团队和高频生成任务', billingCycle: 'MONTHLY', priceCents: 19800, includedCredits: 2000, monthlyQuotaUnits: 50000000n, dailyQuotaUnits: 5000000n, concurrency: 10, allowByok: true, apiAccess: true, imageAccess: true, videoAccess: true, commerceAccess: true, batchAccess: true, sortOrder: 30 },
       ] })
     }
     await this.queue.upsertJobScheduler('subscription-renewal-scan', { every: 15 * 60_000 }, { name: 'scan-renewals', data: {}, opts: { removeOnComplete: 20, removeOnFail: 100 } })
@@ -57,14 +65,14 @@ export class SubscriptionsService implements OnModuleInit {
   }
 
   createPlan(input: PlanInput) {
-    const { capabilities, ...plan } = input
-    const data = { ...plan, code: plan.code.trim().toLowerCase(), name: plan.name.trim(), description: plan.description?.trim(), ...(capabilities === undefined ? {} : { capabilities: capabilities as Prisma.InputJsonValue }) } as Prisma.SubscriptionPlanUncheckedCreateInput
+    const { capabilities, monthlyQuotaUnits, dailyQuotaUnits, ...plan } = input
+    const data = { ...plan, ...(monthlyQuotaUnits === undefined ? {} : { monthlyQuotaUnits: BigInt(monthlyQuotaUnits) }), ...(dailyQuotaUnits === undefined ? {} : { dailyQuotaUnits: BigInt(dailyQuotaUnits) }), code: plan.code.trim().toLowerCase(), name: plan.name.trim(), description: plan.description?.trim(), ...(capabilities === undefined ? {} : { capabilities: capabilities as Prisma.InputJsonValue }) } as Prisma.SubscriptionPlanUncheckedCreateInput
     return this.prisma.subscriptionPlan.create({ data })
   }
 
   async updatePlan(id: string, input: Partial<PlanInput>) {
-    const { capabilities, ...plan } = input
-    const data = { ...plan, code: plan.code?.trim().toLowerCase(), name: plan.name?.trim(), description: plan.description?.trim(), ...(capabilities === undefined ? {} : { capabilities: capabilities as Prisma.InputJsonValue }) } as Prisma.SubscriptionPlanUncheckedUpdateInput
+    const { capabilities, monthlyQuotaUnits, dailyQuotaUnits, ...plan } = input
+    const data = { ...plan, ...(monthlyQuotaUnits === undefined ? {} : { monthlyQuotaUnits: BigInt(monthlyQuotaUnits) }), ...(dailyQuotaUnits === undefined ? {} : { dailyQuotaUnits: BigInt(dailyQuotaUnits) }), code: plan.code?.trim().toLowerCase(), name: plan.name?.trim(), description: plan.description?.trim(), ...(capabilities === undefined ? {} : { capabilities: capabilities as Prisma.InputJsonValue }) } as Prisma.SubscriptionPlanUncheckedUpdateInput
     return this.prisma.subscriptionPlan.update({ where: { id }, data }).catch(() => { throw new NotFoundException('订阅套餐不存在') })
   }
 

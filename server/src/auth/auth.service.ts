@@ -2,17 +2,15 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, Unauthorize
 import { ConfigService } from '@nestjs/config'
 import { LedgerType, Prisma, type User } from '@prisma/client'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import * as QRCode from 'qrcode'
 import { PrismaService } from '../prisma/prisma.service'
 import { hashPassword, verifyPassword } from './password'
 import { EmailService } from './email.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
-import { TotpService } from './totp.service'
 import { ReferralService } from '../commercial/referral.service'
 
 const hash = (value: string, secret: string) => createHash('sha256').update(`${secret}:${value}`).digest('hex')
 type LoginMeta = { ip?: string; userAgent?: string }
-type SessionResult = { user: { id: string; email: string | null; username: string | null; displayName: string; role: string; mfaEnabled: boolean }; token: string; expiresAt: Date }
+type SessionResult = { user: { id: string; email: string | null; username: string | null; displayName: string; role: string }; token: string; expiresAt: Date }
 type ExternalLoginResult = SessionResult | { bindingRequired: true; provider: string; ticket: string; displayName?: string; email?: string }
 type ExternalProfile = Record<string, unknown>
 
@@ -23,7 +21,7 @@ function jsonInput(value: ExternalProfile | null | undefined) {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly totp: TotpService, private readonly referrals: ReferralService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly referrals: ReferralService) {}
 
   async requestCode(emailInput: string) {
     const email = emailInput.trim().toLowerCase()
@@ -273,89 +271,43 @@ export class AuthService {
       throw new UnauthorizedException('管理员账号或密码错误')
     }
     if (!await verifyPassword(password, user.passwordHash)) throw new UnauthorizedException('管理员账号或密码错误')
-    if (user.adminMfaEnabledAt && user.adminMfaSecretEncrypted) {
-      const ticket = await this.createAuthTicket('admin_mfa_login', { subject: user.id, email: user.email || undefined })
-      return { mfaRequired: true as const, ticket, expiresIn: 600 }
-    }
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
     return this.createSession(user, meta, 'admin-password')
   }
 
-  async verifyAdminMfaLogin(ticketInput: string, code: string, meta: LoginMeta) {
-    const ticket = await this.readAuthTicket(ticketInput, 'admin_mfa_login')
-    const user = await this.prisma.user.findUnique({ where: { id: ticket.subject } })
-    if (!user?.adminMfaEnabledAt || !user.adminMfaSecretEncrypted || !['ADMIN', 'SUPER_ADMIN'].includes(user.role) || user.status !== 'ACTIVE') throw new UnauthorizedException('管理员二次验证无效')
-    await this.verifyAdminMfaCode(user, code)
-    const claimed = await this.prisma.authTicket.updateMany({ where: { id: ticket.id, consumedAt: null, expiresAt: { gt: new Date() } }, data: { consumedAt: new Date() } })
-    if (!claimed.count) throw new UnauthorizedException('二次验证票据无效或已过期')
-    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
-    await this.securityAudit(user.id, 'admin.mfa.login', meta)
-    return this.createSession(user, meta, 'admin-mfa', true)
+  async peekSession(token?: string) {
+    if (!token) return null
+    const tokenHash = createHash('sha256').update(token).digest('hex')
+    const session = await this.prisma.session.findFirst({ where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: true } })
+    if (!session || session.user.status !== 'ACTIVE') return null
+    return { id: session.user.id, email: session.user.email, username: session.user.username, displayName: session.user.displayName, authMethod: session.authMethod, role: session.user.role, adminRoleId: session.user.adminRoleId }
   }
 
-  async adminMfaStatus(userId: string) {
+  async updateAdminAccount(userId: string, sessionId: string, input: { currentPassword: string; email?: string; newPassword?: string }, meta: LoginMeta) {
     const user = await this.adminUser(userId)
-    return { enabled: Boolean(user.adminMfaEnabledAt && user.adminMfaSecretEncrypted), enabledAt: user.adminMfaEnabledAt, recoveryCodesRemaining: user.adminMfaRecoveryHashes.length }
-  }
-
-  async beginAdminMfaSetup(userId: string) {
-    const user = await this.adminUser(userId)
-    const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
-    const secret = this.totp.generateSecret()
-    const issuer = settings.siteName?.trim() || 'Xinyue AI'
-    const account = user.email || user.username || user.id
-    const uri = this.totp.uri(secret, account, issuer)
-    const ticket = await this.createAuthTicket('admin_mfa_setup', { subject: user.id, email: user.email || undefined, profile: { secret: this.crypto.encrypt(secret) } })
-    return { ticket, secret, uri, qrCodeDataUrl: await QRCode.toDataURL(uri, { width: 240, margin: 1, errorCorrectionLevel: 'M' }), expiresIn: 600 }
-  }
-
-  async enableAdminMfa(userId: string, sessionId: string, ticketInput: string, code: string, meta: LoginMeta) {
-    const ticket = await this.readAuthTicket(ticketInput, 'admin_mfa_setup')
-    if (ticket.subject !== userId) throw new UnauthorizedException('MFA 配置票据不属于当前账户')
-    const profile = ticket.profile && typeof ticket.profile === 'object' && !Array.isArray(ticket.profile) ? ticket.profile as Record<string, unknown> : {}
-    const encryptedSecret = typeof profile.secret === 'string' ? profile.secret : ''
-    const secret = this.crypto.decrypt(encryptedSecret)
-    if (!this.totp.verify(secret, code)) throw new UnauthorizedException('动态验证码错误')
-    const recoveryCodes = this.totp.recoveryCodes()
-    const recoveryHashes = recoveryCodes.map((item) => this.recoveryHash(item))
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.authTicket.updateMany({ where: { id: ticket.id, consumedAt: null, expiresAt: { gt: new Date() } }, data: { consumedAt: new Date() } })
-      if (!claimed.count) throw new UnauthorizedException('MFA 配置票据无效或已过期')
-      await tx.user.update({ where: { id: userId }, data: { adminMfaSecretEncrypted: encryptedSecret, adminMfaEnabledAt: new Date(), adminMfaRecoveryHashes: recoveryHashes } })
-      await tx.session.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { mfaVerifiedAt: new Date() } })
+    if (!user.passwordHash || !await verifyPassword(input.currentPassword, user.passwordHash)) throw new UnauthorizedException('当前管理员密码错误')
+    const email = input.email?.trim().toLowerCase() || undefined
+    const newPassword = input.newPassword?.trim() || undefined
+    if (!email && !newPassword) throw new BadRequestException('请至少填写新的邮箱或密码')
+    if (email && email !== user.email) {
+      const duplicate = await this.prisma.user.findUnique({ where: { email }, select: { id: true } })
+      if (duplicate && duplicate.id !== user.id) throw new BadRequestException('该邮箱已经被其他账户使用')
+    }
+    const passwordHash = newPassword ? await hashPassword(newPassword) : undefined
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          ...(email && email !== user.email ? { email, emailVerifiedAt: new Date() } : {}),
+          ...(passwordHash ? { passwordHash } : {})
+        },
+        select: { id: true, email: true, username: true, displayName: true, role: true, avatarUrl: true }
+      })
+      await tx.session.updateMany({ where: { userId: user.id, id: { not: sessionId }, revokedAt: null }, data: { revokedAt: new Date() } })
+      return saved
     })
-    await this.securityAudit(userId, 'admin.mfa.enabled', meta)
-    return { enabled: true, recoveryCodes }
-  }
-
-  async regenerateAdminMfaRecoveryCodes(userId: string, code: string, meta: LoginMeta) {
-    const user = await this.adminUser(userId)
-    await this.verifyAdminMfaCode(user, code)
-    const recoveryCodes = this.totp.recoveryCodes()
-    await this.prisma.user.update({ where: { id: userId }, data: { adminMfaRecoveryHashes: recoveryCodes.map((item) => this.recoveryHash(item)) } })
-    await this.securityAudit(userId, 'admin.mfa.recovery_regenerated', meta)
-    return { recoveryCodes }
-  }
-
-  async disableAdminMfa(userId: string, sessionId: string, password: string, code: string, meta: LoginMeta) {
-    const user = await this.adminUser(userId)
-    if (!user.passwordHash || !await verifyPassword(password, user.passwordHash)) throw new UnauthorizedException('管理员密码错误')
-    await this.verifyAdminMfaCode(user, code)
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: userId }, data: { adminMfaSecretEncrypted: null, adminMfaEnabledAt: null, adminMfaRecoveryHashes: [] } }),
-      this.prisma.session.updateMany({ where: { userId, id: { not: sessionId }, revokedAt: null }, data: { revokedAt: new Date() } }),
-      this.prisma.session.updateMany({ where: { id: sessionId, userId }, data: { mfaVerifiedAt: null } }),
-    ])
-    await this.securityAudit(userId, 'admin.mfa.disabled', meta)
-    return { enabled: false }
-  }
-
-  async verifyAdminMfaSession(userId: string, sessionId: string, code: string, meta: LoginMeta) {
-    const user = await this.adminUser(userId)
-    await this.verifyAdminMfaCode(user, code)
-    await this.prisma.session.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { mfaVerifiedAt: new Date() } })
-    await this.securityAudit(userId, 'admin.mfa.step_up', meta)
-    return { verified: true, verifiedAt: new Date() }
+    await this.securityAudit(user.id, 'admin.account.updated', meta)
+    return { user: { id: updated.id, email: updated.email, username: updated.username, displayName: updated.displayName, role: updated.role, avatarUrl: updated.avatarUrl } }
   }
 
   private async adminUser(userId: string) {
@@ -364,34 +316,15 @@ export class AuthService {
     return user
   }
 
-  private async verifyAdminMfaCode(user: User, code: string) {
-    if (!user.adminMfaEnabledAt || !user.adminMfaSecretEncrypted) throw new BadRequestException('管理员尚未启用 MFA')
-    if (this.totp.verify(this.crypto.decrypt(user.adminMfaSecretEncrypted), code)) return
-    const recoveryHash = this.recoveryHash(code)
-    if (!user.adminMfaRecoveryHashes.includes(recoveryHash)) throw new UnauthorizedException('动态验证码或恢复码错误')
-    const consumed = await this.prisma.$executeRaw`
-      UPDATE "User"
-      SET "adminMfaRecoveryHashes" = array_remove("adminMfaRecoveryHashes", ${recoveryHash}),
-          "updatedAt" = NOW()
-      WHERE "id" = ${user.id}
-        AND ${recoveryHash} = ANY("adminMfaRecoveryHashes")
-    `
-    if (!consumed) throw new UnauthorizedException('该恢复码已经使用')
-  }
-
-  private recoveryHash(code: string) {
-    return hash(this.totp.normalizeRecoveryCode(code), this.config.getOrThrow('SESSION_SECRET'))
-  }
-
   private securityAudit(actorId: string, action: string, meta: LoginMeta) {
     return this.prisma.auditLog.create({ data: { actorId, action, targetType: 'admin_security', targetId: actorId, ipAddress: meta.ip, userAgent: meta.userAgent } })
   }
 
-  private async createSession(user: { id: string; email: string | null; username?: string | null; displayName: string; role: string; adminMfaEnabledAt?: Date | null }, meta: { ip?: string; userAgent?: string }, authMethod = 'email', mfaVerified = false) {
+  private async createSession(user: { id: string; email: string | null; username?: string | null; displayName: string; role: string }, meta: { ip?: string; userAgent?: string }, authMethod = 'email') {
     const rawToken = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + this.config.get<number>('SESSION_TTL_DAYS', 30) * 86_400_000)
-    await this.prisma.session.create({ data: { userId: user.id, tokenHash: createHash('sha256').update(rawToken).digest('hex'), ipAddress: meta.ip, userAgent: meta.userAgent, authMethod, mfaVerifiedAt: mfaVerified ? new Date() : null, expiresAt } })
-    return { user: { id: user.id, email: user.email, username: user.username || null, displayName: user.displayName, role: user.role, mfaEnabled: Boolean(user.adminMfaEnabledAt) }, token: rawToken, expiresAt }
+    await this.prisma.session.create({ data: { userId: user.id, tokenHash: createHash('sha256').update(rawToken).digest('hex'), ipAddress: meta.ip, userAgent: meta.userAgent, authMethod, expiresAt } })
+    return { user: { id: user.id, email: user.email, username: user.username || null, displayName: user.displayName, role: user.role }, token: rawToken, expiresAt }
   }
 
   async revoke(sessionId: string) { await this.prisma.session.update({ where: { id: sessionId }, data: { revokedAt: new Date() } }).catch(() => undefined) }

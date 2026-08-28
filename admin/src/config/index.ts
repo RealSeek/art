@@ -116,8 +116,9 @@ const appConfig: SystemConfig = {
       textColor: 'rgba(#FFFFFF, 0.7)'
     }
   ],
-  // 系统主色
+  // 系统主色（第一个为默认主题色，与用户端品牌色 #4D6BFE 对齐）
   systemMainColor: [
+    '#4D6BFE',
     '#5D87FF',
     '#B48DF3',
     '#1D84FF',

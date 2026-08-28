@@ -32,7 +32,7 @@ Browser
 - 管理端：Art Design Pro、Vue 3、Element Plus
 - 服务端：NestJS、Fastify、Prisma、PostgreSQL、Redis、BullMQ、LangGraph.js
 
-当前功能状态、真实缺口和后续顺序见 [项目审计与后续执行基线](docs/PROJECT_AUDIT_AND_NEXT_STEPS.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+当前功能状态、真实缺口和后续顺序见 [最近代码审计](docs/FINAL_CODE_AUDIT_2026-08-27.md) 与 [下一版本执行边界](docs/NEXT_VERSION_SCOPE_AND_EXECUTION_PLAN_2026-08-27.md)，本地重启记录见 [本地清理与重启记录](docs/LOCAL_CLEANUP_AND_RESTART_2026-08-28.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
 
 ## 本地开发
 

@@ -8,11 +8,13 @@ import { RechargeController } from './recharge.controller'
 import { AssetsModule } from '../assets/assets.module'
 import { CapabilityRegistryService } from './capability-registry.service'
 import { ModelDiscoveryService } from './model-discovery.service'
+import { ProviderHealthService } from './provider-health.service'
+import { ProviderRoutingService } from './provider-routing.service'
 
 @Module({
   imports: [AssetsModule],
   controllers: [CatalogController, UserCredentialsController, UserModelPolicyController, AdminProvidersController, RechargeController],
-  providers: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProvidersService],
-  exports: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProvidersService],
+  providers: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProvidersService],
+  exports: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProvidersService],
 })
 export class ProvidersModule {}

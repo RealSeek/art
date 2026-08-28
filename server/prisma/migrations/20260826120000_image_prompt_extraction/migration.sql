@@ -1,0 +1,4 @@
+ALTER TABLE "SystemSetting"
+ADD COLUMN "imagePromptEnabled" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN "imagePromptModelKey" TEXT NOT NULL DEFAULT '',
+ADD COLUMN "imagePromptBillingMode" TEXT NOT NULL DEFAULT 'USER_CREDITS';

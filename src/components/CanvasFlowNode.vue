@@ -6,16 +6,17 @@
       :min-height="data.kind === 'GROUP' ? 220 : 120"
       :max-width="1600"
       :max-height="1200"
-      color="#4f7cff"
+      color="#4d6bfe"
       @resize-start="emit('checkpoint')"
       @resize-end="handleResizeEnd"
     />
-    <div v-if="selected" class="canvas-node-hover-toolbar nodrag" @mousedown.stop @pointerdown.stop>
+    <div class="canvas-node-hover-toolbar nodrag" @mousedown.stop @pointerdown.stop>
       <button type="button" title="查看节点信息与参数" aria-label="查看节点信息与参数" @click="emit('configure')"><Settings2 :size="14" /></button>
       <button v-if="data.kind === 'IMAGE' || data.kind === 'VIDEO' || data.kind === 'AUDIO'" type="button" title="选择或替换素材" aria-label="选择或替换素材" @click="emit('pick')"><Upload :size="14" /></button>
       <button v-if="data.kind === 'TEXT' || data.kind === 'CONFIG'" type="button" title="从文本创建图片" aria-label="从文本创建图片" @click="emit('derive', 'IMAGE')"><ImagePlus :size="14" /></button>
       <button v-if="data.kind === 'TEXT' || data.kind === 'CONFIG' || data.kind === 'IMAGE'" type="button" title="创建视频节点" aria-label="创建视频节点" @click="emit('derive', 'VIDEO')"><Clapperboard :size="14" /></button>
       <button v-if="data.kind === 'IMAGE'" type="button" title="继续派生图片" aria-label="继续派生图片" @click="emit('derive', 'IMAGE')"><GitBranchPlus :size="14" /></button>
+      <button v-if="data.kind === 'IMAGE' && data.assetId" type="button" title="裁剪与蒙版编辑" aria-label="裁剪与蒙版编辑" @click="emit('edit')"><Crop :size="14" /></button>
       <button type="button" title="复制节点" aria-label="复制节点" @click="emit('duplicate')"><Copy :size="14" /></button>
       <button v-if="data.url" type="button" title="下载素材" aria-label="下载素材" @click="emit('download')"><Download :size="14" /></button>
       <button type="button" title="删除节点" aria-label="删除节点" @click="emit('remove')"><Trash2 :size="14" /></button>
@@ -27,19 +28,9 @@
         <span class="canvas-node-kind"><component :is="nodeIcon" :size="15" />{{ kindLabel }}</span>
         <strong class="canvas-node-title">{{ data.title }}</strong>
       </div>
-      <div v-if="selected" class="canvas-node-actions nodrag">
-        <button type="button" title="查看节点信息与参数" aria-label="查看节点信息与参数" @click="emit('configure')"><Settings2 :size="14" /></button>
-        <button v-if="data.kind === 'IMAGE' || data.kind === 'VIDEO' || data.kind === 'AUDIO'" type="button" title="选择或替换素材" aria-label="选择或替换素材" @click="emit('pick')"><Upload :size="14" /></button>
-        <button v-if="data.kind === 'TEXT' || data.kind === 'CONFIG'" type="button" title="从文本创建图片" aria-label="从文本创建图片" @click="emit('derive', 'IMAGE')"><ImagePlus :size="14" /></button>
-        <button v-if="data.kind === 'TEXT' || data.kind === 'CONFIG' || data.kind === 'IMAGE'" type="button" title="创建视频节点" aria-label="创建视频节点" @click="emit('derive', 'VIDEO')"><Clapperboard :size="14" /></button>
-        <button v-if="data.kind === 'IMAGE'" type="button" title="继续派生图片" aria-label="继续派生图片" @click="emit('derive', 'IMAGE')"><GitBranchPlus :size="14" /></button>
-        <button type="button" title="复制节点" aria-label="复制节点" @click="emit('duplicate')"><Copy :size="14" /></button>
-        <button v-if="data.url" type="button" title="下载素材" aria-label="下载素材" @click="emit('download')"><Download :size="14" /></button>
-        <button type="button" title="删除节点" aria-label="删除节点" @click="emit('remove')"><Trash2 :size="14" /></button>
-      </div>
     </header>
 
-    <div class="canvas-node-body nodrag nowheel">
+    <div class="canvas-node-body nowheel" :class="{ nodrag: data.kind === 'TEXT' }">
       <textarea
         v-if="data.kind === 'TEXT'"
         :value="data.content"
@@ -53,11 +44,11 @@
         <button v-else class="canvas-node-empty" type="button" @click="emit('pick')"><ImageIcon :size="28" /><span>空图片节点</span><small>点击选择图片或开始生成</small></button>
       </template>
       <template v-else-if="data.kind === 'VIDEO'">
-        <video v-if="data.url" :src="data.url" controls playsinline />
+        <video v-if="data.url" class="nodrag" :src="data.url" controls playsinline />
         <button v-else class="canvas-node-empty" type="button" @click="emit('pick')"><Video :size="28" /><span>选择视频或开始生成</span><small>支持 MP4、WebM 与 MOV</small></button>
       </template>
       <template v-else-if="data.kind === 'AUDIO'">
-        <audio v-if="data.url" :src="data.url" controls preload="metadata" />
+        <audio v-if="data.url" class="nodrag" :src="data.url" controls preload="metadata" />
         <button v-else class="canvas-node-empty" type="button" @click="emit('pick')"><Music2 :size="28" /><span>选择音频</span><small>支持 MP3、WAV、M4A 与 OGG</small></button>
       </template>
       <div v-else-if="data.kind === 'CONFIG'" class="canvas-node-config">
@@ -67,12 +58,12 @@
       </div>
       <div v-else class="canvas-node-group-label"><Layers3 :size="22" /><span>将相关节点放在这个区域内</span></div>
 
-      <div v-if="data.status === 'QUEUED' || data.status === 'RUNNING'" class="canvas-node-job-state">
+      <div v-if="data.status === 'QUEUED' || data.status === 'RUNNING'" class="canvas-node-job-state nodrag">
         <LoaderCircle class="canvas-spin" :size="20" />
         <strong>{{ data.status === 'QUEUED' ? '等待生成' : '正在生成' }}</strong>
         <button type="button" @click="emit('cancel')">取消任务</button>
       </div>
-      <div v-else-if="data.status === 'FAILED' || data.status === 'CANCELLED'" class="canvas-node-job-state is-error">
+      <div v-else-if="data.status === 'FAILED' || data.status === 'CANCELLED'" class="canvas-node-job-state is-error nodrag">
         <CircleAlert :size="20" />
         <strong>{{ data.status === 'CANCELLED' ? '任务已取消' : '生成失败' }}</strong>
         <small>{{ data.error || '请检查模型与输入后重试' }}</small>
@@ -103,7 +94,7 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { NodeResizer, type OnResizeStart } from '@vue-flow/node-resizer'
-import { Clapperboard, CircleAlert, Copy, Download, FileText, GitBranchPlus, Image as ImageIcon, ImagePlus, Layers3, LoaderCircle, Music2, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Trash2, Upload, Video } from 'lucide-vue-next'
+import { Clapperboard, CircleAlert, Copy, Crop, Download, FileText, GitBranchPlus, Image as ImageIcon, ImagePlus, Layers3, LoaderCircle, Music2, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Trash2, Upload, Video } from 'lucide-vue-next'
 import type { CanvasNodeData } from '../types/canvas'
 
 const props = defineProps<{ data: CanvasNodeData; selected?: boolean; modelOptions?: Array<{ key: string; displayName: string }>; generationSummary?: string }>()
@@ -121,6 +112,7 @@ const emit = defineEmits<{
   derive: [kind: 'IMAGE' | 'VIDEO']
   run: []
   download: []
+  edit: []
 }>()
 
 const kindLabel = computed(() => ({ TEXT: '文本', IMAGE: '图片', VIDEO: '视频', AUDIO: '音频', GROUP: '分组', CONFIG: '生成设置' })[props.data.kind])

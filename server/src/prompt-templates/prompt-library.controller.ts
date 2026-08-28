@@ -29,8 +29,8 @@ export class PromptLibraryController {
   constructor(private readonly library: PromptLibraryService) {}
 
   @Get()
-  list(@Query('type') promptType?: string, @Query('q') query?: string, @Query('source') sourceId?: string, @Query('tag') tag?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.library.list({ promptType, query, sourceId, tag, page: Number(page) || 1, pageSize: Number(pageSize) || 24 })
+  list(@Query('type') promptType?: string, @Query('q') query?: string, @Query('source') sourceId?: string, @Query('tag') tag?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('cursor') cursor?: string) {
+    return this.library.list({ promptType, query, sourceId, tag, page: Number(page) || 1, pageSize: Number(pageSize) || 24, cursor })
   }
 
   @Get('items/:itemId')
@@ -53,8 +53,8 @@ export class AdminPromptLibraryController {
   }
 
   @Get('items')
-  items(@Query('type') promptType?: string, @Query('q') query?: string, @Query('source') sourceId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.library.adminItems({ promptType, query, sourceId, page: Number(page) || 1, pageSize: Number(pageSize) || 20 })
+  items(@Query('type') promptType?: string, @Query('q') query?: string, @Query('source') sourceId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('cursor') cursor?: string) {
+    return this.library.adminItems({ promptType, query, sourceId, page: Number(page) || 1, pageSize: Number(pageSize) || 20, cursor })
   }
 
   @Patch('items/:itemId')

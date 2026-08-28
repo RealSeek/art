@@ -66,6 +66,7 @@ declare namespace Api {
     interface LoginParams {
       email: string
       password: string
+      remember?: boolean
     }
 
     /** 登录响应 */

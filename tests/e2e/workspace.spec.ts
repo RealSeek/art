@@ -54,7 +54,7 @@ test('未配置专用图片工具时仍显示系统工具并写入可编辑提�
 
   const tools = page.locator('.creation-tools > button')
   await expect(tools).toHaveCount(5)
-  await tools.filter({ hasText: 'AI 擦除' }).click()
+  await tools.filter({ hasText: '擦除' }).click()
 
   const input = page.getByLabel('创作描述', { exact: true })
   await expect(input).toHaveValue(/只移除蒙版标记区域/)
@@ -180,7 +180,7 @@ test('关闭邮箱验证码后隐藏游客登录入口并显示关闭状态', as
   await expect(page.getByLabel('邮箱')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '登录暂未开放', exact: true })).toHaveCSS('color', 'rgb(22, 23, 26)')
   await expect(page.getByText('管理员尚未开放邮箱验证码登录。', { exact: true })).toHaveCSS('color', 'rgb(126, 131, 140)')
-  await expect(page.getByRole('link', { name: '返回工作台', exact: true })).toHaveCSS('background-color', 'rgb(9, 10, 13)')
+  await expect(page.getByRole('link', { name: '返回工作台', exact: true })).toHaveCSS('background-color', 'rgb(24, 24, 27)')
   await page.waitForTimeout(500)
   await page.screenshot({ path: 'test-results/login-disabled.png', fullPage: false })
 })
@@ -639,10 +639,19 @@ test('账户导出包含聊天数据，并可永久删除单条对话', async ({
     const message = await page.request.post(endpoint(`/conversations/${conversation.id}/messages`), { data: { content: 'export verification' } })
     expect(message.ok()).toBeTruthy()
 
-    const exportResponse = await page.request.get(endpoint('/conversations/export'))
+    const exportResponse = await page.request.post(endpoint('/exports'), { data: { scope: 'ACCOUNT' } })
     expect(exportResponse.ok()).toBeTruthy()
-    const exported = await exportResponse.json() as { conversations: Array<{ id: string; messages: Array<{ content: string }> }> }
-    expect(exported.conversations.find((item) => item.id === conversation.id)?.messages[0]?.content).toBe('export verification')
+    const exportJob = await exportResponse.json() as { id: string }
+    let exportStatus: { status: string; downloadUrl?: string | null } | undefined
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const statusResponse = await page.request.get(endpoint(`/exports/${exportJob.id}`))
+      expect(statusResponse.ok()).toBeTruthy()
+      exportStatus = await statusResponse.json()
+      if (exportStatus.status === 'SUCCEEDED' || exportStatus.status === 'FAILED') break
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    expect(exportStatus?.status).toBe('SUCCEEDED')
+    expect(exportStatus?.downloadUrl).toBeTruthy()
 
     const removed = await page.request.delete(endpoint(`/conversations/${conversation.id}/permanent`))
     expect(removed.ok()).toBeTruthy()

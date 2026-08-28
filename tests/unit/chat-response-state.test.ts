@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { resolveChatResponseState } from '../../src/utils/chat-response-state.ts'
+import type { Message } from '../../src/types.ts'
+
+const message = (value: Partial<Message>): Message => ({
+  id: 'assistant-1',
+  role: 'assistant',
+  content: '',
+  createdAt: 1,
+  generationJobId: 'job-1',
+  ...value,
+})
+
+const active = { isGenerating: true, activeJobId: 'job-1' }
+
+test('空的活动助手消息处于思考阶段', () => {
+  const state = resolveChatResponseState(message({}), active)
+  assert.equal(state.phase, 'thinking')
+  assert.equal(state.isStreaming, true)
+  assert.equal(state.isPending, true)
+  assert.equal(state.processTitle, '正在思考')
+})
+
+test('联网中的消息优先进入检索阶段', () => {
+  const state = resolveChatResponseState(message({
+    webSearch: { enabled: true, status: 'searching', queries: [], sources: [] },
+  }), active)
+  assert.equal(state.phase, 'search')
+  assert.equal(state.processTitle, '正在思考与检索')
+  assert.equal(state.processStatus, '实时更新')
+})
+
+test('推理和正文流分别进入推理与回答阶段', () => {
+  const reasoning = resolveChatResponseState(message({ reasoning: 'Analyzing the request' }), active)
+  const answering = resolveChatResponseState(message({ content: '正在输出正文' }), active)
+  assert.equal(reasoning.phase, 'reasoning')
+  assert.equal(reasoning.reasoningSummary, '已完成问题分析和关键信息梳理')
+  assert.equal(answering.phase, 'answer')
+  assert.equal(answering.shouldRender, true)
+})
+
+test('完成和失败的检索状态不再标记为运行中', () => {
+  const completed = resolveChatResponseState(message({
+    content: '最终回答',
+    webSearch: { enabled: true, status: 'completed', queries: ['测试'], sources: [] },
+  }), { isGenerating: false, activeJobId: '' })
+  const failed = resolveChatResponseState(message({
+    content: '保底回答',
+    webSearch: { enabled: true, status: 'failed', queries: [], sources: [], error: '暂不可用' },
+  }), { isGenerating: false, activeJobId: '' })
+  assert.equal(completed.phase, 'done')
+  assert.equal(completed.processStatus, '已完成')
+  assert.equal(failed.phase, 'done')
+  assert.equal(failed.processStatus, '部分完成')
+})
+
+test('非当前任务的旧助手消息不会被误判为流式消息', () => {
+  const state = resolveChatResponseState(message({ content: '历史回答', generationJobId: 'job-old' }), active)
+  assert.equal(state.isStreaming, false)
+  assert.equal(state.phase, 'done')
+  assert.equal(state.hasProcess, false)
+})

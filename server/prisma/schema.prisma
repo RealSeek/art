@@ -48,6 +48,68 @@ enum JobStatus {
   CANCELLED
 }
 
+enum GenerationSettlementStatus {
+  PENDING
+  RESERVED
+  SETTLED
+  RELEASED
+  REFUNDED
+  RECONCILING
+}
+
+enum TokenQuotaMode {
+  BILLABLE_UNITS
+}
+
+enum TokenOverageMode {
+  BLOCK
+  OVERAGE_CREDITS
+}
+
+enum ByokQuotaMode {
+  QUOTA
+  FREE
+}
+
+enum TokenQuotaStatus {
+  ACTIVE
+  EXPIRED
+  EXHAUSTED
+}
+
+enum TokenUsageSource {
+  PROVIDER
+  TOKENIZER
+  RESERVED
+  MANUAL
+}
+
+enum TokenSettlementStatus {
+  RESERVED
+  SETTLED
+  RELEASED
+  REFUNDED
+  RECONCILING
+}
+
+enum TokenLedgerType {
+  RESERVE
+  CHARGE
+  RELEASE
+  REFUND
+  ADJUST
+}
+
+enum TokenQuotaEventType {
+  GRANT
+  RESERVE
+  RELEASE
+  CHARGE
+  REFUND
+  EXPIRE
+  ADJUST
+}
+
 enum AgentTaskStatus {
   DRAFT
   QUEUED
@@ -75,6 +137,36 @@ enum LedgerType {
   ADJUST
   INVITE
   REDEEM
+}
+
+enum BillingTransactionType {
+  PRE_AUTH
+  CAPTURE
+  REFUND
+  ADJUST
+}
+
+enum BillingTransactionDirection {
+  DEBIT
+  CREDIT
+}
+
+enum BillingTransactionStatus {
+  RECORDED
+  VOID
+}
+
+enum FeatureFlagScope {
+  GLOBAL
+  USER
+}
+
+enum ExportJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  EXPIRED
 }
 
 enum NotificationType {
@@ -335,9 +427,6 @@ model User {
   displayName             String
   avatarUrl               String?
   passwordHash            String?
-  adminMfaSecretEncrypted String?
-  adminMfaEnabledAt       DateTime?
-  adminMfaRecoveryHashes  String[]                  @default([])
   company                 String                    @default("")
   phone                   String                    @default("")
   tags                    String[]                  @default([])
@@ -377,6 +466,11 @@ model User {
   userCoupons             UserCoupon[]
   paymentTransactions     PaymentTransaction[]
   paymentRefunds          PaymentRefund[]
+  billingTransactions     BillingTransaction[]
+  usageRecords            UsageRecord[]
+  tokenQuotas             UserTokenQuota[]
+  tokenUsageLedgers       TokenUsageLedger[]
+  tokenQuotaEvents        TokenQuotaEvent[]
   moderationEvents        ModerationEvent[]
   moderationAppeals       ModerationAppeal[]        @relation("ModerationAppealUser")
   reviewedAppeals         ModerationAppeal[]        @relation("ModerationAppealReviewer")
@@ -398,7 +492,6 @@ model User {
   pluginUsages            PluginUsage[]
   agentTasks              AgentTask[]
   agentSchedules          AgentSchedule[]
-  connectorCredentials    ConnectorCredential[]
   teamCreditEntries       TeamCreditLedger[]        @relation("TeamCreditActor")
   adminRole               AdminRole?                @relation(fields: [adminRoleId], references: [id], onDelete: SetNull)
   accountDeletionRequests AccountDeletionRequest[]
@@ -411,6 +504,7 @@ model User {
   followers               UserFollow[]              @relation("UserFollowers")
   workReports             WorkReport[]              @relation("WorkReporter")
   resolvedWorkReports     WorkReport[]              @relation("WorkReportResolver")
+  exportJobs              ExportJob[]
 
   @@index([adminRoleId])
 }
@@ -497,17 +591,16 @@ model UserGroupMember {
 }
 
 model Session {
-  id            String    @id @default(cuid())
-  userId        String
-  tokenHash     String    @unique
-  ipAddress     String?
-  userAgent     String?
-  authMethod    String    @default("email")
-  mfaVerifiedAt DateTime?
-  expiresAt     DateTime
-  revokedAt     DateTime?
-  createdAt     DateTime  @default(now())
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  ipAddress  String?
+  userAgent  String?
+  authMethod String    @default("email")
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
@@ -589,6 +682,7 @@ model CreditLedger {
   account        CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
+  @@index([referenceType, referenceId])
 }
 
 model Project {
@@ -928,6 +1022,25 @@ model PromptLibraryItemOverride {
   @@index([sourceId, enabled])
 }
 
+model ExportJob {
+  id          String          @id @default(cuid())
+  userId      String
+  scope       String          @default("ACCOUNT")
+  teamId      String?
+  status      ExportJobStatus @default(QUEUED)
+  fileName    String          @default("")
+  filePath    String          @default("")
+  error       String          @default("") @db.Text
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
 model Assistant {
   id               String                   @id @default(cuid())
   name             String
@@ -1020,22 +1133,6 @@ model ToolDefinition {
   calls             ToolCallAudit[]
   approvalRequests  ToolApprovalRequest[]
   agentToolCalls    AgentToolCall[]
-  credentials       ConnectorCredential[]
-}
-
-model ConnectorCredential {
-  userId               String
-  toolId               String
-  encryptedCredentials String         @db.Text
-  credentialHints      Json?
-  status               String         @default("CONNECTED")
-  connectedAt          DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tool                 ToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
-
-  @@id([userId, toolId])
-  @@index([toolId, status])
 }
 
 model WebSearchChannel {
@@ -1181,6 +1278,7 @@ model TeamCreditLedger {
 
   @@index([accountId, createdAt])
   @@index([userId, createdAt])
+  @@index([referenceType, referenceId])
 }
 
 model ToolCallAudit {
@@ -1528,6 +1626,9 @@ model SystemSetting {
   siteContent                   Json     @default("{}")
   defaultChatModelKey           String   @default("")
   defaultImageModelKey          String   @default("")
+  imagePromptEnabled            Boolean  @default(true)
+  imagePromptModelKey           String   @default("")
+  imagePromptBillingMode        String   @default("USER_CREDITS")
   userByokEnabled               Boolean  @default(true)
   inviteRewardCredits           Int      @default(0)
   referralEnabled               Boolean  @default(true)
@@ -1562,6 +1663,19 @@ model SystemSetting {
   smtpFromEmail                 String   @default("")
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
+}
+
+model FeatureFlag {
+  id        String           @id @default(cuid())
+  key       String           @unique
+  enabled   Boolean          @default(false)
+  scope     FeatureFlagScope @default(GLOBAL)
+  userIds   String[]         @default([])
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([scope, enabled])
 }
 
 model AlertRule {
@@ -1636,6 +1750,14 @@ model SubscriptionPlan {
   originalPriceCents Int?
   currency           String               @default("CNY")
   includedCredits    Int                  @default(0)
+  monthlyQuotaUnits  BigInt               @default(0)
+  tokenQuotaMode     TokenQuotaMode       @default(BILLABLE_UNITS)
+  tokenOverageMode   TokenOverageMode     @default(BLOCK)
+  tokenOverageRate   Int                  @default(0)
+  tokenQuotaCarryOver Boolean             @default(false)
+  tokenQuotaResetDay Int                  @default(1)
+  dailyQuotaUnits    BigInt               @default(0)
+  byokMode           ByokQuotaMode        @default(QUOTA)
   trialDays          Int                  @default(0)
   concurrency        Int                  @default(1)
   allowByok          Boolean              @default(true)
@@ -1683,6 +1805,7 @@ model UserSubscription {
   plan                 SubscriptionPlan             @relation(fields: [planId], references: [id], onDelete: Restrict)
   renewalChannel       PaymentChannel?              @relation(fields: [renewalChannelId], references: [id], onDelete: SetNull)
   renewalAttempts      SubscriptionRenewalAttempt[]
+  tokenQuotas          UserTokenQuota[]
 
   @@index([userId, status, createdAt])
   @@index([planId, status])
@@ -2045,46 +2168,60 @@ model MessageAsset {
 }
 
 model GenerationJob {
-  id                 String             @id @default(cuid())
-  userId             String
-  projectId          String?
-  conversationId     String?
-  billingTeamId      String?
-  kind               JobKind
-  status             JobStatus          @default(QUEUED)
-  provider           String
-  providerChannelId  String?
-  userCredentialId   String?
-  userModelRouteId   String?
-  priceVersionId     String?
-  model              String
-  prompt             String             @db.Text
-  options            Json
-  creditCost         Int
-  revenueMicros      Int                @default(0)
-  upstreamCostMicros Int                @default(0)
-  pricingSnapshot    Json?
-  inputTokens        Int                @default(0)
-  outputTokens       Int                @default(0)
-  idempotencyKey     String?            @unique
-  providerJobId      String?
-  errorCode          String?
-  errorMessage       String?            @db.Text
-  startedAt          DateTime?
-  completedAt        DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project            Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  conversation       Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  providerChannel    ProviderChannel?   @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
-  userCredential     UserApiCredential? @relation(fields: [userCredentialId], references: [id], onDelete: SetNull)
-  userModelRoute     UserModelRoute?    @relation(fields: [userModelRouteId], references: [id], onDelete: SetNull)
-  priceVersion       ModelPriceVersion? @relation(fields: [priceVersionId], references: [id], onDelete: SetNull)
-  billingTeam        Team?              @relation("TeamBilledJobs", fields: [billingTeamId], references: [id], onDelete: SetNull)
-  outputs            JobOutput[]
-  pluginUsage        PluginUsage?
-  agentTask          AgentTask?
+  id                  String               @id @default(cuid())
+  requestId           String?
+  traceId             String?
+  userId              String
+  projectId           String?
+  conversationId      String?
+  billingTeamId       String?
+  kind                JobKind
+  status              JobStatus            @default(QUEUED)
+  settlementStatus    GenerationSettlementStatus @default(PENDING)
+  provider            String
+  providerChannelId   String?
+  userCredentialId    String?
+  userModelRouteId    String?
+  priceVersionId      String?
+  model               String
+  prompt              String               @db.Text
+  options             Json
+  creditCost          Int
+  revenueMicros       Int                  @default(0)
+  upstreamCostMicros  Int                  @default(0)
+  pricingSnapshot     Json?
+  inputTokens         Int                  @default(0)
+  outputTokens        Int                  @default(0)
+  cachedInputTokens   Int                  @default(0)
+  reasoningTokens     Int                  @default(0)
+  idempotencyKey      String?              @unique
+  providerJobId       String?
+  errorCode           String?
+  errorMessage        String?              @db.Text
+  startedAt           DateTime?
+  lockedBy            String?
+  heartbeatAt         DateTime?
+  leaseExpiresAt      DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project             Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  conversation        Conversation?        @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  providerChannel     ProviderChannel?     @relation(fields: [providerChannelId], references: [id], onDelete: SetNull)
+  userCredential      UserApiCredential?   @relation(fields: [userCredentialId], references: [id], onDelete: SetNull)
+  userModelRoute      UserModelRoute?      @relation(fields: [userModelRouteId], references: [id], onDelete: SetNull)
+  priceVersion        ModelPriceVersion?   @relation(fields: [priceVersionId], references: [id], onDelete: SetNull)
+  billingTeam         Team?                @relation("TeamBilledJobs", fields: [billingTeamId], references: [id], onDelete: SetNull)
+  outputs             JobOutput[]
+  events              GenerationEvent[]
+  providerAttempts    ProviderAttempt[]
+  pluginUsage         PluginUsage?
+  agentTask           AgentTask?
+  billingTransactions BillingTransaction[]
+  usageRecords        UsageRecord[]
+  tokenUsageLedgers   TokenUsageLedger[]
+  tokenQuotaEvents    TokenQuotaEvent[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -2094,6 +2231,177 @@ model GenerationJob {
   @@index([userModelRouteId, createdAt])
   @@index([priceVersionId])
   @@index([billingTeamId, createdAt])
+  @@index([requestId])
+  @@index([traceId])
+  @@index([status, leaseExpiresAt])
+}
+
+model BillingTransaction {
+  id                 String                      @id @default(cuid())
+  generationId       String?
+  userId             String
+  type               BillingTransactionType
+  direction          BillingTransactionDirection
+  status             BillingTransactionStatus    @default(RECORDED)
+  amount             Int
+  currency           String                      @default("CREDITS")
+  inputTokens        Int                         @default(0)
+  outputTokens       Int                         @default(0)
+  cachedInputTokens  Int                         @default(0)
+  reasoningTokens    Int                         @default(0)
+  upstreamCostMicros Int                         @default(0)
+  provider           String?
+  idempotencyKey     String                      @unique
+  metadata           Json?
+  createdAt          DateTime                    @default(now())
+  generation         GenerationJob?              @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([generationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, status, createdAt])
+}
+
+model UsageRecord {
+  id                 String        @id @default(cuid())
+  generationId       String        @unique
+  userId             String
+  provider           String?
+  providerId         String?
+  model              String
+  inputTokens        Int           @default(0)
+  outputTokens       Int           @default(0)
+  cachedInputTokens  Int           @default(0)
+  reasoningTokens    Int           @default(0)
+  imageCount         Int           @default(0)
+  videoSeconds       Int           @default(0)
+  upstreamCostMicros Int           @default(0)
+  metadata           Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  generation         GenerationJob @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([provider, model, createdAt])
+}
+
+model UserTokenQuota {
+  id                String          @id @default(cuid())
+  userId            String
+  subscriptionId    String?
+  scopeKey          String
+  periodStart       DateTime
+  periodEnd         DateTime
+  grantedUnits      BigInt          @default(0)
+  reservedUnits     BigInt          @default(0)
+  usedUnits         BigInt          @default(0)
+  version           Int             @default(0)
+  inputTokens       BigInt          @default(0)
+  outputTokens      BigInt          @default(0)
+  cachedInputTokens BigInt          @default(0)
+  reasoningTokens   BigInt          @default(0)
+  status            TokenQuotaStatus @default(ACTIVE)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription      UserSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  ledgerEntries     TokenUsageLedger[]
+  events            TokenQuotaEvent[]
+
+  @@unique([userId, scopeKey, periodStart])
+  @@index([userId, status, periodEnd])
+  @@index([subscriptionId, periodStart])
+}
+
+model TokenUsageLedger {
+  id                String                @id @default(cuid())
+  userId            String
+  generationId      String
+  quotaId           String?
+  subscriptionId    String?
+  model             String
+  provider          String?
+  providerRequestId String?
+  providerAttemptId String?
+  inputTokens       Int                   @default(0)
+  outputTokens      Int                   @default(0)
+  cachedInputTokens Int                   @default(0)
+  reasoningTokens   Int                   @default(0)
+  reservedUnits     BigInt                @default(0)
+  chargedUnits      BigInt                @default(0)
+  inputRate         Int                   @default(0)
+  outputRate        Int                   @default(0)
+  pricingSnapshot   Json
+  usageSource       TokenUsageSource
+  settlementStatus  TokenSettlementStatus
+  type              TokenLedgerType
+  idempotencyKey    String                @unique
+  createdAt         DateTime              @default(now())
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation        GenerationJob         @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  quota             UserTokenQuota?       @relation(fields: [quotaId], references: [id], onDelete: SetNull)
+
+  @@index([generationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([quotaId, createdAt])
+  @@index([usageSource, createdAt])
+}
+
+model TokenQuotaEvent {
+  id             String             @id @default(cuid())
+  userId         String
+  quotaId        String
+  generationId   String?
+  type           TokenQuotaEventType
+  units          BigInt
+  balanceBefore  BigInt
+  balanceAfter   BigInt
+  idempotencyKey String             @unique
+  metadata       Json?
+  createdAt      DateTime           @default(now())
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quota          UserTokenQuota     @relation(fields: [quotaId], references: [id], onDelete: Cascade)
+  generation     GenerationJob?     @relation(fields: [generationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([quotaId, createdAt])
+  @@index([generationId, createdAt])
+  @@index([type, createdAt])
+}
+
+model GenerationEvent {
+  id           String        @id @default(cuid())
+  generationId String
+  sequence     Int
+  type         String
+  payload      Json?
+  createdAt    DateTime      @default(now())
+  generation   GenerationJob @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, sequence])
+  @@index([generationId, createdAt])
+  @@index([type, createdAt])
+}
+
+model ProviderAttempt {
+  id                 String        @id @default(cuid())
+  generationId       String
+  provider           String
+  model              String
+  status             String
+  startedAt          DateTime      @default(now())
+  endedAt            DateTime?
+  errorCode          String?
+  errorMessage       String?       @db.Text
+  inputTokens        Int           @default(0)
+  outputTokens       Int           @default(0)
+  upstreamCostMicros Int           @default(0)
+  metadata           Json?
+  generation         GenerationJob @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([generationId, startedAt])
+  @@index([provider, status, startedAt])
 }
 
 model AgentTask {

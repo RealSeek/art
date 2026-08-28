@@ -11,6 +11,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "admin:seed": "node scripts/seed-admin.cjs",
+    "admin:reset-password": "node scripts/reset-admin-password.cjs",
     "plugin:test": "node scripts/test-plugin-flow.cjs"
   },
   "dependencies": {
@@ -37,10 +38,10 @@
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "ioredis": "^5.7.0",
+    "js-tiktoken": "^1.0.21",
     "js-yaml": "5.2.3",
     "nodemailer": "^9.0.4",
     "officegen": "^0.6.5",
-    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sanitize-html": "^2.17.7",
@@ -53,7 +54,6 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.3.0",
     "@types/nodemailer": "^8.0.1",
-    "@types/qrcode": "^1.5.6",
     "@types/sanitize-html": "^2.16.1",
     "prisma": "^6.14.0",
     "typescript": "^5.9.2"

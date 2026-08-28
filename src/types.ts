@@ -2,8 +2,10 @@ export type StudioMode = 'chat' | 'images' | 'videos' | 'commerce' | 'office' | 
 export type PluginCapability = 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE' | 'OFFICE'
 export interface PluginCategory { id: string; name: string; slug: string; description: string; icon: string; sortOrder: number; enabled: boolean; _count?: { plugins: number } }
 export interface Plugin { id: string; name: string; slug: string; description: string; instruction: string; icon: string; version: string; categoryId?: string | null; capabilities: PluginCapability[]; recommendedModel: string; outputRequirements: string; visibility: 'OFFICIAL' | 'PRIVATE'; status: 'DRAFT' | 'PUBLISHED' | 'DISABLED'; featured: boolean; priceCredits: number; installCount: number; usageCount: number; errorCount: number; installed?: boolean; owned?: boolean; category?: PluginCategory | null }
+export type ExternalMarketSource = 'skillsmp' | 'lobehub' | 'cocoloop' | 'skillhub'
+export type ExternalSkillCategory = '开发编程' | '办公效率' | '研究分析' | '内容创作' | '设计创意' | '营销运营' | 'Agent 自动化' | '通用技能'
+export interface ExternalSkill { id: string; source: ExternalMarketSource; sourceName: string; name: string; description: string; author: string; version: string; sourceUrl: string; githubUrl?: string; downloadUrl?: string; skillUrl?: string; installable: boolean; risk: 'unreviewed' | 'reviewed'; stars?: number; installs?: number; updatedAt?: string; category?: ExternalSkillCategory; installed?: boolean }
 export interface AssistantProfile { id: string; name: string; description: string; defaultModel: string; templateIds?: string[]; tools?: Array<{ toolId: string }> }
-export interface CapabilityTool { id: string; key: string; name: string; description: string; icon?: string; kind?: 'BUILT_IN' | 'CONNECTOR'; authType?: 'NONE' | 'API_KEY'; documentationUrl?: string; credentialFields?: Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean }>; requiresApproval: boolean; scopes?: string[]; enabled?: boolean; connection?: { status: string; credentialHints?: Record<string, string>; connectedAt: string } | null }
 export interface KnowledgeBaseAssetLink { assetId: string; chunkCount: number; asset: { id: string; name: string; mimeType: string; createdAt: string } }
 export interface KnowledgeBaseSummary { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; assets?: KnowledgeBaseAssetLink[]; _count?: { assets: number; assistants: number } }
 
@@ -28,7 +30,10 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** Model-visible chain of thought when the provider exposes it. */
+  reasoning?: string
   createdAt: number
+  generationJobId?: string
   attachmentIds?: string[]
   model?: string
   feedback?: 'UP' | 'DOWN' | null
@@ -63,7 +68,7 @@ export interface StudioAsset {
   createdAt: number
   tags: string[]
   source?: 'generated' | 'upload'
-  purpose?: 'generated' | 'reference' | 'mask' | 'attachment' | 'library'
+  purpose?: 'generated' | 'reference' | 'mask' | 'attachment' | 'library' | 'image-prompt'
   contentUrl?: string
   mimeType?: string
   size?: number

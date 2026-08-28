@@ -40,7 +40,7 @@ function resourceForPath(path: string) {
   if (/^(agent|assistants|plugins|tools|tool-approvals|knowledge-bases|web-search)(\/|$)/.test(path)) return 'agent'
   if (/^(assets|projects|external-links|storage)(\/|$)/.test(path)) return 'workspace'
   if (/^(subscriptions|payments|recharge|redemption-codes|finance|byok|invoices|referrals)(\/|$)/.test(path)) return 'billing'
-  if (/^(system-settings|settings)(\/|$)/.test(path)) return 'settings'
+  if (/^(system-settings|settings|feature-flags)(\/|$)/.test(path)) return 'settings'
   if (/^(announcements|notifications|moderation|support|alerts|logins|audits|system|tool-calls|account-deletions)(\/|$)/.test(path)) return 'operations'
   return null
 }

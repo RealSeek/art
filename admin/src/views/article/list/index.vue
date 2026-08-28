@@ -78,7 +78,7 @@
   import { ElMessageBox } from 'element-plus'
   import { useDateFormat } from '@vueuse/core'
   import { router } from '@/router'
-  import { ContentPage, xinyueApi } from '@/api/xinyue'
+  import { contentApi as xinyueApi, type ContentPage } from '@/api/xinyue/content'
   import { xinyueText as xt } from '@/locales/xinyue'
 
   defineOptions({ name: 'ArticleList' })

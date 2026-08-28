@@ -84,6 +84,11 @@ export function findCatalogModel(models: CatalogModel[], value: string, capabili
     || candidates.find((item) => item.upstreamModel === normalized)
 }
 
+export function defaultCatalogModel(models: CatalogModel[], capability: ModelCapability) {
+  return models.find((item) => item.capability === capability && item.isDefault)
+    || models.find((item) => item.capability === capability)
+}
+
 export function catalogModelKey(models: CatalogModel[], value: string, capability?: ModelCapability) {
   return findCatalogModel(models, value, capability)?.key || value.trim()
 }

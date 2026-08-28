@@ -71,15 +71,65 @@ export type ChatComposerControls = {
 }
 
 export interface ChatHomeContent {
-  doubaoRecommendations: Array<{ title: string; prompt: string; targetUrl?: string }>
+  doubaoRecommendations: ChatRecommendation[]
   qianwenBanners: Array<{ title: string; description: string; buttonText: string; imageUrl: string; targetUrl: string }>
   kimiProject: { label: string; targetUrl: string }
   composerControls: Record<ChatUiPreset, ChatComposerControls>
   quickActions: Record<ChatUiPreset, ChatQuickAction[]>
 }
-type RecommendationResponse = { enabled?: boolean; items?: Array<{ title: string; prompt: string; targetUrl?: string }> }
+export type ChatRecommendation = { title: string; prompt: string; targetUrl?: string; source?: string; sourceUrl?: string; publishedAt?: string }
+type RecommendationResponse = { enabled?: boolean; items?: ChatRecommendation[]; pool?: ChatRecommendation[]; limit?: number; updatedAt?: string }
+
+const recommendationCacheKey = 'xinyue:chat:recommendations:v2'
+
+function validRecommendations(value: unknown): ChatRecommendation[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is ChatRecommendation => Boolean(item && typeof item === 'object' && typeof (item as ChatRecommendation).title === 'string' && (item as ChatRecommendation).title.trim()))
+    : []
+}
+
+function readRecommendationCache() {
+  if (typeof window === 'undefined') return { pool: [] as ChatRecommendation[], shown: [] as string[], limit: 8, updatedAt: '' }
+  try {
+    const cached = JSON.parse(window.localStorage.getItem(recommendationCacheKey) || '{}') as { pool?: unknown; shown?: unknown; limit?: unknown; updatedAt?: unknown }
+    return {
+      pool: validRecommendations(cached.pool),
+      shown: Array.isArray(cached.shown) ? cached.shown.filter((title): title is string => typeof title === 'string') : [],
+      limit: Math.min(12, Math.max(3, Number(cached.limit) || 8)),
+      updatedAt: typeof cached.updatedAt === 'string' ? cached.updatedAt : '',
+    }
+  } catch {
+    return { pool: [] as ChatRecommendation[], shown: [] as string[], limit: 8, updatedAt: '' }
+  }
+}
+
+function selectRecommendations(pool: ChatRecommendation[], limit: number, previous: string[] = []) {
+  const previousSet = new Set(previous.map((title) => title.trim().toLocaleLowerCase()))
+  const shuffle = (items: ChatRecommendation[]) => {
+    const output = [...items]
+    for (let index = output.length - 1; index > 0; index -= 1) {
+      const next = Math.floor(Math.random() * (index + 1))
+      ;[output[index], output[next]] = [output[next], output[index]]
+    }
+    return output
+  }
+  const fresh = shuffle(pool.filter((item) => !previousSet.has(item.title.trim().toLocaleLowerCase())))
+  const repeated = shuffle(pool.filter((item) => previousSet.has(item.title.trim().toLocaleLowerCase())))
+  return [...fresh, ...repeated].slice(0, Math.min(limit, pool.length))
+}
+
+function initialRecommendations() {
+  const cached = readRecommendationCache()
+  const items = selectRecommendations(cached.pool, cached.limit, cached.shown)
+  if (typeof window !== 'undefined' && cached.pool.length) {
+    window.localStorage.setItem(recommendationCacheKey, JSON.stringify({ pool: cached.pool, shown: items.map((item) => item.title), limit: cached.limit, updatedAt: cached.updatedAt }))
+  }
+  return items
+}
 
 const defaultChatHomeContent: ChatHomeContent = {
+  // Populated only by the live recommendations endpoint. Do not seed stale
+  // headlines here: the home page must never present old data as current hot news.
   doubaoRecommendations: [],
   qianwenBanners: [
     { title: 'Xinyue 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
@@ -164,7 +214,14 @@ let pendingLoad: Promise<Partial<PublicCatalogSettings>> | null = null
 let refreshTimer = 0
 
 export const useCatalogStore = defineStore('catalog', {
-  state: () => ({ settings: { ...emptySettings } as PublicCatalogSettings, loaded: false, loading: false }),
+  state: () => ({
+    settings: {
+      ...emptySettings,
+      chatHomeContent: { ...defaultChatHomeContent, doubaoRecommendations: initialRecommendations() },
+    } as PublicCatalogSettings,
+    loaded: false,
+    loading: false,
+  }),
   getters: {
     registrationEnabled: (state) => state.loaded && state.settings.registrationEnabled,
     emailLoginEnabled: (state) => state.loaded && state.settings.emailLoginEnabled,
@@ -191,7 +248,7 @@ export const useCatalogStore = defineStore('catalog', {
           chatHomeContent: {
             ...defaultChatHomeContent,
             ...content,
-            doubaoRecommendations: Array.isArray(content.doubaoRecommendations) ? content.doubaoRecommendations : defaultChatHomeContent.doubaoRecommendations,
+            doubaoRecommendations: this.settings.chatHomeContent.doubaoRecommendations,
             qianwenBanners: Array.isArray(content.qianwenBanners) ? content.qianwenBanners : defaultChatHomeContent.qianwenBanners,
             kimiProject: rawKimiProject && typeof rawKimiProject === 'object' ? { ...defaultChatHomeContent.kimiProject, ...rawKimiProject } : defaultChatHomeContent.kimiProject,
             composerControls: {
@@ -219,9 +276,19 @@ export const useCatalogStore = defineStore('catalog', {
       return this.settings
     },
     async refreshRecommendations() {
-      const result = await api<RecommendationResponse>('/catalog/recommendations').catch(() => ({ items: [] }))
-      const items = Array.isArray(result.items) ? result.items.filter((item) => item && typeof item.title === 'string' && item.title.trim()) : []
-      if (items.length) this.settings.chatHomeContent.doubaoRecommendations = items
+      const result = await api<RecommendationResponse>('/catalog/recommendations').catch(() => null)
+      if (!result) return
+      const pool = validRecommendations(result.pool?.length ? result.pool : result.items)
+      if (!pool.length) return
+      const cached = readRecommendationCache()
+      const limit = Math.min(12, Math.max(3, Number(result.limit) || cached.limit || 8))
+      if (result.updatedAt && result.updatedAt === cached.updatedAt && this.settings.chatHomeContent.doubaoRecommendations.length) {
+        window.localStorage.setItem(recommendationCacheKey, JSON.stringify({ pool, shown: this.settings.chatHomeContent.doubaoRecommendations.map((item) => item.title), limit, updatedAt: result.updatedAt }))
+        return
+      }
+      const items = selectRecommendations(pool, limit, this.settings.chatHomeContent.doubaoRecommendations.map((item) => item.title))
+      this.settings.chatHomeContent.doubaoRecommendations = items
+      window.localStorage.setItem(recommendationCacheKey, JSON.stringify({ pool, shown: items.map((item) => item.title), limit, updatedAt: result.updatedAt || '' }))
     },
   },
 })

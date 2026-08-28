@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const adminUrl = 'http://localhost:5174/admin/'
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@flux.local'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
+const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
+const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
 
 const routes = [
   ['dashboard/console', '工作台'], ['dashboard/analysis', '分析页'], ['dashboard/ecommerce', '电子商务'],
@@ -87,4 +87,38 @@ test('管理端所有业务页面 UI 宽度巡检', async ({ page }) => {
   expect(failedRequests, failedRequests.join('\n')).toEqual([])
   expect(errors, errors.join('\n')).toEqual([])
   expect(overflow, overflow.join('\n')).toEqual([])
+})
+
+test('管理端全局搜索支持业务别名并展示所属功能域', async ({ page }) => {
+  await login(page)
+  await page.getByText('搜索', { exact: true }).click()
+
+  const searchInput = page.getByPlaceholder('搜索页面、功能或业务关键词')
+  await expect(searchInput).toBeVisible()
+
+  const cases = [
+    { query: 'BYOK', title: '用户密钥运营', domain: '商业化' },
+    { query: '生成记录', title: '生成任务', domain: '模型与生成' },
+    { query: '插件', title: '技能管理', domain: 'AI 能力' }
+  ] as const
+
+  for (const item of cases) {
+    await searchInput.fill(item.query)
+    const result = page.locator('.search-result-row').filter({ hasText: item.title })
+    await expect(result).toBeVisible()
+    await expect(result).toContainText(item.domain)
+  }
+
+  await searchInput.fill('BYOK')
+  await page.locator('.search-result-row').filter({ hasText: '用户密钥运营' }).click()
+  await expect(page).toHaveURL(/#\/enterprise\/commerce\/byok$/)
+
+  await page.getByText('搜索', { exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const box = await dialog.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390)
 })

@@ -221,16 +221,25 @@
         ><ElDivider content-position="left">{{ xt('画布能力') }}</ElDivider
         ><ElSpace wrap
           ><ElCheckbox v-model="planForm.canvasAccess">{{ xt('无限画布') }}</ElCheckbox
-          ><ElCheckbox v-model="planForm.shortDramaAccess">{{ xt('短剧工作流') }}</ElCheckbox></ElSpace
+          ><ElCheckbox v-model="planForm.shortDramaAccess">{{
+            xt('短剧工作流')
+          }}</ElCheckbox></ElSpace
         ><ElRow :gutter="14" class="capability-limit-row"
           ><ElCol :span="12"
             ><ElFormItem :label="xt('用户画布上限')"
-              ><ElInputNumber v-model="planForm.maxCanvases" :min="1" :max="10000" class="wide" /></ElFormItem></ElCol
+              ><ElInputNumber
+                v-model="planForm.maxCanvases"
+                :min="1"
+                :max="10000"
+                class="wide" /></ElFormItem></ElCol
           ><ElCol :span="12"
             ><ElFormItem :label="xt('单画布节点上限')"
-              ><ElInputNumber v-model="planForm.maxCanvasNodes" :min="10" :max="500" class="wide" /></ElFormItem></ElCol></ElRow
-        ></ElForm
-      >
+              ><ElInputNumber
+                v-model="planForm.maxCanvasNodes"
+                :min="10"
+                :max="500"
+                class="wide" /></ElFormItem></ElCol></ElRow
+      ></ElForm>
       <template #footer
         ><ElButton @click="planDialog = false">{{ xt('取消') }}</ElButton
         ><ElButton type="primary" :loading="saving" @click="savePlan">{{
@@ -274,12 +283,12 @@
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
-    xinyueApi,
-    type AdminUser,
+    subscriptionApi as xinyueApi,
     type SubscriptionOrder,
     type SubscriptionPlan,
     type UserSubscription
-  } from '@/api/xinyue'
+  } from '@/api/xinyue/subscriptions'
+  import { customerApi, type AdminUser } from '@/api/xinyue/customers'
   import { xinyueLocale, xinyueText as xt } from '@/locales/xinyue'
   import CommerceMarketingPanel from './CommerceMarketingPanel.vue'
   defineOptions({ name: 'XinyueSubscriptions' })
@@ -367,7 +376,7 @@
         xinyueApi.plans(),
         xinyueApi.subscriptions(),
         xinyueApi.subscriptionOrders(),
-        xinyueApi.users()
+        customerApi.users()
       ])
     } finally {
       loading.value = false

@@ -1,0 +1,155 @@
+/* ===== 画布质感提升：悬浮层玻璃拟态 ===== */
+.canvas-tool-dock,
+.canvas-navigation-dock {
+  backdrop-filter: blur(14px) saturate(1.15);
+  background: color-mix(in srgb, var(--canvas-panel) 80%, transparent);
+}
+
+.canvas-selection-actions {
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--canvas-panel) 86%, transparent);
+}
+
+.canvas-preset-menu,
+.canvas-node-create-menu,
+.canvas-context-menu,
+.canvas-command-menu {
+  backdrop-filter: blur(14px);
+}
+
+.vue-flow__minimap {
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--canvas-panel) 88%, transparent);
+  box-shadow: var(--canvas-shadow);
+}
+
+.vue-flow__controls {
+  backdrop-filter: blur(10px);
+}
+
+.vue-flow__controls-button:hover {
+  background: var(--canvas-panel-muted);
+}
+
+/* 画布空白引导卡已自带玻璃质感；此处仅统一菜单圆角过渡 */
+.canvas-context-menu,
+.canvas-command-menu,
+.canvas-node-create-menu {
+  transition: box-shadow .16s ease;
+}
+
+
+/* ============ 画布悬浮工具栏质感（对照成熟白板产品） ============ */
+
+/* 底部主工具栏：毛玻璃 + 大圆角 + 悬浮感 */
+.canvas-tool-dock {
+  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--canvas-panel) 82%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 10px 32px rgba(18, 25, 39, .14);
+  padding: 7px;
+}
+.canvas-tool-dock button {
+  border-radius: 9px;
+  flex-basis: 36px;
+  height: 36px;
+  transition: background-color .15s ease, color .15s ease, transform .15s ease;
+  width: 36px;
+}
+.canvas-tool-dock button:not(:disabled):hover { transform: translateY(-1px); }
+.canvas-tool-dock button:not(:disabled):active { transform: scale(.92); }
+.canvas-tool-dock button.is-active { background: var(--canvas-accent); color: #fff; }
+.canvas-tool-dock i { opacity: .7; }
+
+/* 左下角缩放导航：同款毛玻璃 */
+.canvas-navigation-dock {
+  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--canvas-panel) 82%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 10px 32px rgba(18, 25, 39, .14);
+  padding: 2px;
+}
+.canvas-navigation-dock button { border-radius: 8px; transition: background-color .15s ease, color .15s ease; }
+.canvas-navigation-dock output { font-variant-numeric: tabular-nums; }
+.canvas-zoom-slider { accent-color: var(--canvas-accent); }
+
+/* Agent 面板：欢迎卡与建议卡微交互 */
+.canvas-agent-welcome button { transition: opacity .15s ease, transform .15s ease, box-shadow .15s ease; }
+.canvas-agent-welcome button:hover { box-shadow: 0 6px 16px rgba(18, 25, 39, .2); transform: translateY(-1px); }
+.canvas-agent-starters button { transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.canvas-agent-starters button:hover { transform: translateY(-1px); }
+.canvas-agent-new-chat { transition: background-color .15s ease, transform .15s ease; }
+.canvas-agent-new-chat:hover { transform: translateY(-1px); }
+.canvas-agent-dock-input button { border-radius: 8px; transition: opacity .15s ease, transform .15s ease; }
+.canvas-agent-dock-input button:not(:disabled):hover { opacity: .92; }
+.canvas-agent-dock-input button:not(:disabled):active { transform: scale(.97); }
+
+/* Keep the Agent composer reachable while the starter list scrolls on narrow
+   screens. The panel itself owns scrolling; the composer remains docked to
+   its lower edge instead of being pushed below the viewport. */
+.canvas-agent-dock {
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.canvas-agent-dock-input {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--studio-panel) 94%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -10px 20px color-mix(in srgb, var(--studio-panel) 70%, transparent);
+}
+.canvas-agent-starters button { min-width: 0; }
+
+@media (max-width: 680px) {
+  .canvas-workspace-sidebar {
+    grid-template-rows: 64px 44px minmax(0, 1fr);
+  }
+  .canvas-agent-dock { padding: 14px 18px 18px; }
+  .canvas-agent-dock-input { bottom: -1px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-tool-dock button,
+  .canvas-agent-welcome button,
+  .canvas-agent-starters button,
+  .canvas-agent-new-chat { transition: none; }
+  .canvas-tool-dock button:not(:disabled):hover,
+  .canvas-agent-starters button:hover { transform: none; }
+}
+
+
+/* ============ 画布底栏：瘦身、点击穿透、弱化激活块 ============ */
+
+/* 两条底栏都允许点击穿透到画布，只有按钮本身可点 */
+.canvas-navigation-dock { pointer-events: none; }
+.canvas-navigation-dock button,
+.canvas-navigation-dock input,
+.canvas-navigation-dock output { pointer-events: auto; }
+
+/* 整体瘦身，减少对画布内容的遮挡 */
+.canvas-tool-dock { gap: 1px; padding: 5px; }
+.canvas-tool-dock button { border-radius: 8px; flex-basis: 32px; height: 32px; width: 32px; }
+.canvas-tool-dock button svg { height: 17px; width: 17px; }
+.canvas-tool-dock i { height: 18px; margin: 0 2px; }
+
+/* 激活态从实心蓝块改回柔和高亮，避免一条栏上多个刺眼色块 */
+.canvas-tool-dock button.is-active {
+  background: var(--canvas-accent-soft);
+  color: var(--canvas-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canvas-accent) 35%, transparent);
+}
+
+/* 缩放条同步瘦身 */
+.canvas-navigation-dock button { height: 30px; width: 30px; }
+.canvas-zoom-slider { width: 72px; }
+
+
+/* ============ 修复：画布库容器与工作空间其他页对齐（页签不再来回跑） ============ */
+.canvas-library-page { max-width: 1180px; padding: 64px 32px 72px; }
+@media (max-width: 640px) {
+  .canvas-library-page { padding: 24px 16px 48px; }
+}
+
+

@@ -1,24 +1,25 @@
 <template>
-  <section class="canvas-library-page">
-    <WorkspaceSectionTabs active="canvases" />
+  <section class="studio-index-page canvas-page canvas-library-page">
+    <div class="index-page-inner">
+      <WorkspaceSectionTabs active="canvases" />
 
-    <header class="canvas-library-header">
-      <div><h1>画布</h1><p>组织提示词、素材、生成结果和完整创作流程。</p></div>
-      <div class="canvas-library-actions">
-        <label class="canvas-secondary-button" :class="{ 'is-disabled': !canCreateCanvas }" :title="createLimitMessage"><Upload :size="16" />导入<input ref="importInput" type="file" accept="application/json,.json" :disabled="!canCreateCanvas" @change="importCanvas" /></label>
-        <button class="canvas-primary-button" type="button" :disabled="!canCreateCanvas" :title="createLimitMessage" @click="createOpen = true"><Plus :size="17" />新建画布</button>
+      <header class="index-page-header canvas-library-header">
+        <div class="index-page-title"><h1>画布</h1><p>组织提示词、素材、生成结果和完整创作流程。</p></div>
+        <div class="canvas-library-actions">
+          <label class="canvas-secondary-button" :class="{ 'is-disabled': !canCreateCanvas }" :title="createLimitMessage"><Upload :size="16" />导入<input ref="importInput" type="file" accept="application/json,.json" :disabled="!canCreateCanvas" @change="importCanvas" /></label>
+          <button class="canvas-primary-button" type="button" :disabled="!canCreateCanvas" :title="createLimitMessage" @click="createOpen = true"><Plus :size="17" />新建画布</button>
+        </div>
+      </header>
+
+      <div v-if="error" class="canvas-feedback" role="alert"><span>{{ error }}</span><button type="button" aria-label="关闭提示" @click="error = ''"><X :size="15" /></button></div>
+
+      <div class="canvas-library-toolbar">
+        <label><Search :size="16" /><input v-model="query" placeholder="搜索画布" aria-label="搜索画布" /></label>
+        <button type="button" :class="{ 'is-active': showArchived }" @click="showArchived = !showArchived; void load()"><Archive :size="16" />{{ showArchived ? '返回使用中' : '已归档' }}</button>
       </div>
-    </header>
 
-    <div v-if="error" class="canvas-feedback" role="alert"><span>{{ error }}</span><button type="button" aria-label="关闭提示" @click="error = ''"><X :size="15" /></button></div>
-
-    <div class="canvas-library-toolbar">
-      <label><Search :size="16" /><input v-model="query" placeholder="搜索画布" aria-label="搜索画布" /></label>
-      <button type="button" :class="{ 'is-active': showArchived }" @click="showArchived = !showArchived; void load()"><Archive :size="16" />{{ showArchived ? '返回使用中' : '已归档' }}</button>
-    </div>
-
-    <div v-if="loading" class="canvas-library-grid" aria-label="正在加载画布"><i v-for="index in 6" :key="index" class="canvas-card-skeleton" /></div>
-    <div v-else-if="filteredCanvases.length" class="canvas-library-grid">
+      <div v-if="loading" class="canvas-library-grid" aria-label="正在加载画布"><i v-for="index in 6" :key="index" class="canvas-card-skeleton" /></div>
+      <div v-else-if="filteredCanvases.length" class="canvas-library-grid">
       <article v-for="canvas in filteredCanvases" :key="canvas.id" class="canvas-card">
         <button class="canvas-card-preview" type="button" :aria-label="`打开${canvas.title}`" @click="openCanvas(canvas.id)">
           <span class="canvas-card-grid" />
@@ -41,11 +42,12 @@
         </div>
       </article>
     </div>
-    <div v-else class="canvas-library-empty">
+      <div v-else class="canvas-library-empty">
       <MousePointer2 :size="30" />
       <h2>{{ query ? '没有匹配的画布' : showArchived ? '没有已归档画布' : '创建第一张画布' }}</h2>
       <p>把想法、参考素材和生成结果放在同一个可持续编辑的空间。</p>
       <button v-if="!query && !showArchived" class="canvas-primary-button" type="button" :disabled="!canCreateCanvas" :title="createLimitMessage" @click="createOpen = true"><Plus :size="17" />新建画布</button>
+      </div>
     </div>
 
     <div v-if="createOpen" class="canvas-modal-backdrop" @click.self="createOpen = false">

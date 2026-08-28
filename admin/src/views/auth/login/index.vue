@@ -6,8 +6,8 @@
       <div class="auth-right-wrap">
         <div class="form">
           <span class="login-kicker">XINYUE AI CONSOLE</span>
-          <h3 class="title">{{ mfaRequired ? xt('安全验证') : xt('管理后台登录') }}</h3>
-          <p class="sub-title">{{ mfaRequired ? xt('输入身份验证器中的动态验证码，或使用一枚恢复码') : xt('使用管理员账户进入运营控制台') }}</p>
+          <h3 class="title">{{ xt('管理后台登录') }}</h3>
+          <p class="sub-title">{{ xt('使用管理员账户进入运营控制台') }}</p>
           <ElForm
             ref="formRef"
             :model="formData"
@@ -15,7 +15,6 @@
             style="margin-top: 30px"
             @keyup.enter="handleSubmit"
           >
-            <template v-if="!mfaRequired">
             <ElFormItem prop="email">
               <ElInput
                 v-model.trim="formData.email"
@@ -30,6 +29,7 @@
             <ElFormItem prop="password">
               <ElInput
                 v-model="formData.password"
+                ref="passwordInputRef"
                 class="custom-height"
                 type="password"
                 autocomplete="current-password"
@@ -39,15 +39,8 @@
                 <template #prefix><ArtSvgIcon icon="ri:lock-password-line" /></template>
               </ElInput>
             </ElFormItem>
-            </template>
-            <ElFormItem v-else prop="mfaCode">
-              <ElInput v-model.trim="formData.mfaCode" class="custom-height mfa-input" autocomplete="one-time-code" maxlength="32" :placeholder="xt('6 位动态验证码或恢复码')">
-                <template #prefix><ArtSvgIcon icon="ri:shield-keyhole-line" /></template>
-              </ElInput>
-            </ElFormItem>
             <div class="flex-cb mt-2 text-sm">
-              <ElCheckbox v-if="!mfaRequired" v-model="formData.rememberPassword">{{ xt('保持登录状态') }}</ElCheckbox>
-              <ElButton v-else link type="primary" @click="resetMfaStep">{{ xt('返回密码登录') }}</ElButton>
+              <ElCheckbox v-model="formData.rememberPassword">{{ xt('保持登录状态') }}</ElCheckbox>
               <span class="login-security"><i />{{ xt('安全会话') }}</span>
             </div>
             <ElButton
@@ -55,9 +48,10 @@
               type="primary"
               :loading="loading"
               @click="handleSubmit"
-              >{{ mfaRequired ? xt('验证并登录') : xt('进入管理后台') }}</ElButton
+              >{{ xt('进入管理后台') }}</ElButton
             >
           </ElForm>
+          <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
           <p class="login-note">{{ xt('管理员账户由系统初始化或现有超级管理员创建。') }}</p>
         </div>
       </div>
@@ -68,7 +62,8 @@
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
   import { ElNotification } from 'element-plus'
-  import { fetchLogin, fetchVerifyAdminMfa } from '@/api/auth'
+  import { fetchLogin } from '@/api/auth'
+  import { isHttpError } from '@/utils/http/error'
   import { HOME_PAGE_PATH } from '@/router'
   import { useUserStore } from '@/store/modules/user'
   import { xinyueText as xt } from '@/locales/xinyue'
@@ -77,37 +72,31 @@
 
   const formRef = ref<FormInstance>()
   const loading = ref(false)
+  const loginError = ref('')
+  const passwordInputRef = ref<{ focus?: () => void }>()
   const userStore = useUserStore()
   const router = useRouter()
   const route = useRoute()
-  const formData = reactive({ email: '', password: '', mfaCode: '', rememberPassword: true })
-  const mfaRequired = ref(false)
-  const mfaTicket = ref('')
+  const formData = reactive({ email: '', password: '', rememberPassword: true })
   const rules: FormRules = {
     email: [
       { required: true, message: xt('请输入管理员邮箱'), trigger: 'blur' },
       { type: 'email', message: xt('邮箱格式不正确'), trigger: 'blur' }
     ],
-    password: [{ required: true, min: 8, message: xt('请输入至少 8 位密码'), trigger: 'blur' }],
-    mfaCode: [{ required: true, min: 6, message: xt('请输入动态验证码或恢复码'), trigger: 'blur' }]
+    password: [{ required: true, min: 8, message: xt('请输入至少 8 位密码'), trigger: 'blur' }]
   }
 
   async function handleSubmit() {
+    if (loading.value) return
     if (!formRef.value || !(await formRef.value.validate().catch(() => false))) return
     loading.value = true
+    loginError.value = ''
     try {
-      if (mfaRequired.value) {
-        await fetchVerifyAdminMfa({ ticket: mfaTicket.value, code: formData.mfaCode })
-      } else {
-        const result = await fetchLogin({ email: formData.email, password: formData.password })
-        if ('mfaRequired' in result) {
-          mfaRequired.value = true
-          mfaTicket.value = result.ticket
-          formData.mfaCode = ''
-          await nextTick(() => formRef.value?.clearValidate())
-          return
-        }
-      }
+      await fetchLogin({
+        email: formData.email,
+        password: formData.password,
+        remember: formData.rememberPassword
+      })
       userStore.setToken('cookie-session')
       userStore.setLoginStatus(true)
       ElNotification({
@@ -123,17 +112,15 @@
           ? HOME_PAGE_PATH
           : requestedPath
       await router.replace(redirectPath)
+    } catch (error) {
+      if (!isHttpError(error)) throw error
+      loginError.value = error.message
+      formData.password = ''
+      await nextTick()
+      passwordInputRef.value?.focus?.()
     } finally {
       loading.value = false
     }
-  }
-
-  function resetMfaStep() {
-    mfaRequired.value = false
-    mfaTicket.value = ''
-    formData.mfaCode = ''
-    formData.password = ''
-    void nextTick(() => formRef.value?.clearValidate())
   }
 </script>
 
@@ -176,5 +163,10 @@
     color: var(--art-gray-500);
   }
 
-  .mfa-input :deep(input) { letter-spacing: 0; }
+  .login-error {
+    margin: 14px 0 0;
+    color: var(--el-color-danger);
+    font-size: 13px;
+    line-height: 1.5;
+  }
 </style>

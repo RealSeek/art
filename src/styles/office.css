@@ -1,5 +1,5 @@
 .office-center {
-  --office-blue: #4f8cff;
+  --office-blue: var(--studio-brand);
   --office-composer-surface: #242424;
   --office-composer-control: #292929;
   --office-composer-control-hover: #333;
@@ -46,7 +46,7 @@
 .office-history__empty { align-items: center; color: var(--studio-muted); display: flex; font-size: 12px; gap: 8px; justify-content: center; min-height: 160px; }
 .office-task-menu { background: var(--studio-elevated); border: 1px solid var(--studio-border); border-radius: 7px; box-shadow: var(--studio-shadow); display: grid; padding: 4px; position: absolute; right: 5px; top: 42px; width: 138px; z-index: 4; }
 .office-task-menu button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--studio-text); display: flex; font-size: 11px; gap: 8px; height: 32px; padding: 0 8px; text-align: left; }
-.office-task-menu button:hover { background: var(--studio-control); } .office-task-menu button.danger { color: #e46767; }
+.office-task-menu button:hover { background: var(--studio-control); } .office-task-menu button.danger { color: var(--studio-danger); }
 .office-schedules { right: 16px; width: min(420px, calc(100% - 32px)); }
 .office-schedule-body { min-height: 0; overflow-y: auto; padding: 10px; }
 .office-schedule-form { border-bottom: 1px solid var(--studio-border); display: grid; gap: 7px; padding-bottom: 12px; }
@@ -59,7 +59,7 @@
 .office-schedule-list article > div { display: grid; min-width: 0; } .office-schedule-list strong { font-size: 12px; } .office-schedule-list small { color: var(--studio-muted); font-size: 10px; margin-top: 3px; }
 .office-schedule-list article > span { display: flex; gap: 3px; } .office-schedule-list article button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--studio-muted); display: flex; height: 30px; justify-content: center; width: 30px; } .office-schedule-list article button:hover { background: var(--studio-control); color: var(--studio-text); }
 
-.office-welcome { align-content: center; display: grid; gap: 76px; justify-items: center; min-height: 0; overflow-y: auto; padding: 64px 24px 210px; }
+.office-welcome { align-content: center; display: grid; gap: 56px; justify-items: center; min-height: 0; overflow-y: auto; padding: 24px 24px 150px; }
 .office-welcome__copy { text-align: center; }
 .office-welcome__copy > span { color: var(--studio-muted); font-size: 10px; font-weight: 700; }
 .office-welcome__copy h1 { font-size: 32px; font-weight: 680; letter-spacing: 0; margin: 12px 0 8px; }
@@ -73,7 +73,7 @@
 
 .office-result { min-height: 0; overflow-y: auto; scrollbar-color: var(--studio-border) transparent; }
 .office-result__inner { margin: 0 auto; max-width: 900px; padding: 54px 28px 210px; }
-.office-user-message { background: var(--studio-control); border-radius: 8px; line-height: 1.55; margin: 0 0 36px auto; max-width: 72%; padding: 10px 14px; width: fit-content; }
+.office-user-message { background: var(--studio-bubble-user); border-radius: 8px; line-height: 1.55; margin: 0 0 36px auto; max-width: 72%; padding: 10px 14px; width: fit-content; }
 .office-assistant-message > header { align-items: center; display: flex; gap: 9px; margin-bottom: 18px; }
 .office-assistant-message > header > span { align-items: center; background: var(--studio-panel-soft); border: 1px solid var(--studio-border); border-radius: 6px; display: flex; height: 30px; justify-content: center; width: 30px; }
 .office-assistant-message > header strong { font-size: 14px; }
@@ -139,8 +139,7 @@
 
 .office-composer-wrap { bottom: 16px; left: 50%; max-width: calc(100% - 40px); position: absolute; transform: translateX(-50%); width: min(1000px, calc(100% - 40px)); z-index: 10; }
 .office-composer { background: var(--office-composer-surface); border: 1px solid var(--office-composer-border); border-radius: 24px; box-shadow: var(--office-composer-shadow); min-height: 100px; padding: 10px; transition: border-color .16s ease, box-shadow .16s ease; }
-.office-composer:focus-within { border-color: #668bc0; box-shadow: var(--office-composer-shadow); }
-.office-composer textarea { background: transparent; border: 0; color: var(--studio-text); display: block; font: inherit; font-size: 15px; height: 36px; line-height: 1.5; max-height: 120px; min-height: 36px; outline: 0; overflow-y: auto; padding: 3px 10px 7px; resize: none; width: 100%; }
+.office-composer textarea { background: transparent; border: 0; color: var(--studio-text); display: block; font: inherit; font-size: 15px; height: 36px; line-height: 1.5; min-height: 36px; outline: 0; overflow-y: hidden; padding: 3px 10px 7px; resize: none; width: 100%; }
 .office-composer textarea::placeholder { color: var(--studio-muted); }
 .office-composer > footer { align-items: center; display: flex; gap: 8px; justify-content: space-between; min-height: 36px; position: relative; }
 .office-composer > footer > div { align-items: center; display: flex; gap: 2px; min-width: 0; overflow: visible; }
@@ -149,17 +148,14 @@
 .office-composer > footer button { align-items: center; background: transparent; border: 0; border-radius: 8px; display: inline-flex; flex: 0 0 auto; gap: 5px; height: 32px; justify-content: center; padding: 0 9px; transition: background-color .16s ease, color .16s ease; }
 .office-composer > footer button:hover { background: var(--office-composer-control-hover); }
 .office-composer > footer button:disabled { cursor: not-allowed; }
-.office-composer .office-mode-button, .office-composer .office-model-button, .office-composer .office-skill-button { color: var(--studio-muted); font-size: 12px; max-width: 180px; }
+.office-composer .office-mode-button, .office-composer .office-model-button, .office-composer .office-skill-button { color: var(--studio-muted); font-size: 13px; max-width: 180px; }
 .office-composer .office-skill-button.active, .office-composer .office-quick-skill.active { background: var(--office-composer-control); color: var(--studio-text); }
-.office-composer .office-quick-skill { color: var(--studio-muted); font-size: 12px; }
-.office-composer .office-web-button { color: var(--studio-muted); font-size: 12px; } .office-composer .office-web-button.active { background: rgba(79, 140, 255, .14); color: #7eaeff; }
+.office-composer .office-quick-skill { color: var(--studio-muted); font-size: 13px; }
+.office-composer .office-web-button { color: var(--studio-muted); font-size: 13px; } .office-composer .office-web-button.active { background: rgba(79, 140, 255, .14); color: #7eaeff; }
 .office-composer .office-submit { background: var(--studio-inverse-bg); border-radius: 50%; color: var(--studio-inverse-text); height: 36px; padding: 0; width: 36px; }
 .office-composer .office-submit:hover { background: #fff; }
 .office-composer .office-submit:disabled { opacity: .35; }
 .office-composer-actions { align-items: center; display: flex; flex: 0 0 auto; gap: 4px; }
-.office-composer .office-voice { align-items: center; background: transparent; border: 0; border-radius: 50%; color: var(--studio-muted); display: inline-flex; height: 36px; justify-content: center; padding: 0; width: 36px; }
-.office-composer .office-voice:hover { background: var(--office-composer-control-hover); color: var(--studio-text); }
-.office-composer .office-voice.is-listening { background: var(--studio-inverse-bg); color: var(--studio-inverse-text); }
 .office-attachments { display: flex; gap: 9px; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 1px 8px 10px; scrollbar-width: none; }
 .office-attachments::-webkit-scrollbar { display: none; }
 .office-attachments article { background: var(--office-composer-control); border: 1px solid var(--office-composer-border); border-radius: 10px; flex: 0 0 auto; position: relative; }
@@ -177,7 +173,7 @@
 .office-control-anchor { display: inline-flex; flex: 0 0 auto; position: relative; }
 .office-mode-menu, .office-model-menu { background: var(--studio-elevated); border: 1px solid var(--office-composer-border); border-radius: 12px; bottom: calc(100% + 9px); box-shadow: var(--office-composer-shadow); display: grid; left: 0; min-width: 250px; padding: 7px; position: absolute; z-index: 24; }
 .office-model-menu { max-height: min(320px, calc(100dvh - 220px)); min-width: 276px; overflow-y: auto; scrollbar-color: var(--studio-muted) transparent; scrollbar-width: thin; }
-.office-model-menu--catalog { background: transparent; border: 0; box-shadow: none; left: auto; max-height: none; min-width: 0; overflow: visible; padding: 0; right: 0; width: min(704px, calc(100vw - 24px)); }
+.office-model-menu--catalog { background: transparent; border: 0; box-shadow: none; left: 50%; max-height: none; min-width: 0; overflow: visible; padding: 0; right: auto; transform: translateX(-50%); width: min(704px, calc(100vw - 24px)); }
 .office-mode-menu > button, .office-model-menu > button { align-items: center; background: transparent; border: 0; border-radius: 9px; color: var(--studio-text); display: flex; gap: 10px; min-height: 48px; padding: 7px 10px; text-align: left; }
 .office-mode-menu > button:hover, .office-mode-menu > button.active, .office-model-menu > button:hover, .office-model-menu > button.active { background: var(--studio-control); }
 .office-mode-menu > button span, .office-model-menu > button span { display: grid; flex: 1; }
@@ -185,7 +181,7 @@
 .office-mode-menu small, .office-model-menu small { color: var(--studio-muted); font-size: 10px; margin-top: 2px; }
 
 @media (max-width: 680px) {
-  .office-model-menu--catalog { bottom: 12px; left: 12px; position: fixed; right: 12px; }
+  .office-model-menu--catalog { bottom: 12px; left: 12px; position: fixed; right: 12px; transform: none; }
 }
 
 .office-skill-panel { background: var(--studio-elevated); border: 1px solid var(--office-composer-border); border-radius: 14px; bottom: calc(100% + 10px); box-shadow: var(--office-composer-shadow); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); left: 0; max-height: min(520px, calc(100dvh - 220px)); overflow: hidden; position: absolute; width: 100%; }
@@ -206,14 +202,12 @@
 .office-skill-list > button > span:nth-child(2) { display: flex; min-width: 0; }
 .office-skill-list strong { flex: 0 0 100px; font-size: 13px; font-weight: 570; }
 .office-skill-list small { color: var(--studio-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.office-error { background: #4a2424; border: 1px solid #733838; border-radius: 6px; color: #ffc7c2; font-size: 11px; margin: 7px 0 0; padding: 8px 10px; }
+.office-error { background: #4a2424; border: 1px solid #733838; border-radius: 6px; color: var(--studio-danger); font-size: 11px; margin: 7px 0 0; padding: 8px 10px; }
 
-html[data-studio-theme="light"] .office-center { --office-composer-surface: #fff; --office-composer-control: var(--studio-control); --office-composer-control-hover: var(--studio-control-hover); --office-composer-border: var(--studio-border); --office-composer-shadow: var(--studio-shadow); }
-html[data-studio-theme="light"] .office-composer, html[data-studio-theme="light"] .office-skill-panel, html[data-studio-theme="light"] .office-mode-menu, html[data-studio-theme="light"] .office-model-menu, html[data-studio-theme="light"] .office-history { background: #fff; box-shadow: var(--office-composer-shadow); }
+html[data-studio-theme="light"] .office-center { --office-composer-surface: var(--studio-elevated); --office-composer-control: var(--studio-control); --office-composer-control-hover: var(--studio-control-hover); --office-composer-border: var(--studio-border); --office-composer-shadow: var(--studio-shadow); }
+html[data-studio-theme="light"] .office-composer, html[data-studio-theme="light"] .office-skill-panel, html[data-studio-theme="light"] .office-mode-menu, html[data-studio-theme="light"] .office-model-menu, html[data-studio-theme="light"] .office-history { background: var(--studio-elevated); box-shadow: var(--office-composer-shadow); }
 html[data-studio-theme="light"] .office-composer:focus-within { border-color: var(--studio-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--studio-focus) 12%, transparent); }
-html[data-studio-theme="light"] .office-user-message { background: #f4f4f5; }
-html[data-studio-theme="light"] .office-composer .office-submit { background: #18181b; color: #fff; }
-html[data-studio-theme="light"] .office-error { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+html[data-studio-theme="light"] .office-error { background: #fff1f2; border-color: #fecdd3; }
 
 @keyframes office-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .office-thinking svg, .office-spin { animation: none; } }
@@ -222,11 +216,13 @@ html[data-studio-theme="light"] .office-error { background: #fff1f2; border-colo
   .office-header { display: none; }
 }
 @media (max-width: 720px) {
+  .office-composer > footer > div { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .office-composer .office-mode-menu, .office-composer .office-model-menu { bottom: 12px; left: 12px; max-width: none; position: fixed; right: 12px; transform: none; width: auto; }
   .office-welcome { align-content: start; gap: 44px; padding: 80px 16px 190px; }
   .office-welcome__copy h1 { font-size: 26px; }
   .office-recommendations > button { grid-template-columns: 22px minmax(0, 1fr) 18px; }
   .office-recommendations small { display: none; }
-  .office-composer-wrap { bottom: 10px; max-width: calc(100% - 20px); width: calc(100% - 20px); }
+  .office-composer-wrap { bottom: 10px; left: 10px; max-width: calc(100% - 20px); transform: none; width: calc(100% - 20px); }
   .office-composer .office-model-button { display: none; }
   .office-composer .office-quick-skill:nth-of-type(n+4) { display: none; }
   .office-composer .office-mode-button, .office-composer .office-skill-button { max-width: 120px; overflow: hidden; }
@@ -236,4 +232,84 @@ html[data-studio-theme="light"] .office-error { background: #fff1f2; border-colo
   .office-skill-list strong { flex-basis: 88px; }
   .office-mode-menu { left: 4px; }
   .office-history { max-height: calc(100dvh - 76px); right: 10px; top: 10px; width: calc(100% - 20px); }
+}
+
+
+/* ===== 办公中心首页质感提升 ===== */
+@keyframes office-welcome-rise {
+  from { opacity: 0; transform: translateY(14px); }
+}
+
+.office-welcome__copy { animation: office-welcome-rise .45s cubic-bezier(.2, .7, .3, 1) both; }
+.office-recommendations { animation: office-welcome-rise .45s .1s cubic-bezier(.2, .7, .3, 1) both; }
+
+/* 推荐办公能力：从裸行升级为卡片，hover 右移 + 品牌描边 */
+.office-recommendations > button {
+  background: var(--studio-panel);
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  min-height: 56px;
+  padding: 8px 14px;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease, background-color .15s ease;
+}
+
+.office-recommendations > button:hover {
+  background: var(--studio-panel);
+  border-color: color-mix(in srgb, var(--studio-brand) 45%, var(--studio-border));
+  box-shadow: var(--studio-shadow-sm);
+  transform: translateX(4px);
+}
+
+.office-recommendations > button > svg:last-child {
+  color: var(--studio-muted);
+  transition: color .15s ease, transform .15s ease;
+}
+
+.office-recommendations > button:hover > svg:last-child {
+  color: var(--studio-brand);
+  transform: translateX(2px);
+}
+
+/* 输入框：聚焦品牌光晕（深色主题补齐，浅色已有） */
+.office-composer:focus-within {
+  border-color: var(--studio-brand);
+  box-shadow: 0 0 0 3px var(--studio-brand-soft), var(--office-composer-shadow);
+}
+
+/* 发送按钮：可用时点亮品牌蓝 + 微动效 */
+.office-composer .office-submit {
+  transition: background-color .16s ease, opacity .16s ease, transform .16s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.office-composer .office-submit:not(:disabled) {
+  background: var(--studio-brand);
+  color: #fff;
+}
+
+.office-composer .office-submit:not(:disabled):hover {
+  background: var(--studio-brand-hover);
+  transform: scale(1.06);
+}
+
+.office-composer .office-submit:not(:disabled):active {
+  transform: scale(.92);
+}
+
+/* 空输入时变形为语音入口（与聊天/创作页一致） */
+.office-composer .office-submit.is-voice-entry,
+.office-composer .office-submit.is-voice-entry:not(:disabled) { background: var(--studio-control); box-shadow: none; color: var(--studio-muted); }
+.office-composer .office-submit.is-voice-entry:not(:disabled):hover { background: var(--studio-brand-soft); color: var(--studio-brand); transform: none; }
+
+.office-composer textarea {
+  caret-color: var(--studio-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .office-welcome__copy,
+  .office-recommendations { animation: none; }
+  .office-recommendations > button,
+  .office-recommendations > button:hover,
+  .office-composer .office-submit,
+  .office-composer .office-submit:not(:disabled):hover,
+  .office-composer .office-submit:not(:disabled):active { transform: none; }
 }

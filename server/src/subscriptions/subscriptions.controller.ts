@@ -18,6 +18,14 @@ class PlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100000000) originalPriceCents?: number
   @IsOptional() @IsString() @MaxLength(10) currency?: string
   @IsOptional() @IsInt() @Min(0) @Max(100000000) includedCredits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) monthlyQuotaUnits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) dailyQuotaUnits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(100000000) tokenOverageRate?: number
+  @IsOptional() @IsInt() @Min(1) @Max(28) tokenQuotaResetDay?: number
+  @IsOptional() @IsBoolean() tokenQuotaCarryOver?: boolean
+  @IsOptional() @IsIn(['BILLABLE_UNITS']) tokenQuotaMode?: 'BILLABLE_UNITS'
+  @IsOptional() @IsIn(['BLOCK', 'OVERAGE_CREDITS']) tokenOverageMode?: 'BLOCK' | 'OVERAGE_CREDITS'
+  @IsOptional() @IsIn(['QUOTA', 'FREE']) byokMode?: 'QUOTA' | 'FREE'
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number
   @IsOptional() @IsInt() @Min(1) @Max(100) concurrency?: number
   @IsOptional() @IsBoolean() allowByok?: boolean
@@ -40,6 +48,14 @@ class UpdatePlanDto {
   @IsOptional() @IsInt() @Min(0) @Max(100000000) originalPriceCents?: number
   @IsOptional() @IsString() @MaxLength(10) currency?: string
   @IsOptional() @IsInt() @Min(0) @Max(100000000) includedCredits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) monthlyQuotaUnits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) dailyQuotaUnits?: number
+  @IsOptional() @IsInt() @Min(0) @Max(100000000) tokenOverageRate?: number
+  @IsOptional() @IsInt() @Min(1) @Max(28) tokenQuotaResetDay?: number
+  @IsOptional() @IsBoolean() tokenQuotaCarryOver?: boolean
+  @IsOptional() @IsIn(['BILLABLE_UNITS']) tokenQuotaMode?: 'BILLABLE_UNITS'
+  @IsOptional() @IsIn(['BLOCK', 'OVERAGE_CREDITS']) tokenOverageMode?: 'BLOCK' | 'OVERAGE_CREDITS'
+  @IsOptional() @IsIn(['QUOTA', 'FREE']) byokMode?: 'QUOTA' | 'FREE'
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number
   @IsOptional() @IsInt() @Min(1) @Max(100) concurrency?: number
   @IsOptional() @IsBoolean() allowByok?: boolean

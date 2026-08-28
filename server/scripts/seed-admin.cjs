@@ -13,7 +13,7 @@ function hashPassword(password) {
 async function main() {
   const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
   const password = process.env.ADMIN_PASSWORD || ''
-  if (!email || password.length < 12) throw new Error('请在 .env 中配置 ADMIN_EMAIL 和至少 12 位的 ADMIN_PASSWORD')
+  if (!email || password.length < 8) throw new Error('请在 .env 中配置 ADMIN_EMAIL 和至少 8 位的 ADMIN_PASSWORD')
   const user = await prisma.$transaction(async (tx) => {
     await tx.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
     const defaultGroup = await tx.userGroup.upsert({

@@ -11,7 +11,15 @@
       class="dual-menu-left"
       :style="{ width: dualMenuShowText ? '80px' : '64px', background: getMenuTheme.background }"
     >
-      <ArtLogo class="logo" @click="navigateToHome" />
+      <SidebarBrand
+        class="logo"
+        :system-name="AppConfig.systemInfo.name"
+        :background="getMenuTheme.background"
+        :system-name-color="getMenuTheme.systemNameColor"
+        dual
+        :show-dual-text="dualMenuShowText"
+        @navigate="navigateToHome"
+      />
 
       <ElScrollbar style="height: calc(100% - 135px)">
         <ul>
@@ -69,26 +77,15 @@
         width: isDualMenuCollapsed ? MENU_CLOSE_WIDTH : undefined
       }"
     >
-      <!-- Logo、系统名称 -->
-      <div
-        class="header"
-        @click="navigateToHome"
-        :style="{
-          background: getMenuTheme.background
-        }"
-      >
-        <ArtLogo v-if="!isDualMenu" class="logo" />
-
-        <p
-          :class="{ 'is-dual-menu-name': isDualMenu }"
-          :style="{
-            color: getMenuTheme.systemNameColor,
-            opacity: !menuOpen ? 0 : 1
-          }"
-        >
-          {{ AppConfig.systemInfo.name }}
-        </p>
-      </div>
+      <!-- 品牌与系统名称 -->
+      <SidebarBrand
+        v-if="!isDualMenu"
+        :system-name="AppConfig.systemInfo.name"
+        :background="getMenuTheme.background"
+        :system-name-color="getMenuTheme.systemNameColor"
+        :collapsed="!menuOpen"
+        @navigate="navigateToHome"
+      />
       <ElScrollbar :style="scrollbarStyle">
         <ElMenu
           :class="'el-menu-' + getMenuTheme.theme"
@@ -139,6 +136,7 @@
   import { isIframe } from '@/utils/navigation'
   import { handleMenuJump } from '@/utils/navigation'
   import SidebarSubmenu from './widget/SidebarSubmenu.vue'
+  import SidebarBrand from './widget/SidebarBrand.vue'
   import { useCommon } from '@/hooks/core/useCommon'
   import { useWindowSize, useTimeoutFn } from '@vueuse/core'
 

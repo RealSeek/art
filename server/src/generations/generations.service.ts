@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq'
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common'
+import { randomUUID } from 'node:crypto'
 import { GenerationJob, JobKind, JobStatus, PluginCapability, Prisma, UserRole } from '@prisma/client'
 import { Queue } from 'bullmq'
 import { CreditsService } from '../credits/credits.service'
@@ -11,17 +12,55 @@ import { normalizeVideoOptions, videoCapabilities, videoCreditCost } from './vid
 import { publicGenerationError } from './generation-errors'
 import { PluginsService } from '../plugins/plugins.service'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { GenerationEventsService } from './generation-events.service'
+import { GenerationLifecycleService } from './generation-lifecycle.service'
+import { BillingTransactionsService } from '../credits/billing-transactions.service'
+import { FeatureFlagsService } from '../features/feature-flags.service'
+import { PricingResolverService } from '../billing/pricing-resolver.service'
+import { TokenizerService } from '../billing/tokenizer.service'
+import { TokenQuotaService, type QuotaReservation } from '../billing/token-quota.service'
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
+interface RequestTrace { requestId?: string; traceId?: string }
 
 @Injectable()
 export class GenerationsService {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, @InjectQueue('generation') private readonly queue: Queue) {}
-  async create(userId: string, input: CreateJobInput) {
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, @InjectQueue('generation') private readonly queue: Queue) {}
+  async create(userId: string, input: CreateJobInput, trace: RequestTrace = {}) {
     const idempotencyKey = input.idempotencyKey ? `${userId}:${input.idempotencyKey}` : undefined
     if (input.idempotencyKey) {
       const existing = await this.prisma.generationJob.findFirst({ where: { userId, idempotencyKey: { in: [idempotencyKey!, input.idempotencyKey] } } })
       if (existing) return existing
+    }
+    const imagePromptTask = input.kind === 'CHAT' && input.options.taskType === 'IMAGE_PROMPT_EXTRACTION'
+    if (imagePromptTask) {
+      const assetId = typeof input.options.assetId === 'string' ? input.options.assetId.trim() : ''
+      const mode = typeof input.options.mode === 'string' ? input.options.mode.trim().toUpperCase() : 'GENERAL'
+      const language = typeof input.options.language === 'string' ? input.options.language.trim() : 'zh-CN'
+      const allowedModes = new Set(['GENERAL', 'CONCISE', 'STRUCTURED', 'GRAPHIC_DESIGN', 'JSON', 'FLUX', 'MIDJOURNEY', 'STABLE_DIFFUSION'])
+      if (!assetId) throw new BadRequestException('请选择需要反推提示词的图片')
+      if (!allowedModes.has(mode)) throw new BadRequestException('图片反推模式无效')
+      if (!['zh-CN', 'en-US', 'ja-JP'].includes(language)) throw new BadRequestException('输出语言无效')
+      const [settings, asset] = await Promise.all([
+        this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } }),
+        this.prisma.asset.findFirst({ where: { id: assetId, deletedAt: null, ...this.access.assetWhere(userId) }, select: { id: true, kind: true, mimeType: true, size: true } }),
+      ])
+      if (!await this.featureFlags.resolve('generation.image_prompt_extraction', settings.imagePromptEnabled, userId)) throw new ForbiddenException('图片反推功能暂未开放')
+      if (!asset) throw new NotFoundException('图片不存在或你没有访问权限')
+      if (asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/')) throw new BadRequestException('只能反推图片文件')
+      if (asset.size > BigInt(20 * 1024 * 1024)) throw new BadRequestException('图片不能超过 20 MB')
+      const billingMode = ['PLATFORM', 'USER_BYOK'].includes(settings.imagePromptBillingMode) ? settings.imagePromptBillingMode : 'USER_CREDITS'
+      input.prompt = '分析图片并生成可复用的图像生成提示词'
+      input.model = settings.imagePromptModelKey.trim() || undefined
+      input.options = {
+        taskType: 'IMAGE_PROMPT_EXTRACTION',
+        assetId,
+        mode,
+        language,
+        billingMode,
+        providerSource: billingMode === 'USER_BYOK' ? 'user' : 'platform',
+        maxOutputTokens: 1800,
+      }
     }
     const moderationSource = input.kind === 'CHAT' ? 'CHAT' : input.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE'
     await this.moderation.inspect(userId, moderationSource, input.prompt, { conversationId: input.conversationId || null, projectId: input.projectId || null, kind: input.kind })
@@ -94,15 +133,32 @@ export class GenerationsService {
     }
     const baseCreditCost = Math.max(0, unitCreditCost * quantity)
     const maxOutputTokens = input.kind === 'CHAT' ? Math.max(1, Math.min(32768, Number(normalizedOptions.maxOutputTokens || 4096))) : 0
-    const inputMessages = input.kind === 'CHAT' && input.conversationId ? await this.prisma.message.findMany({ where: { conversationId: input.conversationId, deletedAt: null }, orderBy: { createdAt: 'asc' }, take: 80, select: { content: true } }) : []
-    const estimatedInputTokens = inputMessages.reduce((total, message) => total + message.content.length, 0)
+    const inputMessages = input.kind === 'CHAT' && input.conversationId ? await this.prisma.message.findMany({ where: { conversationId: input.conversationId, deletedAt: null }, orderBy: { createdAt: 'asc' }, take: 80, select: { role: true, content: true } }) : []
+    const estimatedInputTokens = input.kind === 'CHAT'
+      ? this.tokenizer.estimateMessages([...inputMessages, { role: 'user', content: input.prompt }, ...(projectInstructions ? [{ role: 'system', content: projectInstructions }] : []), ...(projectSkillSnapshot ? [{ role: 'system', content: projectSkillSnapshot.content }] : [])], resolved.model)
+      : 0
     const reservedTokenCredits = input.kind === 'CHAT' ? Math.ceil(estimatedInputTokens * resolved.inputCreditsPerMillion / 1_000_000) + Math.ceil(maxOutputTokens * resolved.outputCreditsPerMillion / 1_000_000) : 0
-    const creditCost = baseCreditCost + reservedTokenCredits
+    const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
+    const tokenQuotaUnits = effectivePlan?.monthlyQuotaUnits ?? 0n
+    const dailyQuotaUnits = effectivePlan?.dailyQuotaUnits ?? 0n
+    const tokenQuotaEnabled = input.kind === 'CHAT' && tokenQuotaUnits > 0n && !billedToPlatform
+    const quotaIdentity = subscription?.id || 'FREE'
+    const quotaScopeKey = `MONTHLY:${quotaIdentity}`
+    const quotaPeriodStart = subscription?.currentPeriodStart || new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
+    const quotaPeriodEnd = subscription?.currentPeriodEnd || new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1))
+    const dailyStart = new Date()
+    dailyStart.setUTCHours(0, 0, 0, 0)
+    const dailyEnd = new Date(dailyStart.getTime() + 86_400_000)
+    const dailyScopeKey = `DAILY:${quotaIdentity}:${dailyStart.toISOString().slice(0, 10)}`
+    const creditCost = billedToPlatform ? 0 : baseCreditCost + (tokenQuotaEnabled ? 0 : reservedTokenCredits)
+    const chargedBaseCreditCost = billedToPlatform ? 0 : baseCreditCost
+    const chargedReservedTokenCredits = billedToPlatform ? 0 : reservedTokenCredits
     const billingTeamId = project?.teamId && project.team?.status === 'ACTIVE' && project.team.billingEnabled ? project.teamId : null
     let job: GenerationJob
     try {
       job = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.generationJob.create({ data: { userId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: { version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, unitCreditCost, creditValueMicros: resolved.creditValueMicros, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros } as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, unitCreditCost, baseCreditCost, reservedTokenCredits, maxOutputTokens, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, creditValueMicros: resolved.creditValueMicros }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
+        const pricingSnapshot = this.pricing.snapshot({ version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, provider: `${resolved.source}:${resolved.type}`, unitCreditCost, creditValueMicros: resolved.creditValueMicros, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros })
+        const created = await tx.generationJob.create({ data: { userId, requestId: trace.requestId, traceId: trace.traceId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, unitCreditCost, baseCreditCost: chargedBaseCreditCost, reservedTokenCredits: chargedReservedTokenCredits, maxOutputTokens, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, creditValueMicros: resolved.creditValueMicros, estimatedInputTokens, quotaEnabled: tokenQuotaEnabled, quotaScopeKey, quotaPeriodStart: quotaPeriodStart.toISOString(), quotaPeriodEnd: quotaPeriodEnd.toISOString() }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
         if (plugin) await tx.pluginUsage.create({ data: { userId, pluginId: plugin.id, jobId: created.id, capability: pluginCapability } })
         return created
       })
@@ -114,17 +170,36 @@ export class GenerationsService {
       throw error
     }
     let spent = false
+    let quotaReservations: QuotaReservation[] = []
     try {
-      if (creditCost > 0) {
-        await this.credits.spend(userId, creditCost, `${input.kind} 生成任务`, `job:${job.id}:spend`, { type: 'generation_job', id: job.id }, billingTeamId)
-        spent = true
+      if (tokenQuotaEnabled && reservedTokenCredits > 0) {
+        const reservationSpecs = [{ scopeKey: quotaScopeKey, periodStart: quotaPeriodStart, periodEnd: quotaPeriodEnd, grantedUnits: tokenQuotaUnits }, ...(dailyQuotaUnits > 0n ? [{ scopeKey: dailyScopeKey, periodStart: dailyStart, periodEnd: dailyEnd, grantedUnits: dailyQuotaUnits }] : [])]
+        for (const spec of reservationSpecs) {
+          const reservation = await this.tokenQuota.reserve({ userId, subscriptionId: subscription?.id, ...spec, units: BigInt(reservedTokenCredits), generationId: job.id, metadata: { model: resolved.model, estimatedInputTokens, scopeKey: spec.scopeKey } as Prisma.InputJsonValue })
+          if (reservation) quotaReservations.push(reservation)
+        }
+        const currentOptions = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+        const currentBilling = currentOptions.billing && typeof currentOptions.billing === 'object' && !Array.isArray(currentOptions.billing) ? currentOptions.billing as Record<string, unknown> : {}
+        await this.prisma.generationJob.update({ where: { id: job.id }, data: { options: { ...currentOptions, billing: { ...currentBilling, quotaId: quotaReservations[0]?.quotaId, quotaReservations: quotaReservations.map((item) => ({ quotaId: item.quotaId, reservedUnits: item.reservedUnits.toString() })) } } as Prisma.InputJsonValue } })
       }
+      if (creditCost > 0) {
+        await this.credits.spend(userId, creditCost, imagePromptTask ? '图片提示词反推' : `${input.kind} 生成任务`, `job:${job.id}:spend`, { type: 'generation_job', id: job.id }, billingTeamId)
+        spent = true
+        await this.billingTransactions.safely(this.billingTransactions.recordPreAuth({ userId, generationId: job.id, amount: creditCost, provider: job.provider, idempotencyKey: `job:${job.id}:pre-auth`, metadata: { billingTeamId, pricingSnapshot: job.pricingSnapshot } as Prisma.InputJsonValue }), `${job.id}:pre-auth`)
+      }
+      await this.prisma.generationJob.update({ where: { id: job.id }, data: { settlementStatus: 'RESERVED' } })
+      await this.eventsService.append(job.id, 'queued', { requestId: trace.requestId, traceId: trace.traceId, kind: job.kind, model: job.model })
       await this.queue.add(input.kind.toLowerCase(), { jobId: job.id }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
       return job
     } catch (error) {
-      await this.prisma.generationJob.update({ where: { id: job.id }, data: { status: 'FAILED', errorCode: 'ENQUEUE_FAILED', errorMessage: error instanceof Error ? error.message : 'Unable to enqueue', completedAt: new Date() } })
+      await this.lifecycle.fail(job.id, 'ENQUEUE_FAILED', error instanceof Error ? error.message : 'Unable to enqueue')
+      await this.prisma.generationJob.updateMany({ where: { id: job.id }, data: { settlementStatus: spent ? 'REFUNDED' : 'RELEASED' } }).catch(() => undefined)
       await this.prisma.pluginUsage.updateMany({ where: { jobId: job.id, status: 'QUEUED' }, data: { status: 'FAILED', error: 'Unable to enqueue generation job' } })
-      if (spent) await this.credits.refund(userId, creditCost, '任务创建失败退款', `job:${job.id}:enqueue-refund`, { type: 'generation_job', id: job.id }, billingTeamId)
+      if (spent) {
+        await this.credits.refund(userId, creditCost, '任务创建失败退款', `job:${job.id}:enqueue-refund`, { type: 'generation_job', id: job.id }, billingTeamId)
+        await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: job.id, amount: creditCost, provider: job.provider, idempotencyKey: `job:${job.id}:enqueue-refund`, metadata: { reason: 'ENQUEUE_FAILED', billingTeamId } as Prisma.InputJsonValue }), `${job.id}:enqueue-refund`)
+      }
+      for (const reservation of quotaReservations) await this.tokenQuota.release({ userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason: 'ENQUEUE_FAILED' } as Prisma.InputJsonValue }).catch(() => undefined)
       throw error
     }
   }
@@ -139,10 +214,31 @@ export class GenerationsService {
     if (assets.some((asset) => asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/'))) throw new BadRequestException('参考图和蒙版必须是图片文件')
   }
   async get(userId: string, id: string) {
-    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } } } })
+    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } }, events: { orderBy: { sequence: 'asc' }, take: 500 }, providerAttempts: { orderBy: { startedAt: 'asc' }, take: 50 }, billingTransactions: { orderBy: { createdAt: 'asc' }, take: 50 }, usageRecords: true } })
     if (!job) throw new NotFoundException('任务不存在')
     const streamMessage = job.kind === 'CHAT' && job.conversationId ? await this.prisma.message.findFirst({ where: { conversationId: job.conversationId, deletedAt: null, metadata: { path: ['jobId'], equals: job.id } }, select: { id: true, content: true, model: true, metadata: true } }) : null
     return { ...job, errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage), stream: streamMessage ? { messageId: streamMessage.id, content: streamMessage.content, model: streamMessage.model, metadata: streamMessage.metadata } : null, outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })) }
+  }
+  async events(userId: string, id: string) {
+    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, select: { id: true } })
+    if (!job) throw new NotFoundException('任务不存在')
+    return this.eventsService.list(id)
+  }
+  async retry(userId: string, id: string, trace: RequestTrace = {}) {
+    const job = await this.prisma.generationJob.findFirst({ where: { id, userId } })
+    if (!job) throw new NotFoundException('任务不存在')
+    if (job.status !== JobStatus.FAILED && job.status !== JobStatus.CANCELLED) throw new BadRequestException('只有失败或已取消的任务可以重试')
+    const options = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+    const { providerAttempts: _providerAttempts, successfulRouteId: _successfulRouteId, successfulCredentialId: _successfulCredentialId, ...retryOptions } = options
+    return this.create(userId, {
+      kind: job.kind,
+      prompt: job.prompt,
+      model: typeof retryOptions.requestedModel === 'string' ? retryOptions.requestedModel : job.model,
+      projectId: job.projectId || undefined,
+      conversationId: job.conversationId || undefined,
+      options: retryOptions,
+      idempotencyKey: `retry:${id}:${randomUUID()}`,
+    }, trace)
   }
   async list(userId: string, kind?: JobKind) {
     const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } } } })
@@ -153,11 +249,31 @@ export class GenerationsService {
     if (job.status !== JobStatus.QUEUED && job.status !== JobStatus.RUNNING) return job
     const queueJob = await this.queue.getJob(id)
     if (queueJob && !await queueJob.isActive()) await queueJob.remove()
-    const cancelled = await this.prisma.generationJob.updateMany({ where: { id, userId, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', completedAt: new Date() } })
-    if (!cancelled.count) return this.get(userId, id)
+    const cancelled = await this.lifecycle.cancel(id, userId)
+    if (!cancelled) return this.get(userId, id)
     if (job.providerChannelId) await this.providers.cancelLocalWorkerTask(job.providerChannelId, id).catch(() => undefined)
     await this.prisma.pluginUsage.updateMany({ where: { jobId: id, status: 'QUEUED' }, data: { status: 'CANCELLED' } })
-    if (job.creditCost > 0) await this.credits.refund(userId, job.creditCost, '取消生成任务退款', `job:${id}:cancel-refund`, { type: 'generation_job', id }, job.billingTeamId)
+    if (job.creditCost > 0) {
+      await this.credits.refund(userId, job.creditCost, '取消生成任务退款', `job:${id}:cancel-refund`, { type: 'generation_job', id }, job.billingTeamId)
+      await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: id, amount: job.creditCost, provider: job.provider, idempotencyKey: `job:${id}:cancel-refund`, metadata: { reason: 'CANCELLED', billingTeamId: job.billingTeamId } as Prisma.InputJsonValue }), `${id}:cancel-refund`)
+    }
+    await this.releaseTokenReservations(job, 'CANCELLED')
+    await this.prisma.generationJob.updateMany({ where: { id, status: 'CANCELLED' }, data: { settlementStatus: job.creditCost > 0 ? 'REFUNDED' : 'RELEASED' } })
     return this.get(userId, id)
+  }
+
+  private async releaseTokenReservations(job: GenerationJob, reason: string) {
+    const options = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+    const billing = options.billing && typeof options.billing === 'object' && !Array.isArray(options.billing) ? options.billing as Record<string, unknown> : {}
+    if (billing.quotaEnabled !== true) return
+    const reservations = Array.isArray(billing.quotaReservations)
+      ? billing.quotaReservations.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+        const row = item as Record<string, unknown>
+        if (typeof row.quotaId !== 'string') return []
+        try { return [{ quotaId: row.quotaId, reservedUnits: BigInt(String(row.reservedUnits || 0)) }] } catch { return [] }
+      })
+      : typeof billing.quotaId === 'string' ? [{ quotaId: billing.quotaId, reservedUnits: BigInt(Math.max(0, Number(billing.reservedTokenCredits || 0))) }] : []
+    for (const reservation of reservations) await this.tokenQuota.release({ userId: job.userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason } as Prisma.InputJsonValue }).catch(() => undefined)
   }
 }

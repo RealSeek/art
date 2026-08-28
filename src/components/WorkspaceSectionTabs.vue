@@ -12,18 +12,18 @@
       <Spline :size="17" />
       <span>画布</span>
     </RouterLink>
-    <RouterLink to="/works" :class="{ 'is-active': active === 'works' }">
-      <Images :size="17" />
-      <span>作品</span>
+    <RouterLink to="/image-prompt" :class="{ 'is-active': active === 'image-prompts' }">
+      <ScanText :size="17" />
+      <span>图片反推</span>
     </RouterLink>
   </nav>
 </template>
 
 <script setup lang="ts">
-import { Files, FolderKanban, Images, Spline } from 'lucide-vue-next'
+import { Files, FolderKanban, ScanText, Spline } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 
-defineProps<{ active: 'projects' | 'files' | 'canvases' | 'works' }>()
+defineProps<{ active: 'projects' | 'files' | 'canvases' | 'image-prompts' }>()
 </script>
 
 <style scoped>
@@ -48,7 +48,7 @@ defineProps<{ active: 'projects' | 'files' | 'canvases' | 'works' }>()
   gap: 7px;
   height: 36px;
   justify-content: center;
-  min-width: 104px;
+  min-width: 100px;
   padding: 0 16px;
   text-decoration: none;
 }
@@ -72,7 +72,11 @@ defineProps<{ active: 'projects' | 'files' | 'canvases' | 'works' }>()
 
   .workspace-section-tabs a {
     flex: 1;
+    font-size: 11px;
+    gap: 5px;
     min-width: 0;
+    padding: 0 5px;
+    white-space: nowrap;
   }
 }
 </style>

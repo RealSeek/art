@@ -1,31 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
-import { createHmac } from 'node:crypto'
 
 const adminUrl = 'http://localhost:5174/admin/'
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@flux.local'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
-
-function totp(secret: string, now = Date.now()) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = 0
-  let buffer = 0
-  const bytes: number[] = []
-  for (const character of secret.toUpperCase().replace(/=+$/, '')) {
-    const index = alphabet.indexOf(character)
-    if (index < 0) continue
-    buffer = (buffer << 5) | index
-    bits += 5
-    if (bits >= 8) {
-      bytes.push((buffer >>> (bits - 8)) & 255)
-      bits -= 8
-    }
-  }
-  const counter = Buffer.alloc(8)
-  counter.writeBigUInt64BE(BigInt(Math.floor(now / 30_000)))
-  const digest = createHmac('sha1', Buffer.from(bytes)).update(counter).digest()
-  const offset = digest[digest.length - 1] & 0x0f
-  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0')
-}
+const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
+const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
 
 const businessPages = [
   ['enterprise/customers/credits', '额度流水'],
@@ -66,6 +43,40 @@ async function assertNoPageOverflow(page: Page) {
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 }
 
+test('管理端登录错误由表单处理且保持登录控制 Cookie 生命周期', async ({ page, request }) => {
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+
+  await page.goto(adminUrl)
+  await page.getByPlaceholder('管理员邮箱').fill(adminEmail)
+  const passwordInput = page.getByPlaceholder('密码')
+  await passwordInput.fill('incorrect-password')
+  await page.getByRole('button', { name: '进入管理后台' }).click()
+
+  await expect(page.getByRole('alert')).toHaveText('管理员账号或密码错误')
+  await expect(passwordInput).toHaveValue('')
+  await expect(passwordInput).toBeFocused()
+  await expect(page).toHaveURL(/#\/auth\/login(?:\?|$)/)
+  expect(consoleErrors.filter((message) => message.includes('[VueError]'))).toEqual([])
+
+  const sessionResponse = await request.post('http://localhost:5174/v1/auth/admin/login', {
+    data: { email: adminEmail, password: adminPassword, remember: false },
+  })
+  expect(sessionResponse.ok()).toBeTruthy()
+  const sessionCookie = sessionResponse.headers()['set-cookie'] || ''
+  expect(sessionCookie).not.toMatch(/expires=|max-age=/i)
+  await request.post('http://localhost:5174/v1/auth/logout')
+
+  const persistentResponse = await request.post('http://localhost:5174/v1/auth/admin/login', {
+    data: { email: adminEmail, password: adminPassword, remember: true },
+  })
+  expect(persistentResponse.ok()).toBeTruthy()
+  expect(persistentResponse.headers()['set-cookie'] || '').toMatch(/expires=/i)
+  await request.post('http://localhost:5174/v1/auth/logout')
+})
+
 test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ page }) => {
   const consoleErrors: string[] = []
   const failedRequests: string[] = []
@@ -102,7 +113,10 @@ test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ 
   await expect(page.getByRole('button', { name: '编辑内容' })).toBeVisible()
   await assertNoPageOverflow(page)
 
-  for (const [path, heading] of [['dashboard/analysis', '分析页'], ['dashboard/ecommerce', '电子商务']] as const) {
+  for (const [path, heading] of [
+    ['dashboard/analysis', '分析页'],
+    ['dashboard/ecommerce', '电子商务'],
+  ] as const) {
     await page.goto(`${adminUrl}#/${path}`)
     await expect(page.locator('main').getByText(heading, { exact: true }).last()).toBeVisible()
     await expect(page.locator('.metric-grid')).toBeVisible()
@@ -140,19 +154,7 @@ test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ 
 
 test('用户分组可以创建、编辑策略并删除', async ({ page }) => {
   const groupName = `E2E 分组 ${Date.now()}`
-  let mfaSecret = ''
   await login(page)
-  const statusResponse = await page.request.get('http://localhost:3100/v1/auth/admin/mfa/status')
-  expect(statusResponse.ok()).toBeTruthy()
-  expect((await statusResponse.json() as { enabled: boolean }).enabled).toBeFalsy()
-  const setupResponse = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/setup')
-  expect(setupResponse.ok()).toBeTruthy()
-  const setup = await setupResponse.json() as { ticket: string; secret: string }
-  mfaSecret = setup.secret
-  const enableResponse = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/enable', {
-    data: { ticket: setup.ticket, code: totp(mfaSecret) }
-  })
-  expect(enableResponse.ok()).toBeTruthy()
   await page.goto(`${adminUrl}#/enterprise/customers/groups`)
 
   try {
@@ -186,12 +188,6 @@ test('用户分组可以创建、编辑策略并删除', async ({ page }) => {
     if (groups.ok()) {
       const match = ((await groups.json()) as Array<{ id: string; name: string }>).find((item) => item.name === groupName)
       if (match) await page.request.delete(`http://localhost:3100/v1/admin/groups/${match.id}`).catch(() => undefined)
-    }
-    if (mfaSecret) {
-      const disabled = await page.request.post('http://localhost:3100/v1/auth/admin/mfa/disable', {
-        data: { password: adminPassword, code: totp(mfaSecret) }
-      })
-      expect(disabled.ok()).toBeTruthy()
     }
   }
 })

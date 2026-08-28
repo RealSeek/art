@@ -6,14 +6,10 @@ import request from '@/utils/http'
  * @returns 登录响应
  */
 export function fetchLogin(params: Api.Auth.LoginParams) {
-  return request.post<{ user: XinyueAdminIdentity } | AdminMfaChallenge>({
+  return request.post<{ user: XinyueAdminIdentity }>({
     url: '/v1/auth/admin/login',
     params
   })
-}
-
-export function fetchVerifyAdminMfa(params: { ticket: string; code: string }) {
-  return request.post<{ user: XinyueAdminIdentity }>({ url: '/v1/auth/admin/mfa/login', params })
 }
 
 /**
@@ -38,5 +34,3 @@ type XinyueAdminIdentity = {
   role: 'ADMIN' | 'SUPER_ADMIN'
   avatarUrl?: string | null
 }
-
-export type AdminMfaChallenge = { mfaRequired: true; ticket: string; expiresIn: number }

@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -44,8 +46,19 @@ jobs:
       - name: Generate Prisma client
         run: npm --prefix server run prisma:generate
 
+      - name: Validate Prisma schema
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+        run: npm --prefix server exec -- prisma validate --schema server/prisma/schema.prisma
+
       - name: Audit UI actions
         run: npm run audit:ui-actions
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Lint administration
+        run: pnpm --dir admin lint
 
       - name: Build user application
         run: npm run build
@@ -55,3 +68,8 @@ jobs:
 
       - name: Build administration
         run: npm run admin:build
+
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: git diff --check "$BASE_SHA...${{ github.sha }}"

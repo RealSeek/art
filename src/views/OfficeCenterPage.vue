@@ -142,13 +142,13 @@
                 <button type="button" :class="{ active: taskMode === 'agent' }" @click="selectTaskMode('agent')"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
               </div>
             </span>
-            <button v-for="item in officeQuickSkills" :key="item.skill.id" class="office-quick-skill" :class="{ active: selectedSkill.id === item.skill.id }" type="button" @click="selectSkill(item.skill)"><component :is="item.icon" :size="15" />{{ item.label }}</button>
             <span class="office-control-anchor">
-              <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!selectableModels.length" @click="toggleModelMenu"><Sparkles :size="15" />{{ selectedModelLabel || '暂无可用模型' }}<ChevronDown :size="13" /></button>
+              <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!selectableModels.length" @click="toggleModelMenu"><ModelBadge v-if="selectedModelOption" :model="selectedModelOption" size="sm" /><Sparkles v-else :size="15" />{{ selectedModelLabel || '暂无可用模型' }}<ChevronDown :size="13" /></button>
               <div v-if="modelMenuOpen" class="office-model-menu office-model-menu--catalog">
                 <ModelCatalogPicker :models="selectableModels" :model-value="model" :title="taskMode === 'agent' ? '选择 Agent 模型' : '选择办公模型'" :description-mode="taskMode === 'agent' ? 'agent' : 'default'" @select="selectOfficeModel" />
               </div>
             </span>
+            <button v-for="item in officeQuickSkills" :key="item.skill.id" class="office-quick-skill" :class="{ active: selectedSkill.id === item.skill.id }" type="button" @click="selectSkill(item.skill)"><component :is="item.icon" :size="15" />{{ item.label }}</button>
             <span class="office-control-anchor">
               <button class="office-mode-button" type="button" :aria-expanded="formatMenuOpen" title="选择交付文件格式" @click="toggleFormatMenu"><FileSpreadsheet v-if="exportFormat === 'xlsx'" :size="15" /><Presentation v-else-if="exportFormat === 'pptx'" :size="15" /><FileText v-else :size="15" />{{ exportFormatLabel }}<ChevronDown :size="13" /></button>
               <div v-if="formatMenuOpen" class="office-mode-menu">
@@ -159,8 +159,7 @@
             <button v-if="taskMode === 'agent'" class="office-web-button" :class="{ active: webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" title="联网搜索" @click="webSearchEnabled = !webSearchEnabled"><Globe2 :size="16" />联网</button>
           </div>
           <span class="office-composer-actions">
-            <button class="office-voice" :class="{ 'is-listening': voiceListening }" type="button" :aria-label="voiceListening ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening" :title="voiceListening ? '停止语音输入' : '语音输入'" :disabled="generating" @click="toggleVoice"><Mic :size="18" /></button>
-            <button class="office-submit" :type="generating ? 'button' : 'submit'" :disabled="canceling || (!generating && (!prompt.trim() || (auth.isAuthenticated && !model)))" :aria-label="generating ? '停止生成' : '提交任务'" @click="generating && cancelTask()"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><ArrowUp v-else :size="19" /></button>
+            <button class="office-submit composer-send" :class="{ 'is-voice-entry': showVoiceEntry }" :type="generating || showVoiceEntry ? 'button' : 'submit'" :disabled="canceling || (!generating && !showVoiceEntry && auth.isAuthenticated && !model)" :aria-label="generating ? '停止生成' : showVoiceEntry ? (voiceListening ? '停止语音输入' : '开始语音输入') : '提交任务'" :title="generating ? '停止生成' : showVoiceEntry ? '语音输入' : '提交任务'" @click="handleSubmitAction"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><AudioLines v-else-if="showVoiceEntry" :size="18" /><ArrowUp v-else :size="19" /></button>
           </span>
         </footer>
       </form>
@@ -171,10 +170,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Activity, ArrowUp, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Coins, Copy, Download,
+  Activity, ArrowUp, AudioLines, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Coins, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
   LayoutGrid, Mic, PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
   Archive, ArchiveRestore, CalendarClock, CalendarPlus, ExternalLink, Globe2, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
@@ -187,7 +186,8 @@ import { useAuthStore } from '../stores/auth'
 import { useStudioStore } from '../stores/studio'
 import type { Plugin, StudioAsset } from '../types'
 import { createClientId } from '../utils/client-id'
-import { catalogModelKey, catalogModelLabel, isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
+import { catalogModelKey, catalogModelLabel, findCatalogModel, isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
+import ModelBadge from '../components/common/ModelBadge.vue'
 
 type TaskMode = 'fast' | 'expert' | 'agent'
 type OfficeExportFormat = 'auto' | 'docx' | 'xlsx' | 'pptx' | 'md'
@@ -207,12 +207,12 @@ type AgentTask = { id: string; title: string; goal: string; model: string; skill
 type AgentSchedule = { id: string; title: string; goal: string; cronExpression: string; timezone: string; enabled: boolean; nextRunAt?: string | null }
 
 const builtInSkills: OfficeSkill[] = [
-  { id: 'daily', name: '日常办公', category: '推荐', description: '整理任务、撰写通知、制定计划和处理通用办公事项', shortDescription: '通知、计划与工作整理', placeholder: '描述需要处理的办公任务', color: '#4f8cff', icon: FileText },
+  { id: 'daily', name: '日常办公', category: '推荐', description: '整理任务、撰写通知、制定计划和处理通用办公事项', shortDescription: '通知、计划与工作整理', placeholder: '描述需要处理的办公任务', color: '#4d6bfe', icon: FileText },
   { id: 'writing', name: '内容创作', category: '推荐', description: '撰写文章、方案、活动文案和新媒体内容', shortDescription: '文章、方案与宣传文案', placeholder: '描述主题、受众和期望风格', color: '#31b66b', icon: PenLine },
   { id: 'analysis', name: '数据分析', category: '推荐', description: '分析表格、提炼指标、解释趋势并形成业务结论', shortDescription: '指标、趋势与业务结论', placeholder: '粘贴数据或上传表格并说明分析目标', color: '#8a6cff', icon: BarChart3 },
   { id: 'development', name: '代码开发', category: '推荐', description: '编写、解释、检查和重构代码，输出可运行方案', shortDescription: '开发、调试与代码审查', placeholder: '描述功能、技术栈或粘贴报错信息', color: '#f29b38', icon: Code2 },
   { id: 'ppt', name: 'PPT 大纲', category: '文档', description: '生成演示文稿结构、逐页内容与演讲备注', shortDescription: '逐页结构与演讲备注', placeholder: '输入汇报主题、听众和预计页数', color: '#32b8cf', icon: Presentation },
-  { id: 'report', name: '报告撰写', category: '文档', description: '生成周报、月报、复盘和正式业务报告', shortDescription: '周报、月报与项目复盘', placeholder: '输入原始事项、数据和报告用途', color: '#4f8cff', icon: MessageSquareText },
+  { id: 'report', name: '报告撰写', category: '文档', description: '生成周报、月报、复盘和正式业务报告', shortDescription: '周报、月报与项目复盘', placeholder: '输入原始事项、数据和报告用途', color: '#4d6bfe', icon: MessageSquareText },
   { id: 'meeting', name: '会议纪要', category: '文档', description: '提取议题、结论、待办、负责人和截止时间', shortDescription: '结论、待办与责任人', placeholder: '粘贴会议记录或上传会议文档', color: '#36b86b', icon: ListChecks },
   { id: 'spreadsheet', name: '多维表格', category: '数据', description: '设计字段、公式、视图和自动化规则', shortDescription: '字段、公式与自动化', placeholder: '描述需要管理的数据和使用流程', color: '#5c79ff', icon: Table2 },
   { id: 'excel', name: 'Excel 助手', category: '数据', description: '生成公式、清洗步骤、透视表和图表方案', shortDescription: '公式、清洗与透视分析', placeholder: '描述表格结构、目标或上传文件', color: '#1fa766', icon: FileSpreadsheet },
@@ -272,6 +272,7 @@ const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const chatModels = ref<CatalogModel[]>([])
 const selectableModels = computed(() => taskMode.value === 'agent' ? chatModels.value.filter(isAgentModelEligible) : chatModels.value)
 const selectedModelLabel = computed(() => catalogModelLabel(chatModels.value, model.value, 'CHAT'))
+const selectedModelOption = computed(() => findCatalogModel(selectableModels.value, model.value, 'CHAT'))
 const organizationSkills = ref<OfficeSkill[]>([])
 const installedSkills = ref<OfficeSkill[]>([])
 const deliverable = ref<OfficeDeliverable | null>(null)
@@ -399,6 +400,22 @@ function startNewTask() {
 }
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitTask() }
+}
+// 输入框随内容自适应增高（与聊天/创作页一致），上限桌面 240px / 移动端 180px
+function resizeTaskInput() {
+  const input = taskInput.value
+  if (!input) return
+  input.style.height = 'auto'
+  const maxHeight = window.innerWidth <= 640 ? 180 : 240
+  input.style.height = `${Math.min(input.scrollHeight, maxHeight)}px`
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden'
+}
+watch(prompt, () => { void nextTick(resizeTaskInput) })
+// 与聊天/创作页一致：空输入时提交按钮变形为语音入口
+const showVoiceEntry = computed(() => !generating.value && !prompt.value.trim())
+function handleSubmitAction() {
+  if (generating.value) { void cancelTask(); return }
+  if (showVoiceEntry.value) toggleVoice()
 }
 function toggleVoice() {
   if (voiceListening.value) { voiceRecognizer.value?.stop(); return }
@@ -753,6 +770,7 @@ function applyRouteIntent() {
 onMounted(async () => {
   studio.setMode('office')
   document.addEventListener('xinyue:close-popovers', closeOfficePopovers)
+  void nextTick(resizeTaskInput)
   const [models, assistants, plugins] = await Promise.all([
     api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => []),
     auth.isAuthenticated ? api<AssistantOption[]>('/assistants').catch(() => []) : Promise.resolve([]),
@@ -764,9 +782,9 @@ onMounted(async () => {
   organizationSkills.value = assistants.map((assistant, index) => {
     const id = `assistant:${assistant.id}`
     if (assistant.defaultModel) organizationAssistantModels.set(id, assistant.defaultModel)
-    return { id, name: assistant.name, category: '组织技能', description: assistant.description || '由管理员配置的办公助手', shortDescription: assistant.description || '组织专属办公能力', placeholder: `描述需要交给${assistant.name}处理的任务`, color: ['#4f8cff', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Sparkles, assistantId: assistant.id }
+    return { id, name: assistant.name, category: '组织技能', description: assistant.description || '由管理员配置的办公助手', shortDescription: assistant.description || '组织专属办公能力', placeholder: `描述需要交给${assistant.name}处理的任务`, color: ['#4d6bfe', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Sparkles, assistantId: assistant.id }
   })
-  installedSkills.value = plugins.map((plugin, index) => ({ id: `skill:${plugin.id}`, name: plugin.name, category: '已安装', description: plugin.description || '已安装的办公技能', shortDescription: plugin.description || '已安装技能', placeholder: `描述需要使用${plugin.name}完成的任务`, color: ['#4f8cff', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Layers3, pluginId: plugin.id }))
+  installedSkills.value = plugins.map((plugin, index) => ({ id: `skill:${plugin.id}`, name: plugin.name, category: '已安装', description: plugin.description || '已安装的办公技能', shortDescription: plugin.description || '已安装技能', placeholder: `描述需要使用${plugin.name}完成的任务`, color: ['#4d6bfe', '#31b66b', '#8a6cff', '#f29b38'][index % 4], icon: Layers3, pluginId: plugin.id }))
   applyRouteIntent()
   if (auth.isAuthenticated) void loadAgentTasks()
 })

@@ -29,15 +29,6 @@ export class ConversationsController {
     if (settings?.dataRetentionDays) await this.prisma.conversation.deleteMany({ where: { userId: user.id, temporary: false, updatedAt: { lt: new Date(Date.now() - settings.dataRetentionDays * 86_400_000) } } })
     return this.prisma.conversation.findMany({ where: { userId: user.id, archivedAt: null, temporary: false }, orderBy: [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }], take: 100, select: { id: true, title: true, model: true, projectId: true, temporary: true, pinnedAt: true, sharedAt: true, createdAt: true, updatedAt: true } })
   }
-  @Get('export') async exportData(@CurrentUser() user: AuthenticatedUser) {
-    const [account, conversations, projects, assets] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: user.id }, select: { id: true, email: true, displayName: true, createdAt: true, settings: true } }),
-      this.prisma.conversation.findMany({ where: { userId: user.id, temporary: false }, orderBy: { createdAt: 'asc' }, include: { messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true, role: true, content: true, model: true, metadata: true, createdAt: true } } } }),
-      this.prisma.project.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' }, select: { id: true, name: true, description: true, instructions: true, archivedAt: true, createdAt: true, updatedAt: true } }),
-      this.prisma.asset.findMany({ where: { userId: user.id, deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true, projectId: true, kind: true, name: true, mimeType: true, size: true, width: true, height: true, metadata: true, createdAt: true } }),
-    ])
-    return { exportedAt: new Date().toISOString(), account, conversations, projects, assets: assets.map((asset) => ({ ...asset, size: Number(asset.size) })) }
-  }
   @Delete() async clear(@CurrentUser() user: AuthenticatedUser) {
     const result = await this.prisma.conversation.deleteMany({ where: { userId: user.id } })
     return { deleted: result.count }

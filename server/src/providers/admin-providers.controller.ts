@@ -194,6 +194,9 @@ class UpdateSystemDto {
   @IsOptional() @IsObject() siteContent?: Record<string, unknown>
   @IsOptional() @IsString() @MaxLength(100) defaultChatModelKey?: string
   @IsOptional() @IsString() @MaxLength(100) defaultImageModelKey?: string
+  @IsOptional() @IsBoolean() imagePromptEnabled?: boolean
+  @IsOptional() @IsString() @MaxLength(100) imagePromptModelKey?: string
+  @IsOptional() @IsIn(['PLATFORM', 'USER_CREDITS', 'USER_BYOK']) imagePromptBillingMode?: string
   @IsOptional() @IsBoolean() userByokEnabled?: boolean
   @IsOptional() @IsInt() @Min(0) @Max(1000000) inviteRewardCredits?: number
   @IsOptional() @IsBoolean() referralEnabled?: boolean

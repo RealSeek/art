@@ -5,7 +5,6 @@ import { AuthController } from './auth.controller'
 import { AuthGuard } from './auth.guard'
 import { AuthService } from './auth.service'
 import { EmailService } from './email.service'
-import { TotpService } from './totp.service'
 
-@Module({ imports: [ProvidersModule, forwardRef(() => CommercialModule)], controllers: [AuthController], providers: [AuthService, AuthGuard, EmailService, TotpService], exports: [AuthGuard, EmailService] })
+@Module({ imports: [ProvidersModule, forwardRef(() => CommercialModule)], controllers: [AuthController], providers: [AuthService, AuthGuard, EmailService], exports: [AuthGuard, EmailService] })
 export class AuthModule {}

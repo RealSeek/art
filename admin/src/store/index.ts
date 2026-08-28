@@ -16,7 +16,7 @@
  *
  * - 使用 StorageKeyManager 生成版本化的存储键
  * - 格式：sys-v{version}-{storeId}
- * - 自动迁移旧版本数据到当前版本
+ * - 为各 Store 生成稳定的持久化键
  * - 使用 localStorage 作为存储介质
  *
  * @module store/index

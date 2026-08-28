@@ -1,4 +1,5 @@
 .layout-sidebar {
+  --sidebar-brand-height: 64px;
   display: flex;
   height: 100vh;
   user-select: none;
@@ -137,37 +138,6 @@
     }
   }
 
-  .header {
-    position: relative;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    width: 100%;
-    height: 60px;
-    overflow: hidden;
-    line-height: 60px;
-    cursor: pointer;
-
-    .logo {
-      margin-left: 22px;
-    }
-
-    p {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 58px;
-      box-sizing: border-box;
-      margin-left: 10px;
-      font-size: 18px;
-
-      &.is-dual-menu-name {
-        left: 25px;
-        margin: auto;
-      }
-    }
-  }
-
   .el-menu {
     box-sizing: border-box;
     // 防止菜单内的滚动影响整个页面滚动
@@ -190,13 +160,8 @@
   .layout-sidebar {
     width: 0;
 
-    .header {
-      height: 50px;
-      line-height: 50px;
-    }
-
     .el-menu {
-      height: calc(100vh - 60px);
+      height: calc(100vh - var(--sidebar-brand-height));
     }
 
     .el-menu--collapse {
@@ -204,17 +169,7 @@
     }
 
     // 折叠状态下的header样式
-    .menu-left-close .header {
-      .logo {
-        display: none;
-      }
-
-      p {
-        left: 16px;
-        font-size: 0;
-        opacity: 0 !important;
-      }
-    }
+    .menu-left-close .sidebar-brand { padding: 0; }
 
     .menu-model {
       position: fixed;

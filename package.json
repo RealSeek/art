@@ -11,6 +11,7 @@
     "clean": "node scripts/clean.cjs",
     "clean:reports": "node scripts/clean.cjs --reports",
     "test:e2e": "playwright test",
+    "test:unit": "tsx --test tests/unit/*.test.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
     "screenshots:demo": "node scripts/capture-demo-screenshots.mjs",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vue-tsc": "^3.0.5"
   }

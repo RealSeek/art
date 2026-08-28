@@ -1,5 +1,5 @@
 <template>
-  <div class="search-channel-page">
+  <div class="xinyue-page search-channel-page">
     <header class="page-title"
       ><div><h1>联网搜索</h1><p>为 Agent 配置实时检索渠道、优先级和自动故障切换</p></div
       ><ElSpace
@@ -14,42 +14,75 @@
       <template #header
         ><div class="tgmeng-card__header"
           ><div class="channel-name"
-            ><span class="provider-icon dailyhot"><ArtSvgIcon icon="ri:bar-chart-grouped-line" /></span
+            ><span class="provider-icon dailyhot"
+              ><ArtSvgIcon icon="ri:bar-chart-grouped-line" /></span
             ><div
-              ><strong>DailyHot 多源热榜</strong><small>自托管实时榜单，用于首页推荐，不参与通用网页搜索</small></div
+              ><strong>DailyHot 多源热榜</strong
+              ><small>自托管实时榜单，用于首页推荐，不参与通用网页搜索</small></div
             ></div
           ><ElSpace
             ><ElTag :type="healthType(dailyHot)">{{ healthText(dailyHot) }}</ElTag
             ><ElButton :loading="dailyHotChecking" @click="checkDailyHot">检测</ElButton
             ><ElButton :loading="dailyHotRefreshing" @click="refreshDailyHot">立即刷新</ElButton
-            ><ElButton type="primary" :loading="dailyHotSaving" @click="saveDailyHot">保存配置</ElButton></ElSpace
+            ><ElButton type="primary" :loading="dailyHotSaving" @click="saveDailyHot"
+              >保存配置</ElButton
+            ></ElSpace
           ></div
         ></template
       >
       <ElRow :gutter="16">
         <ElCol :xs="24" :md="10"
           ><ElFormItem label="服务地址"
-            ><ElInput v-model.trim="dailyHot.endpoint" placeholder="http://dailyhot:6688" /></ElFormItem
+            ><ElInput
+              v-model.trim="dailyHot.endpoint"
+              placeholder="http://dailyhot:6688" /></ElFormItem
         ></ElCol>
         <ElCol :xs="12" :md="4"
           ><ElFormItem label="推荐数量"
-            ><ElInputNumber v-model="dailyHot.recommendationLimit" :min="3" :max="12" class="wide" /></ElFormItem
+            ><ElInputNumber
+              v-model="dailyHot.recommendationLimit"
+              :min="3"
+              :max="12"
+              class="wide" /></ElFormItem
         ></ElCol>
         <ElCol :xs="12" :md="4"
           ><ElFormItem label="缓存分钟"
-            ><ElInputNumber v-model="dailyHot.cacheMinutes" :min="5" :max="1440" class="wide" /></ElFormItem
+            ><ElInputNumber
+              v-model="dailyHot.cacheMinutes"
+              :min="5"
+              :max="1440"
+              class="wide" /></ElFormItem
         ></ElCol>
         <ElCol :xs="12" :md="4"
           ><ElFormItem label="首页推荐"
             ><ElSwitch v-model="dailyHot.recommendationEnabled" active-text="启用" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="2"><ElFormItem label="缓存"><span class="cache-count">{{ dailyHot.cachedCount || 0 }} 条</span></ElFormItem></ElCol>
+        <ElCol :xs="12" :md="2"
+          ><ElFormItem label="缓存"
+            ><span class="cache-count">{{ dailyHot.cachedCount || 0 }} 条</span></ElFormItem
+          ></ElCol
+        >
       </ElRow>
       <ElFormItem label="启用榜单">
-        <ElSelect v-model="dailyHot.sources" multiple collapse-tags :max-collapse-tags="6" class="wide" placeholder="选择首页热点来源">
-          <ElOption v-for="source in dailyHot.availableSources" :key="source.id" :label="source.name" :value="source.id" />
+        <ElSelect
+          v-model="dailyHot.sources"
+          multiple
+          collapse-tags
+          :max-collapse-tags="6"
+          class="wide"
+          placeholder="选择首页热点来源"
+        >
+          <ElOption
+            v-for="source in dailyHot.availableSources"
+            :key="source.id"
+            :label="source.name"
+            :value="source.id"
+          />
         </ElSelect>
-        <small class="help">最多选择 12 个榜单；首页按榜单轮询取数并按标题去重。推荐缓存持久化，短时故障继续返回最近一次真实数据。</small>
+        <small class="help"
+          >最多选择 12
+          个榜单；首页按榜单轮询取数并按标题去重。推荐缓存持久化，短时故障继续返回最近一次真实数据。</small
+        >
       </ElFormItem>
     </ElCard>
     <ElCard shadow="never" class="tgmeng-card">
@@ -157,7 +190,10 @@
           ><template #default="{ row }"
             ><span class="endpoint">{{ row.endpoint }}</span
             ><small class="note"
-              >密钥 {{ row.type === 'SEARXNG' ? '无需配置' : row.hasApiKey ? row.apiKeyHint : '未配置' }}</small
+              >密钥
+              {{
+                row.type === 'SEARXNG' ? '无需配置' : row.hasApiKey ? row.apiKeyHint : '未配置'
+              }}</small
             ></template
           ></ElTableColumn
         >
@@ -229,7 +265,11 @@
             type="password"
             show-password
             :placeholder="
-              form.type === 'SEARXNG' ? 'SearXNG 无需 API 密钥' : form.id && form.hasApiKey ? `留空保留 ${form.apiKeyHint}` : '输入服务密钥'
+              form.type === 'SEARXNG'
+                ? 'SearXNG 无需 API 密钥'
+                : form.id && form.hasApiKey
+                  ? `留空保留 ${form.apiKeyHint}`
+                  : '输入服务密钥'
             "
             :disabled="form.type === 'SEARXNG'"
         /></ElFormItem>
@@ -285,7 +325,7 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import request from '@/utils/http'
+  import { webSearchApi } from '@/api/xinyue/web-search'
   defineOptions({ name: 'XinyueWebSearchChannels' })
   type Row = Record<string, any>
   const defaults: Record<string, string> = {
@@ -377,9 +417,9 @@
     loading.value = true
     try {
       const [channels, tgmengSettings, dailyHotSettings] = await Promise.all([
-        request.get<Row[]>({ url: '/v1/admin/web-search-channels' }),
-        request.get<Row>({ url: '/v1/admin/web-search-channels/tgmeng' }),
-        request.get<Row>({ url: '/v1/admin/web-search-channels/dailyhot' })
+        webSearchApi.channels(),
+        webSearchApi.tgmeng(),
+        webSearchApi.dailyHot()
       ])
       rows.value = channels
       Object.assign(tgmeng, tgmengSettings)
@@ -395,44 +435,48 @@
     if (dailyHot.sources.length > 12) return ElMessage.warning('最多选择 12 个热点榜单')
     dailyHotSaving.value = true
     try {
-      const value = await request.request<Row>({
-        url: '/v1/admin/web-search-channels/dailyhot', method: 'PUT', showSuccessMessage: true,
-        data: { endpoint: dailyHot.endpoint, recommendationEnabled: dailyHot.recommendationEnabled, sources: dailyHot.sources, recommendationLimit: dailyHot.recommendationLimit, cacheMinutes: dailyHot.cacheMinutes }
+      const value = await webSearchApi.saveDailyHot({
+        endpoint: dailyHot.endpoint,
+        recommendationEnabled: dailyHot.recommendationEnabled,
+        sources: dailyHot.sources,
+        recommendationLimit: dailyHot.recommendationLimit,
+        cacheMinutes: dailyHot.cacheMinutes
       })
       Object.assign(dailyHot, value)
-    } finally { dailyHotSaving.value = false }
+    } finally {
+      dailyHotSaving.value = false
+    }
   }
   async function checkDailyHot() {
     dailyHotChecking.value = true
     try {
-      await request.post({ url: '/v1/admin/web-search-channels/dailyhot/check', params: {}, showSuccessMessage: true })
-      Object.assign(dailyHot, await request.get<Row>({ url: '/v1/admin/web-search-channels/dailyhot' }))
-    } finally { dailyHotChecking.value = false }
+      await webSearchApi.checkDailyHot()
+      Object.assign(dailyHot, await webSearchApi.dailyHot())
+    } finally {
+      dailyHotChecking.value = false
+    }
   }
   async function refreshDailyHot() {
     dailyHotRefreshing.value = true
     try {
-      await request.post({ url: '/v1/admin/web-search-channels/dailyhot/refresh', params: {}, showSuccessMessage: true })
-      Object.assign(dailyHot, await request.get<Row>({ url: '/v1/admin/web-search-channels/dailyhot' }))
-    } finally { dailyHotRefreshing.value = false }
+      await webSearchApi.refreshDailyHot()
+      Object.assign(dailyHot, await webSearchApi.dailyHot())
+    } finally {
+      dailyHotRefreshing.value = false
+    }
   }
   async function saveTgmeng() {
     if (!tgmeng.hasLicense && !tgmengLicense.value.trim())
       return ElMessage.warning('请填写糖果梦通用密钥')
     tgmengSaving.value = true
     try {
-      const value = await request.request<Row>({
-        url: '/v1/admin/web-search-channels/tgmeng',
-        method: 'PUT',
-        showSuccessMessage: true,
-        data: {
-          license: tgmengLicense.value || undefined,
-          recommendationEnabled: tgmeng.recommendationEnabled,
-          fallbackEnabled: tgmeng.fallbackEnabled,
-          rootCategories: tgmeng.rootCategories,
-          recommendationLimit: tgmeng.recommendationLimit,
-          cacheMinutes: tgmeng.cacheMinutes
-        }
+      const value = await webSearchApi.saveTgmeng({
+        license: tgmengLicense.value || undefined,
+        recommendationEnabled: tgmeng.recommendationEnabled,
+        fallbackEnabled: tgmeng.fallbackEnabled,
+        rootCategories: tgmeng.rootCategories,
+        recommendationLimit: tgmeng.recommendationLimit,
+        cacheMinutes: tgmeng.cacheMinutes
       })
       Object.assign(tgmeng, value)
       tgmengLicense.value = ''
@@ -443,12 +487,8 @@
   async function checkTgmeng() {
     tgmengChecking.value = true
     try {
-      await request.post({
-        url: '/v1/admin/web-search-channels/tgmeng/check',
-        params: {},
-        showSuccessMessage: true
-      })
-      Object.assign(tgmeng, await request.get<Row>({ url: '/v1/admin/web-search-channels/tgmeng' }))
+      await webSearchApi.checkTgmeng()
+      Object.assign(tgmeng, await webSearchApi.tgmeng())
     } finally {
       tgmengChecking.value = false
     }
@@ -456,11 +496,7 @@
   async function refreshTgmeng() {
     tgmengRefreshing.value = true
     try {
-      await request.post({
-        url: '/v1/admin/web-search-channels/tgmeng/refresh',
-        params: {},
-        showSuccessMessage: true
-      })
+      await webSearchApi.refreshTgmeng()
     } finally {
       tgmengRefreshing.value = false
     }
@@ -499,12 +535,7 @@
         maxResults: form.maxResults,
         config
       }
-      await request.request({
-        url: form.id ? `/v1/admin/web-search-channels/${form.id}` : '/v1/admin/web-search-channels',
-        method: form.id ? 'PATCH' : 'POST',
-        data: body,
-        showSuccessMessage: true
-      })
+      await webSearchApi.saveChannel(body, form.id || undefined)
       dialog.value = false
       await load()
     } finally {
@@ -514,11 +545,7 @@
   async function check(row: Row) {
     checking.value = row.id
     try {
-      await request.post({
-        url: `/v1/admin/web-search-channels/${row.id}/check`,
-        params: {},
-        showSuccessMessage: true
-      })
+      await webSearchApi.checkChannel(row.id)
       await load()
     } finally {
       checking.value = ''
@@ -527,10 +554,7 @@
   async function checkAll() {
     checkingAll.value = true
     try {
-      summary.value = await request.post<Row>({
-        url: '/v1/admin/web-search-channels/check-all',
-        params: {}
-      })
+      summary.value = await webSearchApi.checkAll()
       await load()
     } finally {
       checkingAll.value = false
@@ -538,139 +562,10 @@
   }
   async function remove(row: Row) {
     await ElMessageBox.confirm(`确认删除“${row.name}”？`, '删除搜索渠道', { type: 'warning' })
-    await request.del({ url: `/v1/admin/web-search-channels/${row.id}`, showSuccessMessage: true })
+    await webSearchApi.removeChannel(row.id)
     await load()
   }
   onMounted(load)
 </script>
 
-<style scoped>
-  .search-channel-page {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    min-height: 0;
-  }
-
-  .page-title {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .page-title h1 {
-    margin: 0;
-    font-size: 20px;
-  }
-
-  .page-title p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--art-gray-500);
-  }
-
-  .table-card {
-    min-height: 560px;
-    overflow: hidden;
-  }
-
-  .tgmeng-card__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .provider-icon.tgmeng {
-    color: #b45309;
-    background: #fff7ed;
-  }
-  .provider-icon.dailyhot {
-    color: #2563eb;
-    background: #eff6ff;
-  }
-  .cache-count {
-    display: inline-flex;
-    min-height: 32px;
-    align-items: center;
-    color: var(--art-gray-700);
-  }
-  .category-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 14px;
-  }
-  .category-options :deep(.el-checkbox) {
-    margin-right: 0;
-  }
-
-  .table-card :deep(.el-card__body) {
-    height: 100%;
-    min-height: 0;
-    padding: 0;
-  }
-
-  .channel-name {
-    display: flex;
-    gap: 11px;
-    align-items: center;
-  }
-
-  .channel-name > span {
-    display: grid;
-    flex: 0 0 auto;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    font-size: 18px;
-    color: #2563eb;
-    background: #eff6ff;
-    border-radius: 6px;
-  }
-
-  .channel-name > div {
-    display: grid;
-    min-width: 0;
-  }
-
-  .channel-name small,
-  .note,
-  .help {
-    display: block;
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--art-gray-500);
-  }
-
-  .danger {
-    color: var(--el-color-danger);
-  }
-
-  .endpoint {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-family: Consolas, monospace;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  .wide {
-    width: 100%;
-  }
-
-  .help {
-    margin-top: 6px;
-  }
-
-  @media (width <= 720px) {
-    .page-title {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    .tgmeng-card__header {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-  }
-</style>
+<style scoped src="./web-search.css"></style>

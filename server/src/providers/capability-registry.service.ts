@@ -75,8 +75,11 @@ export class CapabilityRegistryService {
       }),
     ])
 
+    // A configured route remains a real selectable capability while its health is
+    // being checked. Calls still use the normal resolver and surface upstream
+    // failures; hiding the action here made the home composer look incomplete.
     const availableModels = models.filter((model) =>
-      this.providerAvailable(model.provider, now) || model.providerRoutes.some((route) => this.providerAvailable(route.provider, now)),
+      this.providerConfigured(model.provider, now) || model.providerRoutes.some((route) => this.providerConfigured(route.provider, now)),
     )
     const modelKeys = new Set(availableModels.map((model) => model.key))
     const modelCapabilities = new Set(availableModels.map((model) => model.capability))
@@ -152,6 +155,11 @@ export class CapabilityRegistryService {
 
   private providerAvailable(provider: { type: ProviderType; enabled: boolean; encryptedApiKey: string; lastHealthStatus: string | null; cooldownUntil: Date | null } | null, now: Date) {
     if (!provider || !this.healthAvailable(provider, now)) return false
+    return provider.type === ProviderType.POLLINATIONS || provider.type === ProviderType.LOCAL_WORKER || Boolean(provider.encryptedApiKey.trim())
+  }
+
+  private providerConfigured(provider: { type: ProviderType; enabled: boolean; encryptedApiKey: string; cooldownUntil: Date | null } | null, now: Date) {
+    if (!provider || provider.enabled === false || (provider.cooldownUntil && provider.cooldownUntil > now)) return false
     return provider.type === ProviderType.POLLINATIONS || provider.type === ProviderType.LOCAL_WORKER || Boolean(provider.encryptedApiKey.trim())
   }
 

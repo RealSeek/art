@@ -160,12 +160,18 @@
                 <ElOption label="Gemini Google Search" value="gemini" />
                 <ElOption label="xAI Web Search" value="xai" />
                 <ElOption label="Qwen 联网搜索" value="qwen" />
-                <ElOption label="豆包 / 方舟联网" value="doubao" /></ElSelect></ElFormItem></ElCol></ElRow
+                <ElOption
+                  label="豆包 / 方舟联网"
+                  value="doubao" /></ElSelect></ElFormItem></ElCol></ElRow
         ><ElAlert
           v-if="editor.capability === 'CHAT'"
           type="info"
           :closable="false"
-          :title="xt('自动继承会按模型路由选择渠道配置；原生搜索失败或没有真实来源时自动进入外部搜索保底。')"
+          :title="
+            xt(
+              '自动继承会按模型路由选择渠道配置；原生搜索失败或没有真实来源时自动进入外部搜索保底。'
+            )
+          "
           class="protocol-note"
         />
         <ElAlert
@@ -386,7 +392,9 @@
           ><ElCheckbox v-model="editor.enabled">{{ xt('前端启用') }}</ElCheckbox
           ><ElCheckbox v-model="editor.isDefault">{{ xt('设为默认模型') }}</ElCheckbox
           ><ElCheckbox v-model="editor.allowUserKey">{{ xt('允许用户 BYOK') }}</ElCheckbox
-          ><ElCheckbox v-if="editor.capability === 'CHAT'" v-model="editor.agentEnabled">{{ xt('允许 Agent 任务') }}</ElCheckbox></ElSpace
+          ><ElCheckbox v-if="editor.capability === 'CHAT'" v-model="editor.agentEnabled">{{
+            xt('允许 Agent 任务')
+          }}</ElCheckbox></ElSpace
         ></ElForm
       >
       <template #footer
@@ -401,7 +409,14 @@
 
 <script setup lang="ts">
   import { ElMessage, ElMessageBox } from 'element-plus'
-  import { xinyueApi, type ModelPreset, type ModelProviderRoute, type ModelVendor, type NativeSearchProvider, type Provider } from '@/api/xinyue'
+  import {
+    modelApi as xinyueApi,
+    type ModelPreset,
+    type ModelProviderRoute,
+    type ModelVendor,
+    type NativeSearchProvider,
+    type Provider
+  } from '@/api/xinyue/models'
   import { xinyueText as xt } from '@/locales/xinyue'
   defineOptions({ name: 'XinyueModels' })
   type Capability = ModelPreset['capability']
@@ -504,8 +519,14 @@
   const agentCapabilitySummary = computed(() => {
     const detected = editor.agentCapabilities
     const context = detected?.contextWindow || editor.discovery?.contextWindow
-    const features = [detected?.supportsReasoning ? xt('推理') : '', detected?.supportsTools ? xt('工具调用') : '', detected?.supportsStructuredOutput ? xt('结构化输出') : ''].filter(Boolean)
-    const detail = [context ? `${Math.round(context / 1000)}K context` : '', ...features].filter(Boolean).join(' · ')
+    const features = [
+      detected?.supportsReasoning ? xt('推理') : '',
+      detected?.supportsTools ? xt('工具调用') : '',
+      detected?.supportsStructuredOutput ? xt('结构化输出') : ''
+    ].filter(Boolean)
+    const detail = [context ? `${Math.round(context / 1000)}K context` : '', ...features]
+      .filter(Boolean)
+      .join(' · ')
     return `${editor.agentEnabled ? xt('已开放 Agent 任务') : xt('未开放 Agent 任务')}${detail ? ` · ${detail}` : ` · ${xt('工具由 Xinyue 服务端编排')}`}`
   })
   async function load() {
@@ -763,7 +784,14 @@
                 apiProtocol: editor.apiProtocol,
                 agentEnabled: editor.agentEnabled,
                 ...(editor.discovery ? { discovery: editor.discovery } : {}),
-                ...(editor.agentCapabilities ? { agentCapabilities: { ...editor.agentCapabilities, eligible: editor.agentEnabled } } : {}),
+                ...(editor.agentCapabilities
+                  ? {
+                      agentCapabilities: {
+                        ...editor.agentCapabilities,
+                        eligible: editor.agentEnabled
+                      }
+                    }
+                  : {}),
                 ...(editor.nativeSearchProvider === 'auto'
                   ? {}
                   : { nativeSearchProvider: editor.nativeSearchProvider })
@@ -860,244 +888,4 @@
   })
 </script>
 
-<style scoped>
-  .xinyue-page {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-  }
-
-  .page-title {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .page-title h1 {
-    margin: 0 0 4px;
-    font-size: 22px;
-  }
-
-  .page-title p {
-    margin: 0;
-    color: var(--art-gray-500);
-  }
-
-  .filter-card,
-  .art-table-card {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-  }
-
-  .filter-card :deep(.el-card__body) {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-width: 0;
-  }
-
-  .art-table-card :deep(.el-card__body),
-  .art-table-card :deep(.el-table) {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .model-count,
-  .block-note {
-    font-size: 12px;
-    color: var(--art-gray-500);
-  }
-
-  .block-note {
-    display: block;
-    margin-top: 3px;
-  }
-
-  .badge {
-    margin-left: 7px;
-  }
-
-  .channel-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    max-width: 100%;
-  }
-
-  .w-full {
-    width: 100%;
-  }
-
-  .route-heading {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .route-heading > div {
-    display: grid;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  .route-heading small {
-    font-size: 12px;
-    color: var(--art-gray-500);
-  }
-
-  .route-list {
-    display: grid;
-    gap: 8px;
-    max-width: 100%;
-    margin: 12px 0 4px;
-    overflow-x: auto;
-  }
-
-  .route-entry {
-    display: grid;
-    gap: 8px;
-    min-width: 720px;
-    padding: 10px;
-    border: 1px solid var(--art-gray-200);
-    border-radius: 6px;
-  }
-
-  .route-row,
-  .route-labels {
-    display: grid;
-    grid-template-columns: minmax(150px, 1.2fr) minmax(190px, 1.5fr) 130px 110px 48px 32px;
-    gap: 8px;
-    align-items: center;
-    min-width: 720px;
-  }
-
-  .route-row {
-    min-width: 0;
-  }
-
-  .route-row > * {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .route-row :deep(.el-select),
-  .route-row :deep(.el-input),
-  .route-row :deep(.el-input-number) {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .route-row :deep(.el-switch) {
-    justify-self: center;
-  }
-
-  .route-row > :last-child {
-    justify-self: center;
-  }
-
-  .route-labels {
-    padding: 0 10px;
-    font-size: 12px;
-    color: var(--art-gray-500);
-  }
-
-  .route-video-config {
-    display: grid;
-    grid-template-columns: minmax(190px, 1.2fr) repeat(3, minmax(145px, 1fr));
-    gap: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--art-gray-200);
-  }
-
-  .route-video-config > * {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .route-video-field {
-    display: grid;
-    gap: 5px;
-    min-width: 0;
-  }
-
-  .route-video-field > span {
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--art-gray-500);
-  }
-
-  .model-dialog :deep(.el-dialog__body) {
-    max-width: 100%;
-    max-height: 70vh;
-    overflow: auto;
-  }
-
-  .video-pricing-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-
-  .video-pricing-grid label {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    justify-content: space-between;
-    min-width: 0;
-    padding: 9px 10px;
-    border: 1px solid var(--art-gray-200);
-    border-radius: 6px;
-  }
-
-  .video-pricing-grid label > span {
-    display: grid;
-    min-width: 0;
-  }
-
-  .video-pricing-grid small {
-    font-size: 12px;
-    color: var(--art-gray-500);
-  }
-
-  .video-pricing-grid :deep(.el-input-number) {
-    width: 132px;
-  }
-
-  @media (width <= 800px) {
-    .page-title {
-      flex-wrap: wrap;
-      align-items: flex-start;
-    }
-
-    .route-heading {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-
-    .model-dialog :deep(.el-dialog) {
-      width: calc(100% - 24px) !important;
-    }
-
-    .video-pricing-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .route-row,
-    .route-labels,
-    .route-video-config {
-      grid-template-columns: 1fr;
-    }
-
-    .route-labels {
-      display: none;
-    }
-  }
-</style>
+<style scoped src="./models.css"></style>

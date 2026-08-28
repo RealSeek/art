@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { api, streamApiEvents } from '../services/api'
-import type { ConversationSummary, GenerationOptions, GenerationRun, Message, MessageWebSearch, Project, ProjectVersion, ProjectWorkflowConfig, ProjectWorkflowStatus, StudioAsset, StudioMode } from '../types'
+import type { ConversationSummary, GenerationOptions, GenerationRun, Message, MessageWebSearch, Project, ProjectVersion, ProjectWorkflowConfig, ProjectWorkflowStatus, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { createClientId } from '../utils/client-id'
+import { isGenerationActive, isGenerationTerminal } from '../utils/generation-run-state'
 
 type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
-type ServerMessageMetadata = { feedback?: 'UP' | 'DOWN' | null; suggestionVersion?: number; suggestions?: string[]; webSearch?: unknown }
+type ServerMessageMetadata = { jobId?: string; feedback?: 'UP' | 'DOWN' | null; suggestionVersion?: number; suggestions?: string[]; reasoning?: unknown; webSearch?: unknown }
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
@@ -12,7 +13,7 @@ type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VID
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null; metadata?: ServerMessageMetadata | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
 
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-const terminalJob = (job: ServerJob) => ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.status)
+const terminalJob = (job: ServerJob) => isGenerationTerminal(job.status)
 async function waitForServerJob(jobId: string, onEvent?: (job: ServerJob) => void) {
   try {
     return await streamApiEvents<ServerJob>(`/generations/${jobId}/events`, onEvent)
@@ -201,11 +202,11 @@ export const useStudioStore = defineStore('studio', {
           if (credit.status === 'fulfilled') this.credits = credit.value.balance
           if (commerceJobs.status === 'fulfilled') {
             this.commerceRuns = commerceJobs.value.map((job) => mapGeneration(job))
-            for (const job of commerceJobs.value.filter((item) => item.status === 'QUEUED' || item.status === 'RUNNING')) void this.monitorGeneration(job.id)
+            for (const job of commerceJobs.value.filter((item) => isGenerationActive(item.status))) void this.monitorGeneration(job.id)
           }
           if (videoJobs.status === 'fulfilled') {
             this.videoRuns = videoJobs.value.map((job) => mapGeneration(job))
-            for (const job of videoJobs.value.filter((item) => item.status === 'QUEUED' || item.status === 'RUNNING')) void this.monitorGeneration(job.id)
+            for (const job of videoJobs.value.filter((item) => isGenerationActive(item.status))) void this.monitorGeneration(job.id)
           }
 
           const failure = results.find((result) => result.status === 'rejected')
@@ -256,17 +257,40 @@ export const useStudioStore = defineStore('studio', {
         this.temporaryChat = Boolean(conversation.temporary)
         this.messages = (conversation.messages || []).filter((message) => message.role === 'USER' || message.role === 'ASSISTANT').map((message) => ({
           id: message.id, role: message.role.toLowerCase() as 'user' | 'assistant', content: message.content,
-          model: message.model || undefined, createdAt: Date.parse(message.createdAt), attachmentIds: message.attachments?.map((attachment) => attachment.assetId || attachment.asset?.id || '').filter(Boolean),
+          model: message.model || undefined, generationJobId: message.metadata?.jobId, createdAt: Date.parse(message.createdAt), attachmentIds: message.attachments?.map((attachment) => attachment.assetId || attachment.asset?.id || '').filter(Boolean),
+          reasoning: typeof message.metadata?.reasoning === 'string' ? message.metadata.reasoning : undefined,
           feedback: message.metadata?.feedback || null,
           suggestions: message.metadata?.suggestionVersion === 3 && Array.isArray(message.metadata.suggestions) ? message.metadata.suggestions.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 3) : [],
           webSearch: mapWebSearch(message.metadata?.webSearch),
         }))
         if (!this.messages.length) this.messages = [welcomeMessage()]
-        this.generations = (conversation.generationJobs || []).map((generation) => mapGeneration(generation))
+        // Chat jobs are represented by assistant messages. Keep only visual/
+        // commerce jobs in the creation timeline so a chat reply cannot be
+        // rendered as an image-generation card or suppress chat thinking UI.
+        this.generations = (conversation.generationJobs || [])
+          .filter((generation) => generation.kind !== 'CHAT')
+          .map((generation) => mapGeneration(generation))
+        // Rebuild the chat composer state from the conversation payload. This is
+        // important after a refresh or when opening history while a reply is in
+        // flight: the local store may still contain an activity marker from the
+        // conversation that was open before it.
+        const activeChatJob = (conversation.generationJobs || []).find((job) => job.kind === 'CHAT' && !terminalJob(job))
+        if (activeChatJob) {
+          this.isGenerating = true
+          this.activeJobId = activeChatJob.id
+        } else {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
         const generation = this.generations[0] || null
         this.activeGeneration = generation
-        if (generation && (generation.status === 'QUEUED' || generation.status === 'RUNNING')) {
+        if (generation && isGenerationActive(generation.status)) {
           void this.monitorGeneration(generation.id)
+        }
+        if (activeChatJob) {
+          void this.monitorChatJob(activeChatJob.id, conversation.id, activeChatJob.model).catch((reason) => {
+            if (this.currentConversationId === conversation.id) this.lastError = reason instanceof Error ? reason.message : '回复状态读取失败'
+          })
         }
         return conversation
       } catch (reason) {
@@ -323,15 +347,16 @@ export const useStudioStore = defineStore('studio', {
       const message = this.messages.find((item) => item.id === messageId)
       if (message) message.feedback = value
     },
-    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string; pluginId?: string; webSearchEnabled?: boolean; responseMode?: 'fast' | 'expert' }) {
+    async sendMessage(content: string, input: { model: string; assetIds?: string[]; assistantId?: string; pluginId?: string; webSearchEnabled?: boolean; webSearchSources?: WebSearchSource[]; responseMode?: 'fast' | 'expert'; officeMode?: 'agent' | 'expert' | 'fast' }) {
       const trimmed = content.trim()
       if (!trimmed) return
+      const safeModel = input.model.trim() || 'gpt-5.5'
       let messagePersisted = false
       let jobId = ''
       this.isGenerating = true; this.lastError = ''
       try {
         if (!this.currentConversationId) {
-          const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: input.model, projectId: this.currentProjectId || undefined, title: trimmed.slice(0, 42), temporary: this.temporaryChat }) })
+          const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: safeModel, projectId: this.currentProjectId || undefined, title: trimmed.slice(0, 42), temporary: this.temporaryChat }) })
           this.currentConversationId = conversation.id
           if (!conversation.temporary) this.conversations.unshift(mapConversation(conversation))
           this.messages = []
@@ -340,12 +365,12 @@ export const useStudioStore = defineStore('studio', {
         const userMessage = await api<ServerMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
         messagePersisted = true
         if (this.currentConversationId === conversationId) this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: input.model, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}), webSearchEnabled: input.webSearchEnabled === true, responseMode: input.responseMode || 'fast' }, idempotencyKey: idempotencyKey('chat') }) })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: safeModel, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}), webSearchEnabled: input.webSearchEnabled === true, ...(input.webSearchSources?.length ? { webSearchSources: input.webSearchSources.slice(0, 3) } : {}), responseMode: input.responseMode || 'fast', ...(input.officeMode ? { officeMode: input.officeMode } : {}) }, idempotencyKey: idempotencyKey('chat') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
-        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model: input.model, createdAt: Date.now(), webSearch: input.webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined })
-        await this.monitorChatJob(job.id, conversationId, input.model)
+        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model: safeModel, generationJobId: job.id, createdAt: Date.now(), webSearch: input.webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined })
+        await this.monitorChatJob(job.id, conversationId, safeModel)
         await Promise.all([
           this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
           this.refreshConversations(),
@@ -367,6 +392,7 @@ export const useStudioStore = defineStore('studio', {
       const trimmed = content.trim()
       if (!trimmed) return
       const conversationId = this.currentConversationId
+      const safeModel = model.trim() || 'gpt-5.5'
       let jobId = ''
       this.isGenerating = true; this.lastError = ''
       try {
@@ -375,12 +401,12 @@ export const useStudioStore = defineStore('studio', {
           const index = this.messages.findIndex((message) => message.id === messageId)
           if (index >= 0) this.messages = [...this.messages.slice(0, index), { ...this.messages[index], content: trimmed, createdAt: Date.parse(updated.createdAt) }]
         }
-        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model, conversationId, projectId: this.currentProjectId || undefined, options: { webSearchEnabled, responseMode }, idempotencyKey: idempotencyKey('chat-branch') }) })
+        const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: safeModel, conversationId, projectId: this.currentProjectId || undefined, options: { webSearchEnabled, responseMode }, idempotencyKey: idempotencyKey('chat-branch') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
         const pendingId = `stream:${job.id}`
-        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model, createdAt: Date.now(), webSearch: webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined })
-        await this.monitorChatJob(job.id, conversationId, model)
+        if (this.currentConversationId === conversationId) this.messages.push({ id: pendingId, role: 'assistant', content: '', model: safeModel, generationJobId: job.id, createdAt: Date.now(), webSearch: webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined })
+        await this.monitorChatJob(job.id, conversationId, safeModel)
         await Promise.all([
           this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
           this.refreshConversations(),
@@ -470,9 +496,10 @@ export const useStudioStore = defineStore('studio', {
       this.lastError = ''
       try {
         const kind = options.mode === 'commerce' ? 'COMMERCE' : options.mode === 'videos' ? 'VIDEO' : 'IMAGE'
+        const safeConversationModel = conversationModel.trim() || options.model.trim() || 'gpt-5.5'
         let targetConversationId = conversationId
         if (!targetConversationId) {
-          const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: conversationModel, projectId: this.currentProjectId || undefined, title: options.prompt.slice(0, 42), temporary: this.temporaryChat }) })
+          const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: safeConversationModel, projectId: this.currentProjectId || undefined, title: options.prompt.slice(0, 42), temporary: this.temporaryChat }) })
           targetConversationId = conversation.id
           this.currentConversationId = conversation.id
           this.messages = []
@@ -485,7 +512,7 @@ export const useStudioStore = defineStore('studio', {
         const userMessage = await api<ServerMessage>(`/conversations/${targetConversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: messageContent, assetIds: options.referenceAssetIds || [] }) })
         this.messages.push({ id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
-          kind, prompt: options.prompt, model: options.model, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
+          kind, prompt: options.prompt, model: options.model.trim() || safeConversationModel, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
           options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
@@ -515,7 +542,7 @@ export const useStudioStore = defineStore('studio', {
       this.activeGeneration = generation
       this.generations = [...this.generations.filter((item) => item.id !== job.id), generation]
       if (job.conversationId) this.currentConversationId = job.conversationId
-      if (job.status === 'QUEUED' || job.status === 'RUNNING') {
+      if (isGenerationActive(job.status)) {
         void this.monitorGeneration(job.id)
       }
       return this.activeGeneration
@@ -565,13 +592,22 @@ export const useStudioStore = defineStore('studio', {
         if (!current.stream || this.currentConversationId !== conversationId) return
         const pendingId = `stream:${jobId}`
         const index = this.messages.findIndex((message) => message.id === pendingId || message.id === current.stream?.messageId)
-        const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, createdAt: this.messages[index]?.createdAt || Date.now(), webSearch: mapWebSearch(current.stream.metadata?.webSearch) || this.messages[index]?.webSearch }
+        const streamed = { id: current.stream.messageId, role: 'assistant' as const, content: current.stream.content, model: current.stream.model || fallbackModel, generationJobId: jobId, createdAt: this.messages[index]?.createdAt || Date.now(), reasoning: typeof current.stream.metadata?.reasoning === 'string' ? current.stream.metadata.reasoning : this.messages[index]?.reasoning, webSearch: mapWebSearch(current.stream.metadata?.webSearch) || this.messages[index]?.webSearch }
         if (index >= 0) this.messages.splice(index, 1, streamed)
         else this.messages.push(streamed)
       })
       pendingChatJobs.set(jobId, monitor)
       try { return await monitor }
-      finally { if (pendingChatJobs.get(jobId) === monitor) pendingChatJobs.delete(jobId) }
+      finally {
+        if (pendingChatJobs.get(jobId) === monitor) pendingChatJobs.delete(jobId)
+        // A terminal task can arrive through SSE/polling without going through
+        // sendMessage's finally block (for example after a page refresh). Never
+        // leave the composer in its stopping state in that case.
+        if (this.activeJobId === jobId) {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
+      }
     },
     async resumeCurrentChat() {
       const conversationId = this.currentConversationId
@@ -582,7 +618,7 @@ export const useStudioStore = defineStore('studio', {
         if (this.currentConversationId !== conversationId || (this.openingConversationId && this.openingConversationId !== conversationId)) return
         const jobs = await api<ServerJob[]>('/generations?kind=CHAT')
         if (this.currentConversationId !== conversationId || (this.openingConversationId && this.openingConversationId !== conversationId)) return
-        const active = jobs.find((job) => job.conversationId === conversationId && (job.status === 'QUEUED' || job.status === 'RUNNING'))
+        const active = jobs.find((job) => job.conversationId === conversationId && isGenerationActive(job.status))
         if (!active) {
           this.isGenerating = false
           this.activeJobId = ''
@@ -615,7 +651,16 @@ export const useStudioStore = defineStore('studio', {
         this.videoRuns = this.videoRuns.map((generation) => generation.id === jobId ? updated : generation)
         if (this.activeGeneration?.id === jobId) this.activeGeneration = updated
       } catch (reason) { this.lastError = reason instanceof Error ? reason.message : '停止任务失败' }
-      finally { if (this.cancelingJobId === jobId) this.cancelingJobId = '' }
+      finally {
+        if (this.cancelingJobId === jobId) this.cancelingJobId = ''
+        // Chat cancellation is also used by the composer stop button. Clear the
+        // local activity marker even when the server reports the task as already
+        // terminal or the cancel request races with the stream monitor.
+        if (this.activeJobId === jobId) {
+          this.isGenerating = false
+          this.activeJobId = ''
+        }
+      }
     },
     async cancelActiveJob() { if (this.activeJobId) await this.cancelGeneration(this.activeJobId) },
     async refreshCredits() { const result = await api<{ balance: number }>('/credits'); this.credits = result.balance },
