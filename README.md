@@ -101,3 +101,7 @@ npm run test:e2e
 功能开发请使用分支和 Pull Request，约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全漏洞报告方式见 [SECURITY.md](SECURITY.md)。第三方声明和保留的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 运行时 `.env`、日志、数据库、构建产物和用户上传文件不会提交到 Git。禁止在提交、Issue 或 Pull Request 中写入真实密钥。
+
+---
+
+由心悦AI 提供技术支持！ [xinyue.mom](https://xinyue.mom)
