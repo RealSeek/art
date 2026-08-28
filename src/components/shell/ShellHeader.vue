@@ -6,7 +6,7 @@
     <strong v-if="mobileTitle" class="workspace-mobile-title">{{ mobileTitle }}</strong>
   </header>
   <nav v-if="workspaceDataLoaded && auth.isAuthenticated" class="workspace-chat-actions" aria-label="工作区操作">
-    <TaskCenter />
+    <TaskCenter v-if="activeMode !== 'office'" />
     <button v-if="activeMode === 'chat' && showUpgradeEntry" class="workspace-upgrade-button" type="button" @click="openUpgrade"><Sparkles :size="16" /><span>升级</span></button>
     <button v-if="activeMode === 'chat' && currentConversation" type="button" aria-label="分享对话" title="分享" :disabled="conversationActionBusy" @click="shareCurrentConversation"><Share2 :size="18" /><span>分享</span></button>
     <div v-if="activeMode === 'chat' && currentConversation" class="workspace-chat-more-wrap">
