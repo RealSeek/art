@@ -62,7 +62,7 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。初始化脚本不会内置默认密码，必须在 `server/.env` 中设置 `ADMIN_EMAIL` 和至少 8 位的 `ADMIN_PASSWORD`；同时请替换会话密钥和凭据加密密钥。测试脚本中的回退账号仅用于演示，不是可用的默认管理员账号。
+`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。本地开发默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`。该密码只用于本地开发；生产环境必须在 `.env.production` 中设置独立强密码，同时替换会话密钥和凭据加密密钥。
 
 ## 生产部署
 

@@ -26,7 +26,7 @@ npm run server:dev
 
 API 地址为 `http://localhost:3100/v1`。用户端和管理端开发服务器分别代理到该地址；管理端位于 `http://localhost:5174/admin/`。
 
-`setup:dev` 会创建缺失的 `server/.env`、生成 Prisma Client、执行迁移并幂等初始化系统数据和开发管理员。不要在共享环境继续使用示例密码和密钥。
+`setup:dev` 会创建缺失的 `server/.env`、生成 Prisma Client、执行迁移并幂等初始化系统数据和开发管理员。本地开发默认管理员为 `xinyue@xinyue.mom`，密码为 `xinyue.mom`；不要在共享环境或生产环境继续使用该密码和示例密钥。
 
 ## 已实现领域
 
@@ -43,7 +43,7 @@ API 地址为 `http://localhost:3100/v1`。用户端和管理端开发服务器�
 
 ## 管理端
 
-配置 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 后执行：
+开发环境可以直接使用示例配置；生产环境必须配置独立的 `ADMIN_EMAIL` 和强密码 `ADMIN_PASSWORD`。配置后执行：
 
 ```powershell
 npm --prefix server run admin:seed
