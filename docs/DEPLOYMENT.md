@@ -30,7 +30,7 @@ Nginx 路由：用户端位于 `/`，管理端位于 `/admin/`，API 位于 `/v1
 Copy-Item .env.production.example .env.production
 ```
 
-必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`ADMIN_EMAIL` 和 `ADMIN_PASSWORD`。两个密钥均不得少于 32 位，管理员密码不得少于 8 位；占位值会让生产容器直接启动失败。项目没有固定的生产默认账号或密码，首次管理员就是这两个环境变量的值；登录后台后应立即改用个人管理邮箱和强密码。
+必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`，两个密钥均不得少于 32 位；占位值会让生产容器直接启动失败。首次部署默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`，也可通过 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 覆盖。登录后台后应立即在“业务系统配置 > 后台安全”修改管理员邮箱和密码。
 
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
@@ -48,7 +48,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 ### 2.4 首次初始化
 
 1. 查看 `backend` 日志，确认所有迁移完成并出现 `Super admin ready`。
-2. 打开 `/admin/`，使用 `.env.production` 中的 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 登录。
+2. 打开 `/admin/`，使用默认账号 `xinyue@xinyue.mom` 和密码 `xinyue.mom` 登录；如果环境变量覆盖过管理员信息，则使用配置值。
 3. 登录后立即修改管理员邮箱和密码，并关闭不再需要的会话。
 4. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
 
@@ -255,7 +255,7 @@ npm --prefix server run prisma:deploy
 - Nginx 将 `/v1/` 代理到 `127.0.0.1:3100`
 - `UPLOAD_DIR` 指向持久化目录
 
-后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`ADMIN_EMAIL`、`ADMIN_PASSWORD` 和存储配置。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy` 和 `npm --prefix server run admin:seed`。`admin:seed` 只读取环境变量，不会生成或显示固定默认密码。
+后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY` 和存储配置；`ADMIN_EMAIL`、`ADMIN_PASSWORD` 可覆盖首次初始化默认值。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy` 和 `npm --prefix server run admin:seed`。已有管理员在后台修改密码后，`admin:seed` 不会覆盖密码，除非明确设置 `ADMIN_FORCE_PASSWORD_RESET=true`。
 
 ## 7. 发布前验证
 

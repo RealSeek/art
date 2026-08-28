@@ -2,6 +2,9 @@ const { spawnSync } = require('node:child_process')
 const { resolve } = require('node:path')
 require('dotenv').config()
 
+process.env.ADMIN_EMAIL ||= 'xinyue@xinyue.mom'
+process.env.ADMIN_PASSWORD ||= 'xinyue.mom'
+
 const required = ['DATABASE_URL', 'REDIS_URL', 'SESSION_SECRET', 'CREDENTIAL_ENCRYPTION_KEY', 'ADMIN_EMAIL', 'ADMIN_PASSWORD']
 const missing = required.filter((key) => !process.env[key]?.trim())
 if (missing.length) {

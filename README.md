@@ -62,7 +62,7 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。本地开发默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`。该密码只用于本地开发；生产环境必须在 `.env.production` 中设置独立强密码，同时替换会话密钥和凭据加密密钥。
+`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。首次部署默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`；登录后可在后台修改，后续重启不会覆盖已修改的密码。正式开放服务前仍应替换会话密钥和凭据加密密钥，并及时修改默认管理员密码。
 
 ## 生产部署
 
