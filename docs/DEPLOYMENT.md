@@ -30,7 +30,7 @@ Nginx 路由：用户端位于 `/`，管理端位于 `/admin/`，API 位于 `/v1
 Copy-Item .env.production.example .env.production
 ```
 
-必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，两个系统密钥均不得少于 32 位，管理员密码至少 8 位；占位值或空值会让生产容器直接启动失败。开发环境仍可使用示例文件中的测试管理员，生产环境不会回退到固定管理员密码。
+必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`，两个系统密钥均不得少于 32 位；占位值或空值会让生产容器直接启动失败。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
 
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
@@ -43,13 +43,13 @@ docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend
 ```
 
-后端每次启动都会先执行 `prisma migrate deploy`，然后幂等初始化全局设置、默认用户组和超级管理员；完成后才启动 API。重复启动不会创建重复管理员或重复用户组。
+后端每次启动都会先执行 `prisma migrate deploy`，然后幂等初始化全局设置和默认用户组；完成后才启动 API。管理员通过 `/install` 页面创建，重复启动不会创建重复管理员或重复用户组。
 
 ### 2.4 首次初始化
 
-1. 查看 `backend` 日志，确认所有迁移完成并出现 `Super admin ready`。
-2. 打开 `/admin/`，使用 `.env.production` 中配置的管理员邮箱和密码登录。
-3. 登录后确认管理员信息、会话安全和权限边界，并关闭不再需要的会话。
+1. 查看 `backend` 日志，确认所有迁移完成并出现 API 启动成功日志。
+2. 打开 `/install`，填写管理员邮箱和至少 8 位密码并提交。
+3. 创建成功后进入 `/admin/`，确认管理员信息、会话安全和权限边界。
 4. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
 
 数据库密码包含 `@`、`:`、`/`、`#` 等字符时，需要先在 `DATABASE_URL` 中进行 URL 编码。系统不提供公开安装页，也不会通过浏览器写入运行配置。
@@ -217,7 +217,7 @@ Invoke-RestMethod http://localhost/v1/health
 上线检查：
 
 - `/v1/health` 返回 `ok: true`
-- `/`、`/login` 和 `/admin/` 路由状态正确，`/install` 不存在
+- `/`、`/login`、`/install` 和 `/admin/` 路由状态正确；管理员创建后 `/install` 自动关闭
 - 超级管理员可以登录，普通用户不能进入管理后台
 - PostgreSQL、Redis、文件存储在管理端系统健康页均正常
 - 模型和搜索渠道健康检查成功
@@ -255,7 +255,7 @@ npm --prefix server run prisma:deploy
 - Nginx 将 `/v1/` 代理到 `127.0.0.1:3100`
 - `UPLOAD_DIR` 指向持久化目录
 
-后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY` 和存储配置；`ADMIN_EMAIL`、`ADMIN_PASSWORD` 可覆盖首次初始化默认值。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy` 和 `npm --prefix server run admin:seed`。已有管理员在后台修改密码后，`admin:seed` 不会覆盖密码，除非明确设置 `ADMIN_FORCE_PASSWORD_RESET=true`。
+后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY` 和存储配置。管理员通过 `/install` 创建；也可以同时提供 `ADMIN_EMAIL`、`ADMIN_PASSWORD` 让启动脚本执行幂等初始化。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy`。
 
 ## 7. 发布前验证
 

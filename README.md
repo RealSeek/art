@@ -55,7 +55,7 @@ Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片
 curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
 ```
 
-安装脚本会检查 Docker、完成初始化、提示创建管理员账号，并启动 PostgreSQL、Redis、Backend 和 Frontend。安装完成后访问服务器地址即可。
+安装脚本会检查 Docker、生成运行密钥，并启动 PostgreSQL、Redis、Backend 和 Frontend。首次访问 `/install` 页面创建管理员，完成后入口会自动关闭。
 
 已克隆仓库时可以直接运行：
 

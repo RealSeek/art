@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { api } from './services/api'
 
 const LandingPage = () => import('./views/LandingPage.vue')
 const LoginPage = () => import('./views/LoginPage.vue')
+const InstallPage = () => import('./views/InstallPage.vue')
 const StudioPage = () => import('./views/StudioPage.vue')
 const OfficeCenterPage = () => import('./views/OfficeCenterPage.vue')
 const PromptLibraryPage = () => import('./views/PromptLibraryPage.vue')
@@ -21,6 +23,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'landing', component: LandingPage, meta: { title: 'Xinyue AI' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: '登录' } },
+    { path: '/install', name: 'install', component: InstallPage, meta: { title: '初始化' } },
     {
       path: '/workspace',
       component: WorkspaceLayout,
@@ -55,6 +58,19 @@ export const router = createRouter({
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
+})
+
+let setupState: 'unknown' | 'required' | 'complete' = 'unknown'
+router.beforeEach(async (to) => {
+  if (to.name === 'install' || setupState === 'complete') return true
+  if (setupState === 'unknown') {
+    try {
+      setupState = (await api<{ required: boolean }>('/auth/setup/status')).required ? 'required' : 'complete'
+    } catch {
+      return true
+    }
+  }
+  return setupState === 'required' ? { path: '/install', query: { redirect: to.fullPath } } : true
 })
 
 router.afterEach((to) => {

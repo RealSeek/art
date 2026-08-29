@@ -51,7 +51,7 @@ npm --prefix server run admin:seed
 
 开发管理端：`http://localhost:5174/admin/`。生产管理端：`https://你的域名/admin/`。普通用户不能通过用户注册获得管理员权限。
 
-上传文件保存在 `UPLOAD_DIR` 或私有 S3 Bucket 中，只能通过带资源权限校验的 API 读取。API 服务入口 `/api` 由管理员配置为第三方服务跳转页，不是公开安装页；项目不提供 `/install` 路由。
+上传文件保存在 `UPLOAD_DIR` 或私有 S3 Bucket 中，只能通过带资源权限校验的 API 读取。首次部署可通过前端 `/install` 页面创建管理员，创建后该入口自动关闭。
 
 ## 发布检查
 

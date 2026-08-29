@@ -9,6 +9,8 @@ const optionalBoolean = z.preprocess((value) => {
   return value
 }, z.boolean().optional())
 
+const optionalUrl = z.preprocess((value) => value === undefined || value === '' ? undefined : value, z.string().url().optional())
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3100),
@@ -23,7 +25,7 @@ const schema = z.object({
   ADMIN_LOGIN_RATE_LIMIT: z.coerce.number().int().positive().default(30),
   UPLOAD_DIR: z.string().default('uploads'),
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
-  S3_ENDPOINT: z.string().url().optional(),
+  S3_ENDPOINT: optionalUrl,
   S3_REGION: z.string().default('auto'),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),

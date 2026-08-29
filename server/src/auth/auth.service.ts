@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { LedgerType, Prisma, type User } from '@prisma/client'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
@@ -22,6 +22,22 @@ function jsonInput(value: ExternalProfile | null | undefined) {
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly referrals: ReferralService) {}
+
+  async isSetupRequired() {
+    return (await this.prisma.user.count({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })) === 0
+  }
+
+  async setupAdmin(input: { email: string; password: string; displayName?: string }, meta: LoginMeta) {
+    const email = input.email.trim().toLowerCase()
+    const user = await this.prisma.$transaction(async (tx) => {
+      if (await tx.user.count({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })) throw new ConflictException('管理员已经初始化')
+      const settings = await tx.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
+      const defaultGroup = await tx.userGroup.upsert({ where: { name: '默认用户' }, update: { enabled: true }, create: { name: '默认用户', description: '所有新注册用户的基础权限与计费策略', color: '#397157', enabled: true } })
+      const passwordHash = await hashPassword(input.password)
+      return tx.user.create({ data: { email, displayName: input.displayName?.trim() || '超级管理员', emailVerifiedAt: new Date(), role: 'SUPER_ADMIN', status: 'ACTIVE', passwordHash, settings: { create: this.defaultUserSettings(settings) }, creditAccount: { create: this.defaultCreditAccount(settings) }, groupMemberships: { create: { group: { connect: { id: defaultGroup.id } } } } } })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    return this.createSession(user, meta, 'setup')
+  }
 
   async requestCode(emailInput: string) {
     const email = emailInput.trim().toLowerCase()

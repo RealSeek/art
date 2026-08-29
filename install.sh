@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# One-command installer. Credentials are entered by the operator and stored
-# only in the local, Git-ignored .env.production file.
+# One-command installer. It writes generated secrets to the local,
+# Git-ignored .env.production file; the administrator is created in /install.
 REPO_URL="${XINYUE_REPO:-https://github.com/qiantingwl/xinyueai.git}"
 APP_DIR="${XINYUE_DIR:-xinyueai}"
 die() { printf '安装失败：%s\n' "$*" >&2; exit 1; }
@@ -11,17 +11,17 @@ docker compose version >/dev/null 2>&1 || die '未找到 Docker Compose v2。'
 
 if [[ ! -f docker-compose.prod.yml ]]; then
   command -v git >/dev/null 2>&1 || die '当前目录不是项目目录，且未找到 git。'
-  [[ -e "$APP_DIR" ]] && die "目标目录已存在：$APP_DIR"
-  git clone "$REPO_URL" "$APP_DIR"
-  cd "$APP_DIR"
+  if [[ -f "$APP_DIR/docker-compose.prod.yml" ]]; then
+    cd "$APP_DIR"
+  else
+    [[ -e "$APP_DIR" ]] && die "目标目录已存在但不是 Xinyue AI 项目：$APP_DIR"
+    git clone "$REPO_URL" "$APP_DIR"
+    cd "$APP_DIR"
+  fi
 fi
 
 [[ -f .env.production.example ]] || die '缺少 .env.production.example。'
-if [[ -f .env.production ]]; then
-  printf '.env.production 已存在，是否保留并继续？[y/N] '
-  read -r answer
-  [[ "$answer" =~ ^[Yy]$ ]] || die '已取消，未覆盖现有配置。'
-else
+if [[ ! -f .env.production ]]; then
   cp .env.production.example .env.production
 fi
 
@@ -38,23 +38,16 @@ set_env() {
     printf '\n%s=%s\n' "$key" "$value" >> .env.production
   fi
 }
+set_env_if_missing() {
+  key="$1"; value="$2"
+  current=$(grep -E "^${key}=" .env.production | head -n 1 | cut -d= -f2- || true)
+  if [[ -z "$current" || "$current" == replace-with* ]]; then set_env "$key" "$value"; fi
+}
 
-printf 'Xinyue AI 首次部署配置\n管理员邮箱 [admin@example.com]: '
-read -r admin_email
-admin_email="${admin_email:-admin@example.com}"
-while :; do
-  printf '管理员密码（至少 8 位，不会显示）: '
-  read -r -s admin_password; printf '\n'
-  [[ ${#admin_password} -ge 8 ]] && break
-  printf '密码长度不足 8 位，请重试。\n'
-done
-
-set_env POSTGRES_PASSWORD "$(random_secret)"
-set_env SESSION_SECRET "$(random_secret)"
-set_env CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
-set_env ADMIN_EMAIL "$admin_email"
-set_env ADMIN_PASSWORD "$admin_password"
-set_env NODE_ENV production
+set_env_if_missing POSTGRES_PASSWORD "$(random_secret)"
+set_env_if_missing SESSION_SECRET "$(random_secret)"
+set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
+set_env_if_missing NODE_ENV production
 chmod 600 .env.production 2>/dev/null || true
 rm -f .env.production.bak
 

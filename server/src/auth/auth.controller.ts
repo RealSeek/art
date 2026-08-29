@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Get, HttpCode, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { IsBoolean, IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator'
 import { Throttle } from '@nestjs/throttler'
@@ -18,6 +18,7 @@ class CompleteEmailRegistrationDto {
   @IsOptional() @IsString() @MaxLength(64) inviteCode?: string
 }
 class AdminLoginDto { @IsEmail() email!: string; @IsString() @MinLength(8) password!: string; @IsOptional() @IsBoolean() remember?: boolean }
+class SetupAdminDto { @IsEmail() email!: string; @IsString() @MinLength(8) @MaxLength(200) password!: string; @IsOptional() @IsString() @MaxLength(100) displayName?: string }
 class AdminAccountUpdateDto {
   @IsString() @MinLength(8) @MaxLength(200) currentPassword!: string
   @IsOptional() @IsEmail() @MaxLength(320) email?: string
@@ -110,6 +111,12 @@ export class AuthController {
   @Post('admin/login') @Throttle({ default: { limit: () => Number(process.env.ADMIN_LOGIN_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 8 : 30)), ttl: 60_000 } }) async adminLogin(@Body() body: AdminLoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
     const result = await this.auth.loginAdmin(body.email, body.password, { ip: request.ip, userAgent: request.headers['user-agent'] })
     this.setSessionCookie(response, result, body.remember !== false)
+    return { user: result.user }
+  }
+  @Get('setup/status') async setupStatus() { return { required: await this.auth.isSetupRequired() } }
+  @Post('setup') @Throttle({ default: { limit: 3, ttl: 60_000 } }) async setup(@Body() body: SetupAdminDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
+    const result = await this.auth.setupAdmin(body, { ip: request.ip, userAgent: request.headers['user-agent'] })
+    this.setSessionCookie(response, result)
     return { user: result.user }
   }
   @Get('session') async session(@Req() request: FastifyRequest) { return { user: await this.auth.peekSession(request.cookies?.flux_session as string | undefined) } }
