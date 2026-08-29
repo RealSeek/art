@@ -62,15 +62,19 @@ export const router = createRouter({
 
 let setupState: 'unknown' | 'required' | 'complete' = 'unknown'
 router.beforeEach(async (to) => {
-  if (to.name === 'install' || setupState === 'complete') return true
   if (setupState === 'unknown') {
     try {
       setupState = (await api<{ required: boolean }>('/auth/setup/status')).required ? 'required' : 'complete'
     } catch {
-      return true
+      return to.name === 'install' ? true : { path: '/install', query: { redirect: to.fullPath } }
     }
   }
-  return setupState === 'required' ? { path: '/install', query: { redirect: to.fullPath } } : true
+  if (setupState === 'required') return to.name === 'install' ? true : { path: '/install', query: { redirect: to.fullPath } }
+  if (to.name === 'install') {
+    window.location.replace('/admin/#/auth/login')
+    return false
+  }
+  return true
 })
 
 router.afterEach((to) => {
