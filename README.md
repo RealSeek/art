@@ -1,48 +1,91 @@
 # Xinyue AI
 
-Xinyue AI 是面向团队和商业运营的 AI 工作平台，包含用户工作区、企业管理后台和统一 API 服务。
+开源 AI 创作与模型管理平台。
+
+Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片/视频生成和运营后台整合在一个工作空间中，支持本地部署与自托管。
+
+[在线体验：xinyue.mom](https://xinyue.mom)
 
 ![Xinyue AI 对话工作区](docs/images/xinyue-chat.png)
 
-## 主要能力
+## ✨ 功能特性
 
-- 多模型对话、流式输出、临时聊天、历史会话和附件上传
-- 图片、视频与商品视觉生成，支持模型路由、失败切换和任务取消
-- Agent 办公任务、联网搜索、审批中断、知识库与 Office 文件导出
-- 提示词灵感库、技能市场、助手、工具授权、项目和团队协作
-- 套餐、充值、兑换码、额度流水、用户分组和支付渠道
-- 企业管理后台、内容审核、审计日志、运营告警和系统健康检查
-- Docker Compose 部署、数据库自动迁移和幂等管理员初始化
-- 可选独立图片工具 Worker，当前可自托管 rembg 智能抠图
+### AI Workspace
 
-## 技术架构
+- 多模型对话与流式响应
+- 会话历史、临时聊天、分支和附件
+- 文件处理、提示词库、助手与办公任务
 
-```text
-Browser
-  -> Nginx :80
-     -> Vue 3 user application /
-     -> Art Design Pro admin /admin/
-     -> NestJS API /v1/*
-        -> PostgreSQL 17
-        -> Redis 7 / BullMQ
-        -> local or S3-compatible asset storage
+### Model Gateway
+
+- OpenAI Compatible、Anthropic、Gemini 等协议
+- Provider 渠道、模型目录、价格和能力管理
+- 优先级、权重、健康检查与失败切换
+- Token 用量、额度、创作点和账单流水
+
+### Creative Studio
+
+- 无限画布与项目协作
+- 图片、视频和商品视觉生成
+- 图片提示词提取与提示词管理
+- 可选本地图片工具 Worker
+
+### Admin Console
+
+- 用户、会员、套餐和权限
+- 模型、渠道、定价和搜索服务配置
+- 任务、账单、资产、操作记录和系统健康
+- 默认助手、工具和第三方能力预设
+
+## 📸 界面预览
+
+| 对话工作区 | 创作工作区 |
+| --- | --- |
+| ![对话](docs/images/xinyue-chat.png) | ![创作](docs/images/xinyue-creation.png) |
+
+| 管理后台 | 能力中心 |
+| --- | --- |
+| ![管理后台](docs/images/xinyue-admin-dashboard.png) | ![能力中心](docs/images/xinyue-capability-center.png) |
+
+## 🚀 快速开始
+
+### Docker 一键部署（推荐）
+
+适合不需要修改源码的用户。在 Linux/macOS 服务器执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
 ```
 
-- 用户端：Vue 3、TypeScript、Vite、Pinia
-- 管理端：Art Design Pro、Vue 3、Element Plus
-- 服务端：NestJS、Fastify、Prisma、PostgreSQL、Redis、BullMQ、LangGraph.js
+安装脚本会检查 Docker、完成初始化、提示创建管理员账号，并启动 PostgreSQL、Redis、Backend 和 Frontend。安装完成后访问服务器地址即可。
 
-当前版本审计结论见 [全栈代码审计与优化报告](docs/FULL_STACK_AUDIT_AND_OPTIMIZATION_2026-08-29.md)，第二轮工程整理见 [第二轮工程优化报告](docs/SECOND_ROUND_ENGINEERING_OPTIMIZATION_2026-08-29.md)，第三轮生产收尾见 [第三轮生产级优化报告](docs/THIRD_ROUND_PRODUCTION_OPTIMIZATION_2026-08-29.md)，安全检查见 [安全最佳实践审查](docs/SECURITY_BEST_PRACTICES_REPORT_2026-08-29.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+已克隆仓库时可以直接运行：
 
-## 许可证
+```bash
+./install.sh
+```
 
-Xinyue AI 使用 [Xinyue AI Community Source License v1.0](LICENSE)。源码可用于学习、研究和个人非商业部署；未经书面授权，不得用于商业 SaaS、API 聚合/中转、Token 销售、会员服务或企业商业交付。商业使用请通过 [GitHub 仓库](https://github.com/qiantingwl/xinyueai) 联系维护者。该协议是项目自定义的社区源码协议，不是 OSI 认证的开源许可证。
+### Docker Compose
 
-## 本地开发
+适合需要自定义域名、数据库、Redis、存储或反向代理的部署者：
 
-要求 Node.js 20.19+（推荐 22）、npm、pnpm 和 Docker Desktop。
+```bash
+git clone https://github.com/qiantingwl/xinyueai.git
+cd xinyueai
+cp .env.production.example .env.production
+# 编辑 .env.production，填写管理员账号和站点信息
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
 
-```powershell
+完整升级、备份、对象存储和 Worker 配置见 [部署指南](docs/DEPLOYMENT.md)。
+
+### 本地开发
+
+要求 Node.js 20.19+（推荐 22）、npm、pnpm 和 Docker Desktop：
+
+```bash
+git clone https://github.com/qiantingwl/xinyueai.git
+cd xinyueai
 npm ci
 npm --prefix server ci
 pnpm --dir admin install --frozen-lockfile
@@ -50,9 +93,9 @@ docker compose up -d
 npm run setup:dev
 ```
 
-在三个终端分别运行：
+在三个终端分别启动用户端、API 和管理端：
 
-```powershell
+```bash
 npm run dev
 npm run server:dev
 npm run admin:dev
@@ -62,58 +105,27 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-`setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。首次部署默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`；登录后可在后台修改，后续重启不会覆盖已修改的密码。正式开放服务前仍应替换会话密钥和凭据加密密钥，并及时修改默认管理员密码。
+初始化脚本会创建本地管理员；账号信息来自本机配置文件。
 
-## 生产部署
+## ⚙️ 配置与文档
 
-### Docker 一键部署（推荐）
+- [部署与运维指南](docs/DEPLOYMENT.md)
+- [本地 Worker 协议](docs/LOCAL_WORKER_PROTOCOL.md)
+- [更新日志](CHANGELOG.md)
+- [安全策略](SECURITY.md)
+- [贡献指南](CONTRIBUTING.md)
+- [第三方声明](THIRD_PARTY_NOTICES.md)
 
-在 Linux/macOS 服务器执行。脚本会生成一次性保存的数据库、会话和凭据密钥，提示创建首个管理员，并启动 PostgreSQL、Redis、后端和前端：
+运行时配置、日志、数据库、构建产物和用户上传文件不会提交到 Git。更多安全约定见 [安全策略](SECURITY.md)。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
-```
+## 🤝 贡献
 
-已克隆仓库时也可以直接运行 `./install.sh`。脚本不会写入固定管理员密码；管理员邮箱和密码由部署者在安装时输入并写入本机 `.env.production`，该文件已被 Git 忽略。
+欢迎提交 Bug 修复、文档改进、UI 优化、Provider 适配和测试补充。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并通过分支和 Pull Request 参与开发。
 
-### Docker Compose 高级部署
+## License
 
-```powershell
-Copy-Item .env.production.example .env.production
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend
-```
-
-首次部署由后端自动执行迁移和幂等初始化，不存在公开 `/install` 页面。生产环境必须配置管理员账户、两个独立密钥、域名、HTTPS、`WEB_ORIGIN=https://你的域名` 和 `COOKIE_SECURE=true`。本地盘/S3 存储、可选热点服务、升级、备份和回滚步骤见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
-
-生产备份和恢复使用仓库内的可校验命令：`npm run backup:production` 与 `npm run restore:production -- --source=<备份目录> --confirm`。脚本覆盖 PostgreSQL、Redis、上传文件和生产配置，并在恢复前校验 SHA-256。
-
-可选 rembg 图片工具使用独立容器启动，不会把 ONNX 模型放入主 API 镜像：
-
-```powershell
-docker compose --profile image-tools --env-file .env.production -f docker-compose.prod.yml up -d --build image-worker
-```
-
-Worker 协议和管理端绑定方法见 [docs/LOCAL_WORKER_PROTOCOL.md](docs/LOCAL_WORKER_PROTOCOL.md)。
-
-可选的 IOPaint、Real-ESRGAN 和受控 ComfyUI 网关使用独立 profile：`iopaint`、`realesrgan`、`comfyui`。它们不会进入主 API 镜像；具体环境变量、白名单工作流和预热要求见 [部署文档](docs/DEPLOYMENT.md)。
-
-## 质量验证
-
-```powershell
-npm run audit:ui-actions
-npm run verify
-npm run test:e2e
-```
-
-`audit:ui-actions` 会扫描 Vue 页面中的按钮和链接；`verify` 会构建用户端、管理端和服务端；Playwright 覆盖登录、支付、生成、项目、文件库、知识库和主要后台页面。
-
-## 协作和第三方软件
-
-功能开发请使用分支和 Pull Request，约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全漏洞报告方式见 [SECURITY.md](SECURITY.md)。第三方声明和保留的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-运行时 `.env`、日志、数据库、构建产物和用户上传文件不会提交到 Git。禁止在提交、Issue 或 Pull Request 中写入真实密钥。
+当前许可证见 [LICENSE](LICENSE)。许可证条款如需调整，将在发布说明中单独公告。
 
 ---
 
-由心悦AI 提供技术支持！ [xinyue.mom](https://xinyue.mom)
+由心悦AI 提供技术支持！[xinyue.mom](https://xinyue.mom)
