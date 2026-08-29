@@ -9,7 +9,14 @@ const optionalBoolean = z.preprocess((value) => {
   return value
 }, z.boolean().optional())
 
-const optionalUrl = z.preprocess((value) => value === undefined || value === '' ? undefined : value, z.string().url().optional())
+const optionalUrl = z.preprocess((value) => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+  return value
+}, z.string().url().optional())
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
