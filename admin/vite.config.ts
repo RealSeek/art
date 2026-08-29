@@ -17,6 +17,8 @@ export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
   const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
+  const appVersion = VITE_VERSION || '1.0.0'
+  const baseUrl = VITE_BASE_URL || '/admin/'
   const apiProxy = {
     '/v1': {
       target: VITE_API_PROXY_URL || 'http://localhost:3100',
@@ -24,17 +26,17 @@ export default ({ mode }: { mode: string }) => {
     }
   }
 
-  console.log(`🚀 API_URL = ${VITE_API_URL}`)
-  console.log(`🚀 VERSION = ${VITE_VERSION}`)
+  console.log(`🚀 API_URL = ${VITE_API_URL || '/v1'}`)
+  console.log(`🚀 VERSION = ${appVersion}`)
 
   return defineConfig({
     define: {
-      __APP_VERSION__: JSON.stringify(VITE_VERSION)
+      __APP_VERSION__: JSON.stringify(appVersion)
     },
-    base: VITE_BASE_URL,
+    base: baseUrl,
     publicDir: path.resolve(__dirname, '../public'),
     server: {
-      port: Number(VITE_PORT),
+      port: Number(VITE_PORT || 5174),
       proxy: apiProxy,
       host: true
     },

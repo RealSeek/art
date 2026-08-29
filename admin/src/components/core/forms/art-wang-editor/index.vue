@@ -30,7 +30,7 @@
 
   type InsertFnType = (url: string, alt: string, href: string) => void
 
-  const { VITE_API_URL } = import.meta.env
+  const VITE_API_URL = import.meta.env.VITE_API_URL || '/v1'
 
   // Props 定义
   interface Props {
