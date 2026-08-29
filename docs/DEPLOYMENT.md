@@ -32,6 +32,8 @@ Copy-Item .env.production.example .env.production
 
 必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`，两个系统密钥均不得少于 32 位；占位值或空值会让生产容器直接启动失败。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
 
+Web 默认使用宿主机 `8080` 端口。一键安装脚本发现端口被占用时会自动选择后续可用端口，并写回 `XINYUE_HTTP_PORT`；手工部署可以直接修改该变量。
+
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
 ### 2.3 启动

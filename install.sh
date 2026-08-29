@@ -57,14 +57,36 @@ set_env_if_missing POSTGRES_PASSWORD "$(random_secret)"
 set_env_if_missing SESSION_SECRET "$(random_secret)"
 set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
 set_env_if_missing NODE_ENV production
-set_env_if_missing XINYUE_HTTP_PORT 8080
+set_env_if_missing XINYUE_HTTP_PORT "${XINYUE_HTTP_PORT:-8080}"
+
+port_in_use() {
+  port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+  else
+    docker ps --format '{{.Ports}}' | grep -Eq "(0\.0\.0\.0|:::):${port}->"
+  fi
+}
+
+http_port=$(grep -E '^XINYUE_HTTP_PORT=' .env.production | head -n 1 | cut -d= -f2- || true)
+[[ "$http_port" =~ ^[0-9]+$ ]] && (( http_port >= 1 && http_port <= 65535 )) || die 'XINYUE_HTTP_PORT 必须是 1-65535 的端口号。'
+frontend_running=$(docker compose --env-file .env.production -f docker-compose.prod.yml ps --status running --services 2>/dev/null | grep -x 'frontend' || true)
+if [[ -z "$frontend_running" ]] && port_in_use "$http_port"; then
+  original_port="$http_port"
+  while port_in_use "$http_port"; do
+    ((http_port += 1))
+    (( http_port <= 65535 )) || die '未找到可用的 Web 端口。'
+  done
+  set_env XINYUE_HTTP_PORT "$http_port"
+  printf '端口 %s 已被占用，已自动改用 %s。\n' "$original_port" "$http_port"
+fi
 chmod 600 .env.production 2>/dev/null || true
 rm -f .env.production.bak
 
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-http_port=$(grep -E '^XINYUE_HTTP_PORT=' .env.production | head -n 1 | cut -d= -f2- || true)
-http_port=${http_port:-8080}
 printf '\nXinyue AI 已安装，访问地址：http://服务器IP:%s/\n' "$http_port"
 printf '首次启动请打开：http://服务器IP:%s/install\n' "$http_port"
 printf '启用 HTTPS 后请将 WEB_ORIGIN 改为 https://域名，并设置 COOKIE_SECURE=true。\n'
