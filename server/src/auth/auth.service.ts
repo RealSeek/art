@@ -24,13 +24,17 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly referrals: ReferralService) {}
 
   async isSetupRequired() {
-    return (await this.prisma.user.count({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })) === 0
+    const admins = await this.prisma.user.findMany({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { email: true } })
+    return !admins.some((admin) => Boolean(admin.email && /^[^@\s]+@[^@\s]+$/.test(admin.email)))
   }
 
   async setupAdmin(input: { email: string; password: string; displayName?: string }, meta: LoginMeta) {
     const email = input.email.trim().toLowerCase()
     const user = await this.prisma.$transaction(async (tx) => {
-      if (await tx.user.count({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })) throw new ConflictException('管理员已经初始化')
+      const admins = await tx.user.findMany({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { id: true, email: true } })
+      if (admins.some((admin) => Boolean(admin.email && /^[^@\s]+@[^@\s]+$/.test(admin.email)))) throw new ConflictException('管理员已经初始化')
+      const malformedAdminIds = admins.filter((admin) => admin.email && admin.email.includes('admin_email=')).map((admin) => admin.id)
+      if (malformedAdminIds.length) await tx.user.deleteMany({ where: { id: { in: malformedAdminIds } } })
       const settings = await tx.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
       const defaultGroup = await tx.userGroup.upsert({ where: { name: '默认用户' }, update: { enabled: true }, create: { name: '默认用户', description: '所有新注册用户的基础权限与计费策略', color: '#397157', enabled: true } })
       const passwordHash = await hashPassword(input.password)
