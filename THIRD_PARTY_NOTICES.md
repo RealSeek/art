@@ -1,53 +1,19 @@
-# Third-party source and license ledger
+# Third-party notices
 
-This project currently contains independent implementations informed by public product behavior and the projects listed below. No code has been copied from the AGPL or custom-license projects in this iteration. Before commercial distribution, keep this ledger with the release review and record any future copied files, dependencies, modifications, notices, and commercial agreements.
+本文件只记录已确认允许商业使用和二次开发的第三方代码、组件或媒体资源。使用这些项目的代码或资源时，请同时保留其原始版权和许可证文本；模型权重、字体、图片和数据集可能有独立条款，需要单独核对。
 
-| Project | Upstream | License observed | Current use | Commercial follow-up |
-| --- | --- | --- | --- | --- |
-| VOZEB-PRO | https://github.com/csyqlz/VOZEB-PRO | AGPL-3.0; project owner reports separate maintainer permission | Product reference for works publishing, Canvas, persistent generation, short-drama workflows, promotional pricing, coupons and referral settlement. Xinyue uses an independent implementation on its existing NestJS/Prisma architecture. | Archive the maintainer's written authorization scope and attribution requirements before commercial release. |
-| GPT2Image-Pro | https://github.com/MeowFree/GPT2Image-Pro | AGPL-3.0-only | Architecture reference for provider pools, image options, cooldowns, billing settlement, and storage adapters. No cookie, registration-tool, Adobe, or ONNX components used. | Negotiate a commercial license before copying or integrating source code. |
-| OpenTu | https://github.com/ljquan/opentu | MIT | Product reference for canvas workflows, prompt history, model controls, and media sessions. No source copied in this iteration. | MIT reuse is possible with copyright and license notice preservation; confirm any transitive asset licenses. |
-| Infinite Canvas | https://github.com/basketikun/infinite-canvas | MIT (current reviewed revision) | Product reference for canvas projects, node editing, prompt-source UX and asset workflows. Xinyue uses an independent Vue/NestJS implementation. | Preserve the upstream copyright and MIT notice if source or substantial portions are reused; re-check the pinned revision before release. |
-| Image Prompt Registry | https://github.com/yukkcat/image-prompts | Verify before release | Runtime index used to normalize six public image-prompt feeds. Registry files are fetched and cached by the server, not bundled into the application build. | Confirm registry and per-source content terms before commercial distribution. |
-| Banana Prompt Quicker | https://github.com/glidea/banana-prompt-quicker | Verify before release | Optional runtime image-prompt feed; item authors and original links remain visible. | Confirm code, prompt, and image rights with the maintainer and original authors. |
-| DavidWu GPT Image 2 Prompts | https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts | Verify before release | Optional runtime image-prompt feed; item authors and original links remain visible. | Confirm prompt and image rights before commercial distribution. |
-| Awesome GPT Image | https://github.com/ZeroLu/awesome-gpt-image | Verify before release | Optional runtime image-prompt feed; item authors and original links remain visible. | Confirm prompt and image rights before commercial distribution. |
-| Awesome GPT-4o Image Prompts | https://github.com/ImgEdify/Awesome-GPT4o-Image-Prompts | Verify before release | Optional runtime image-prompt feed; item authors and original links remain visible. | Confirm prompt and image rights before commercial distribution. |
-| YouMind image prompt collections | https://github.com/YouMind-OpenLab | Verify before release | Optional runtime feeds for GPT Image 2 and Nano Banana Pro prompts; original links remain visible. | Confirm prompt and image rights before commercial distribution. |
-| UPMA GPT Image 2 prompt collection | https://www.upma.cn/image-prompts and https://github.com/freestylefly/awesome-gpt-image-2 | MIT repository code; prompt and image rights require separate review | Optional runtime feed for GPT Image 2 prompts. Data remains remote, and item authors and original links remain visible. | Confirm prompt and image rights with the maintainer and original authors before commercial distribution. |
-| Open WebUI | https://github.com/open-webui/open-webui | Custom Open WebUI license and historical license terms | Product reference for groups, connection settings, model permissions, privacy controls, and temporary chats. No source copied in this iteration. | Review the exact version and branding restrictions; obtain written commercial permission before source reuse. |
-| LobeHub | https://github.com/lobehub/lobehub | LobeHub Community License | Product reference for provider abstractions, session grouping, and settings UX. No source copied in this iteration. | Commercial derivative use requires a commercial agreement. |
-| ChatGPT | https://chatgpt.com/ | Proprietary service | Interaction and information-architecture reference only. | Do not copy protected source, assets, branding, or private APIs. |
-| xiaoye.io | https://xiaoye.io/ | Proprietary service unless separately licensed | Visual and interaction reference only. | Obtain permission for any protected assets, branding, or source-level reuse. |
-| Coverr | https://coverr.co/ | Coverr License | Eight locally optimized stock and AI video previews with matching poster frames are used in the video inspiration gallery. | Preserve this source record and re-check the current Coverr License before commercial release. |
-| rembg | https://github.com/danielgatis/rembg | MIT | Optional isolated image-tools Worker dependency for background removal. Model files are downloaded into a runtime volume and are not committed to the repository. | Preserve the rembg license notice and review the selected model's own terms before distribution. |
-| IOPaint | https://github.com/Sanster/IOPaint | Apache-2.0 | Optional isolated Worker for inpainting and outpainting. Runtime model files are stored in a Docker volume. | Preserve the Apache-2.0 notice and review every selected model's separate terms. |
-| Real-ESRGAN | https://github.com/xinntao/Real-ESRGAN | BSD-3-Clause | Optional isolated Worker for 2x/4x image restoration. Runtime weights are stored in a Docker volume. | Preserve the BSD notice and the notices of BasicSR, PyTorch and selected weights. |
-| ComfyUI | https://github.com/comfyanonymous/ComfyUI | GPL-3.0 | Optional external GPU service accessed through a separate controlled-workflow gateway. ComfyUI itself and its models are not bundled in the main application image. | Review network deployment and distribution obligations; preserve upstream notices and model licenses. |
+| 项目 | 来源 | 许可证 | 当前用途 |
+| --- | --- | --- | --- |
+| Art Design Pro | https://github.com/Daymychen/art-design-pro | MIT | 管理后台基础组件与布局 |
+| OpenTu | https://github.com/ljquan/opentu | MIT | 仅作产品交互参考，未复制源码 |
+| Infinite Canvas | https://github.com/basketikun/infinite-canvas | MIT | 仅作画布交互参考，未复制源码 |
+| rembg | https://github.com/danielgatis/rembg | MIT | 可选本地图片工具 Worker 依赖 |
+| IOPaint | https://github.com/Sanster/IOPaint | Apache-2.0 | 可选图片修复 Worker 依赖 |
+| Real-ESRGAN | https://github.com/xinntao/Real-ESRGAN | BSD-3-Clause | 可选图片放大 Worker 依赖 |
+| Coverr | https://coverr.co/ | Coverr License | 视频灵感页中的预览素材，保留来源记录 |
 
-Excluded by design: ChatGPT Web cookies, Adobe cookies or backend access, account registration executables, and bundled ONNX models.
-# Art Design Pro
+## 使用说明
 
-This product includes software derived from Art Design Pro.
-
-- Project: https://github.com/Daymychen/art-design-pro
-- Copyright (c) 2025 SuperManTT
-- License: MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- MIT、Apache-2.0 和 BSD-3-Clause 代码允许商业使用和修改，但分发时必须保留对应版权和许可证声明。
+- Worker 的模型文件、PyTorch/BasicSR 等传递依赖不随主仓库提交，部署者应按所选模型和依赖的许可证执行。
+- 未在本文件列出的项目、图片提示词数据源、外部服务和品牌仅作为功能观察对象，不代表获得代码、数据或商标授权。
