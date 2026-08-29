@@ -26,7 +26,7 @@ export default ({ mode }: { mode: string }) => {
     }
   }
 
-  console.log(`🚀 API_URL = ${VITE_API_URL || '/v1'}`)
+  console.log(`🚀 API_URL = ${VITE_API_URL || '/'}`)
   console.log(`🚀 VERSION = ${appVersion}`)
 
   return defineConfig({

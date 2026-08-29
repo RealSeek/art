@@ -43,7 +43,8 @@ interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   showSuccessMessage?: boolean
 }
 
-const VITE_API_URL = import.meta.env.VITE_API_URL || '/v1'
+// API modules already use versioned paths such as /v1/auth/admin/login.
+const VITE_API_URL = import.meta.env.VITE_API_URL || '/'
 const VITE_WITH_CREDENTIALS = import.meta.env.VITE_WITH_CREDENTIALS || 'true'
 
 /** Axios实例 */
