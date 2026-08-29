@@ -44,6 +44,15 @@ set_env_if_missing() {
   if [[ -z "$current" || "$current" == replace-with* ]]; then set_env "$key" "$value"; fi
 }
 
+# A previous curl|bash release could accidentally write the shell source into
+# ADMIN_EMAIL when stdin was not attached to /dev/tty. Clear that malformed
+# value so the browser wizard can be used on the next run.
+existing_admin_email=$(grep -E '^ADMIN_EMAIL=' .env.production | head -n 1 | cut -d= -f2- || true)
+if [[ -n "$existing_admin_email" && ! "$existing_admin_email" =~ ^[^@[:space:]]+@[^@[:space:]]+$ ]]; then
+  set_env ADMIN_EMAIL ''
+  set_env ADMIN_PASSWORD ''
+fi
+
 set_env_if_missing POSTGRES_PASSWORD "$(random_secret)"
 set_env_if_missing SESSION_SECRET "$(random_secret)"
 set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
