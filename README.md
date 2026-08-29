@@ -55,7 +55,7 @@ Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片
 curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
 ```
 
-安装脚本会检查 Docker、生成运行密钥，并启动 PostgreSQL、Redis、Backend 和 Frontend。首次访问 `/install` 页面创建管理员，完成后入口会自动关闭。
+安装脚本会检查 Docker、生成运行密钥，并启动 PostgreSQL、Redis、Backend 和 Frontend，默认监听主机 `8080` 端口。首次访问 `http://服务器IP:8080/install` 页面创建管理员，完成后入口会自动关闭；如需更换端口，可在 `.env.production` 设置 `XINYUE_HTTP_PORT`。
 
 已克隆仓库时可以直接运行：
 
@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh
 git clone https://github.com/qiantingwl/xinyueai.git
 cd xinyueai
 cp .env.production.example .env.production
-# 编辑 .env.production，填写管理员账号和站点信息
+# 编辑 .env.production，填写站点、密钥和存储配置；管理员在 /install 引导页创建
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 

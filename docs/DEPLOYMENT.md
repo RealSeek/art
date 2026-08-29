@@ -8,7 +8,7 @@
 
 | 服务 | 作用 | 默认暴露 |
 | --- | --- | --- |
-| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 主机 `80` |
+| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 主机 `8080`（可通过 `XINYUE_HTTP_PORT` 修改） |
 | `backend` | NestJS API、BullMQ Worker、迁移和幂等初始化 | 容器 `3100` |
 | `postgres` | 主业务数据库 | 仅 Compose 内网 |
 | `redis` | 队列、缓存和任务状态 | 仅 Compose 内网 |
@@ -56,7 +56,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 
 ### 2.5 HTTPS 和域名
 
-推荐在宿主机使用 Caddy、Nginx Proxy Manager 或云负载均衡终止 TLS，再转发到 `127.0.0.1:80`。启用 HTTPS 后修改：
+推荐在宿主机使用 Caddy、Nginx Proxy Manager 或云负载均衡终止 TLS，再转发到 `127.0.0.1:8080`（或你配置的 `XINYUE_HTTP_PORT`）。启用 HTTPS 后修改：
 
 ```dotenv
 WEB_ORIGIN=https://xinyue.example.com

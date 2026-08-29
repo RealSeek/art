@@ -57,9 +57,14 @@ set_env_if_missing POSTGRES_PASSWORD "$(random_secret)"
 set_env_if_missing SESSION_SECRET "$(random_secret)"
 set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
 set_env_if_missing NODE_ENV production
+set_env_if_missing XINYUE_HTTP_PORT 8080
 chmod 600 .env.production 2>/dev/null || true
 rm -f .env.production.bak
 
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-printf '\nXinyue AI 已安装。启用 HTTPS 后请将 WEB_ORIGIN 改为 https://域名，并设置 COOKIE_SECURE=true。\n'
+http_port=$(grep -E '^XINYUE_HTTP_PORT=' .env.production | head -n 1 | cut -d= -f2- || true)
+http_port=${http_port:-8080}
+printf '\nXinyue AI 已安装，访问地址：http://服务器IP:%s/\n' "$http_port"
+printf '首次启动请打开：http://服务器IP:%s/install\n' "$http_port"
+printf '启用 HTTPS 后请将 WEB_ORIGIN 改为 https://域名，并设置 COOKIE_SECURE=true。\n'
