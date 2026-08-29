@@ -21,13 +21,6 @@
       <ElTabPane :label="`${xt('模型厂商')} ${vendors.length}`" name="vendors" />
     </ElTabs>
 
-    <ElAlert v-if="activeTab === 'channels'" type="info" :closable="false" show-icon class="xinyue-service-ad">
-      <template #title>
-        <span>{{ xt('Xinyue AI 为你提供稳定的模型服务') }}</span>
-        <a href="https://xinyue.mom" target="_blank" rel="noreferrer">xinyue.mom</a>
-      </template>
-    </ElAlert>
-
     <ElAlert
       v-if="batchResult && activeTab === 'channels'"
       :title="`${xt('检测完成')}：${batchResult.healthy} ${xt('个正常')}，${batchResult.unhealthy} ${xt('个异常')}`"
@@ -967,19 +960,6 @@
   }
   .catalog-tabs :deep(.el-tabs__header) {
     margin: 0;
-  }
-  .xinyue-service-ad {
-    flex: none;
-    margin-bottom: 12px;
-  }
-  .xinyue-service-ad a {
-    margin-left: 8px;
-    color: var(--el-color-primary);
-    font-weight: 600;
-    text-decoration: none;
-  }
-  .xinyue-service-ad a:hover {
-    text-decoration: underline;
   }
   .art-table-card {
     flex: 1;
