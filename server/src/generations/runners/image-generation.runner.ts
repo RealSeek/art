@@ -5,6 +5,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ProvidersService, ResolvedProvider } from '../../providers/providers.service'
 import { GenerationJobCancelledError, GenerationRunner } from '../generation-runners'
 import { GenerationOutputService } from '../generation-output.service'
+import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
+import { readResponseBytes } from '../../common/response-bytes'
 import { detectImageFormat, identifyImageFormat, imageFormatMetadata, normalizeImageOptions } from '../image-options'
 
 type ProviderPayload = {
@@ -22,7 +24,7 @@ class ImageProviderError extends Error {
 export class ImageGenerationRunner implements GenerationRunner {
   readonly kind = 'IMAGE' as const
 
-  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly providers: ProvidersService, private readonly outputs: GenerationOutputService) {}
+  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly providers: ProvidersService, private readonly outputs: GenerationOutputService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async run(task: GenerationJob) {
     await this.outputs.cleanup(task)
@@ -106,7 +108,11 @@ export class ImageGenerationRunner implements GenerationRunner {
       const asset = await this.outputs.storeAndLink(task, { data: bytes, projectId: task.projectId || undefined, name: task.kind === 'COMMERCE' ? `${options.creationType || '商品视觉'} ${position + 1}${moduleLabel ? ` - ${moduleLabel}` : ''}.${file.extension}` : `生成图片 ${position + 1}.${file.extension}`, mimeType: file.mimeType, kind: task.kind === 'COMMERCE' ? AssetKind.PRODUCT_PACK : AssetKind.IMAGE, position, metadata: { purpose: 'generated', prompt: task.prompt, model: task.model, jobId: task.id, position, moduleLabel, creationType: options.creationType, platform: options.platform, options: { ...options, outputFormat: format } } })
       try { await this.assertNotCancelled(task.id) } catch (error) { await this.assets.remove(task.userId, asset.id); throw error }
     }
-    await this.prisma.generationJob.update({ where: { id: task.id }, data: { upstreamCostMicros: Math.min(2_000_000_000, payload.data.length * execution.provider.imageCostMicros) } })
+    await this.prisma.generationJob.update({ where: { id: task.id }, data: { upstreamCostMicros: this.localizedCostMicros(payload.data.length * execution.provider.imageCostMicros, execution.provider.pricingUsdExchangeRateMicros) } })
+  }
+
+  private localizedCostMicros(usdMicros: number, exchangeRateMicros: number) {
+    return Math.min(2_000_000_000, Math.ceil(usdMicros * exchangeRateMicros / 1_000_000))
   }
 
   private async withProviderFailover<T>(task: GenerationJob, execute: (provider: ResolvedProvider) => Promise<T>) {
@@ -124,7 +130,7 @@ export class ImageGenerationRunner implements GenerationRunner {
         attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
         await this.providers.recordCandidateResult(candidate, true)
         const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, creditValueMicros: candidate.creditValueMicros, imageCostMicros: candidate.imageCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
+        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, imageCostMicros: candidate.imageCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
         return { result, provider: candidate }
       } catch (error) {
         lastError = error
@@ -224,11 +230,13 @@ export class ImageGenerationRunner implements GenerationRunner {
     let url: URL
     try { url = new URL(item.url, `${resolved.baseUrl}/`) } catch { throw new ImageProviderError('Provider returned an invalid image URL', 502) }
     const providerOrigin = new URL(resolved.baseUrl).origin
-    const response = await fetch(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
+    if (url.origin !== providerOrigin) await this.endpointPolicy.assertPublicHttpUrl(url.toString())
+    const response = await fetch(url, { redirect: 'error', headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
     if (!response.ok) throw new ImageProviderError(`Provider image download returned ${response.status}`, response.status)
-    const declaredSize = Number(response.headers.get('content-length') || 0)
-    if (declaredSize > MAX_GENERATED_IMAGE_BYTES) throw new ImageProviderError('Provider image exceeds 50 MB', 502)
-    const bytes = new Uint8Array(await response.arrayBuffer()); this.assertValidImageBytes(bytes, 'Provider'); return bytes
+    let bytes: Uint8Array
+    try { bytes = await readResponseBytes(response, MAX_GENERATED_IMAGE_BYTES, 'Provider 图片') }
+    catch { throw new ImageProviderError('Provider image exceeds 50 MB', 502) }
+    this.assertValidImageBytes(bytes, 'Provider'); return bytes
   }
 
   private async assertNotCancelled(jobId: string) {

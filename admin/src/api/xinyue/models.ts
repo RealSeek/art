@@ -1,6 +1,7 @@
 import request from '@/utils/http'
 import type {
   DiscoveredModel,
+  ModelPricingComparison,
   ModelPreset,
   ModelProviderRoute,
   ModelVendor,
@@ -10,6 +11,8 @@ import type {
 
 export type {
   DiscoveredModel,
+  ModelPricingComparison,
+  ModelPricingValues,
   ModelPreset,
   ModelProviderRoute,
   ModelVendor,
@@ -75,6 +78,14 @@ export const modelApi = {
       params: {}
     }),
   models: () => request.get<ModelPreset[]>({ url: '/v1/admin/model-presets' }),
+  previewModelPricing: (data: { markupPercent?: number; forceRefresh?: boolean }) =>
+    request.post<ModelPricingComparison>({ url: '/v1/admin/model-pricing/preview', data }),
+  applyModelPricing: (data: { modelIds: string[]; markupPercent?: number }) =>
+    request.post<{ selected: number; updated: number; skipped: number; markupPercent: number }>({
+      url: '/v1/admin/model-pricing/apply',
+      data,
+      showSuccessMessage: true
+    }),
   saveModel: (data: Record<string, unknown>, id?: string) =>
     request.request<ModelPreset>({
       url: id ? `/v1/admin/model-presets/${id}` : '/v1/admin/model-presets',

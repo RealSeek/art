@@ -107,47 +107,85 @@
             :closable="false"
             show-icon />
           <ElRow :gutter="16" class="number-row"
-            ><ElCol :span="8"
+            ><ElCol :xs="24" :sm="12"
               ><ElFormItem :label="xt('最低充值金额（分）')"
                 ><ElInputNumber
                   v-model="settings.minRechargeCents"
                   :min="1"
-                  class="wide" /></ElFormItem></ElCol
-            ><ElCol :span="8"
+                  class="wide" /></ElFormItem></ElCol></ElRow
+          ><ElDivider content-position="left">{{ xt('模型自动定价') }}</ElDivider
+          ><div class="pricing-preset-section">
+            <div class="pricing-preset-heading">
+              <div><strong>{{ xt('计价基准预设') }}</strong><small>{{ xt('选择后只填充配置，保存后生效；不会自动覆盖模型价格。') }}</small></div>
+              <ElTag type="info">{{ pricingFormulaPreview }}</ElTag>
+            </div>
+            <div class="pricing-preset-grid">
+              <button
+                v-for="preset in pricingBasePresets"
+                :key="preset.key"
+                type="button"
+                :class="{ active: activePricingPreset === preset.key }"
+                @click="applyPricingBasePreset(preset)"
+              ><strong>{{ preset.label }}</strong><small>{{ preset.note }}</small></button>
+            </div>
+          </div>
+          <ElRow :gutter="16" class="number-row"
+            ><ElCol :xs="24" :sm="12" :lg="6"
               ><ElFormItem :label="xt('结算币种')"
                 ><ElSelect v-model="settings.currency" class="wide"
                   ><ElOption :label="xt('人民币 CNY')" value="CNY" /><ElOption
                     :label="xt('美元 USD')"
                     value="USD" /></ElSelect></ElFormItem></ElCol
-            ><ElCol :span="8"
-              ><ElFormItem :label="xt('每点价值（微元）')"
+            ><ElCol :xs="24" :sm="12" :lg="6"
+              ><ElFormItem :label="xt('1 USD 兑换结算币种')"
                 ><ElInputNumber
-                  v-model="settings.creditValueMicros"
-                  :min="0"
-                  class="wide" /></ElFormItem></ElCol></ElRow
-          ><ElDivider content-position="left">{{ xt('模型自动定价') }}</ElDivider
-          ><ElRow :gutter="16" class="number-row"
-            ><ElCol :span="8"
+                  v-model="pricingUsdExchangeRate"
+                  :min="0.000001"
+                  :max="100"
+                  :precision="6"
+                  :step="0.1"
+                  class="wide" /></ElFormItem></ElCol
+            ><ElCol :xs="24" :sm="12" :lg="6"
+              ><ElFormItem :label="xt('每计费额度价值')"
+                ><ElInputNumber
+                  v-model="creditUnitValue"
+                  :min="0.000001"
+                  :max="100"
+                  :precision="6"
+                  :step="0.001"
+                  class="wide" /></ElFormItem></ElCol
+            ><ElCol :xs="24" :sm="12" :lg="6"
               ><ElFormItem :label="xt('默认售价加价率（%）')"
                 ><ElInputNumber
                   v-model="settings.modelImportMarkupPercent"
                   :min="100"
                   :max="1000"
                   class="wide" /></ElFormItem></ElCol
-            ><ElCol :span="8"
+            ><ElCol :xs="24" :sm="12"
               ><ElFormItem :label="xt('价格目录刷新（小时）')"
                 ><ElInputNumber
                   v-model="settings.modelPriceCatalogRefreshHours"
                   :min="1"
                   :max="168"
                   class="wide" /></ElFormItem></ElCol
-            ><ElCol :span="8"
+            ><ElCol :xs="24" :sm="12"
               ><ElFormItem :label="xt('价格目录')"
                 ><ElInput
                   v-model.trim="settings.modelPriceCatalogUrl"
                   class="wide" /></ElFormItem></ElCol></ElRow
-          ><ElAlert
-            :title="xt('自动导入仅为新模型设置默认售价；重新同步不会覆盖人工修改的价格。')"
+          ><div class="pricing-markup-presets">
+            <span>{{ xt('加价率快捷值') }}</span>
+            <ElButton
+              v-for="preset in pricingMarkupPresets"
+              :key="preset.value"
+              size="small"
+              :type="settings.modelImportMarkupPercent === preset.value ? 'primary' : 'default'"
+              plain
+              @click="settings.modelImportMarkupPercent = preset.value"
+            >{{ preset.label }}</ElButton>
+          </div>
+          <ElAlert
+            :title="xt('同步公式：目录 USD 参考成本 × 汇率 × 加价率 ÷ 每额度价值。保存基准后，到“模型与定价”预览并选择是否应用。')"
             type="info"
             :closable="false"
             show-icon /></ElCard
@@ -861,6 +899,50 @@
   const smtpPassword = ref('')
   const linuxSecret = ref('')
   const bannerUploadingIndex = ref<number | null>(null)
+  const pricingBasePresets = [
+    { key: 'cny-parity', label: xt('人民币 1:1'), note: xt('1 USD 按 ¥1；适合对标数值'), currency: 'CNY', exchangeRate: 1, creditValue: 0.01 },
+    { key: 'cny-market', label: xt('人民币市场参考'), note: xt('1 USD 按 ¥7.2；部署后可手动调整'), currency: 'CNY', exchangeRate: 7.2, creditValue: 0.01 },
+    { key: 'usd-parity', label: xt('美元 1:1'), note: xt('1 USD 按 $1；适合美元结算'), currency: 'USD', exchangeRate: 1, creditValue: 0.01 }
+  ] as const
+  const pricingMarkupPresets = [
+    { label: xt('成本价 1.0x'), value: 100 },
+    { label: xt('轻量 1.1x'), value: 110 },
+    { label: xt('标准 1.3x'), value: 130 },
+    { label: xt('运营 1.5x'), value: 150 },
+    { label: xt('高保障 2.0x'), value: 200 }
+  ] as const
+  const pricingUsdExchangeRate = computed({
+    get: () => (settings.value?.pricingUsdExchangeRateMicros || 1_000_000) / 1_000_000,
+    set: (value: number) => {
+      if (settings.value) settings.value.pricingUsdExchangeRateMicros = Math.max(1, Math.round(value * 1_000_000))
+    }
+  })
+  const creditUnitValue = computed({
+    get: () => (settings.value?.creditValueMicros || 10_000) / 1_000_000,
+    set: (value: number) => {
+      if (settings.value) settings.value.creditValueMicros = Math.max(1, Math.round(value * 1_000_000))
+    }
+  })
+  const activePricingPreset = computed(() => pricingBasePresets.find((preset) =>
+    preset.currency === settings.value?.currency &&
+    Math.abs(preset.exchangeRate - pricingUsdExchangeRate.value) < 0.000001 &&
+    Math.abs(preset.creditValue - creditUnitValue.value) < 0.000001
+  )?.key || '')
+  const pricingFormulaPreview = computed(() => {
+    const creditValueMicros = settings.value?.creditValueMicros || 10_000
+    const exchangeRateMicros = settings.value?.pricingUsdExchangeRateMicros || 1_000_000
+    const markupPercent = settings.value?.modelImportMarkupPercent || 130
+    const units = creditValueMicros > 0
+      ? Math.ceil(exchangeRateMicros * markupPercent / (creditValueMicros * 100))
+      : 0
+    return `$1 × ${pricingUsdExchangeRate.value} × ${(markupPercent / 100).toFixed(1)} = ${units} ${xt('额度')}`
+  })
+  function applyPricingBasePreset(preset: typeof pricingBasePresets[number]) {
+    if (!settings.value) return
+    settings.value.currency = preset.currency
+    pricingUsdExchangeRate.value = preset.exchangeRate
+    creditUnitValue.value = preset.creditValue
+  }
   const workspaceSidebarEnabled = computed({
     get: () =>
       Boolean(settings.value?.sidebarProjectsEnabled || settings.value?.sidebarAssetsEnabled),

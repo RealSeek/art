@@ -3,6 +3,8 @@
     <header class="page-title"
       ><div><h1>联网搜索</h1><p>为 Agent 配置实时检索渠道、优先级和自动故障切换</p></div
       ><ElSpace
+        ><ElButton :loading="restoringPresets" @click="restorePresets"
+          ><ArtSvgIcon icon="ri:reset-left-line" />恢复渠道模板</ElButton
         ><ElButton :loading="checkingAll" @click="checkAll"
           ><ArtSvgIcon icon="ri:pulse-line" />批量检测</ElButton
         ><ElButton type="primary" @click="openEditor()"
@@ -31,13 +33,15 @@
         ></template
       >
       <ElRow :gutter="16">
-        <ElCol :xs="24" :md="10"
+        <ElCol :xs="24" :md="24" :xl="10"
           ><ElFormItem label="服务地址"
             ><ElInput
               v-model.trim="dailyHot.endpoint"
-              placeholder="http://dailyhot:6688" /></ElFormItem
+              placeholder="http://dailyhot:6688" />
+              <small class="help">需要单独部署 DailyHotApi；Docker 内可使用服务名，跨服务器请填写可访问地址。<a href="https://github.com/imsyy/DailyHotApi" target="_blank" rel="noreferrer">部署说明<ArtSvgIcon icon="ri:external-link-line" /></a></small>
+            </ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="24" :md="8" :xl="4"
           ><ElFormItem label="推荐数量"
             ><ElInputNumber
               v-model="dailyHot.recommendationLimit"
@@ -45,7 +49,7 @@
               :max="12"
               class="wide" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="24" :md="8" :xl="4"
           ><ElFormItem label="缓存分钟"
             ><ElInputNumber
               v-model="dailyHot.cacheMinutes"
@@ -53,11 +57,11 @@
               :max="1440"
               class="wide" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="12" :md="4" :xl="4"
           ><ElFormItem label="首页推荐"
-            ><ElSwitch v-model="dailyHot.recommendationEnabled" active-text="启用" /></ElFormItem
+            ><ElSwitch v-model="dailyHot.recommendationEnabled" aria-label="启用首页推荐" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="2"
+        <ElCol :xs="12" :md="4" :xl="2"
           ><ElFormItem label="缓存"
             ><span class="cache-count">{{ dailyHot.cachedCount || 0 }} 条</span></ElFormItem
           ></ElCol
@@ -118,7 +122,7 @@
         ></template
       >
       <ElRow :gutter="16">
-        <ElCol :xs="24" :md="8"
+        <ElCol :xs="24" :md="24" :xl="8"
           ><ElFormItem label="通用密钥"
             ><ElInput
               v-model="tgmengLicense"
@@ -128,7 +132,7 @@
                 tgmeng.hasLicense ? `留空保留 ${tgmeng.licenseHint}` : '输入糖果梦通用密钥'
               " /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="24" :md="8" :xl="4"
           ><ElFormItem label="推荐数量"
             ><ElInputNumber
               v-model="tgmeng.recommendationLimit"
@@ -136,7 +140,7 @@
               :max="12"
               class="wide" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="24" :md="8" :xl="4"
           ><ElFormItem label="缓存分钟"
             ><ElInputNumber
               v-model="tgmeng.cacheMinutes"
@@ -144,13 +148,13 @@
               :max="1440"
               class="wide" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="12" :md="4" :xl="4"
           ><ElFormItem label="首页推荐"
-            ><ElSwitch v-model="tgmeng.recommendationEnabled" active-text="启用" /></ElFormItem
+            ><ElSwitch v-model="tgmeng.recommendationEnabled" aria-label="启用首页推荐" /></ElFormItem
         ></ElCol>
-        <ElCol :xs="12" :md="4"
+        <ElCol :xs="12" :md="4" :xl="4"
           ><ElFormItem label="搜索保底"
-            ><ElSwitch v-model="tgmeng.fallbackEnabled" active-text="启用" /></ElFormItem
+            ><ElSwitch v-model="tgmeng.fallbackEnabled" aria-label="启用搜索保底" /></ElFormItem
         ></ElCol>
       </ElRow>
       <ElFormItem label="首页推荐根分类">
@@ -188,7 +192,7 @@
         >
         <ElTableColumn label="接口地址" min-width="250"
           ><template #default="{ row }"
-            ><span class="endpoint">{{ row.endpoint }}</span
+            ><span class="endpoint">{{ row.endpoint || '待配置' }}</span
             ><small class="note"
               >密钥
               {{
@@ -227,7 +231,7 @@
         >
         <ElTableColumn label="操作" width="190" fixed="right"
           ><template #default="{ row }"
-            ><ElButton link type="primary" :loading="checking === row.id" @click="check(row)"
+            ><ElButton link type="primary" :loading="checking === row.id" :disabled="!row.endpoint || (row.type !== 'SEARXNG' && !row.hasApiKey)" @click="check(row)"
               >检测</ElButton
             ><ElButton link @click="openEditor(row)">编辑</ElButton
             ><ElButton link type="danger" @click="remove(row)">删除</ElButton></template
@@ -257,8 +261,9 @@
                   :value="item.value" /></ElSelect></ElFormItem></ElCol
         ></ElRow>
         <ElFormItem label="接口地址"
-          ><ElInput v-model.trim="form.endpoint" placeholder="https://..."
-        /></ElFormItem>
+          ><ElInput v-model.trim="form.endpoint" placeholder="https://..." />
+          <small class="help"><span>{{ providerHelp[form.type] }}</span><a v-if="providerDocs[form.type]" :href="providerDocs[form.type]" target="_blank" rel="noreferrer">{{ form.type === 'SEARXNG' ? '部署说明' : '官方文档' }}<ArtSvgIcon icon="ri:external-link-line" /></a></small>
+        </ElFormItem>
         <ElFormItem label="API 密钥"
           ><ElInput
             v-model="form.apiKey"
@@ -344,6 +349,21 @@
     EXA: 'Exa',
     CUSTOM: '自定义兼容接口'
   }
+  const providerDocs: Record<string, string> = {
+    SEARXNG: 'https://docs.searxng.org/admin/installation-docker.html',
+    TAVILY: 'https://docs.tavily.com/documentation/api-reference/endpoint/search',
+    SERPER: 'https://serper.dev/',
+    BRAVE: 'https://api-dashboard.search.brave.com/app/documentation/web-search/get-started',
+    EXA: 'https://docs.exa.ai/reference/search'
+  }
+  const providerHelp: Record<string, string> = {
+    SEARXNG: '需要自行部署并启用 JSON 输出格式，通常填写实例根地址。',
+    TAVILY: '使用官方 Search API 地址并配置 API Key。',
+    SERPER: '使用 Google Serper Search API 并配置 API Key。',
+    BRAVE: '使用 Brave Web Search API 并配置订阅密钥。',
+    EXA: '使用 Exa Search API 并配置 API Key。',
+    CUSTOM: '按下方高级 JSON 配置请求方法、参数和响应字段映射。'
+  }
   const providers = Object.entries(providerText).map(([value, label]) => ({ value, label }))
   const emptyForm = () => ({
     id: '',
@@ -366,6 +386,7 @@
     dialog = ref(false),
     checking = ref(''),
     checkingAll = ref(false),
+    restoringPresets = ref(false),
     summary = ref<Row | null>(null)
   const dailyHot = reactive<Row>({
     endpoint: 'http://dailyhot:6688',
@@ -558,6 +579,16 @@
       await load()
     } finally {
       checkingAll.value = false
+    }
+  }
+  async function restorePresets() {
+    restoringPresets.value = true
+    try {
+      const result = await webSearchApi.restoreDefaults()
+      ElMessage.success(result.added ? `已恢复 ${result.added} 个渠道模板` : '渠道模板已完整')
+      await load()
+    } finally {
+      restoringPresets.value = false
     }
   }
   async function remove(row: Row) {

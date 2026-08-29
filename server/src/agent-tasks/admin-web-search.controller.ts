@@ -57,6 +57,7 @@ export class AdminWebSearchController {
   @Post('tgmeng/check') checkTgmeng() { return this.search.checkTgmeng() }
   @Post('tgmeng/refresh') refreshTgmeng() { return this.search.refreshTgmeng() }
   @Get() list() { return this.search.list() }
+  @Post('restore-defaults') restoreDefaults() { return this.search.restoreDefaults() }
   @Post() create(@Body() body: CreateWebSearchChannelDto) { return this.search.create(body) }
   @Patch(':id') update(@Param('id') id: string, @Body() body: UpdateWebSearchChannelDto) { return this.search.update(id, body) }
   @Delete(':id') remove(@Param('id') id: string) { return this.search.remove(id) }

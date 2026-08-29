@@ -159,6 +159,16 @@ class ImportProviderModelsDto {
   @IsOptional() @IsBoolean() overwritePricing?: boolean
 }
 
+class ModelPricingPreviewDto {
+  @IsOptional() @IsInt() @Min(100) @Max(1000) markupPercent?: number
+  @IsOptional() @IsBoolean() forceRefresh?: boolean
+}
+
+class ApplyModelPricingDto {
+  @IsArray() @IsString({ each: true }) modelIds!: string[]
+  @IsOptional() @IsInt() @Min(100) @Max(1000) markupPercent?: number
+}
+
 class UpdateSystemDto {
   @IsOptional() @IsString() @MaxLength(100) siteName?: string
   @IsOptional() @IsString() @MaxLength(500) siteLogoUrl?: string
@@ -208,6 +218,7 @@ class UpdateSystemDto {
   @IsOptional() @IsInt() @Min(1) @Max(100000000) minRechargeCents?: number
   @IsOptional() @IsString() @MaxLength(10) currency?: string
   @IsOptional() @IsInt() @Min(0) @Max(100000000) creditValueMicros?: number
+  @IsOptional() @IsInt() @Min(1) @Max(100000000) pricingUsdExchangeRateMicros?: number
   @IsOptional() @IsInt() @Min(100) @Max(1000) modelImportMarkupPercent?: number
   @IsOptional() @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }) @MaxLength(2000) modelPriceCatalogUrl?: string
   @IsOptional() @IsInt() @Min(1) @Max(168) modelPriceCatalogRefreshHours?: number
@@ -303,6 +314,8 @@ export class AdminProvidersController {
   @Delete('model-presets/:id') modelDelete(@Param('id') id: string) { return this.providers.deleteModel(id) }
   @Put('model-presets/:id/routes') modelRoutes(@Param('id') id: string, @Body() body: ReplaceModelRoutesDto) { return this.providers.replaceModelRoutes(id, body.routes) }
   @Get('model-presets/:id/price-versions') modelPriceVersions(@Param('id') id: string) { return this.providers.modelPriceVersions(id) }
+  @Post('model-pricing/preview') modelPricingPreview(@Body() body: ModelPricingPreviewDto) { return this.providers.modelPricingComparison(body.markupPercent, body.forceRefresh !== false) }
+  @Post('model-pricing/apply') modelPricingApply(@Body() body: ApplyModelPricingDto) { return this.providers.applyModelPricing(body) }
 
   @Get('system-settings') settings() { return this.providers.getSystemSettings(true) }
   @Get('capability-registry') capabilityRegistry() { return this.capabilities.snapshot() }

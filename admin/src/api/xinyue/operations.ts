@@ -79,6 +79,12 @@ export const operationsApi = {
       params: {},
       showSuccessMessage: true
     }),
+  restoreCapabilityPresets: (resource: 'assistants' | 'tools') =>
+    request.post<{ added: number; total: number }>({
+      url: `/v1/admin/${resource}/restore-defaults`,
+      params: {},
+      showSuccessMessage: true
+    }),
   refreshPromptLibrary: () =>
     request.post({
       url: '/v1/admin/prompt-library/refresh',

@@ -10,14 +10,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Sparkles } from 'lucide-vue-next'
-import { useCatalogStore, type ChatUiPreset } from '../../stores/catalog'
+import type { ChatUiPreset } from '../../stores/catalog'
 import { useStudioStore } from '../../stores/studio'
 
-defineProps<{ hasChatThread: boolean }>()
+const props = defineProps<{ hasChatThread: boolean; chatUiPreset: ChatUiPreset }>()
 
 const store = useStudioStore()
-const catalog = useCatalogStore()
-const chatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
+const chatUiPreset = computed(() => props.chatUiPreset)
 const chatHomeTitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '临时聊天' : ({ gpt: '我们先从哪里开始呢？', doubao: '有什么我能帮你的吗？', qianwen: '你好，我是 Xinyue AI', kimi: '' })[chatUiPreset.value])
 const chatHomeSubtitle = computed(() => store.temporaryChat && chatUiPreset.value !== 'kimi' ? '这次聊天不会出现在历史记录中，也不会用于改进模型。' : '')
 </script>

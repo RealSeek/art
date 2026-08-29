@@ -4,6 +4,12 @@ export type WebSearchRow = Record<string, any>
 
 export const webSearchApi = {
   channels: () => request.get<WebSearchRow[]>({ url: '/v1/admin/web-search-channels' }),
+  restoreDefaults: () =>
+    request.post<{ added: number; total: number }>({
+      url: '/v1/admin/web-search-channels/restore-defaults',
+      params: {},
+      showSuccessMessage: true
+    }),
   tgmeng: () => request.get<WebSearchRow>({ url: '/v1/admin/web-search-channels/tgmeng' }),
   dailyHot: () => request.get<WebSearchRow>({ url: '/v1/admin/web-search-channels/dailyhot' }),
   saveDailyHot: (data: WebSearchRow) =>

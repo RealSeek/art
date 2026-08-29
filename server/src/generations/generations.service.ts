@@ -132,7 +132,17 @@ export class GenerationsService {
       const raw = videoCreditCost(videoOptions, resolved.videoCapabilities, resolved.creditCost)
       unitCreditCost = configured === undefined ? raw : Math.ceil(raw * resolved.creditRatePercent / 100)
     }
-    const baseCreditCost = Math.max(0, unitCreditCost * quantity)
+    const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
+    const byokFree = input.kind === 'CHAT' && resolved.source === 'user' && effectivePlan?.byokMode === 'FREE'
+    const effectiveInputRate = byokFree ? 0 : resolved.inputCreditsPerMillion
+    const effectiveOutputRate = byokFree ? 0 : resolved.outputCreditsPerMillion
+    const tokenPricingConfigured = input.kind === 'CHAT' && (effectiveInputRate > 0 || effectiveOutputRate > 0)
+    if (input.kind === 'CHAT' && !billedToPlatform && !byokFree && !tokenPricingConfigured) {
+      throw new BadRequestException(resolved.source === 'user'
+        ? '当前 BYOK 模型未匹配到 Token 价格；请在模型定价中配置同名模型，或将套餐 BYOK 计费设为免费'
+        : '当前文字模型尚未配置 Token 价格，请先在管理端同步或设置模型价格')
+    }
+    const baseCreditCost = input.kind === 'CHAT' ? 0 : Math.max(0, unitCreditCost * quantity)
     const maxOutputTokens = input.kind === 'CHAT' ? Math.max(1, Math.min(32768, Number(normalizedOptions.maxOutputTokens || 4096))) : 0
     const inputConversation = input.kind === 'CHAT' && input.conversationId
       ? await this.prisma.conversation.findFirst({
@@ -151,11 +161,16 @@ export class GenerationsService {
     const estimatedInputTokens = input.kind === 'CHAT'
       ? this.tokenizer.estimateMessages([...contextMessages, ...(!contextIncludesPrompt ? [{ role: 'user', content: input.prompt }] : []), ...(projectInstructions ? [{ role: 'system', content: projectInstructions }] : []), ...(projectSkillSnapshot ? [{ role: 'system', content: projectSkillSnapshot.content }] : [])], resolved.model)
       : 0
-    const reservedTokenCredits = input.kind === 'CHAT' ? Math.ceil(estimatedInputTokens * resolved.inputCreditsPerMillion / 1_000_000) + Math.ceil(maxOutputTokens * resolved.outputCreditsPerMillion / 1_000_000) : 0
-    const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
+    const reservedTokenUnits = input.kind === 'CHAT' ? Math.ceil((estimatedInputTokens * effectiveInputRate + maxOutputTokens * effectiveOutputRate) / 1_000_000) : 0
     const tokenQuotaUnits = effectivePlan?.monthlyQuotaUnits ?? 0n
     const dailyQuotaUnits = effectivePlan?.dailyQuotaUnits ?? 0n
-    const tokenQuotaEnabled = input.kind === 'CHAT' && tokenQuotaUnits > 0n && !billedToPlatform
+    const overageEnabled = input.kind === 'CHAT' && effectivePlan?.tokenOverageMode === 'OVERAGE_CREDITS' && (effectivePlan.tokenOverageRate || 0) > 0 && !billedToPlatform && !byokFree
+    const overageRatePercent = overageEnabled ? effectivePlan?.tokenOverageRate || 0 : 0
+    const reservedOverageCredits = overageEnabled ? Math.ceil(reservedTokenUnits * overageRatePercent / 100) : 0
+    let tokenQuotaEnabled = input.kind === 'CHAT' && tokenPricingConfigured && tokenQuotaUnits > 0n && !billedToPlatform
+    if (input.kind === 'CHAT' && tokenPricingConfigured && !tokenQuotaEnabled && !overageEnabled && !imagePromptTask) {
+      throw new HttpException('当前套餐没有可用的文字计费额度', HttpStatus.PAYMENT_REQUIRED)
+    }
     const quotaIdentity = subscription?.id || 'FREE'
     const quotaScopeKey = `MONTHLY:${quotaIdentity}`
     const quotaPeriodStart = subscription?.currentPeriodStart || new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
@@ -164,15 +179,19 @@ export class GenerationsService {
     dailyStart.setUTCHours(0, 0, 0, 0)
     const dailyEnd = new Date(dailyStart.getTime() + 86_400_000)
     const dailyScopeKey = `DAILY:${quotaIdentity}:${dailyStart.toISOString().slice(0, 10)}`
-    const creditCost = billedToPlatform ? 0 : baseCreditCost + (tokenQuotaEnabled ? 0 : reservedTokenCredits)
+    const directTokenCreditCost = imagePromptTask && !billedToPlatform
+      ? reservedTokenUnits
+      : reservedOverageCredits
+    let creditCost = billedToPlatform ? 0 : baseCreditCost + (tokenQuotaEnabled ? 0 : directTokenCreditCost)
     const chargedBaseCreditCost = billedToPlatform ? 0 : baseCreditCost
-    const chargedReservedTokenCredits = billedToPlatform ? 0 : reservedTokenCredits
+    let chargedReservedTokenCredits = billedToPlatform ? 0 : directTokenCreditCost
+    let billingSource = billedToPlatform ? 'PLATFORM' : byokFree ? 'BYOK_FREE' : tokenQuotaEnabled ? 'SUBSCRIPTION_QUOTA' : imagePromptTask ? 'CREATION_CREDITS' : 'OVERAGE_CREDITS'
     const billingTeamId = project?.teamId && project.team?.status === 'ACTIVE' && project.team.billingEnabled ? project.teamId : null
     let job: GenerationJob
     try {
       job = await this.prisma.$transaction(async (tx) => {
-        const pricingSnapshot = this.pricing.snapshot({ version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, provider: `${resolved.source}:${resolved.type}`, unitCreditCost, creditValueMicros: resolved.creditValueMicros, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros })
-        const created = await tx.generationJob.create({ data: { userId, requestId: trace.requestId, traceId: trace.traceId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, unitCreditCost, baseCreditCost: chargedBaseCreditCost, reservedTokenCredits: chargedReservedTokenCredits, maxOutputTokens, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, creditValueMicros: resolved.creditValueMicros, estimatedInputTokens, quotaEnabled: tokenQuotaEnabled, quotaScopeKey, quotaPeriodStart: quotaPeriodStart.toISOString(), quotaPeriodEnd: quotaPeriodEnd.toISOString() }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
+        const pricingSnapshot = this.pricing.snapshot({ version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, provider: `${resolved.source}:${resolved.type}`, unitCreditCost, settlementCurrency: resolved.settlementCurrency, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputRate: effectiveInputRate, outputRate: effectiveOutputRate, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource, overageRatePercent, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros })
+        const created = await tx.generationJob.create({ data: { userId, requestId: trace.requestId, traceId: trace.traceId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, subscriptionId: subscription?.id, unitCreditCost, baseCreditCost: chargedBaseCreditCost, reservedTokenUnits, reservedTokenCredits: chargedReservedTokenCredits, maxOutputTokens, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, groupRatePercent: resolved.creditRatePercent, overageRatePercent, billingSource, creditValueMicros: resolved.creditValueMicros, estimatedInputTokens, quotaEnabled: tokenQuotaEnabled, quotaScopeKey, quotaPeriodStart: quotaPeriodStart.toISOString(), quotaPeriodEnd: quotaPeriodEnd.toISOString() }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
         if (plugin) await tx.pluginUsage.create({ data: { userId, pluginId: plugin.id, jobId: created.id, capability: pluginCapability } })
         return created
       })
@@ -186,15 +205,34 @@ export class GenerationsService {
     let spent = false
     let quotaReservations: QuotaReservation[] = []
     try {
-      if (tokenQuotaEnabled && reservedTokenCredits > 0) {
+      if (tokenQuotaEnabled && reservedTokenUnits > 0) {
         const reservationSpecs = [{ scopeKey: quotaScopeKey, periodStart: quotaPeriodStart, periodEnd: quotaPeriodEnd, grantedUnits: tokenQuotaUnits }, ...(dailyQuotaUnits > 0n ? [{ scopeKey: dailyScopeKey, periodStart: dailyStart, periodEnd: dailyEnd, grantedUnits: dailyQuotaUnits }] : [])]
-        for (const spec of reservationSpecs) {
-          const reservation = await this.tokenQuota.reserve({ userId, subscriptionId: subscription?.id, ...spec, units: BigInt(reservedTokenCredits), generationId: job.id, metadata: { model: resolved.model, estimatedInputTokens, scopeKey: spec.scopeKey } as Prisma.InputJsonValue })
-          if (reservation) quotaReservations.push(reservation)
+        try {
+          for (const spec of reservationSpecs) {
+            const reservation = await this.tokenQuota.reserve({ userId, subscriptionId: subscription?.id, ...spec, units: BigInt(reservedTokenUnits), generationId: job.id, metadata: { model: resolved.model, estimatedInputTokens, scopeKey: spec.scopeKey } as Prisma.InputJsonValue })
+            if (reservation) quotaReservations.push(reservation)
+          }
+        } catch (error) {
+          const quotaInsufficient = error instanceof HttpException && error.getStatus() === HttpStatus.PAYMENT_REQUIRED
+          if (!quotaInsufficient || !overageEnabled) throw error
+          for (const reservation of quotaReservations) {
+            await this.tokenQuota.release({ userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason: 'OVERAGE_FALLBACK' } as Prisma.InputJsonValue })
+          }
+          quotaReservations = []
+          tokenQuotaEnabled = false
+          billingSource = 'OVERAGE_CREDITS'
+          chargedReservedTokenCredits = reservedOverageCredits
+          creditCost = chargedBaseCreditCost + chargedReservedTokenCredits
         }
         const currentOptions = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
         const currentBilling = currentOptions.billing && typeof currentOptions.billing === 'object' && !Array.isArray(currentOptions.billing) ? currentOptions.billing as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: job.id }, data: { options: { ...currentOptions, billing: { ...currentBilling, quotaId: quotaReservations[0]?.quotaId, quotaReservations: quotaReservations.map((item) => ({ quotaId: item.quotaId, reservedUnits: item.reservedUnits.toString() })) } } as Prisma.InputJsonValue } })
+        const currentPricing = job.pricingSnapshot && typeof job.pricingSnapshot === 'object' && !Array.isArray(job.pricingSnapshot) ? job.pricingSnapshot as Record<string, unknown> : {}
+        job = await this.prisma.generationJob.update({ where: { id: job.id }, data: {
+          creditCost,
+          revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros),
+          pricingSnapshot: { ...currentPricing, billingSource } as Prisma.InputJsonValue,
+          options: { ...currentOptions, billing: { ...currentBilling, quotaEnabled: tokenQuotaEnabled, billingSource, reservedTokenCredits: chargedReservedTokenCredits, quotaId: quotaReservations[0]?.quotaId, quotaReservations: quotaReservations.map((item) => ({ quotaId: item.quotaId, reservedUnits: item.reservedUnits.toString() })) } } as Prisma.InputJsonValue,
+        } })
       }
       if (creditCost > 0) {
         await this.credits.spend(userId, creditCost, imagePromptTask ? '图片提示词反推' : `${input.kind} 生成任务`, `job:${job.id}:spend`, { type: 'generation_job', id: job.id }, billingTeamId)

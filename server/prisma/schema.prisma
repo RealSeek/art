@@ -1646,6 +1646,7 @@ model SystemSetting {
   minRechargeCents              Int      @default(100)
   currency                      String   @default("CNY")
   creditValueMicros             Int      @default(10000)
+  pricingUsdExchangeRateMicros  Int      @default(1000000)
   modelImportMarkupPercent      Int      @default(130)
   modelPriceCatalogUrl          String   @default("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json") @db.Text
   modelPriceCatalogRefreshHours Int      @default(12)

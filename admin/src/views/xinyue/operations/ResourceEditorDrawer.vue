@@ -69,6 +69,11 @@
                 :value="option.value"
               />
             </ElSelect>
+            <p v-if="field.help || field.helpUrl || (field.key === 'documentationUrl' && /^https?:\/\//.test(String(form[field.key] || '')))" class="field-help">
+              <span v-if="field.help">{{ xt(field.help) }}</span>
+              <a v-if="field.helpUrl" :href="field.helpUrl.url" target="_blank" rel="noreferrer">{{ xt(field.helpUrl.label) }}<ArtSvgIcon icon="ri:external-link-line" /></a>
+              <a v-if="field.key === 'documentationUrl' && /^https?:\/\//.test(String(form[field.key] || ''))" :href="String(form[field.key])" target="_blank" rel="noreferrer">{{ xt('打开当前说明地址') }}<ArtSvgIcon icon="ri:external-link-line" /></a>
+            </p>
           </ElFormItem>
         </ElCol>
       </ElRow>
@@ -342,6 +347,23 @@
     font-size: 12px;
     line-height: 1.6;
     color: var(--art-gray-500);
+  }
+  .field-help {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    width: 100%;
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--art-gray-500);
+  }
+  .field-help a {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    color: var(--el-color-primary);
+    text-decoration: none;
   }
   .preview-grid {
     display: grid;

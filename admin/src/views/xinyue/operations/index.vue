@@ -25,6 +25,9 @@
             <ElButton v-if="resourceKey === 'promptTemplates'" @click="restorePromptTemplates">{{
               xt('恢复默认模板')
             }}</ElButton>
+            <ElButton v-if="resourceKey === 'assistants' || resourceKey === 'tools'" @click="restoreCapabilityPresets">{{
+              xt(resourceKey === 'assistants' ? '恢复预设助手' : '恢复工具模板')
+            }}</ElButton>
             <ElButton v-if="resourceKey === 'promptLibrary'" @click="openPromptSources">{{
               xt('来源配置')
             }}</ElButton>
@@ -633,6 +636,12 @@
         : `删除“${row.title || row.name || row.key || row.id}”`
     await ElMessageBox.confirm(`确认${action}？此操作不可撤销。`, '确认操作', { type: 'warning' })
     await operationsApi.deleteResource(url)
+    await load()
+  }
+  async function restoreCapabilityPresets() {
+    if (resourceKey.value !== 'assistants' && resourceKey.value !== 'tools') return
+    const result = await operationsApi.restoreCapabilityPresets(resourceKey.value)
+    ElMessage.success(result.added ? `已补充 ${result.added} 条缺失预设` : '默认预设已完整，现有配置未被覆盖')
     await load()
   }
   async function reviewToolApproval(row: Row, status: 'APPROVED' | 'REJECTED') {

@@ -8,6 +8,7 @@ import { AgentModelService } from './agent-model.service'
 import { AgentToolDescriptor, AgentToolsService } from './agent-tools.service'
 import { AgentSchedulesService } from './agent-schedules.service'
 import { OfficeExportService } from '../workspace/office-export.service'
+import { AgentTaskCancellationService } from './agent-task-cancellation.service'
 
 type PlannedAction = { tool: string; input: Record<string, unknown>; reason: string }
 type AgentPlan = { summary: string; actions: PlannedAction[]; output: string }
@@ -39,6 +40,7 @@ export class AgentTasksProcessor extends WorkerHost {
     private readonly tools: AgentToolsService,
     private readonly schedules: AgentSchedulesService,
     private readonly officeExports: OfficeExportService,
+    private readonly cancellations: AgentTaskCancellationService,
   ) { super() }
 
   async process(job: Job<{ taskId: string; runId: string; runKey: string }>) {
@@ -50,6 +52,7 @@ export class AgentTasksProcessor extends WorkerHost {
     })
     if (!claimed.count) return
     await this.prisma.agentTask.updateMany({ where: { id: taskId, status: { in: [AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING] } }, data: { status: AgentTaskStatus.RUNNING } })
+    const cancellation = this.cancellations.watch(taskId)
     try {
       const restored = await this.restore(runId)
       const graph = new StateGraph(AgentState)
@@ -84,6 +87,8 @@ export class AgentTasksProcessor extends WorkerHost {
       const failedTask = await this.prisma.agentTask.findUnique({ where: { id: taskId }, select: { scheduleId: true } })
       if (failedTask?.scheduleId) await this.prisma.agentSchedule.updateMany({ where: { id: failedTask.scheduleId }, data: { consecutiveFailures: { increment: 1 }, lastError: message } })
       throw error
+    } finally {
+      cancellation.close()
     }
   }
 
@@ -156,6 +161,7 @@ export class AgentTasksProcessor extends WorkerHost {
     const task = await this.task(state.taskId)
     const available = await this.tools.available(task)
     const byKey = new Map(available.map((tool) => [tool.key, tool]))
+    const signal = this.cancellations.signal(state.taskId)
     const calls = await this.prisma.agentToolCall.findMany({ where: { runId: state.runId, iteration: state.iteration }, orderBy: { position: 'asc' } })
     const pendingApproval = calls.filter((call) => call.requiresApproval && call.approvalStatus === 'PENDING')
     if (pendingApproval.length) {
@@ -203,12 +209,13 @@ export class AgentTasksProcessor extends WorkerHost {
       await this.prisma.agentToolCall.update({ where: { id: call.id }, data: { status: 'RUNNING', startedAt: new Date(), error: null } })
       await this.event(state.taskId, state.runId, 'tool', `正在调用 ${call.name}`, String((call.input as Record<string, unknown>).query || ''))
       try {
-        const output = await this.tools.execute(task, descriptor, call.input as Record<string, unknown>, `agent-tool:${call.id}`)
+        const output = await this.tools.execute(task, descriptor, call.input as Record<string, unknown>, `agent-tool:${call.id}`, signal)
         await this.prisma.agentToolCall.update({ where: { id: call.id }, data: { status: 'SUCCEEDED', output: this.model.json(output), completedAt: new Date() } })
         results.push({ tool: call.key, name: call.name, status: 'SUCCEEDED', output })
         const sourceCount = call.key === 'web_search' && output && typeof output === 'object' && Array.isArray((output as Record<string, unknown>).sources) ? ((output as Record<string, unknown>).sources as unknown[]).length : 0
         await this.event(state.taskId, state.runId, 'tool', `${call.name} 已完成`, sourceCount ? `已检索并加入 ${sourceCount} 个网页来源` : '工具结果已加入任务上下文', sourceCount ? { sources: (output as Record<string, unknown>).sources } : undefined)
       } catch (error) {
+        if (signal?.aborted) throw new AgentTaskCancelledError('任务已取消')
         const message = error instanceof Error ? error.message : '工具调用失败'
         await this.prisma.agentToolCall.update({ where: { id: call.id }, data: { status: 'FAILED', error: message, completedAt: new Date() } })
         results.push({ tool: call.key, name: call.name, status: 'FAILED', error: message })

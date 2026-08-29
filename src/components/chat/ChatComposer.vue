@@ -115,6 +115,7 @@ const props = defineProps<{
   activeChatModelLabel: string
   chatModelAvailable: boolean
   hasChatThread: boolean
+  chatUiPreset: ChatUiPreset
   uploading: boolean
   voiceListening: boolean
   voiceTarget: 'chat' | 'creation'
@@ -146,7 +147,7 @@ const capabilityOptions = [
   { key: 'VIDEO' as const, label: '视频', icon: Video },
   { key: 'AGENT' as const, label: 'Agent', icon: WandSparkles },
 ]
-const chatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
+const chatUiPreset = computed<ChatUiPreset>(() => props.chatUiPreset)
 const chatUiLabel = computed(() => ({ gpt: 'GPT', doubao: '豆包', qianwen: '千问', kimi: 'Kimi' })[chatUiPreset.value])
 const chatComposerPlaceholder = computed(() => store.temporaryChat ? '临时聊天' : ({ gpt: '有问题，随便问', doubao: '发消息...', qianwen: '向 Xinyue AI 提问', kimi: '尽管问，或做个 Agent 任务...' })[chatUiPreset.value])
 const showChatVoiceEntry = computed(() => ['gpt', 'doubao'].includes(chatUiPreset.value) && !draft.value.trim() && !attachments.value.length)

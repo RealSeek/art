@@ -1,12 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ModelCapability, Prisma, ProviderAuthType, ProviderType, SystemSetting } from '@prisma/client'
-import { isIP } from 'node:net'
 import { PrismaService } from '../prisma/prisma.service'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 import { CredentialCryptoService } from './credential-crypto.service'
 import { normalizeSiteContent } from './site-content'
 import { CapabilityRegistryService } from './capability-registry.service'
-import { DiscoveredModel, ModelDiscoveryService } from './model-discovery.service'
+import { DiscoveredModel } from './model-discovery.service'
 import { normalizeChatHomeContent } from './chat-home-content'
 import { ProviderHealthService } from './provider-health.service'
 import { ProviderRoutingService } from './provider-routing.service'
@@ -16,6 +16,7 @@ import {
   providerSourceRequirement,
   userCredentialCreditCost
 } from './provider-routing'
+import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 
 type ProviderInput = {
   name: string
@@ -139,6 +140,7 @@ type SystemSettingsInput = Partial<{
   minRechargeCents: number
   currency: string
   creditValueMicros: number
+  pricingUsdExchangeRateMicros: number
   modelImportMarkupPercent: number
   modelPriceCatalogUrl: string
   modelPriceCatalogRefreshHours: number
@@ -176,13 +178,17 @@ export type ResolvedProvider = {
   model: string
   presetKey?: string
   creditCost: number
+  settlementCurrency: string
   creditValueMicros: number
+  pricingUsdExchangeRateMicros: number
   inputCostMicrosPerMillion: number
   outputCostMicrosPerMillion: number
   imageCostMicros: number
   videoCostMicros: number
   inputCreditsPerMillion: number
   outputCreditsPerMillion: number
+  baseInputCreditsPerMillion: number
+  baseOutputCreditsPerMillion: number
   imageCapabilities?: Record<string, unknown>
   videoCapabilities?: Record<string, unknown>
   creditRatePercent: number
@@ -212,15 +218,15 @@ type VideoCapabilityRoute = {
 }
 
 const DEFAULT_PRESETS = [
-  { key: 'gpt-5.5', displayName: 'gpt-5.5', upstreamModel: 'gpt-5.5', capability: ModelCapability.CHAT, sortOrder: 10, isDefault: true },
-  { key: 'gpt-5.6-sol', displayName: 'gpt-5.6-sol', upstreamModel: 'gpt-5.6-sol', capability: ModelCapability.CHAT, sortOrder: 20 },
-  { key: 'gpt-5.6-terra', displayName: 'gpt-5.6-terra', upstreamModel: 'gpt-5.6-terra', capability: ModelCapability.CHAT, sortOrder: 30 },
-  { key: 'gpt-5.6-luna', displayName: 'gpt-5.6-luna', upstreamModel: 'gpt-5.6-luna', capability: ModelCapability.CHAT, sortOrder: 40 },
-  { key: 'grok-4.5', displayName: 'grok-4.5', upstreamModel: 'grok-4.5', capability: ModelCapability.CHAT, sortOrder: 50 },
-  { key: 'claude-sonnet', displayName: 'Claude Sonnet', upstreamModel: 'claude-sonnet-4-5', capability: ModelCapability.CHAT, sortOrder: 60, description: '支持 Anthropic Messages 或 OpenAI Compatible 渠道' },
-  { key: 'gemini-pro', displayName: 'Gemini Pro', upstreamModel: 'gemini-2.5-pro', capability: ModelCapability.CHAT, sortOrder: 70, description: '支持 Gemini GenerateContent 或 OpenAI Compatible 渠道' },
-  { key: 'deepseek-chat', displayName: 'DeepSeek', upstreamModel: 'deepseek-chat', capability: ModelCapability.CHAT, sortOrder: 80 },
-  { key: 'qwen-max', displayName: 'Qwen Max', upstreamModel: 'qwen-max', capability: ModelCapability.CHAT, sortOrder: 90 },
+  { key: 'gpt-5.5', displayName: 'gpt-5.5', upstreamModel: 'gpt-5.5', capability: ModelCapability.CHAT, sortOrder: 10, isDefault: true, flatCreditCost: 0, inputCreditsPerMillion: 260, outputCreditsPerMillion: 1040 },
+  { key: 'gpt-5.6-sol', displayName: 'gpt-5.6-sol', upstreamModel: 'gpt-5.6-sol', capability: ModelCapability.CHAT, sortOrder: 20, flatCreditCost: 0, inputCreditsPerMillion: 260, outputCreditsPerMillion: 1040 },
+  { key: 'gpt-5.6-terra', displayName: 'gpt-5.6-terra', upstreamModel: 'gpt-5.6-terra', capability: ModelCapability.CHAT, sortOrder: 30, flatCreditCost: 0, inputCreditsPerMillion: 260, outputCreditsPerMillion: 1040 },
+  { key: 'gpt-5.6-luna', displayName: 'gpt-5.6-luna', upstreamModel: 'gpt-5.6-luna', capability: ModelCapability.CHAT, sortOrder: 40, flatCreditCost: 0, inputCreditsPerMillion: 260, outputCreditsPerMillion: 1040 },
+  { key: 'grok-4.5', displayName: 'grok-4.5', upstreamModel: 'grok-4.5', capability: ModelCapability.CHAT, sortOrder: 50, flatCreditCost: 0, inputCreditsPerMillion: 390, outputCreditsPerMillion: 1300 },
+  { key: 'claude-sonnet', displayName: 'Claude Sonnet', upstreamModel: 'claude-sonnet-4-5', capability: ModelCapability.CHAT, sortOrder: 60, flatCreditCost: 0, description: '支持 Anthropic Messages 或 OpenAI Compatible 渠道', inputCreditsPerMillion: 390, outputCreditsPerMillion: 1950 },
+  { key: 'gemini-pro', displayName: 'Gemini Pro', upstreamModel: 'gemini-2.5-pro', capability: ModelCapability.CHAT, sortOrder: 70, flatCreditCost: 0, description: '支持 Gemini GenerateContent 或 OpenAI Compatible 渠道', inputCreditsPerMillion: 163, outputCreditsPerMillion: 1300 },
+  { key: 'deepseek-chat', displayName: 'DeepSeek', upstreamModel: 'deepseek-chat', capability: ModelCapability.CHAT, sortOrder: 80, flatCreditCost: 0, inputCreditsPerMillion: 36, outputCreditsPerMillion: 143 },
+  { key: 'qwen-max', displayName: 'Qwen Max', upstreamModel: 'qwen-max', capability: ModelCapability.CHAT, sortOrder: 90, flatCreditCost: 0, inputCreditsPerMillion: 100, outputCreditsPerMillion: 300 },
   {
     key: 'pollinations-free',
     displayName: 'Pollinations',
@@ -309,7 +315,7 @@ const DEFAULT_PROVIDER_TEMPLATES = [
 
 @Injectable()
 export class ProvidersService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly modelDiscovery: ModelDiscoveryService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly pricing: ProviderPricingService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async onModuleInit() {
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
@@ -363,12 +369,9 @@ export class ProvidersService implements OnModuleInit {
     return url
   }
 
-  assertUserProviderUrl(input: string) {
+  async assertUserProviderUrl(input: string) {
     const normalized = this.normalizeBaseUrl(input)
-    const url = new URL(normalized)
-    const host = url.hostname.toLowerCase()
-    const privateHost = host === 'localhost' || host.endsWith('.local') || host === '0.0.0.0' || host === '::1' || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    if (privateHost || (isIP(host) && url.protocol !== 'https:')) throw new BadRequestException('用户 API 地址不能指向本机或内网')
+    try { await this.endpointPolicy.assertPublicHttpUrl(normalized) } catch { throw new BadRequestException('用户 API 地址必须是可解析的公网 HTTP 或 HTTPS 地址') }
     return normalized
   }
 
@@ -713,14 +716,16 @@ export class ProvidersService implements OnModuleInit {
     }
   }
 
-  private async describeDiscoveredModels(payload: unknown, markupPercent?: number) {
-    const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { creditValueMicros: true, modelImportMarkupPercent: true, modelPriceCatalogUrl: true, modelPriceCatalogRefreshHours: true } })
-    return this.modelDiscovery.discover(payload, {
-      creditValueMicros: settings?.creditValueMicros ?? 10_000,
-      markupPercent: markupPercent ?? settings?.modelImportMarkupPercent ?? 130,
-      catalogUrl: settings?.modelPriceCatalogUrl,
-      refreshHours: settings?.modelPriceCatalogRefreshHours,
-    })
+  private async describeDiscoveredModels(payload: unknown, markupPercent?: number, forceRefresh = false) {
+    return this.pricing.discover(payload, markupPercent, forceRefresh)
+  }
+
+  async modelPricingComparison(markupPercent?: number, forceRefresh = true) {
+    return this.pricing.comparison(markupPercent, forceRefresh)
+  }
+
+  async applyModelPricing(input: { modelIds: string[]; markupPercent?: number }) {
+    return this.pricing.apply(input, (id, update) => this.updateModel(id, update))
   }
 
   private async adminDiscoveryStatus(providerId: string, candidates: DiscoveredModel[]) {
@@ -988,6 +993,8 @@ export class ProvidersService implements OnModuleInit {
         effectiveCreditCost: 0,
         inputCreditsPerMillion: 0,
         outputCreditsPerMillion: 0,
+        baseInputCreditsPerMillion: 0,
+        baseOutputCreditsPerMillion: 0,
         badge: '我的模型',
         healthyRouteCount: healthyRoutes.length,
         routeCount: routes.length,
@@ -1003,7 +1010,7 @@ export class ProvidersService implements OnModuleInit {
     if (input.isDefault) await this.prisma.modelPreset.updateMany({ where: { capability: input.capability }, data: { isDefault: false } })
     return this.prisma.$transaction(async (tx) => {
       const model = await tx.modelPreset.create({ data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
-      await tx.modelPriceVersion.create({ data: { modelPresetId: model.id, version: 1, ...this.modelPricing(model) } })
+      await tx.modelPriceVersion.create({ data: { modelPresetId: model.id, version: 1, ...modelPricingFields(model) } })
       return model
     })
   }
@@ -1015,16 +1022,12 @@ export class ProvidersService implements OnModuleInit {
     if (input.isDefault === true) await this.prisma.modelPreset.updateMany({ where: { capability, id: { not: id } }, data: { isDefault: false } })
     return this.prisma.$transaction(async (tx) => {
       const model = await tx.modelPreset.update({ where: { id }, data: input, include: { provider: { select: { id: true, name: true, type: true, enabled: true } }, providerRoutes: { include: { provider: { select: { id: true, name: true, type: true, enabled: true } } } } } })
-      if (JSON.stringify(this.modelPricing(existing)) !== JSON.stringify(this.modelPricing(model))) {
+      if (JSON.stringify(modelPricingFields(existing)) !== JSON.stringify(modelPricingFields(model))) {
         const latest = await tx.modelPriceVersion.aggregate({ where: { modelPresetId: id }, _max: { version: true } })
-        await tx.modelPriceVersion.create({ data: { modelPresetId: id, version: (latest._max.version || 0) + 1, ...this.modelPricing(model) } })
+        await tx.modelPriceVersion.create({ data: { modelPresetId: id, version: (latest._max.version || 0) + 1, ...modelPricingFields(model) } })
       }
       return model
     })
-  }
-
-  private modelPricing(model: { flatCreditCost: number; inputCreditsPerMillion: number; outputCreditsPerMillion: number; inputCostMicrosPerMillion: number; outputCostMicrosPerMillion: number; imageCostMicros: number; videoCostMicros: number }) {
-    return { flatCreditCost: model.flatCreditCost, inputCreditsPerMillion: model.inputCreditsPerMillion, outputCreditsPerMillion: model.outputCreditsPerMillion, inputCostMicrosPerMillion: model.inputCostMicrosPerMillion, outputCostMicrosPerMillion: model.outputCostMicrosPerMillion, imageCostMicros: model.imageCostMicros, videoCostMicros: model.videoCostMicros }
   }
 
   async replaceModelRoutes(modelPresetId: string, routes: Array<{ providerId: string; upstreamModelOverride?: string; enabled?: boolean; priority?: number | null; weight?: number | null; inputCostMicrosPerMillion?: number | null; outputCostMicrosPerMillion?: number | null; imageCostMicros?: number | null; videoCostMicros?: number | null; options?: Record<string, unknown> | null }>) {
@@ -1206,7 +1209,7 @@ export class ProvidersService implements OnModuleInit {
     const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' } })
     if (!settings?.userByokEnabled) throw new BadRequestException('管理员未开放用户 API 密钥')
     if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
-    const baseUrl = this.assertUserProviderUrl(input.baseUrl)
+    const baseUrl = await this.assertUserProviderUrl(input.baseUrl)
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId }, data: { isDefault: false } })
     const row = await this.prisma.userApiCredential.create({ data: { userId, name: input.name.trim(), templateId: input.templateId || null, providerType: input.providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: input.authType, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, customHeaders: input.customHeaders as Prisma.InputJsonValue, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
     return this.publicCredential(row)
@@ -1222,7 +1225,7 @@ export class ProvidersService implements OnModuleInit {
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
       ...(input.templateId !== undefined ? { templateId: input.templateId || null } : {}),
       ...(input.providerType !== undefined ? { providerType: input.providerType } : {}),
-      ...(input.baseUrl !== undefined ? { baseUrl: this.assertUserProviderUrl(input.baseUrl) } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl: await this.assertUserProviderUrl(input.baseUrl) } : {}),
       ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey) } : {}),
       ...(input.authType !== undefined ? { authType: input.authType } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
@@ -1279,7 +1282,9 @@ export class ProvidersService implements OnModuleInit {
     const startedAt = Date.now()
     try {
       const apiKey = this.crypto.decrypt(credential.encryptedApiKey)
-      const response = await fetch(`${credential.baseUrl}/models`, {
+      const baseUrl = await this.assertUserProviderUrl(credential.baseUrl)
+      const response = await fetch(`${baseUrl}/models`, {
+        redirect: 'error',
         headers: this.applyAuth(this.headers(credential.customHeaders), credential.authType, apiKey),
         signal: AbortSignal.timeout(30_000),
       })
@@ -1438,11 +1443,26 @@ export class ProvidersService implements OnModuleInit {
       include: { routes: { where: { enabled: true }, include: { credential: true } } },
     })
     if (!model) return null
+    const pricePreset = await this.prisma.modelPreset.findFirst({
+      where: {
+        capability,
+        enabled: true,
+        OR: [
+          { key: model.key },
+          ...model.routes.map((route) => ({ upstreamModel: route.upstreamModel })),
+        ],
+      },
+      orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+    })
     const now = Date.now()
     const available = model.routes.filter((route) => route.credential.enabled && (!route.credential.expiresAt || route.credential.expiresAt.getTime() > now) && (!route.cooldownUntil || route.cooldownUntil.getTime() <= now) && (!route.credential.cooldownUntil || route.credential.cooldownUntil.getTime() <= now))
-    if (!available.length) throw new BadRequestException('私有模型没有可用密钥，请检测密钥或调整路由')
+    const publicRoutes = []
+    for (const route of available) {
+      try { await this.assertUserProviderUrl(route.credential.baseUrl); publicRoutes.push(route) } catch { /* Ignore unsafe legacy BYOK routes at execution time. */ }
+    }
+    if (!publicRoutes.length) throw new BadRequestException('私有模型没有安全可用的公网密钥地址，请检测密钥或调整路由')
     const orderedRoutes = this.routing.orderPrivate(
-      available.map((route) => ({
+      publicRoutes.map((route) => ({
         value: route,
         priority: route.priority || route.credential.priority,
         weight: route.weight || route.credential.weight,
@@ -1453,7 +1473,7 @@ export class ProvidersService implements OnModuleInit {
     const apiProtocol: ResolvedProvider['apiProtocol'] = model.apiProtocol === 'anthropic' || model.apiProtocol === 'gemini' ? model.apiProtocol : 'openai'
     const modelOptions = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? model.options as Record<string, unknown> : {}
     return orderedRoutes.map((route) => ({
-      source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, creditValueMicros: settings.creditValueMicros, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: 0, outputCreditsPerMillion: 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
+      source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, settlementCurrency: settings.currency, creditValueMicros: settings.creditValueMicros, pricingUsdExchangeRateMicros: settings.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: Math.ceil((pricePreset?.inputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100), outputCreditsPerMillion: Math.ceil((pricePreset?.outputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100), baseInputCreditsPerMillion: pricePreset?.inputCreditsPerMillion ?? 0, baseOutputCreditsPerMillion: pricePreset?.outputCreditsPerMillion ?? 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
       options: modelOptions,
       imageCapabilities: modelOptions.imageCapabilities && typeof modelOptions.imageCapabilities === 'object' ? modelOptions.imageCapabilities as Record<string, unknown> : undefined,
       videoCapabilities: modelOptions.videoCapabilities && typeof modelOptions.videoCapabilities === 'object' ? modelOptions.videoCapabilities as Record<string, unknown> : undefined,
@@ -1470,11 +1490,15 @@ export class ProvidersService implements OnModuleInit {
     const configuredProtocol = String(presetOptions.apiProtocol || 'openai').toLowerCase()
     const apiProtocol: ResolvedProvider['apiProtocol'] = configuredProtocol === 'anthropic' || configuredProtocol === 'gemini' ? configuredProtocol : 'openai'
     const basePricing = {
+      settlementCurrency: settings?.currency ?? 'CNY',
       creditValueMicros: settings?.creditValueMicros ?? 10000,
+      pricingUsdExchangeRateMicros: settings?.pricingUsdExchangeRateMicros ?? 1_000_000,
       inputCostMicrosPerMillion: preset?.inputCostMicrosPerMillion ?? 0,
       outputCostMicrosPerMillion: preset?.outputCostMicrosPerMillion ?? 0,
       imageCostMicros: preset?.imageCostMicros ?? 0,
       videoCostMicros: preset?.videoCostMicros ?? 0,
+      baseInputCreditsPerMillion: preset?.inputCreditsPerMillion ?? 0,
+      baseOutputCreditsPerMillion: preset?.outputCreditsPerMillion ?? 0,
       inputCreditsPerMillion: Math.ceil((preset?.inputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100),
       outputCreditsPerMillion: Math.ceil((preset?.outputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100),
       imageCapabilities: presetOptions.imageCapabilities && typeof presetOptions.imageCapabilities === 'object' && !Array.isArray(presetOptions.imageCapabilities) ? presetOptions.imageCapabilities as Record<string, unknown> : undefined,
@@ -1487,7 +1511,10 @@ export class ProvidersService implements OnModuleInit {
       const credentials = await this.prisma.userApiCredential.findMany({ where: { userId, enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
       const compatibleTypes = new Set([preset?.provider?.type, ...(preset?.providerRoutes || []).map((route) => route.provider.type)].filter(Boolean))
       const ordered = [...credentials].sort((a, b) => Number(compatibleTypes.has(b.providerType)) - Number(compatibleTypes.has(a.providerType)))
-      for (const credential of ordered) candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost: this.routing.credentialCreditCost(requiredSource, creditCost), ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(credential.baseUrl, apiProtocol, presetOptions), inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, ...(requiredSource === 'user' ? { inputCreditsPerMillion: 0, outputCreditsPerMillion: 0 } : {}) })
+      for (const credential of ordered) {
+        try { await this.assertUserProviderUrl(credential.baseUrl) } catch { continue }
+        candidates.push({ source: 'user', credentialId: credential.id, label: credential.name, type: credential.providerType, baseUrl: credential.baseUrl, apiKey: this.crypto.decrypt(credential.encryptedApiKey), authType: credential.authType, headers: this.headers(credential.customHeaders), timeoutMs: 120_000, model, presetKey: preset?.key, creditCost: this.routing.credentialCreditCost(requiredSource, creditCost), ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(credential.baseUrl, apiProtocol, presetOptions), inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, ...(requiredSource === 'user' ? { inputCreditsPerMillion: 0, outputCreditsPerMillion: 0 } : {}) })
+      }
     }
 
     const now = Date.now()

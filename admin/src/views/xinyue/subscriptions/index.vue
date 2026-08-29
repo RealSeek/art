@@ -30,8 +30,11 @@
             ><p>{{ plan.description || xt('暂无套餐说明') }}</p
             ><dl
               ><div
-                ><dt>{{ xt('包含额度') }}</dt
+                ><dt>{{ xt('包含创作点') }}</dt
                 ><dd>{{ plan.includedCredits }} {{ xt('点') }}</dd></div
+              ><div
+                ><dt>{{ xt('文字计费额度') }}</dt
+                ><dd>{{ quota(plan.monthlyQuotaUnits) }} / {{ xt('月') }}</dd></div
               ><div
                 ><dt>{{ xt('并发任务') }}</dt
                 ><dd>{{ plan.concurrency }} {{ xt('路') }}</dd></div
@@ -209,6 +212,35 @@
                 :min="0"
                 :max="365"
                 class="wide" /></ElFormItem></ElCol></ElRow
+        ><ElDivider content-position="left">{{ xt('文字模型计费') }}</ElDivider
+        ><ElAlert
+          type="info"
+          :closable="false"
+          :title="xt('文字对话按模型输入/输出 Token 价格折算为计费额度；图片和视频仍只使用创作点。默认额度不足时阻止请求。')"
+          class="billing-note"
+        />
+        <ElRow :gutter="14"
+          ><ElCol :span="8"
+            ><ElFormItem :label="xt('每月计费额度')"
+              ><ElInputNumber v-model="planForm.monthlyQuotaUnits" :min="0" :max="1_000_000_000_000" class="wide" /></ElFormItem></ElCol
+          ><ElCol :span="8"
+            ><ElFormItem :label="xt('每日计费额度')"
+              ><ElInputNumber v-model="planForm.dailyQuotaUnits" :min="0" :max="1_000_000_000_000" class="wide" /></ElFormItem></ElCol
+          ><ElCol :span="8"
+            ><ElFormItem :label="xt('BYOK 计费')"
+              ><ElSelect v-model="planForm.byokMode" class="wide"
+                ><ElOption :label="xt('消耗套餐额度')" value="QUOTA" />
+                <ElOption :label="xt('不消耗额度')" value="FREE" /></ElSelect></ElFormItem></ElCol></ElRow
+        ><ElRow :gutter="14"
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('额度用尽后')"
+              ><ElSelect v-model="planForm.tokenOverageMode" class="wide"
+                ><ElOption :label="xt('阻止继续调用')" value="BLOCK" />
+                <ElOption :label="xt('改用创作点支付')" value="OVERAGE_CREDITS" /></ElSelect></ElFormItem></ElCol
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('超额换算比例（%）')"
+              ><ElInputNumber v-model="planForm.tokenOverageRate" :min="0" :max="100_000_000" :disabled="planForm.tokenOverageMode !== 'OVERAGE_CREDITS'" class="wide" />
+              <small class="note">{{ xt('100% 表示 1 计费额度折算 1 创作点；设为 0 时不启用超额支付。') }}</small></ElFormItem></ElCol></ElRow
         ><ElSpace wrap
           ><ElCheckbox v-model="planForm.imageAccess">{{ xt('图片生成') }}</ElCheckbox
           ><ElCheckbox v-model="planForm.videoAccess">{{ xt('视频生成') }}</ElCheckbox
@@ -321,6 +353,12 @@
     originalPriceCents: 0,
     currency: 'CNY',
     includedCredits: 0,
+    monthlyQuotaUnits: 0,
+    dailyQuotaUnits: 0,
+    tokenQuotaMode: 'BILLABLE_UNITS' as const,
+    tokenOverageMode: 'BLOCK' as 'BLOCK' | 'OVERAGE_CREDITS',
+    tokenOverageRate: 0,
+    byokMode: 'QUOTA' as 'QUOTA' | 'FREE',
     trialDays: 0,
     concurrency: 1,
     allowByok: true,
@@ -355,6 +393,7 @@
   })
   const money = (cents: number, currency = 'CNY') =>
     new Intl.NumberFormat(xinyueLocale(), { style: 'currency', currency }).format(cents / 100)
+  const quota = (value: number) => new Intl.NumberFormat(xinyueLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value || 0))
   const date = (value?: string | null) =>
     value
       ? new Intl.DateTimeFormat(xinyueLocale(), { dateStyle: 'medium', timeStyle: 'short' }).format(
@@ -389,6 +428,8 @@
   function openEdit(row: SubscriptionPlan) {
     Object.assign(planForm, emptyPlan(), row, {
       originalPriceCents: row.originalPriceCents || 0,
+      monthlyQuotaUnits: Number(row.monthlyQuotaUnits || 0),
+      dailyQuotaUnits: Number(row.dailyQuotaUnits || 0),
       capabilities: row.capabilities || {},
       canvasAccess: row.capabilities?.canvasAccess !== false,
       shortDramaAccess: row.capabilities?.shortDramaAccess !== false,
@@ -410,6 +451,12 @@
         originalPriceCents: planForm.originalPriceCents || undefined,
         currency: planForm.currency,
         includedCredits: planForm.includedCredits,
+        monthlyQuotaUnits: planForm.monthlyQuotaUnits,
+        dailyQuotaUnits: planForm.dailyQuotaUnits,
+        tokenQuotaMode: planForm.tokenQuotaMode,
+        tokenOverageMode: planForm.tokenOverageMode,
+        tokenOverageRate: planForm.tokenOverageMode === 'OVERAGE_CREDITS' ? planForm.tokenOverageRate : 0,
+        byokMode: planForm.byokMode,
         trialDays: planForm.trialDays,
         concurrency: planForm.concurrency,
         allowByok: planForm.allowByok,

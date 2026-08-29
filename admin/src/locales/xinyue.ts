@@ -6,6 +6,26 @@ import i18n from './index'
  * runtime locale without changing API values or route resource keys.
  */
 const englishGlossary: Record<string, string> = {
+  计价基准预设: 'Pricing baseline presets',
+  '选择后只填充配置，保存后生效；不会自动覆盖模型价格。':
+    'Selecting a preset only fills the form. It takes effect after saving and does not overwrite model prices.',
+  '人民币 1:1': 'CNY numeric parity',
+  '1 USD 按 ¥1；适合对标数值': 'Treat USD 1 as CNY 1 for numeric benchmarking',
+  人民币市场参考: 'CNY market reference',
+  '1 USD 按 ¥7.2；部署后可手动调整': 'Use CNY 7.2 per USD; adjust after deployment',
+  '美元 1:1': 'USD parity',
+  '1 USD 按 $1；适合美元结算': 'Use USD 1 per USD for dollar settlement',
+  '1 USD 兑换结算币种': 'Settlement currency per USD',
+  每计费额度价值: 'Value per billing unit',
+  加价率快捷值: 'Markup presets',
+  '成本价 1.0x': 'At cost 1.0x',
+  '轻量 1.1x': 'Light 1.1x',
+  '标准 1.3x': 'Standard 1.3x',
+  '运营 1.5x': 'Operations 1.5x',
+  '高保障 2.0x': 'High coverage 2.0x',
+  '同步公式：目录 USD 参考成本 × 汇率 × 加价率 ÷ 每额度价值。保存基准后，到“模型与定价”预览并选择是否应用。':
+    'Formula: reference USD cost x exchange rate x markup / unit value. Save the baseline, then preview and choose whether to apply it under Models & Pricing.',
+  目录参考成本: 'Catalog reference cost',
   聊天主页界面: 'Chat home layout',
   紧凑居中: 'Compact centered',
   豆包: 'Doubao',

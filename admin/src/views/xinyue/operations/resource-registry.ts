@@ -156,7 +156,7 @@ export const operationResources: Record<string, ResourceConfig> = {
   },
   assistants: {
     title: 'AI 助手',
-    description: '配置系统提示词、默认模型、工具和知识库',
+    description: '使用开箱预设或配置系统指令、默认模型、工具和知识库',
     icon: 'ri:sparkling-2-line',
     endpoint: '/v1/admin/assistants',
     columns: [
@@ -170,7 +170,7 @@ export const operationResources: Record<string, ResourceConfig> = {
   },
   tools: {
     title: '工具与审批',
-    description: '管理助手可调用的外部工具及审批策略',
+    description: '管理内置能力、第三方工作流模板、调用凭证和审批策略',
     icon: 'ri:tools-line',
     endpoint: '/v1/admin/tools',
     columns: [

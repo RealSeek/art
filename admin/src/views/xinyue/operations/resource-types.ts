@@ -26,6 +26,8 @@ export type ResourceEditorField = {
   required?: boolean
   span?: number
   placeholder?: string
+  help?: string
+  helpUrl?: { label: string; url: string }
   maxlength?: number
   rows?: number
   min?: number

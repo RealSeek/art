@@ -6,6 +6,7 @@ import { GenerationsService } from '../generations/generations.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { ProvidersService } from '../providers/providers.service'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { AgentTaskCancellationService } from './agent-task-cancellation.service'
 
 export interface CreateAgentTaskInput {
   title: string
@@ -34,6 +35,7 @@ export class AgentTasksService {
     private readonly generations: GenerationsService,
     private readonly providers: ProvidersService,
     private readonly access: ResourceAccessService,
+    private readonly cancellations: AgentTaskCancellationService,
     @InjectQueue('agent-task') private readonly queue: Queue,
   ) {}
 
@@ -230,6 +232,7 @@ export class AgentTasksService {
       this.prisma.agentTaskStep.updateMany({ where: { agentTaskId: id, status: { in: [AgentTaskStepStatus.PENDING, AgentTaskStepStatus.RUNNING] } }, data: { status: AgentTaskStepStatus.CANCELLED, completedAt: now } }),
       this.prisma.agentRun.updateMany({ where: { agentTaskId: id, status: { in: activeStatuses } }, data: { status: AgentTaskStatus.CANCELLED, completedAt: now } }),
     ])
+    this.cancellations.cancel(id)
     return this.get(userId, id)
   }
 

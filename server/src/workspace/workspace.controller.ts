@@ -13,6 +13,8 @@ import { TeamService } from './team.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { CreditsService } from '../credits/credits.service'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { assistantCreateData, defaultAssistantPresets, defaultToolPresets, toolCreateData } from './default-capability-presets'
+import { AgentToolsService } from '../agent-tasks/agent-tools.service'
 
 class AssistantDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string
@@ -73,7 +75,7 @@ class OfficeExportDto {
 @Controller()
 @UseGuards(AuthGuard)
 export class WorkspaceController {
-  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly officeExports: OfficeExportService, private readonly crypto: CredentialCryptoService, private readonly teamService: TeamService, private readonly access: ResourceAccessService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly officeExports: OfficeExportService, private readonly teamService: TeamService, private readonly access: ResourceAccessService, private readonly agentTools: AgentToolsService) {}
 
   @Post('office/exports')
   exportOffice(@CurrentUser() user: AuthenticatedUser, @Body() body: OfficeExportDto) { return this.officeExports.create(user.id, body) }
@@ -264,12 +266,16 @@ export class WorkspaceController {
       if (!approval) throw new ForbiddenException('审批不存在、已过期或尚未批准')
       await this.prisma.toolApprovalRequest.update({ where: { id: approval.id }, data: { consumedAt: new Date() } })
     }
-    if (!binding.tool.endpoint) throw new NotFoundException('工具尚未配置 Endpoint')
-    const started = Date.now(); let status = 'FAILED'; let output: unknown = null; let error = ''
-    try { const endpoint = await this.endpointPolicy.assertPublicHttpUrl(binding.tool.endpoint); const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body.input || {}), signal: AbortSignal.timeout(30_000) }); const text = await response.text(); output = text.slice(0, 100_000); if (!response.ok) throw new Error(`工具返回 ${response.status}`); status = 'SUCCEEDED' } catch (reason) { error = reason instanceof Error ? reason.message : '工具调用失败' }
-    const audit = await this.prisma.toolCallAudit.create({ data: { userId: user.id, toolId, assistantId, status, input: (body.input || {}) as Prisma.InputJsonValue, output: output as Prisma.InputJsonValue, error: error || null, durationMs: Date.now() - started } })
-    if (status === 'FAILED') throw new ForbiddenException(error || '工具调用失败')
-    return { id: audit.id, status, output }
+    try {
+      const output = await this.agentTools.execute(
+        { id: `manual:${assistantId}:${toolId}`, userId: user.id, assistantId, projectId: null, webSearchEnabled: false },
+        { id: binding.tool.id, key: binding.tool.key, name: binding.tool.name, description: binding.tool.description, requiresApproval: binding.tool.requiresApproval, kind: 'external', inputSchema: binding.tool.inputSchema },
+        body.input || {},
+      )
+      return { status: 'SUCCEEDED', output }
+    } catch (reason) {
+      throw new ForbiddenException(reason instanceof Error ? reason.message : '工具调用失败')
+    }
   }
 }
 
@@ -333,6 +339,15 @@ export class AdminWorkspaceController {
   @Get('assistants')
   assistants() { return this.prisma.assistant.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }], include: { tools: { select: { toolId: true } }, knowledgeBases: { select: { knowledgeBaseId: true } }, _count: { select: { knowledgeBases: true, tools: true } } } }) }
 
+  @Post('assistants/restore-defaults')
+  async restoreAssistants(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest) {
+    const before = await this.prisma.assistant.count({ where: { id: { in: defaultAssistantPresets.map((item) => item.id) } } })
+    await this.prisma.$transaction(defaultAssistantPresets.map((preset) => this.prisma.assistant.upsert({ where: { id: preset.id }, update: {}, create: assistantCreateData(preset) })))
+    const added = defaultAssistantPresets.length - before
+    await this.audit(admin.id, request, 'assistant.restore_defaults', 'assistant-presets', { added, total: defaultAssistantPresets.length })
+    return { added, total: defaultAssistantPresets.length }
+  }
+
   @Post('assistants')
   async createAssistant(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Body() body: AssistantDto) {
     const row = await this.prisma.assistant.create({ data: { name: body.name.trim(), description: body.description?.trim() || '', systemPrompt: body.systemPrompt?.trim() || '', defaultModel: body.defaultModel?.trim() || '', templateIds: (body.templateIds || []) as Prisma.InputJsonValue, enabled: body.enabled ?? true, sortOrder: body.sortOrder ?? 0, tools: body.toolIds?.length ? { create: body.toolIds.map((toolId) => ({ toolId })) } : undefined, knowledgeBases: body.knowledgeBaseIds?.length ? { create: body.knowledgeBaseIds.map((knowledgeBaseId) => ({ knowledgeBaseId })) } : undefined } })
@@ -356,6 +371,15 @@ export class AdminWorkspaceController {
 
   @Get('tools')
   tools() { return this.prisma.toolDefinition.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { assistants: true, calls: true } } } }).then((rows) => rows.map((row) => ({ ...row, encryptedHeaders: undefined, hasSecretHeaders: Boolean(row.encryptedHeaders) }))) }
+
+  @Post('tools/restore-defaults')
+  async restoreTools(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest) {
+    const before = await this.prisma.toolDefinition.count({ where: { key: { in: defaultToolPresets.map((item) => item.key) } } })
+    await this.prisma.$transaction(defaultToolPresets.map((preset) => this.prisma.toolDefinition.upsert({ where: { key: preset.key }, update: {}, create: toolCreateData(preset) })))
+    const added = defaultToolPresets.length - before
+    await this.audit(admin.id, request, 'tool.restore_defaults', 'tool-presets', { added, total: defaultToolPresets.length })
+    return { added, total: defaultToolPresets.length }
+  }
 
   @Post('tools/:id/icon')
   async uploadToolIcon(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string) {

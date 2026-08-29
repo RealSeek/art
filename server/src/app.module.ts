@@ -35,6 +35,7 @@ import { CanvasesModule } from './canvases/canvases.module'
 import { RequestContextInterceptor } from './common/request-context'
 import { FeatureFlagsModule } from './features/feature-flags.module'
 import { ExportsModule } from './exports/exports.module'
+import { RuntimeMetricsService } from './common/runtime-metrics.service'
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { ExportsModule } from './exports/exports.module'
   ],
   controllers: [HealthController],
   providers: [
+    RuntimeMetricsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },
   ],

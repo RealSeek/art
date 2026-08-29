@@ -3,10 +3,12 @@
     <div class="page-title"
       ><div
         ><h1>{{ xt('模型与定价') }}</h1
-        ><p>{{ xt('前端显示模型、上游标识、能力和创作点定价') }}</p></div
-      ><ElButton type="primary" @click="openCreate"
-        ><ArtSvgIcon icon="ri:add-line" />{{ xt('新增模型') }}</ElButton
-      ></div
+        ><p>{{ xt('统一维护模型成本、平台倍率、用户价格和历史价格版本') }}</p></div
+      ><ElSpace><ElButton :loading="pricingLoading" @click="openPricingSync"
+          ><ArtSvgIcon icon="ri:refresh-line" />{{ xt('同步价格目录') }}</ElButton
+        ><ElButton type="primary" @click="openCreate"
+          ><ArtSvgIcon icon="ri:add-line" />{{ xt('新增模型') }}</ElButton
+        ></ElSpace></div
     >
     <ElCard shadow="never" class="filter-card"
       ><ElSegmented v-model="capability" :options="capabilities" /><span class="model-count"
@@ -86,6 +88,51 @@
         >
       </ElTable>
     </ElCard>
+    <ElDialog
+      v-model="pricingDialog"
+      :title="xt('模型价格同步与倍率对比')"
+      width="min(1180px, 96vw)"
+      class="pricing-sync-dialog"
+      destroy-on-close
+    >
+      <ElAlert
+        type="info"
+        :closable="false"
+        show-icon
+        :title="xt('价格目录提供 USD 参考成本；用户售价按汇率、目标倍率和每计费额度价值换算。应用后会生成新价格版本，历史账单不受影响。')"
+      />
+      <div class="pricing-sync-toolbar">
+        <ElCheckbox v-model="selectAllPriced" @change="toggleAllPriced">{{ xt('选择全部已命中模型') }}</ElCheckbox>
+        <ElSpace wrap>
+          <span>{{ xt('目标倍率') }}</span>
+          <ElInputNumber v-model="pricingMarkupPercent" :min="100" :max="1000" :step="10" />
+          <span class="block-note">{{ pricingMarkupPercent / 100 }}x</span>
+          <ElButton :loading="pricingLoading" @click="refreshPricingComparison(false)">{{ xt('重新计算') }}</ElButton>
+        </ElSpace>
+      </div>
+      <ElTable v-loading="pricingLoading" :data="pricingComparison?.models || []" height="500" row-key="id">
+        <ElTableColumn width="48">
+          <template #default="{ row }"><ElCheckbox :model-value="selectedPricingIds.includes(row.id)" :disabled="!row.available || !row.changed" @change="togglePricingModel(row.id, $event)"><span /></ElCheckbox></template>
+        </ElTableColumn>
+        <ElTableColumn :label="xt('模型')" min-width="200">
+          <template #default="{ row }"><strong>{{ row.displayName }}</strong><small class="block-note">{{ row.upstreamModel }}</small></template>
+        </ElTableColumn>
+        <ElTableColumn :label="xt('目录参考成本')" min-width="185">
+          <template #default="{ row }"><template v-if="row.suggested"><span>{{ costSummary(row.suggested) }}</span><small class="block-note">{{ sourceLabel(row.pricingSource) }}</small></template><ElTag v-else type="warning">{{ row.pricingSource === 'none' ? xt('目录未命中') : xt('计价单位不匹配') }}</ElTag></template>
+        </ElTableColumn>
+        <ElTableColumn :label="xt('当前用户价格')" min-width="175">
+          <template #default="{ row }"><span>{{ userPriceSummary(row.current, row.capability) }}</span><small class="block-note">{{ currentMarkupSummary(row) }}</small></template>
+        </ElTableColumn>
+        <ElTableColumn :label="xt('建议用户价格')" min-width="175">
+          <template #default="{ row }"><template v-if="row.suggested"><strong>{{ userPriceSummary(row.suggested, row.capability) }}</strong><small class="block-note">{{ xt('目标') }} {{ pricingMarkupPercent / 100 }}x</small></template><span v-else class="block-note">{{ xt('保留人工定价') }}</span></template>
+        </ElTableColumn>
+        <ElTableColumn :label="xt('变化')" width="105">
+          <template #default="{ row }"><ElTag v-if="row.suggested" :type="row.changed ? 'warning' : 'success'">{{ row.changed ? xt('待更新') : xt('已一致') }}</ElTag><ElTag v-else type="info">{{ xt('跳过') }}</ElTag></template>
+        </ElTableColumn>
+      </ElTable>
+      <div v-if="pricingComparison" class="pricing-sync-source">{{ xt('目录') }}：{{ pricingComparison.catalogUrl }} · 1 USD = {{ pricingComparison.pricingUsdExchangeRateMicros / 1_000_000 }} {{ pricingComparison.currency }} · {{ xt('每计费额度价值') }} {{ settlementMoneyMicros(pricingComparison.creditValueMicros, pricingComparison.currency) }}</div>
+      <template #footer><ElButton @click="pricingDialog = false">{{ xt('取消') }}</ElButton><ElButton type="primary" :loading="pricingApplying" :disabled="!selectedPricingIds.length" @click="applyPricingComparison">{{ xt('应用所选价格') }}</ElButton></template>
+    </ElDialog>
     <ElDialog
       v-model="dialog"
       :title="xt(editor.id ? '编辑模型预设' : '新增模型预设')"
@@ -181,7 +228,7 @@
           :title="agentCapabilitySummary"
           class="protocol-note"
         />
-        ><template v-if="editor.capability === 'IMAGE' || editor.capability === 'COMMERCE'"
+        <template v-if="editor.capability === 'IMAGE' || editor.capability === 'COMMERCE'"
           ><ElDivider content-position="left">{{ xt('图片模型能力') }}</ElDivider
           ><ElRow :gutter="14"
             ><ElCol :span="16"
@@ -369,6 +416,20 @@
           :image-size="56"
         />
         <ElDivider content-position="left">{{ xt('计费与前端权限') }}</ElDivider
+        ><ElAlert
+          v-if="editor.capability === 'CHAT'"
+          type="info"
+          :closable="false"
+          :title="xt('上游成本用于利润与对账；用户售价用于扣套餐计费额度。用户分组倍率会在请求时叠加，历史任务使用当时的价格快照。')"
+          class="protocol-note"
+        />
+        <ElRow v-if="editor.capability === 'CHAT'" :gutter="14"
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('上游输入成本（微美元 / M token）')"
+              ><ElInputNumber v-model="editor.inputCostMicrosPerMillion" :min="0" :max="2_000_000_000" class="w-full" /></ElFormItem></ElCol
+          ><ElCol :span="12"
+            ><ElFormItem :label="xt('上游输出成本（微美元 / M token）')"
+              ><ElInputNumber v-model="editor.outputCostMicrosPerMillion" :min="0" :max="2_000_000_000" class="w-full" /></ElFormItem></ElCol></ElRow
         ><ElRow :gutter="14"
           ><ElCol :span="8"
             ><ElFormItem :label="xt('固定点数 / 次')"
@@ -411,6 +472,8 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import {
     modelApi as xinyueApi,
+    type ModelPricingComparison,
+    type ModelPricingValues,
     type ModelPreset,
     type ModelProviderRoute,
     type ModelVendor,
@@ -453,6 +516,8 @@
     flatCreditCost: 1,
     inputCreditsPerMillion: 0,
     outputCreditsPerMillion: 0,
+    inputCostMicrosPerMillion: 0,
+    outputCostMicrosPerMillion: 0,
     badge: '',
     apiProtocol: 'openai' as 'openai' | 'anthropic' | 'gemini',
     nativeSearchProvider: 'auto' as NativeSearchProvider | 'auto',
@@ -486,6 +551,13 @@
   const loading = ref(false)
   const saving = ref(false)
   const dialog = ref(false)
+  const pricingDialog = ref(false)
+  const pricingLoading = ref(false)
+  const pricingApplying = ref(false)
+  const pricingMarkupPercent = ref(130)
+  const pricingComparison = ref<ModelPricingComparison | null>(null)
+  const selectedPricingIds = ref<string[]>([])
+  const selectAllPriced = ref(true)
   const editor = reactive(emptyEditor())
   const routeEditors = ref<RouteEditor[]>([])
   const filtered = computed(() =>
@@ -529,6 +601,54 @@
       .join(' · ')
     return `${editor.agentEnabled ? xt('已开放 Agent 任务') : xt('未开放 Agent 任务')}${detail ? ` · ${detail}` : ` · ${xt('工具由 Xinyue 服务端编排')}`}`
   })
+  const moneyMicros = (value: number) => value ? `$${(value / 1_000_000).toFixed(value < 10_000 ? 4 : 2)}` : '-'
+  const settlementMoneyMicros = (value: number, currency: string) => {
+    const amount = value / 1_000_000
+    return `${currency === 'CNY' ? '¥' : '$'}${amount.toFixed(value < 10_000 ? 6 : 4)}`
+  }
+  const sourceLabel = (source: ModelPricingComparison['models'][number]['pricingSource']) => source === 'litellm' ? xt('价格目录') : source === 'fallback' ? xt('内置基线') : xt('未命中')
+  const costSummary = (value: ModelPricingValues) => value.inputCostMicrosPerMillion || value.outputCostMicrosPerMillion
+    ? `${xt('输入')} ${moneyMicros(value.inputCostMicrosPerMillion)} · ${xt('输出')} ${moneyMicros(value.outputCostMicrosPerMillion)} / M`
+    : value.imageCostMicros ? `${moneyMicros(value.imageCostMicros)} / ${xt('张')}` : value.videoCostMicros ? `${moneyMicros(value.videoCostMicros)} / ${xt('秒')}` : '-'
+  const userPriceSummary = (value: ModelPricingValues, modelCapability: Capability) => modelCapability === 'CHAT'
+    ? `${xt('输入')} ${value.inputCreditsPerMillion} · ${xt('输出')} ${value.outputCreditsPerMillion} ${xt('额度 / M')}`
+    : `${value.flatCreditCost} ${xt('创作点')}`
+  const currentMarkupSummary = (row: ModelPricingComparison['models'][number]) => {
+    const ratios = [row.currentInputMarkupPercent, row.currentOutputMarkupPercent].filter((value): value is number => value !== null)
+    return ratios.length ? `${xt('当前倍率')} ${ratios.map((value) => `${(value / 100).toFixed(2)}x`).join(' / ')}` : xt('暂无可比倍率')
+  }
+  async function openPricingSync() {
+    pricingDialog.value = true
+    await refreshPricingComparison(true, true)
+  }
+  async function refreshPricingComparison(forceRefresh = false, useConfiguredMarkup = false) {
+    pricingLoading.value = true
+    try {
+      pricingComparison.value = await xinyueApi.previewModelPricing({ ...(useConfiguredMarkup ? {} : { markupPercent: pricingMarkupPercent.value }), forceRefresh })
+      pricingMarkupPercent.value = pricingComparison.value.markupPercent
+      selectedPricingIds.value = pricingComparison.value.models.filter((item) => item.available && item.changed).map((item) => item.id)
+      selectAllPriced.value = Boolean(selectedPricingIds.value.length)
+    } finally {
+      pricingLoading.value = false
+    }
+  }
+  function toggleAllPriced(value: boolean | string | number) {
+    selectedPricingIds.value = value ? (pricingComparison.value?.models.filter((item) => item.available && item.changed).map((item) => item.id) || []) : []
+  }
+  function togglePricingModel(id: string, value: boolean | string | number) {
+    selectedPricingIds.value = value ? [...new Set([...selectedPricingIds.value, id])] : selectedPricingIds.value.filter((item) => item !== id)
+    selectAllPriced.value = selectedPricingIds.value.length === (pricingComparison.value?.models.filter((item) => item.available && item.changed).length || 0)
+  }
+  async function applyPricingComparison() {
+    pricingApplying.value = true
+    try {
+      const result = await xinyueApi.applyModelPricing({ modelIds: selectedPricingIds.value, markupPercent: pricingMarkupPercent.value })
+      ElMessage.success(`${xt('已更新')} ${result.updated} ${xt('个模型')}，${xt('跳过')} ${result.skipped} ${xt('个')}`)
+      await Promise.all([load(), refreshPricingComparison(false)])
+    } finally {
+      pricingApplying.value = false
+    }
+  }
   async function load() {
     loading.value = true
     try {
@@ -574,6 +694,7 @@
     return channels
   }
   const pricingSummary = (row: ModelPreset) => {
+    if (row.capability === 'CHAT' && (row.inputCreditsPerMillion || row.outputCreditsPerMillion)) return xt('按 Token 折算')
     if (row.capability === 'IMAGE') {
       const pricing = row.options?.imageCapabilities?.resolutionPricing
       return pricing
@@ -777,6 +898,8 @@
         flatCreditCost: editor.flatCreditCost,
         inputCreditsPerMillion: editor.inputCreditsPerMillion,
         outputCreditsPerMillion: editor.outputCreditsPerMillion,
+        inputCostMicrosPerMillion: editor.inputCostMicrosPerMillion,
+        outputCostMicrosPerMillion: editor.outputCostMicrosPerMillion,
         badge: editor.badge,
         options:
           editor.capability === 'CHAT'

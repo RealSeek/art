@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { GenerationJob, PluginCapability, Prisma, TokenLedgerType, TokenSettlementStatus, TokenUsageSource } from '@prisma/client'
 import { AssetsService } from '../../assets/assets.service'
 import { WebSearchService } from '../../agent-tasks/web-search.service'
+import { AgentToolsService, type AgentToolDescriptor } from '../../agent-tasks/agent-tools.service'
 import { BillingTransactionsService } from '../../credits/billing-transactions.service'
 import { CreditsService } from '../../credits/credits.service'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -17,7 +18,7 @@ import { TokenQuotaService } from '../../billing/token-quota.service'
 import { GenerationEventsService } from '../generation-events.service'
 import { ChatContextService } from '../chat-context.service'
 import { ToolLoopRunner } from '../tool-loop.runner'
-import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
+import { calculateChatTokenSettlement, parseChatBillingOptions, type ChatBillingOptions } from '../chat-billing'
 
 const officeSkillPrompts: Record<string, string> = {
   daily: '你是专业办公助理。输出应清晰、可直接使用，并使用标题、清单或表格组织内容。',
@@ -69,21 +70,11 @@ type ProviderPayload = {
 type ChatProviderMessage = { role: string; content: ChatProviderContent }
 type WebSearchSource = { title: string; url: string; content?: string; publishedAt?: string }
 type ChatWebSearch = { enabled: true; status: 'searching' | 'completed' | 'failed'; queries: string[]; sources: WebSearchSource[]; error?: string; answer?: string; mode?: 'native' | 'external'; provider?: string }
-type AgentToolDefinition = { id: string; key: string; name: string; description: string; endpoint: string; scopes: Prisma.JsonValue; requiresApproval: boolean }
+type AgentToolDefinition = AgentToolDescriptor
 type AgentToolCall = { key: string; input: Record<string, unknown> }
 type AgentToolPlan = { calls: AgentToolCall[]; usage?: ChatUsage }
 
-type BillingOptions = {
-  maxOutputTokens?: number
-  reservedTokenCredits?: number
-  inputCreditsPerMillion?: number
-  outputCreditsPerMillion?: number
-  baseCreditCost?: number
-  creditValueMicros?: number
-  quotaEnabled?: boolean
-  quotaId?: string
-  quotaReservations?: Array<{ quotaId: string; reservedUnits: string | number }>
-}
+type BillingOptions = ChatBillingOptions
 
 class JobCancelledError extends GenerationJobCancelledError {}
 
@@ -105,7 +96,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     private readonly generationEvents: GenerationEventsService,
     private readonly chatContext: ChatContextService,
     private readonly toolLoop: ToolLoopRunner,
-    private readonly endpointPolicy: PublicEndpointPolicyService,
+    private readonly agentTools: AgentToolsService,
   ) {}
 
   run(task: GenerationJob) {
@@ -483,7 +474,7 @@ export class ChatGenerationRunner implements GenerationRunner {
   }
 
   private toolSchema(tool: AgentToolDefinition) {
-    const configured = tool.scopes && typeof tool.scopes === 'object' && !Array.isArray(tool.scopes) ? tool.scopes as Record<string, unknown> : {}
+    const configured = tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema) ? tool.inputSchema as Record<string, unknown> : {}
     return configured.type === 'object' ? configured : { type: 'object', properties: {}, additionalProperties: true }
   }
 
@@ -536,8 +527,9 @@ export class ChatGenerationRunner implements GenerationRunner {
     const results: Array<{ tool: string; status: string; output: string }> = []
     for (const [index, call] of calls.entries()) {
       const tool = byKey.get(call.key)
-      if (!tool?.endpoint) continue
+      if (!tool) continue
       if (tool.requiresApproval) {
+        if (!tool.id) continue
         const approval = await this.prisma.toolApprovalRequest.findFirst({ where: { userId: task.userId, assistantId, toolId: tool.id, status: 'APPROVED', consumedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: { createdAt: 'desc' }, select: { id: true } })
         if (!approval) continue
         const consumed = await this.prisma.toolApprovalRequest.updateMany({ where: { id: approval.id, consumedAt: null }, data: { consumedAt: new Date() } })
@@ -545,17 +537,20 @@ export class ChatGenerationRunner implements GenerationRunner {
       }
       const toolCallId = `tool-${callOffset + index + 1}`
       void this.generationEvents.append(task.id, 'tool_call', { id: toolCallId, name: tool.key, inputKeys: Object.keys(call.input).slice(0, 32) }).catch(() => undefined)
-      const started = Date.now(); let status = 'FAILED'; let output = ''; let error = ''
+      const started = Date.now(); let status = 'FAILED'; let output: unknown = ''; let error = ''
       try {
-        const endpoint = await this.endpointPolicy.assertPublicHttpUrl(tool.endpoint)
-        const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(call.input), signal: signal || AbortSignal.timeout(30_000) })
-        output = (await response.text()).slice(0, 100_000)
-        if (!response.ok) throw new Error(`工具返回 ${response.status}`)
+        if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('工具调用已取消')
+        output = await this.agentTools.execute(
+          { id: task.id, userId: task.userId, assistantId, projectId: task.projectId, webSearchEnabled: false },
+          { ...tool, kind: 'external' },
+          call.input,
+          `${task.id}:${toolCallId}`,
+          signal,
+        )
         status = 'SUCCEEDED'
       } catch (reason) { error = reason instanceof Error ? reason.message : '工具调用失败' }
-      await this.prisma.toolCallAudit.create({ data: { userId: task.userId, toolId: tool.id, assistantId, status, input: call.input as Prisma.InputJsonValue, output: output || undefined, error: error || null, durationMs: Date.now() - started } })
       void this.generationEvents.append(task.id, 'tool_result', { id: toolCallId, name: tool.key, status: status === 'SUCCEEDED' ? 'complete' : 'error', durationMs: Date.now() - started }).catch(() => undefined)
-      results.push({ tool: tool.name || tool.key, status, output: status === 'SUCCEEDED' ? output : error })
+      results.push({ tool: tool.name || tool.key, status, output: status === 'SUCCEEDED' ? JSON.stringify(output).slice(0, 100_000) : error })
     }
     return results
   }
@@ -578,14 +573,6 @@ export class ChatGenerationRunner implements GenerationRunner {
     return [401, 403, 404, 408, 409, 425, 429].includes(error.status) || error.status >= 500
   }
 
-  private billingOptions(options: Prisma.JsonValue): BillingOptions {
-    if (!options || typeof options !== 'object' || Array.isArray(options)) return {}
-    const billing = options.billing
-    return billing && typeof billing === 'object' && !Array.isArray(billing)
-      ? billing as BillingOptions
-      : {}
-  }
-
   private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE', execute: (provider: ResolvedProvider) => Promise<T>) {
     const options = task.options as Record<string, unknown>
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
@@ -600,8 +587,8 @@ export class ChatGenerationRunner implements GenerationRunner {
         attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
         await this.providers.recordCandidateResult(candidate, true)
         const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, creditValueMicros: candidate.creditValueMicros, inputCreditsPerMillion: candidate.inputCreditsPerMillion, outputCreditsPerMillion: candidate.outputCreditsPerMillion, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
-        return { result, provider: candidate }
+        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: this.pricing.snapshot({ ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, provider: `${candidate.source}:${candidate.type}`, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, inputRate: candidate.inputCreditsPerMillion, outputRate: candidate.outputCreditsPerMillion, baseInputRate: candidate.baseInputCreditsPerMillion, baseOutputRate: candidate.baseOutputCreditsPerMillion, groupRatePercent: candidate.creditRatePercent, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros }) as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
+        return { result, provider: candidate, providerAttemptId: providerAttempt?.id || null }
       } catch (error) {
         lastError = error
         const message = error instanceof Error ? error.message : 'Provider request failed'
@@ -644,7 +631,7 @@ export class ChatGenerationRunner implements GenerationRunner {
       modeInstructions[mode] || modeInstructions.GENERAL,
     ].join('\n')
     const imageUrl = `data:${source.mimeType};base64,${source.file.toString('base64')}`
-    const billing = this.billingOptions(task.options)
+    const billing = parseChatBillingOptions(task.options)
     const quotaEnabled = billing.quotaEnabled === true && typeof billing.quotaId === 'string' && billing.quotaId.length > 0
     const reservedCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + (quotaEnabled ? 0 : Number(billing.reservedTokenCredits || 0)))
     const execution = await this.withProviderFailover(task, 'CHAT', (resolved) => this.providerChatStream(resolved, [
@@ -678,10 +665,13 @@ export class ChatGenerationRunner implements GenerationRunner {
     const outputTokens = Math.max(0, Number(execution.result.usage?.completion_tokens || this.tokenizer.estimateText(raw, resolved.model)))
     const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(execution.result.usage?.cached_input_tokens || 0)))
     const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(execution.result.usage?.reasoning_tokens || 0)))
-    const upstreamCostMicros = Math.min(2_000_000_000, Math.ceil(inputTokens * resolved.inputCostMicrosPerMillion / 1_000_000) + Math.ceil(outputTokens * resolved.outputCostMicrosPerMillion / 1_000_000))
+    const upstreamCostMicros = this.pricing.costMicros(this.pricing.snapshot({ model: resolved.model, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros }), { inputTokens, outputTokens })
+    const settlementBilling: BillingOptions = { ...billing, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent }
+    const reservedTokenUnits = Math.max(0, Number(billing.reservedTokenUnits ?? billing.reservedTokenCredits ?? 0))
     const reservedTokenCredits = Math.max(0, Number(billing.reservedTokenCredits || 0))
-    const actualTokenCredits = Math.ceil(inputTokens * Number(billing.inputCreditsPerMillion || 0) / 1_000_000) + Math.ceil(outputTokens * Number(billing.outputCreditsPerMillion || 0) / 1_000_000)
-    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + (quotaEnabled ? 0 : actualTokenCredits))
+    const tokenSettlement = calculateChatTokenSettlement(this.pricing, settlementBilling, inputTokens, outputTokens)
+    const actualTokenCredits = tokenSettlement.chargedUnits
+    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + tokenSettlement.chargedCredits)
     const latest = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id }, select: { options: true } })
     const latestOptions = latest.options && typeof latest.options === 'object' && !Array.isArray(latest.options) ? latest.options as Record<string, unknown> : options
     const updated = await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: {
@@ -707,9 +697,10 @@ export class ChatGenerationRunner implements GenerationRunner {
       await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: task.userId, generationId: task.id, amount: refund, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-refund`, metadata: { reason: 'TOKEN_SETTLEMENT', finalCreditCost, billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-refund`)
     }
     await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { settlementStatus: 'RECONCILING' } })
-    if (quotaEnabled) await this.settleTokenQuota(task, billing, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
-    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider: task.provider, inputRate: Number(billing.inputCreditsPerMillion || 0), outputRate: Number(billing.outputCreditsPerMillion || 0), inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
-    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, model: resolved.model, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenCredits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
+    if (quotaEnabled) await this.settleTokenQuota(task, settlementBilling, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
+    const provider = `${resolved.source}:${resolved.type}`
+    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
+    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
     await this.prisma.generationJob.update({ where: { id: task.id }, data: { settlementStatus: 'SETTLED' } })
   }
 
@@ -729,7 +720,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     // history and preventing long prompts from overflowing the provider window.
     const messages = this.chatContext.select(this.chatContext.activePath(loadedMessages, conversation.activeLeafId), task.model, options)
     const assistantId = typeof options.assistantId === 'string' ? options.assistantId : undefined
-    const assistant = assistantId ? await this.prisma.assistant.findFirst({ where: { id: assistantId, enabled: true, visibility: 'PUBLIC' }, select: { systemPrompt: true, knowledgeBases: { include: { knowledgeBase: { select: { name: true, assets: { select: { extractedText: true } } } } } }, tools: { where: { tool: { enabled: true } }, select: { tool: { select: { id: true, key: true, name: true, description: true, endpoint: true, scopes: true, requiresApproval: true } } } } } }) : null
+    const assistant = assistantId ? await this.prisma.assistant.findFirst({ where: { id: assistantId, enabled: true, visibility: 'PUBLIC' }, select: { systemPrompt: true, knowledgeBases: { include: { knowledgeBase: { select: { name: true, assets: { select: { extractedText: true } } } } } } } }) : null
     const knowledgeContext = assistant?.knowledgeBases.flatMap((binding) => binding.knowledgeBase.assets.map((asset) => asset.extractedText)).filter(Boolean).join('\n\n').slice(0, 20_000) || ''
     const attachmentContext = await this.chatAttachmentContext(task.userId, messages.flatMap((message) => message.attachments.map((attachment) => attachment.asset)))
     const fixedWebSearchSources = this.fixedWebSearchSources(options.webSearchSources)
@@ -752,9 +743,12 @@ export class ChatGenerationRunner implements GenerationRunner {
       : executionMode === 'expert' ? '先分析任务约束与缺失信息，再给出完整、专业、可复用的结果。不要省略关键推理依据、限制条件和执行建议。' : executionMode === 'fast' ? '直接给出简洁、可用的最终结果，避免不必要的展开。' : ''
     const systemParts = [assistant?.systemPrompt?.trim(), projectInstructions ? `项目默认指令：\n${projectInstructions}` : '', projectSkillPrompt, pluginPrompt, officePrompt, executionDepth, knowledgeContext ? `以下是已授权知识库上下文，仅在相关时参考，不要臆造：\n${knowledgeContext}` : '', attachmentContext].filter(Boolean)
     const providerMessages = systemParts.length ? [{ role: 'system', content: systemParts.join('\n\n') }, ...messages.map((message) => ({ role: message.role.toLowerCase(), content: message.content }))] : messages.map((message) => ({ role: message.role.toLowerCase(), content: message.content }))
+    const availableAgentTools = assistantId
+      ? await this.agentTools.available({ id: task.id, userId: task.userId, assistantId, projectId: task.projectId, webSearchEnabled: false })
+      : []
     const approvedToolIds = assistantId ? new Set((await this.prisma.toolApprovalRequest.findMany({ where: { userId: task.userId, assistantId, status: 'APPROVED', consumedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, select: { toolId: true } })).map((item) => item.toolId)) : new Set<string>()
-    const agentTools = (assistant?.tools || []).map((binding) => binding.tool).filter((tool) => Boolean(tool.endpoint) && (!tool.requiresApproval || approvedToolIds.has(tool.id)))
-    const billing = this.billingOptions(task.options)
+    const agentTools = availableAgentTools.filter((tool) => !tool.requiresApproval || Boolean(tool.id && approvedToolIds.has(tool.id)))
+    const billing = parseChatBillingOptions(task.options)
     const quotaEnabled = billing.quotaEnabled === true && typeof billing.quotaId === 'string' && billing.quotaId.length > 0
     const reservedCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + (quotaEnabled ? 0 : Number(billing.reservedTokenCredits || 0)))
     const persistedResult = await this.prisma.message.findFirst({ where: { conversationId: conversation.id, deletedAt: null, metadata: { path: ['jobId'], equals: task.id } }, select: { id: true } })
@@ -871,10 +865,13 @@ export class ChatGenerationRunner implements GenerationRunner {
     const outputTokens = Math.max(0, Number(usage?.completion_tokens || 0) + Number(searchUsage?.completion_tokens || 0) + Number(toolPlanningUsage?.completion_tokens || 0) || this.tokenizer.estimateText(content, resolved.model))
     const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0) + Number(searchUsage?.cached_input_tokens || 0) + Number(toolPlanningUsage?.cached_input_tokens || 0)))
     const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(usage?.reasoning_tokens || 0) + Number(searchUsage?.reasoning_tokens || 0) + Number(toolPlanningUsage?.reasoning_tokens || 0)))
-    const upstreamCostMicros = Math.min(2_000_000_000, Math.ceil(inputTokens * resolved.inputCostMicrosPerMillion / 1_000_000) + Math.ceil(outputTokens * resolved.outputCostMicrosPerMillion / 1_000_000))
+    const upstreamCostMicros = this.pricing.costMicros(this.pricing.snapshot({ model: resolved.model, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros }), { inputTokens, outputTokens })
+    const settlementBilling: BillingOptions = { ...billing, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent }
+    const reservedTokenUnits = Math.max(0, Number(billing.reservedTokenUnits ?? billing.reservedTokenCredits ?? 0))
     const reservedTokenCredits = Math.max(0, Number(billing.reservedTokenCredits || 0))
-    const actualTokenCredits = Math.ceil(inputTokens * Number(billing.inputCreditsPerMillion || 0) / 1_000_000) + Math.ceil(outputTokens * Number(billing.outputCreditsPerMillion || 0) / 1_000_000)
-    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost ?? task.creditCost) + (quotaEnabled ? 0 : actualTokenCredits))
+    const tokenSettlement = calculateChatTokenSettlement(this.pricing, settlementBilling, inputTokens, outputTokens)
+    const actualTokenCredits = tokenSettlement.chargedUnits
+    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost ?? task.creditCost) + tokenSettlement.chargedCredits)
     await this.prisma.$transaction(async (tx) => {
       const active = await tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, creditCost: finalCreditCost, revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)) } })
       if (!active.count) throw new JobCancelledError('Generation job was cancelled')
@@ -894,9 +891,10 @@ export class ChatGenerationRunner implements GenerationRunner {
       await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: task.userId, generationId: task.id, amount: refund, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-refund`, metadata: { reason: 'TOKEN_SETTLEMENT', finalCreditCost, billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-refund`)
     }
     await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { settlementStatus: 'RECONCILING' } })
-    if (quotaEnabled) await this.settleTokenQuota(task, billing, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
-    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider: task.provider, inputRate: Number(billing.inputCreditsPerMillion || 0), outputRate: Number(billing.outputCreditsPerMillion || 0), inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
-    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, model: resolved.model, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenCredits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
+    if (quotaEnabled) await this.settleTokenQuota(task, settlementBilling, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
+    const provider = `${resolved.source}:${resolved.type}`
+    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
+    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
     await this.prisma.generationJob.update({ where: { id: task.id }, data: { settlementStatus: 'SETTLED' } })
   }
   private async settleTokenQuota(task: GenerationJob, billing: BillingOptions, chargedUnits: number, inputTokens: number, outputTokens: number, cachedInputTokens: number, reasoningTokens: number, model: string) {

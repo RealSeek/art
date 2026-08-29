@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, WebSearchChannel, WebSearchProviderType } from '@prisma/client'
 import { load } from 'cheerio'
-import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
 import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
+import { defaultWebSearchPresets, webSearchPresetData } from './default-web-search-presets'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 
-type SearchInput = { query: string; maxResults?: number; topic?: string; includeDomains?: string[]; excludeDomains?: string[]; timeoutMs?: number }
+type SearchInput = { query: string; maxResults?: number; topic?: string; includeDomains?: string[]; excludeDomains?: string[]; timeoutMs?: number; signal?: AbortSignal }
 type SearchResult = { title: string; url: string; content: string; publishedAt?: string; score?: number; source?: string }
 type ChannelInput = {
   name: string; type: WebSearchProviderType; endpoint?: string; apiKey?: string; enabled?: boolean; priority?: number
@@ -71,7 +71,7 @@ export class WebSearchService {
   private dailyHotRefresh: Promise<RecommendationFeed> | null = null
   private recommendationSnapshot: { expiresAt: number; value: RecommendationSnapshot } | null = null
 
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async isAvailable() {
     const channels = await this.prisma.webSearchChannel.findMany({ where: { enabled: true, endpoint: { not: '' } } })
@@ -98,6 +98,7 @@ export class WebSearchService {
           await this.markSuccess(channel.id, output.results.length)
           return { ...output, query, channel: { id: channel.id, name: channel.name, type: channel.type }, fallbackCount: errors.length, sources: output.results.map(({ title, url }) => ({ title, url })) }
         } catch (reason) {
+          if (input.signal?.aborted) throw reason
           const message = reason instanceof Error ? reason.message : '搜索失败'
           errors.push(`${channel.name}: ${message}`)
           await this.markFailure(channel.id, message)
@@ -134,6 +135,14 @@ export class WebSearchService {
   }
 
   list() { return this.prisma.webSearchChannel.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] }).then((rows) => rows.filter((row) => !this.isSystemRecommendation(row)).map((row) => this.publicChannel(row))) }
+
+  async restoreDefaults() {
+    const result = await this.prisma.webSearchChannel.createMany({
+      data: defaultWebSearchPresets.map(webSearchPresetData),
+      skipDuplicates: true,
+    })
+    return { added: result.count, total: defaultWebSearchPresets.length }
+  }
 
   async dailyHotSettings() {
     const row = await this.findDailyHot()
@@ -480,7 +489,8 @@ export class WebSearchService {
   }
 
   private async execute(channel: WebSearchChannel, input: SearchInput) {
-    if (this.isTgmeng(channel)) return this.enrichOutput(await this.executeTgmeng(channel, input))
+    if (input.signal?.aborted) throw new Error('搜索任务已取消')
+    if (this.isTgmeng(channel)) return this.enrichOutput(await this.executeTgmeng(channel, input), input.signal)
     const apiKey = channel.encryptedApiKey ? this.crypto.decrypt(channel.encryptedApiKey) : ''
     if (!apiKey && channel.type !== WebSearchProviderType.CUSTOM && channel.type !== WebSearchProviderType.SEARXNG) throw new Error('未配置 API 密钥')
     const maxResults = Math.min(20, Math.max(1, input.maxResults || channel.maxResults))
@@ -502,12 +512,12 @@ export class WebSearchService {
       endpoint = url.toString()
     }
     const init = this.request(channel.type, apiKey, input, maxResults, config)
-    const response = await fetch(endpoint, { ...init, signal: AbortSignal.timeout(Math.min(60_000, Math.max(1000, channel.timeoutMs))) })
+    const response = await fetch(endpoint, { ...init, signal: this.combineSignal(input.signal, Math.min(60_000, Math.max(1000, channel.timeoutMs))) })
     const text = await response.text()
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`)
     let payload: Record<string, unknown>
     try { payload = JSON.parse(text) as Record<string, unknown> } catch { throw new Error('搜索服务返回的不是有效 JSON') }
-    return this.enrichOutput(this.normalize(channel.type, payload, maxResults, config))
+    return this.enrichOutput(this.normalize(channel.type, payload, maxResults, config), input.signal)
   }
 
   private async executeTgmeng(channel: WebSearchChannel, input: SearchInput) {
@@ -519,7 +529,7 @@ export class WebSearchService {
     let response: Response
     try {
       response = await fetch(TGMENG_ENDPOINT, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(Math.min(60_000, Math.max(1000, input.timeoutMs ?? channel.timeoutMs))),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: this.combineSignal(input.signal, Math.min(60_000, Math.max(1000, input.timeoutMs ?? channel.timeoutMs))),
         body: JSON.stringify({ license, keywords: query ? [query] : [], mode: 'REALTIME', rootCategories: query ? [] : this.categories(config.rootCategories), limit: maxResults, offset: 0, distinct: true }),
       })
     } catch (reason) {
@@ -609,9 +619,9 @@ export class WebSearchService {
     return { answer, results }
   }
 
-  private async enrichOutput<T extends { results: SearchResult[] }>(output: T): Promise<T> {
+  private async enrichOutput<T extends { results: SearchResult[] }>(output: T, signal?: AbortSignal): Promise<T> {
     const candidates = output.results.slice(0, MAX_ENRICHED_RESULTS)
-    const pages = await Promise.all(candidates.map((item) => this.extractPage(item.url).catch(() => null)))
+    const pages = await Promise.all(candidates.map((item) => this.extractPage(item.url, signal).catch((error) => signal?.aborted ? Promise.reject(error) : null)))
     let remaining = MAX_ENRICHED_TEXT
     const results = output.results.map((item, index) => {
       const page = pages[index]
@@ -629,16 +639,16 @@ export class WebSearchService {
     return { ...output, results }
   }
 
-  private async extractPage(value: string) {
+  private async extractPage(value: string, signal?: AbortSignal) {
     let url = this.normalizeWebUrl(value)
     if (!url) throw new Error('网页地址无效')
     let response: Response | null = null
     for (let redirect = 0; redirect <= 3; redirect += 1) {
-      await this.assertPublicHttpUrl(url)
+      await this.endpointPolicy.assertPublicHttpUrl(url)
       response = await fetch(url, {
         redirect: 'manual',
         headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'XinyueAI-Search/1.0' },
-        signal: AbortSignal.timeout(6_000),
+        signal: this.combineSignal(signal, 6_000),
       })
       if (![301, 302, 303, 307, 308].includes(response.status)) break
       const location = response.headers.get('location')
@@ -667,6 +677,11 @@ export class WebSearchService {
     return { title, url, content, publishedAt }
   }
 
+  private combineSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    return signal ? AbortSignal.any([signal, timeout]) : timeout
+  }
+
   private async readBoundedText(response: Response, limit: number) {
     if (!response.body) return (await response.text()).slice(0, limit)
     const reader = response.body.getReader()
@@ -683,22 +698,6 @@ export class WebSearchService {
     return output + decoder.decode()
   }
 
-  private async assertPublicHttpUrl(value: string) {
-    const url = new URL(value)
-    const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
-    if (!hostname || url.username || url.password || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) throw new Error('网页地址不允许访问')
-    const addresses = isIP(hostname) ? [hostname] : (await lookup(hostname, { all: true, verbatim: true })).map((item) => item.address)
-    if (!addresses.length || addresses.some((address) => this.isPrivateAddress(address))) throw new Error('网页地址解析到非公网地址')
-  }
-
-  private isPrivateAddress(value: string) {
-    const address = value.toLowerCase().replace(/^::ffff:/, '')
-    if (address.includes(':')) return address === '::' || address === '::1' || address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe8') || address.startsWith('fe9') || address.startsWith('fea') || address.startsWith('feb')
-    const parts = address.split('.').map(Number)
-    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true
-    const [a, b] = parts
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224
-  }
 
   private markSuccess(id: string, count: number, message?: string) { return this.prisma.webSearchChannel.updateMany({ where: { id }, data: { totalRequests: { increment: 1 }, consecutiveFailures: 0, cooldownUntil: null, lastSuccessAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'healthy', lastHealthMessage: message || `最近调用成功，返回 ${count} 条结果` } }) }
   private async markFailure(id: string, message: string) { const channel = await this.prisma.webSearchChannel.findUnique({ where: { id }, select: { consecutiveFailures: true } }); if (!channel) return; const failures = channel.consecutiveFailures + 1; return this.prisma.webSearchChannel.update({ where: { id }, data: { totalRequests: { increment: 1 }, totalFailures: { increment: 1 }, consecutiveFailures: failures, lastFailureAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), cooldownUntil: new Date(Date.now() + Math.min(300, 15 * 2 ** Math.min(4, failures - 1)) * 1000) } }) }

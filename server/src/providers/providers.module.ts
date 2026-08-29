@@ -10,11 +10,12 @@ import { CapabilityRegistryService } from './capability-registry.service'
 import { ModelDiscoveryService } from './model-discovery.service'
 import { ProviderHealthService } from './provider-health.service'
 import { ProviderRoutingService } from './provider-routing.service'
+import { ProviderPricingService } from './provider-pricing.service'
 
 @Module({
   imports: [AssetsModule],
   controllers: [CatalogController, UserCredentialsController, UserModelPolicyController, AdminProvidersController, RechargeController],
-  providers: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProvidersService],
-  exports: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProvidersService],
+  providers: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProviderPricingService, ProvidersService],
+  exports: [CapabilityRegistryService, CredentialCryptoService, ModelDiscoveryService, ProviderHealthService, ProviderRoutingService, ProviderPricingService, ProvidersService],
 })
 export class ProvidersModule {}

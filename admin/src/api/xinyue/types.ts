@@ -318,6 +318,10 @@ export type ModelPreset = {
   flatCreditCost: number
   inputCreditsPerMillion: number
   outputCreditsPerMillion: number
+  inputCostMicrosPerMillion: number
+  outputCostMicrosPerMillion: number
+  imageCostMicros: number
+  videoCostMicros: number
   badge: string
   options?: {
     apiProtocol?: 'openai' | 'anthropic' | 'gemini'
@@ -373,6 +377,40 @@ export type ModelPreset = {
   providerRoutes?: ModelProviderRoute[]
 }
 
+export type ModelPricingValues = {
+  flatCreditCost: number
+  inputCreditsPerMillion: number
+  outputCreditsPerMillion: number
+  inputCostMicrosPerMillion: number
+  outputCostMicrosPerMillion: number
+  imageCostMicros: number
+  videoCostMicros: number
+}
+
+export type ModelPricingComparison = {
+  markupPercent: number
+  currency: string
+  creditValueMicros: number
+  pricingUsdExchangeRateMicros: number
+  catalogUrl: string
+  refreshedAt: string
+  models: Array<{
+    id: string
+    key: string
+    displayName: string
+    upstreamModel: string
+    capability: ModelPreset['capability']
+    available: boolean
+    changed: boolean
+    pricingSource: 'litellm' | 'fallback' | 'none'
+    current: ModelPricingValues
+    suggested: ModelPricingValues | null
+    currentInputMarkupPercent: number | null
+    currentOutputMarkupPercent: number | null
+    warnings: string[]
+  }>
+}
+
 export type SubscriptionPlan = {
   id: string
   code: string
@@ -383,6 +421,12 @@ export type SubscriptionPlan = {
   originalPriceCents?: number | null
   currency: string
   includedCredits: number
+  monthlyQuotaUnits: number
+  dailyQuotaUnits: number
+  tokenQuotaMode: 'BILLABLE_UNITS'
+  tokenOverageMode: 'BLOCK' | 'OVERAGE_CREDITS'
+  tokenOverageRate: number
+  byokMode: 'QUOTA' | 'FREE'
   trialDays: number
   concurrency: number
   allowByok: boolean
@@ -698,6 +742,7 @@ export type SystemSettings = {
   minRechargeCents: number
   currency: string
   creditValueMicros: number
+  pricingUsdExchangeRateMicros: number
   modelImportMarkupPercent: number
   modelPriceCatalogUrl: string
   modelPriceCatalogRefreshHours: number

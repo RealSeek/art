@@ -49,9 +49,9 @@ export class TokenQuotaService {
         update: {},
       })
       const available = quota.grantedUnits - quota.usedUnits - quota.reservedUnits
-      if (available < input.units) throw new HttpException('文字额度不足，请升级套餐或稍后再试', HttpStatus.PAYMENT_REQUIRED)
+      if (available < input.units) throw new HttpException('计费额度不足，请升级套餐或稍后再试', HttpStatus.PAYMENT_REQUIRED)
       const updated = await tx.userTokenQuota.updateMany({ where: { id: quota.id, version: quota.version }, data: { reservedUnits: { increment: input.units }, version: { increment: 1 } } })
-      if (updated.count !== 1) throw new ConflictException('文字额度发生并发更新，请重试')
+      if (updated.count !== 1) throw new ConflictException('计费额度发生并发更新，请重试')
       const after = available - input.units
       await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.RESERVE, units: -input.units, balanceBefore: available, balanceAfter: after, idempotencyKey: this.eventKey(input.generationId, 'reserve', quota.id), metadata: input.metadata } })
       return { quotaId: quota.id, reservedUnits: input.units, version: quota.version + 1 }
@@ -79,9 +79,9 @@ export class TokenQuotaService {
       const released = input.reservedUnits > charge ? input.reservedUnits - charge : 0n
       const extra = charge > input.reservedUnits ? charge - input.reservedUnits : 0n
       const available = quota.grantedUnits - quota.usedUnits - quota.reservedUnits
-      if (extra > available) throw new HttpException('实际文字用量超过剩余额度', HttpStatus.PAYMENT_REQUIRED)
+      if (extra > available) throw new HttpException('实际计费额度超过可用额度', HttpStatus.PAYMENT_REQUIRED)
       const updated = await tx.userTokenQuota.updateMany({ where: { id: quota.id, version: quota.version }, data: { reservedUnits: { decrement: input.reservedUnits > quota.reservedUnits ? quota.reservedUnits : input.reservedUnits }, usedUnits: { increment: charge }, inputTokens: { increment: BigInt(Math.max(0, input.inputTokens)) }, outputTokens: { increment: BigInt(Math.max(0, input.outputTokens)) }, cachedInputTokens: { increment: BigInt(Math.max(0, input.cachedInputTokens || 0)) }, reasoningTokens: { increment: BigInt(Math.max(0, input.reasoningTokens || 0)) }, version: { increment: 1 }, status: TokenQuotaStatus.ACTIVE } })
-      if (updated.count !== 1) throw new ConflictException('文字额度发生并发更新，请重试')
+      if (updated.count !== 1) throw new ConflictException('计费额度发生并发更新，请重试')
       if (released > 0n) await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.RELEASE, units: released, balanceBefore: available, balanceAfter: available + released, idempotencyKey: this.eventKey(input.generationId, 'release', quota.id), metadata: input.metadata } })
       await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.CHARGE, units: -charge, balanceBefore: available + released, balanceAfter: available + released - extra, idempotencyKey: chargeKey, metadata: input.metadata } })
         results.push({ chargedUnits: charge, releasedUnits: released, extraUnits: extra })
@@ -99,7 +99,7 @@ export class TokenQuotaService {
       const released = input.reservedUnits > quota.reservedUnits ? quota.reservedUnits : input.reservedUnits
       if (released <= 0n) return { releasedUnits: 0n }
       const updated = await tx.userTokenQuota.updateMany({ where: { id: quota.id, version: quota.version }, data: { reservedUnits: { decrement: released }, version: { increment: 1 } } })
-      if (updated.count !== 1) throw new ConflictException('文字额度发生并发更新，请重试')
+      if (updated.count !== 1) throw new ConflictException('计费额度发生并发更新，请重试')
       const balance = quota.grantedUnits - quota.usedUnits - quota.reservedUnits
       await tx.tokenQuotaEvent.create({ data: { userId: input.userId, quotaId: quota.id, generationId: input.generationId, type: TokenQuotaEventType.RELEASE, units: released, balanceBefore: balance, balanceAfter: balance + released, idempotencyKey: releaseKey, metadata: input.metadata } })
       return { releasedUnits: released }

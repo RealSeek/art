@@ -3,6 +3,7 @@ import { NotificationType, Prisma } from '@prisma/client'
 import { createHmac } from 'node:crypto'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 
 type RuleInput = { enabled?: boolean; severity?: string; cooldownMinutes?: number; notifyInApp?: boolean; notifyWebhook?: boolean; webhookUrl?: string; webhookSecret?: string }
 type Candidate = { fingerprint: string; title: string; message: string; source: string; targetId?: string; metadata?: Record<string, unknown> }
@@ -18,7 +19,7 @@ const DEFAULT_RULES = [
 
 @Injectable()
 export class AlertsService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async onModuleInit() {
     await Promise.all(DEFAULT_RULES.map((rule) => this.prisma.alertRule.upsert({ where: { key: rule.key }, update: {}, create: rule })))
@@ -37,7 +38,7 @@ export class AlertsService implements OnModuleInit {
     if (!before) throw new NotFoundException('告警规则不存在')
     if (input.severity && !['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(input.severity)) throw new BadRequestException('告警级别无效')
     if (input.cooldownMinutes !== undefined && (!Number.isInteger(input.cooldownMinutes) || input.cooldownMinutes < 1 || input.cooldownMinutes > 10080)) throw new BadRequestException('静默间隔必须为 1 到 10080 分钟')
-    if (input.webhookUrl !== undefined) this.assertWebhookUrl(input.webhookUrl)
+    if (input.webhookUrl !== undefined) await this.assertWebhookUrl(input.webhookUrl)
     const data: Prisma.AlertRuleUpdateInput = {
       ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
       ...(input.severity === undefined ? {} : { severity: input.severity }),
@@ -118,14 +119,15 @@ export class AlertsService implements OnModuleInit {
       const payload = JSON.stringify({ eventId: event.id, rule: rule.key, severity: event.severity, title: event.title, message: event.message, source: event.source, targetId: event.targetId, metadata: event.metadata, occurredAt: new Date().toISOString() })
       const secret = rule.encryptedWebhookSecret ? this.crypto.decrypt(rule.encryptedWebhookSecret) : ''
       const signature = secret ? createHmac('sha256', secret).update(payload).digest('hex') : ''
-      await fetch(rule.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Alert-Signature': signature } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) }).catch(() => undefined)
+      try {
+        const url = await this.endpointPolicy.assertPublicHttpUrl(rule.webhookUrl)
+        await fetch(url, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Alert-Signature': signature } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
+      } catch { /* Alert delivery must not interrupt rule evaluation. */ }
     }
   }
 
-  private assertWebhookUrl(value: string) {
+  private async assertWebhookUrl(value: string) {
     if (!value.trim()) return
-    let url: URL
-    try { url = new URL(value.trim()) } catch { throw new BadRequestException('Webhook 地址格式不正确') }
-    if (!['http:', 'https:'].includes(url.protocol)) throw new BadRequestException('Webhook 只支持 HTTP 或 HTTPS')
+    try { await this.endpointPolicy.assertPublicHttpUrl(value.trim()) } catch { throw new BadRequestException('Webhook 仅允许公网 HTTP 或 HTTPS 地址') }
   }
 }

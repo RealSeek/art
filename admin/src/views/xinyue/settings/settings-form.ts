@@ -47,6 +47,7 @@ const editableSettingKeys = [
   'minRechargeCents',
   'currency',
   'creditValueMicros',
+  'pricingUsdExchangeRateMicros',
   'modelImportMarkupPercent',
   'modelPriceCatalogUrl',
   'modelPriceCatalogRefreshHours',

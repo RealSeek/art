@@ -5,6 +5,10 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ProvidersService, ResolvedProvider } from '../../providers/providers.service'
 import { GenerationJobCancelledError, GenerationRunner } from '../generation-runners'
 import { GenerationOutputService } from '../generation-output.service'
+import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
+import { readResponseBytes } from '../../common/response-bytes'
+
+const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, TerminalProviderJobError } from '../generation-provider-errors'
 import { normalizeVideoOptions, videoCapabilities } from '../video-options'
 
@@ -24,6 +28,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     private readonly assets: AssetsService,
     private readonly providers: ProvidersService,
     private readonly outputs: GenerationOutputService,
+    private readonly endpointPolicy: PublicEndpointPolicyService,
   ) {}
 
   private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs) {
@@ -70,7 +75,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
         await this.providers.recordCandidateResult(candidate, true)
         const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, creditValueMicros: candidate.creditValueMicros, inputCreditsPerMillion: candidate.inputCreditsPerMillion, outputCreditsPerMillion: candidate.outputCreditsPerMillion, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
+        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, inputCreditsPerMillion: candidate.inputCreditsPerMillion, outputCreditsPerMillion: candidate.outputCreditsPerMillion, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
         return { result, provider: candidate }
       } catch (error) {
         lastError = error
@@ -154,7 +159,11 @@ export class VideoGenerationRunner implements GenerationRunner {
       metadata: { purpose: 'generated', prompt: task.prompt, model: task.model, jobId: task.id, position: 0, options: normalized },
     })
     try { await this.assertNotCancelled(task.id) } catch (error) { await this.assets.remove(task.userId, asset.id); throw error }
-    await this.prisma.generationJob.update({ where: { id: task.id }, data: { upstreamCostMicros: Math.min(2_000_000_000, execution.provider.videoCostMicros) } })
+    await this.prisma.generationJob.update({ where: { id: task.id }, data: { upstreamCostMicros: this.localizedCostMicros(execution.provider.videoCostMicros, execution.provider.pricingUsdExchangeRateMicros) } })
+  }
+
+  private localizedCostMicros(usdMicros: number, exchangeRateMicros: number) {
+    return Math.min(2_000_000_000, Math.ceil(usdMicros * exchangeRateMicros / 1_000_000))
   }
 
   private videoPath(template: string, id: string) {
@@ -205,9 +214,12 @@ export class VideoGenerationRunner implements GenerationRunner {
     let url: URL
     try { url = new URL(input, `${resolved.baseUrl}/`) } catch { throw new ProviderRequestError('视频上游返回了无效的结果地址', 502) }
     const providerOrigin = new URL(resolved.baseUrl).origin
-    const response = await fetch(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    if (url.origin !== providerOrigin) await this.endpointPolicy.assertPublicHttpUrl(url.toString())
+    const response = await fetch(url, { redirect: 'error', headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
     if (!response.ok) throw new ProviderRequestError(`视频下载返回 ${response.status}`, response.status)
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    let bytes: Uint8Array
+    try { bytes = await readResponseBytes(response, MAX_GENERATED_VIDEO_BYTES, 'Provider 视频') }
+    catch { throw new ProviderRequestError('视频下载超过 500 MB', 502) }
     if (!bytes.length) throw new ProviderRequestError('视频上游返回了空文件', 502)
     const contentType = (response.headers.get('content-type') || 'video/mp4').split(';')[0].toLowerCase()
     return { bytes, mimeType: contentType.startsWith('video/') ? contentType : 'video/mp4' }

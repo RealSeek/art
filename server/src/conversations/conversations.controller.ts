@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 import { randomBytes } from 'node:crypto'
@@ -17,17 +17,18 @@ class UpdateConversationDto {
   @IsOptional() @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(120) title?: string
   @IsOptional() @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(80) model?: string
   @IsOptional() @IsBoolean() pinned?: boolean
+  @IsOptional() @IsBoolean() archived?: boolean
 }
 
 @Controller('conversations')
 @UseGuards(AuthGuard)
 export class ConversationsController {
   constructor(private readonly prisma: PrismaService, private readonly moderation: ModerationService, private readonly access: ResourceAccessService) {}
-  @Get() async list(@CurrentUser() user: AuthenticatedUser) {
+  @Get() async list(@CurrentUser() user: AuthenticatedUser, @Query('archived') archived?: string) {
     const settings = await this.prisma.userSettings.findUnique({ where: { userId: user.id }, select: { dataRetentionDays: true } })
     await this.prisma.conversation.deleteMany({ where: { userId: user.id, temporary: true, expiresAt: { lt: new Date() } } })
     if (settings?.dataRetentionDays) await this.prisma.conversation.deleteMany({ where: { userId: user.id, temporary: false, updatedAt: { lt: new Date(Date.now() - settings.dataRetentionDays * 86_400_000) } } })
-    return this.prisma.conversation.findMany({ where: { userId: user.id, archivedAt: null, temporary: false }, orderBy: [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }], take: 100, select: { id: true, title: true, model: true, projectId: true, temporary: true, pinnedAt: true, sharedAt: true, createdAt: true, updatedAt: true } })
+    return this.prisma.conversation.findMany({ where: { userId: user.id, archivedAt: archived === 'true' ? { not: null } : null, temporary: false }, orderBy: [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }], take: 100, select: { id: true, title: true, model: true, projectId: true, temporary: true, pinnedAt: true, sharedAt: true, archivedAt: true, createdAt: true, updatedAt: true } })
   }
   @Delete() async clear(@CurrentUser() user: AuthenticatedUser) {
     const result = await this.prisma.conversation.deleteMany({ where: { userId: user.id } })
@@ -173,7 +174,7 @@ export class ConversationsController {
     return { id: message.id, feedback: body.value || null }
   }
   @Patch(':id') async update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: UpdateConversationDto) {
-    const result = await this.prisma.conversation.updateMany({ where: { id, userId: user.id }, data: { title: body.title?.trim(), model: body.model, pinnedAt: body.pinned === undefined ? undefined : body.pinned ? new Date() : null } })
+    const result = await this.prisma.conversation.updateMany({ where: { id, userId: user.id }, data: { title: body.title?.trim(), model: body.model, pinnedAt: body.pinned === undefined ? undefined : body.pinned ? new Date() : null, archivedAt: body.archived === undefined ? undefined : body.archived ? new Date() : null } })
     if (!result.count) throw new NotFoundException('对话不存在')
     return { updated: true }
   }

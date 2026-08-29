@@ -55,7 +55,8 @@
         <button role="menuitem" type="button" :disabled="conversationActionBusy" @click="shareConversation(activeConversationMenu)"><Share2 :size="16" />分享</button>
         <button role="menuitem" type="button" :disabled="conversationActionBusy" @click="startConversationRename(activeConversationMenu)"><Pencil :size="16" />重命名</button>
         <button role="menuitem" type="button" :disabled="conversationActionBusy" @click="toggleConversationPinned(activeConversationMenu)"><PinOff v-if="activeConversationMenu.pinnedAt" :size="16" /><Pin v-else :size="16" />{{ activeConversationMenu.pinnedAt ? '取消置顶' : '置顶聊天' }}</button>
-        <button role="menuitem" type="button" :disabled="conversationActionBusy" @click="archiveConversation(activeConversationMenu.id)"><Archive :size="16" />归档</button>
+        <button v-if="!activeConversationMenu.archivedAt" role="menuitem" type="button" :disabled="conversationActionBusy" @click="archiveConversation(activeConversationMenu.id)"><Archive :size="16" />归档</button>
+        <button v-else role="menuitem" type="button" :disabled="conversationActionBusy" @click="restoreConversation(activeConversationMenu.id)"><ArchiveRestore :size="16" />恢复</button>
         <button class="is-danger" role="menuitem" type="button" :disabled="conversationActionBusy" @click="deleteConversation(activeConversationMenu)"><Trash2 :size="16" />删除</button>
       </div>
       <SettingsDialog
@@ -304,6 +305,7 @@ import { useMessage } from 'naive-ui'
 import type { PaymentMethodKey } from '../constants/payment'
 import {
   Archive,
+  ArchiveRestore,
   Bell,
   BookOpen,
   CircleGauge,
@@ -343,7 +345,7 @@ import UpgradeDialog from './shell/billing/UpgradeDialog.vue'
 import CheckoutDialog from './shell/billing/CheckoutDialog.vue'
 import ApiKeyDialog from './shell/ApiKeyDialog.vue'
 import PrivateModelDialog from './shell/PrivateModelDialog.vue'
-import type { ConversationSummary, StudioMode } from '../types'
+import type { StudioMode } from '../types'
 import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useStudioStore } from '../stores/studio'
@@ -351,6 +353,7 @@ import { api, apiUrl } from '../services/api'
 import { readStoredSettings, updateStoredSettings, writeStoredSettings } from '../utils/settings-storage'
 import { useTeamManagement } from '../composables/shell/useTeamManagement'
 import { useKnowledgeBases } from '../composables/shell/useKnowledgeBases'
+import { useConversationActions } from '../composables/shell/useConversationActions'
 import type {
   ApiCredential,
   AssistantToolBinding,
@@ -407,13 +410,8 @@ watch(sidebarOpen, (open) => {
 })
 const workspaceMain = ref<HTMLElement | null>(null)
 const mobileOpen = ref(false)
-const conversationMenuId = ref('')
 const conversationMenuElement = ref<HTMLElement | null>(null)
 const conversationMenuPosition = reactive({ left: 0, top: 0 })
-const conversationActionBusy = ref(false)
-const renamingConversationId = ref('')
-const conversationRename = ref('')
-const conversationRenameBusy = ref(false)
 const settingsOpen = ref(false)
 const upgradeOpen = ref(false)
 const pricingMode = ref<'personal' | 'team'>('personal')
@@ -428,6 +426,23 @@ const router = useRouter()
 const route = useRoute()
 const { t, locale } = useI18n()
 const message = useMessage()
+const {
+  conversationMenuId,
+  conversationRename,
+  conversationActionBusy,
+  renamingConversationId,
+  conversationRenameBusy,
+  activeConversationMenu,
+  closeConversationMenu,
+  shareConversation,
+  toggleConversationPinned,
+  startConversationRename,
+  cancelConversationRename,
+  saveConversationRename,
+  archiveConversation,
+  restoreConversation,
+  deleteConversation,
+} = useConversationActions()
 const notifications = ref<NotificationItem[]>([])
 const moderationCases = ref<ModerationCase[]>([])
 const appealDrafts = reactive<Record<string, string>>({})
@@ -541,7 +556,6 @@ const availablePaymentCoupons = computed(() => {
 const selectedPaymentChannel = computed(() => eligiblePaymentChannels.value.find((item) => item.id === selectedPaymentChannelId.value) || null)
 const paymentInstructions = computed(() => String(paymentTransaction.value?.metadata?.instructions || ''))
 const paymentStatusTitle = computed(() => ({ PENDING: '等待完成付款', PAID: '付款已确认，正在发放权益', COMPLETED: '支付完成，权益已到账', FAILED: '支付或权益入账失败', CANCELLED: '交易已取消', EXPIRED: '交易已过期', REFUNDED: '交易已退款' }[paymentTransaction.value?.status || ''] || '正在确认交易'))
-const activeConversationMenu = computed(() => studio.conversations.find((item) => item.id === conversationMenuId.value) || null)
 const storedSettings = readStoredSettings()
 const storedLanguage = storedSettings.language === 'English' ? 'en' : storedSettings.language === '中文' ? 'zh-CN' : storedSettings.language
 const storedAppearance = storedSettings.appearance === 'light' ? '浅色' : storedSettings.appearance === 'dark' ? '深色' : storedSettings.appearance === 'system' ? '跟随系统' : storedSettings.appearance
@@ -1162,8 +1176,6 @@ function copyInvite() {
   window.setTimeout(() => { inviteCopied.value = false }, 1600)
 }
 
-function closeConversationMenu() { conversationMenuId.value = '' }
-
 function handleConversationMenuOutside(event: PointerEvent) {
   if (!conversationMenuId.value || conversationMenuElement.value?.contains(event.target as Node)) return
   closeConversationMenu()
@@ -1173,85 +1185,6 @@ function handleConversationMenuKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeConversationMenu()
 }
 
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value)
-    return
-  }
-  const input = document.createElement('textarea')
-  input.value = value
-  input.style.position = 'fixed'
-  input.style.opacity = '0'
-  document.body.appendChild(input)
-  input.select()
-  document.execCommand('copy')
-  input.remove()
-}
-
-async function shareConversation(conversation: ConversationSummary) {
-  closeConversationMenu()
-  conversationActionBusy.value = true
-  try {
-    const result = await api<{ token: string; sharedAt: string }>(`/conversations/${conversation.id}/share`, { method: 'POST' })
-    conversation.sharedAt = Date.parse(result.sharedAt)
-    await copyText(`${window.location.origin}/share/${result.token}`)
-    message.success('共享链接已复制')
-  } catch (reason) {
-    message.error(reason instanceof Error ? reason.message : '创建共享链接失败')
-  } finally {
-    conversationActionBusy.value = false
-  }
-}
-
-async function toggleConversationPinned(conversation: ConversationSummary) {
-  closeConversationMenu()
-  conversationActionBusy.value = true
-  const pinned = !conversation.pinnedAt
-  try {
-    await studio.setConversationPinned(conversation.id, pinned)
-    message.success(pinned ? '已置顶聊天' : '已取消置顶')
-  } catch (reason) {
-    message.error(reason instanceof Error ? reason.message : '置顶状态更新失败')
-  } finally {
-    conversationActionBusy.value = false
-  }
-}
-
-function startConversationRename(conversation: { id: string; title: string }) {
-  closeConversationMenu()
-  renamingConversationId.value = conversation.id
-  conversationRename.value = conversation.title
-}
-function cancelConversationRename() {
-  if (conversationRenameBusy.value) return
-  renamingConversationId.value = ''
-  conversationRename.value = ''
-}
-async function saveConversationRename(conversationId: string) {
-  if (!conversationRename.value.trim() || conversationRenameBusy.value) return
-  conversationRenameBusy.value = true
-  try {
-    await studio.renameConversation(conversationId, conversationRename.value)
-    renamingConversationId.value = ''
-    conversationRename.value = ''
-    message.success('对话名称已更新')
-  } catch (reason) {
-    message.error(reason instanceof Error ? reason.message : '对话重命名失败')
-  } finally {
-    conversationRenameBusy.value = false
-  }
-}
-async function archiveConversation(conversationId: string) {
-  closeConversationMenu()
-  try { await studio.archiveConversation(conversationId); message.success('对话已归档') }
-  catch (reason) { message.error(reason instanceof Error ? reason.message : '归档失败') }
-}
-async function deleteConversation(conversation: { id: string; title: string }) {
-  closeConversationMenu()
-  if (!window.confirm(`永久删除“${conversation.title}”？此操作无法撤销。`)) return
-  try { await studio.deleteConversation(conversation.id); message.success('对话已删除') }
-  catch (reason) { message.error(reason instanceof Error ? reason.message : '对话删除失败') }
-}
 async function exportAccountData() {
   dataActionBusy.value = true; dataActionMessage.value = ''; dataActionError.value = false
   try {

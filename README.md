@@ -32,7 +32,7 @@ Browser
 - 管理端：Art Design Pro、Vue 3、Element Plus
 - 服务端：NestJS、Fastify、Prisma、PostgreSQL、Redis、BullMQ、LangGraph.js
 
-当前版本审计结论见 [最终代码审计](docs/FINAL_CODE_AUDIT_2026-08-28.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
+当前版本审计结论见 [全栈代码审计与优化报告](docs/FULL_STACK_AUDIT_AND_OPTIMIZATION_2026-08-29.md)，第二轮工程整理见 [第二轮工程优化报告](docs/SECOND_ROUND_ENGINEERING_OPTIMIZATION_2026-08-29.md)，第三轮生产收尾见 [第三轮生产级优化报告](docs/THIRD_ROUND_PRODUCTION_OPTIMIZATION_2026-08-29.md)，安全检查见 [安全最佳实践审查](docs/SECURITY_BEST_PRACTICES_REPORT_2026-08-29.md)，更多界面见 [演示图](docs/images/README.md)，完整生产部署见 [部署与运维指南](docs/DEPLOYMENT.md)。
 
 ## 许可证
 
@@ -65,6 +65,18 @@ npm run admin:dev
 `setup:dev` 在缺少 `server/.env` 时从示例创建配置，然后依次执行 Prisma Generate、数据库迁移、系统默认数据和开发管理员初始化。首次部署默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`；登录后可在后台修改，后续重启不会覆盖已修改的密码。正式开放服务前仍应替换会话密钥和凭据加密密钥，并及时修改默认管理员密码。
 
 ## 生产部署
+
+### Docker 一键部署（推荐）
+
+在 Linux/macOS 服务器执行。脚本会生成一次性保存的数据库、会话和凭据密钥，提示创建首个管理员，并启动 PostgreSQL、Redis、后端和前端：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
+```
+
+已克隆仓库时也可以直接运行 `./install.sh`。脚本不会写入固定管理员密码；管理员邮箱和密码由部署者在安装时输入并写入本机 `.env.production`，该文件已被 Git 忽略。
+
+### Docker Compose 高级部署
 
 ```powershell
 Copy-Item .env.production.example .env.production

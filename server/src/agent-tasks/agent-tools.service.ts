@@ -38,14 +38,15 @@ export class AgentToolsService {
     const bindings = task.assistantId
       ? await this.prisma.assistantTool.findMany({ where: { assistantId: task.assistantId, tool: { enabled: true, kind: 'BUILT_IN' } }, include: { tool: true } })
       : []
-    const external = bindings.map(({ tool }) => tool)
+    const builtinKeys = new Set(tools.map((tool) => tool.key))
+    const external = bindings.map(({ tool }) => tool).filter((tool) => !builtinKeys.has(tool.key))
     return [...tools, ...external.map((tool) => ({ id: tool.id, key: tool.key, name: tool.name, description: tool.description, requiresApproval: tool.requiresApproval, kind: 'external' as const, inputSchema: tool.inputSchema }))]
   }
 
-  async execute(task: ToolExecutionTask, tool: AgentToolDescriptor, input: Record<string, unknown>, executionKey?: string) {
+  async execute(task: ToolExecutionTask, tool: AgentToolDescriptor, input: Record<string, unknown>, executionKey?: string, signal?: AbortSignal) {
     this.validateInput(input, tool.inputSchema || null)
     if (tool.key === 'knowledge_search') return this.knowledgeSearch(task, String(input.query || input.q || ''))
-    if (tool.key === 'web_search') return this.web.search({ query: String(input.query || input.q || ''), maxResults: Number(input.maxResults || input.max_results) || undefined, topic: String(input.topic || ''), includeDomains: this.stringArray(input.includeDomains || input.include_domains), excludeDomains: this.stringArray(input.excludeDomains || input.exclude_domains) })
+    if (tool.key === 'web_search') return this.web.search({ query: String(input.query || input.q || ''), maxResults: Number(input.maxResults || input.max_results) || undefined, topic: String(input.topic || ''), includeDomains: this.stringArray(input.includeDomains || input.include_domains), excludeDomains: this.stringArray(input.excludeDomains || input.exclude_domains), signal })
     if (tool.key === 'project_context') return this.projectContext(task)
     if (tool.key === 'file_catalog') return this.fileCatalog(task, input)
     if (tool.key === 'data_summary') return this.dataSummary(input)
@@ -68,7 +69,9 @@ export class AgentToolsService {
         redirect: 'error',
         headers: { ...publicHeaders, ...secretHeaders, 'Content-Type': publicHeaders['Content-Type'] || publicHeaders['content-type'] || 'application/json', ...(executionKey ? { 'Idempotency-Key': executionKey } : {}) },
         ...(method === 'GET' || method === 'DELETE' ? {} : { body: JSON.stringify(input) }),
-        signal: AbortSignal.timeout(Math.min(120_000, Math.max(1000, configured.timeoutMs))),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(Math.min(120_000, Math.max(1000, configured.timeoutMs)))])
+          : AbortSignal.timeout(Math.min(120_000, Math.max(1000, configured.timeoutMs))),
       })
       output = (await response.text()).slice(0, 100_000)
       if (!response.ok) throw new Error(`工具返回 ${response.status}`)

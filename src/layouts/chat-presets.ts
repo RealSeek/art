@@ -2,8 +2,8 @@
  * 聊天 Layout 注册表——多 Layout 切换的唯一配置入口。
  *
  * preset 值由服务端 `/catalog/settings` 的 `chatUiPreset` 下发（管理后台配置），
- * 前端通过此注册表把 preset 映射为布局行为；新增布局 = 这里加一项 + workspace.css
- * 增加对应 `.chat-ui--{key}` 作用域样式，不需要复制整套组件。
+ * 只控制空白聊天首页。进入会话后统一使用豆包布局，避免后台首页模板改变
+ * 已有对话的消息区和输入框。
  */
 import type { ChatUiPreset } from '../stores/catalog'
 
@@ -58,4 +58,8 @@ export const CHAT_LAYOUTS: Record<ChatUiPreset, ChatLayoutConfig> = {
 
 export function getChatLayout(preset: ChatUiPreset): ChatLayoutConfig {
   return CHAT_LAYOUTS[preset] ?? CHAT_LAYOUTS.gpt
+}
+
+export function resolveChatUiPreset(homePreset: ChatUiPreset, conversationActive: boolean): ChatUiPreset {
+  return conversationActive ? 'doubao' : homePreset
 }

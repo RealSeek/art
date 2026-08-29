@@ -4,7 +4,7 @@ import type { ConversationSummary, GenerationOptions, GenerationRun, Message, Me
 import { createClientId } from '../utils/client-id'
 import { isGenerationActive, isGenerationTerminal } from '../utils/generation-run-state'
 
-type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
+type ServerConversation = { id: string; title: string; model: string; projectId?: string | null; temporary?: boolean; pinnedAt?: string | null; sharedAt?: string | null; archivedAt?: string | null; createdAt: string; updatedAt: string; messages?: ServerMessage[]; generationJobs?: ServerJob[] }
 type ServerMessageMetadata = { jobId?: string; feedback?: 'UP' | 'DOWN' | null; suggestionVersion?: number; suggestions?: string[]; reasoning?: unknown; webSearch?: unknown }
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; parentId?: string | null; branchIndex?: number; branchCount?: number; branches?: Array<{ id: string; branchIndex: number }>; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
@@ -57,7 +57,7 @@ export class ChatSendError extends Error {
 }
 
 function mapConversation(item: ServerConversation): ConversationSummary {
-  return { id: item.id, title: item.title, model: item.model, projectId: item.projectId, pinnedAt: item.pinnedAt ? Date.parse(item.pinnedAt) : null, sharedAt: item.sharedAt ? Date.parse(item.sharedAt) : null, createdAt: Date.parse(item.createdAt), updatedAt: Date.parse(item.updatedAt) }
+  return { id: item.id, title: item.title, model: item.model, projectId: item.projectId, pinnedAt: item.pinnedAt ? Date.parse(item.pinnedAt) : null, sharedAt: item.sharedAt ? Date.parse(item.sharedAt) : null, archivedAt: item.archivedAt ? Date.parse(item.archivedAt) : null, createdAt: Date.parse(item.createdAt), updatedAt: Date.parse(item.updatedAt) }
 }
 
 function mapWorkflowConfig(input?: ProjectWorkflowConfig | null): ProjectWorkflowConfig {
@@ -168,6 +168,7 @@ export const useStudioStore = defineStore('studio', {
     workspaceHydrating: false,
     lastError: '',
     conversations: [] as ConversationSummary[],
+    archivedConversations: [] as ConversationSummary[],
     apiKeys: [] as { id: string; name: string; value: string; createdAt: number }[],
     messages: [welcomeMessage()] as Message[],
     assets: [] as StudioAsset[],
@@ -188,12 +189,13 @@ export const useStudioStore = defineStore('studio', {
         this.workspaceHydrating = true; this.isLoading = true; this.lastError = ''
         try {
           const results = await Promise.allSettled([
-            api<ServerConversation[]>('/conversations'), api<ServerProject[]>('/projects'), api<ServerProject[]>('/projects?archived=true'),
+            api<ServerConversation[]>('/conversations'), api<ServerConversation[]>('/conversations?archived=true'), api<ServerProject[]>('/projects'), api<ServerProject[]>('/projects?archived=true'),
             api<ServerAsset[]>('/assets'), api<{ balance: number }>('/credits'), api<ServerJob[]>('/generations?kind=COMMERCE'), api<ServerJob[]>('/generations?kind=VIDEO'),
           ])
-          const [conversations, activeProjects, archivedProjects, assets, credit, commerceJobs, videoJobs] = results
+          const [conversations, archivedConversations, activeProjects, archivedProjects, assets, credit, commerceJobs, videoJobs] = results
 
           if (conversations.status === 'fulfilled') this.conversations = conversations.value.map(mapConversation)
+          if (archivedConversations.status === 'fulfilled') this.archivedConversations = archivedConversations.value.map(mapConversation)
           if (activeProjects.status === 'fulfilled' || archivedProjects.status === 'fulfilled') {
             const active = activeProjects.status === 'fulfilled' ? activeProjects.value.map(mapProject) : this.projects.filter((project) => !project.archived)
             const archived = archivedProjects.status === 'fulfilled' ? archivedProjects.value.map(mapProject) : this.projects.filter((project) => project.archived)
@@ -227,6 +229,7 @@ export const useStudioStore = defineStore('studio', {
       this.newConversation()
       this.currentProjectId = ''
       this.conversations = []
+      this.archivedConversations = []
       this.assets = []
       this.projects = []
       this.commerceRuns = []
@@ -309,19 +312,19 @@ export const useStudioStore = defineStore('studio', {
     async setConversationModel(model: string) {
       if (!this.currentConversationId) return
       await api(`/conversations/${this.currentConversationId}`, { method: 'PATCH', body: JSON.stringify({ model }) })
-      const conversation = this.conversations.find((item) => item.id === this.currentConversationId)
+      const conversation = [...this.conversations, ...this.archivedConversations].find((item) => item.id === this.currentConversationId)
       if (conversation) conversation.model = model
     },
     async renameConversation(conversationId: string, title: string) {
       const value = title.trim()
       if (!value) return
       await api(`/conversations/${conversationId}`, { method: 'PATCH', body: JSON.stringify({ title: value }) })
-      const conversation = this.conversations.find((item) => item.id === conversationId)
+      const conversation = [...this.conversations, ...this.archivedConversations].find((item) => item.id === conversationId)
       if (conversation) conversation.title = value
     },
     async setConversationPinned(conversationId: string, pinned: boolean) {
       await api(`/conversations/${conversationId}`, { method: 'PATCH', body: JSON.stringify({ pinned }) })
-      const conversation = this.conversations.find((item) => item.id === conversationId)
+      const conversation = [...this.conversations, ...this.archivedConversations].find((item) => item.id === conversationId)
       if (conversation) conversation.pinnedAt = pinned ? Date.now() : null
       this.conversations.sort((left, right) => {
         if (Boolean(left.pinnedAt) !== Boolean(right.pinnedAt)) return left.pinnedAt ? -1 : 1
@@ -330,17 +333,27 @@ export const useStudioStore = defineStore('studio', {
     },
     async archiveConversation(conversationId: string) {
       await api(`/conversations/${conversationId}`, { method: 'DELETE' })
+      const conversation = this.conversations.find((item) => item.id === conversationId)
       this.conversations = this.conversations.filter((item) => item.id !== conversationId)
+      if (conversation) this.archivedConversations = [{ ...conversation, archivedAt: Date.now() }, ...this.archivedConversations.filter((item) => item.id !== conversationId)]
       if (this.currentConversationId === conversationId) this.newConversation()
+    },
+    async restoreConversation(conversationId: string) {
+      await api(`/conversations/${conversationId}`, { method: 'PATCH', body: JSON.stringify({ archived: false }) })
+      const conversation = this.archivedConversations.find((item) => item.id === conversationId)
+      this.archivedConversations = this.archivedConversations.filter((item) => item.id !== conversationId)
+      if (conversation) this.conversations = [{ ...conversation, archivedAt: null, updatedAt: Date.now() }, ...this.conversations.filter((item) => item.id !== conversationId)]
     },
     async deleteConversation(conversationId: string) {
       await api(`/conversations/${conversationId}/permanent`, { method: 'DELETE' })
       this.conversations = this.conversations.filter((item) => item.id !== conversationId)
+      this.archivedConversations = this.archivedConversations.filter((item) => item.id !== conversationId)
       if (this.currentConversationId === conversationId) this.newConversation()
     },
     async clearConversations() {
       await api('/conversations', { method: 'DELETE' })
       this.conversations = []
+      this.archivedConversations = []
       this.newConversation()
     },
     async setMessageFeedback(messageId: string, value: 'UP' | 'DOWN' | null) {
@@ -431,7 +444,9 @@ export const useStudioStore = defineStore('studio', {
       if (this.currentConversationId === conversationId) await this.openConversation(conversationId)
     },
     async refreshConversations() {
-      this.conversations = (await api<ServerConversation[]>('/conversations')).map(mapConversation)
+      const [active, archived] = await Promise.all([api<ServerConversation[]>('/conversations'), api<ServerConversation[]>('/conversations?archived=true')])
+      this.conversations = active.map(mapConversation)
+      this.archivedConversations = archived.map(mapConversation)
     },
     async createProject(name: string, brief = '') {
       const row = await api<ServerProject>('/projects', { method: 'POST', body: JSON.stringify({ name: name.trim(), description: brief.trim() }) })

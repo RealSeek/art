@@ -43,7 +43,7 @@ API 地址为 `http://localhost:3100/v1`。用户端和管理端开发服务器�
 
 ## 管理端
 
-未配置环境变量时，初始化脚本使用项目默认管理员；也可以通过 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 覆盖首次初始化值。执行：
+开发环境未配置管理员变量时，初始化脚本使用示例文件中的测试管理员；生产启动必须显式提供 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，不会回退到固定密码。执行：
 
 ```powershell
 npm --prefix server run admin:seed

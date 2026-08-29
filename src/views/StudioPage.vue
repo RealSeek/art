@@ -1,22 +1,22 @@
 <template>
-    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="[`chat-ui--${chatUiPreset}`, `chat-layout--w-${chatLayout.contentWidth}`, `chat-layout--header-${chatLayout.header}`, `chat-layout--home-${chatLayout.homeLayout}`, `chat-layout--msg-${chatLayout.messageStyle}`, { 'has-messages': hasChatThread, 'is-artifact-open': activeArtifact }]">
+    <section v-if="activeMode === 'chat'" :key="activeMode" class="studio-chat chat-page" :class="[`chat-ui--${chatUiPreset}`, `chat-layout--w-${chatLayout.contentWidth}`, `chat-layout--header-${chatLayout.header}`, `chat-layout--home-${chatLayout.homeLayout}`, `chat-layout--msg-${chatLayout.messageStyle}`, { 'has-messages': isConversationView, 'is-artifact-open': activeArtifact }]">
       <div class="chat-dialog-pane">
       <header class="chat-page__header"><h1 class="chat-page__title">Xinyue AI</h1><div v-if="hasChatThread && chatModels.length" class="chat-model-switcher"><button type="button" :aria-expanded="headerModelOpen" :aria-label="`切换模型，当前为${activeChatModelLabel}`" :title="`模型：${activeChatModelLabel}`" @click="toggleHeaderModelMenu"><ModelBadge :model="activeChatModel || { displayName: activeChatModelLabel }" size="sm" /><span>{{ activeChatModelLabel }}</span><ChevronDown :size="14" /></button><div v-if="headerModelOpen" class="chat-model-switcher__backdrop" @click="headerModelOpen = false" /><div v-if="headerModelOpen" class="chat-model-switcher__popover"><ModelCatalogPicker :models="chatModels" :model-value="model" @select="handleHeaderSelectModel" /></div></div><div class="chat-page__header-actions"><button v-if="auth.isAuthenticated" class="temporary-chat-toggle" :class="{ active: store.temporaryChat }" type="button" :aria-pressed="store.temporaryChat" :aria-label="store.temporaryChat ? '退出临时聊天' : '开启临时聊天'" :title="store.temporaryChat ? '退出临时聊天' : '临时聊天'" @click="toggleTemporaryChat"><MessageCircleDashed :size="19" /></button><div v-else-if="catalog.loginEnabled" class="chat-page__auth-actions"><RouterLink to="/login?redirect=/chat">登录</RouterLink><RouterLink v-if="catalog.registrationAvailable" class="is-primary" to="/login?redirect=/chat&amp;register=1">免费注册</RouterLink></div></div></header>
       <div v-if="store.lastError" class="studio-feedback" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
 
       <div class="chat-center" :class="{ 'chat-center--thread': hasChatThread }">
-        <ChatHome :has-chat-thread="hasChatThread" />
+        <ChatHome :has-chat-thread="isConversationView" :chat-ui-preset="homeChatUiPreset" />
         <ChatThread ref="chatThread" :has-chat-thread="hasChatThread" :jump-highlight-id="jumpHighlightId" :model="model" :web-search-enabled="webSearchEnabled" :active-chat-response-mode="activeChatResponseMode" :sync-message-navigator="syncMessageNavigator" @open-artifact="openCodeArtifact" @preview-asset="previewAsset = $event" @use-reference="useGeneratedAssetAsReference" @retry-image="retryImageGeneration" @retry-video="retryVideoGeneration" @download-asset="downloadGeneratedAsset" @follow-up="useFollowUpSuggestion" />
 
-        <section v-if="!hasChatThread && chatUiPreset === 'doubao' && doubaoRecommendations.length" class="chat-home-suggestions" aria-label="当前热点">
+        <section v-if="!isConversationView && chatUiPreset === 'doubao' && doubaoRecommendations.length" class="chat-home-suggestions" aria-label="当前热点">
           <span>当前热点</span>
           <button v-for="suggestion in doubaoRecommendations" :key="suggestion.title" type="button" @click="useChatSuggestion(suggestion)">{{ suggestion.title }}</button>
         </section>
 
-        <ChatComposer ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:web-search-enabled="webSearchEnabled" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="hasChatThread" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
+        <ChatComposer ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:web-search-enabled="webSearchEnabled" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="isConversationView" :chat-ui-preset="chatUiPreset" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
       </div>
 
-      <button v-if="!hasChatThread && chatUiPreset === 'kimi'" class="chat-home-explore" type="button" @click="router.push('/prompts')">
+      <button v-if="!isConversationView && chatUiPreset === 'kimi'" class="chat-home-explore" type="button" @click="router.push('/prompts')">
         <Lightbulb :size="16" /><span>探索灵感</span><small>浏览提示词</small><ChevronRight :size="15" />
       </button>
 
@@ -110,7 +110,7 @@ import { ChatSendError, useStudioStore } from '../stores/studio'
 import type { CodeArtifact, GenerationRun, PluginCapability, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { api } from '../services/api'
 import { consumeCreationPrompt, type PendingCreationPrompt } from '../utils/prompt-transfer'
-import { getChatLayout } from '../layouts/chat-presets'
+import { getChatLayout, resolveChatUiPreset } from '../layouts/chat-presets'
 import { isDedicatedImageTool, mergeImageTools, type ImageToolType } from '../utils/image-tools'
 import { useChatMessageNavigator } from '../composables/chat/useChatMessageNavigator'
 import { useChatConversationLifecycle } from '../composables/chat/useChatConversationLifecycle'
@@ -129,7 +129,10 @@ const { t } = useI18n()
 const store = useStudioStore()
 const auth = useAuthStore()
 const catalog = useCatalogStore()
-const chatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
+const homeChatUiPreset = computed<ChatUiPreset>(() => catalog.settings.chatUiPreset || 'gpt')
+const hasChatThread = computed(() => store.messages.some((message) => message.id !== 'welcome') || store.generations.length > 0)
+const isConversationView = computed(() => Boolean(store.currentConversationId || store.openingConversationId) || hasChatThread.value)
+const chatUiPreset = computed<ChatUiPreset>(() => resolveChatUiPreset(homeChatUiPreset.value, isConversationView.value))
 const chatLayout = computed(() => getChatLayout(chatUiPreset.value))
 const doubaoRecommendations = computed(() => catalog.settings.chatHomeContent.doubaoRecommendations)
 const qianwenBanners = computed(() => catalog.settings.chatHomeContent.qianwenBanners)
@@ -403,7 +406,6 @@ const { fileAccept, uploading, setFileInput, openFilePicker, handleFiles } = use
   clearError: store.clearError,
   setError: (message) => { store.lastError = message },
 })
-const hasChatThread = computed(() => store.messages.some((message) => message.id !== 'welcome') || store.generations.length > 0)
 const chatMessages = computed(() => hasChatThread.value ? store.messages.filter((message) => message.id !== 'welcome') : store.messages)
 const {
   messageJumps,

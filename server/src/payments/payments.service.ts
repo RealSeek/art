@@ -7,6 +7,7 @@ import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { SubscriptionsService } from '../subscriptions/subscriptions.service'
 import { ReferralService } from '../commercial/referral.service'
 import { PAYMENT_METHODS, PAYMENT_METHODS_BY_PROVIDER, PAYMENT_PROVIDERS, type PaymentMethod, type PaymentProvider } from './payment.constants'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 
 type ChannelInput = {
   name: string
@@ -33,7 +34,7 @@ type StripeCheckoutEvent = { id?: string; type?: string; data?: { object?: { pay
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly subscriptions: SubscriptionsService, private readonly credits: CreditsService, private readonly referrals: ReferralService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly subscriptions: SubscriptionsService, private readonly credits: CreditsService, private readonly referrals: ReferralService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async methods() {
     const rows = await this.prisma.paymentChannel.findMany({ where: { enabled: true }, orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }] })
@@ -404,9 +405,10 @@ export class PaymentsService {
     }
     if (channel.providerKey === 'EXTERNAL') {
       if (!config.refundUrl) throw new BadRequestException('外部收银台未配置退款接口地址')
+      const refundUrl = await this.endpointPolicy.assertPublicHttpUrl(String(config.refundUrl))
       const payload = JSON.stringify({ refund_id: refund.id, trade_no: transaction.providerTradeNo, out_trade_no: transaction.outTradeNo, amount: (refund.amountCents / 100).toFixed(2), currency: transaction.currency })
       const signature = createHmac('sha256', secrets.webhookSecret || '').update(payload).digest('hex')
-      const response = await fetch(String(config.refundUrl), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Payment-Signature': signature, 'Idempotency-Key': refund.id }, body: payload })
+      const response = await fetch(refundUrl, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', 'X-Payment-Signature': signature, 'Idempotency-Key': refund.id }, body: payload })
       const result = await response.json().catch(() => ({})) as { success?: boolean; status?: string; refund_id?: string; message?: string }
       if (!response.ok || !(result.success || ['pending', 'succeeded', 'success'].includes(String(result.status).toLowerCase()))) throw new BadGatewayException(result.message || '外部收银台退款失败')
       return { providerRefundId: result.refund_id || refund.id, payload: { status: result.status || 'success' } }
@@ -464,5 +466,9 @@ export class PaymentsService {
     if (input.providerKey === 'EASYPAY' && !/^\d+$/.test(String(config.merchantId))) throw new BadRequestException('易支付商户 ID（PID）必须为数字')
     if (input.providerKey === 'STRIPE' && (!secrets.secretKey || !secrets.webhookSecret)) throw new BadRequestException('Stripe 需要 Secret Key 和 Webhook Secret')
     if (input.providerKey === 'EXTERNAL' && (!config.checkoutUrl || !secrets.webhookSecret)) throw new BadRequestException('外部收银台需要结账地址和回调密钥')
+    if (input.providerKey === 'EXTERNAL') {
+      await this.endpointPolicy.assertPublicHttpUrl(String(config.checkoutUrl))
+      if (config.refundUrl) await this.endpointPolicy.assertPublicHttpUrl(String(config.refundUrl))
+    }
   }
 }

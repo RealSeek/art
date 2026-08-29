@@ -57,6 +57,8 @@ export type DiscoveredModel = {
 }
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
+const DEFAULT_CATALOG_MIRROR_URL = 'https://cdn.jsdelivr.net/gh/BerriAI/litellm@main/model_prices_and_context_window.json'
+const MAX_CATALOG_BYTES = 20 * 1024 * 1024
 
 const FALLBACK_PRICING: Record<string, CatalogEntry> = {
   'gpt-4o': { input_cost_per_token: 0.0000025, output_cost_per_token: 0.00001, litellm_provider: 'openai', mode: 'chat' },
@@ -110,8 +112,8 @@ export class ModelDiscoveryService {
     return []
   }
 
-  async discover(payload: unknown, options: { creditValueMicros: number; markupPercent: number; catalogUrl?: string; refreshHours?: number }) {
-    await this.ensureCatalog(options.catalogUrl, options.refreshHours)
+  async discover(payload: unknown, options: { creditValueMicros: number; pricingUsdExchangeRateMicros?: number; markupPercent: number; catalogUrl?: string; refreshHours?: number; forceRefresh?: boolean }) {
+    await this.ensureCatalog(options.catalogUrl, options.refreshHours, options.forceRefresh)
     const seen = new Set<string>()
     return this.normalizeResponse(payload).map((item) => this.normalizeModel(item, options)).filter((item): item is DiscoveredModel => {
       if (!item || seen.has(item.id)) return false
@@ -120,27 +122,45 @@ export class ModelDiscoveryService {
     }).sort((left, right) => Number(right.importable) - Number(left.importable) || left.vendorName.localeCompare(right.vendorName) || left.id.localeCompare(right.id))
   }
 
-  private async ensureCatalog(url = DEFAULT_CATALOG_URL, refreshHours = 12) {
+  private async ensureCatalog(url = DEFAULT_CATALOG_URL, refreshHours = 12, forceRefresh = false) {
     const ttl = Math.max(1, Math.min(refreshHours || 12, 168)) * 3_600_000
-    if (this.catalog.size && Date.now() - this.catalogLoadedAt < ttl) return
-    this.catalog = new Map(Object.entries(FALLBACK_PRICING).map(([key, value]) => [this.catalogKey(key), value]))
-    this.catalogSource = 'fallback'
-    this.catalogLoadedAt = Date.now()
-    try {
-      const response = await fetch(url || DEFAULT_CATALOG_URL, { signal: AbortSignal.timeout(8_000) })
-      if (!response.ok) return
-      const payload = await response.json() as Record<string, CatalogEntry>
-      for (const [key, value] of Object.entries(payload)) {
-        if (!value || typeof value !== 'object') continue
-        this.catalog.set(this.catalogKey(key), value)
-        const unprefixed = key.includes('/') ? key.slice(key.lastIndexOf('/') + 1) : key
-        if (!this.catalog.has(this.catalogKey(unprefixed))) this.catalog.set(this.catalogKey(unprefixed), value)
+    if (!forceRefresh && this.catalog.size && Date.now() - this.catalogLoadedAt < ttl) return
+    const primaryUrl = url || DEFAULT_CATALOG_URL
+    const catalogUrls = primaryUrl === DEFAULT_CATALOG_URL ? [primaryUrl, DEFAULT_CATALOG_MIRROR_URL] : [primaryUrl]
+    for (const catalogUrl of catalogUrls) {
+      try {
+        const parsedUrl = new URL(catalogUrl)
+        if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error('价格目录地址无效')
+        const response = await fetch(parsedUrl, { redirect: 'error', signal: AbortSignal.timeout(12_000) })
+        if (!response.ok) throw new Error(`价格目录返回 HTTP ${response.status}`)
+        const declaredSize = Number(response.headers.get('content-length') || 0)
+        if (declaredSize > MAX_CATALOG_BYTES) throw new Error('价格目录超过 20 MB')
+        const raw = await response.text()
+        if (Buffer.byteLength(raw, 'utf8') > MAX_CATALOG_BYTES) throw new Error('价格目录超过 20 MB')
+        const payload = JSON.parse(raw) as Record<string, CatalogEntry>
+        const nextCatalog = new Map(Object.entries(FALLBACK_PRICING).map(([key, value]) => [this.catalogKey(key), value]))
+        for (const [key, value] of Object.entries(payload)) {
+          if (!value || typeof value !== 'object') continue
+          nextCatalog.set(this.catalogKey(key), value)
+          const unprefixed = key.includes('/') ? key.slice(key.lastIndexOf('/') + 1) : key
+          if (!nextCatalog.has(this.catalogKey(unprefixed))) nextCatalog.set(this.catalogKey(unprefixed), value)
+        }
+        this.catalog = nextCatalog
+        this.catalogSource = 'litellm'
+        this.catalogLoadedAt = Date.now()
+        return
+      } catch {
+        // Try the next source while preserving the last successful cache.
       }
-      this.catalogSource = 'litellm'
-    } catch { /* The bundled baseline keeps discovery usable while the catalog is unavailable. */ }
+    }
+    if (!this.catalog.size) {
+      this.catalog = new Map(Object.entries(FALLBACK_PRICING).map(([key, value]) => [this.catalogKey(key), value]))
+      this.catalogSource = 'fallback'
+      this.catalogLoadedAt = Date.now()
+    }
   }
 
-  private normalizeModel(item: RemoteModel, options: { creditValueMicros: number; markupPercent: number }): DiscoveredModel | null {
+  private normalizeModel(item: RemoteModel, options: { creditValueMicros: number; pricingUsdExchangeRateMicros?: number; markupPercent: number }): DiscoveredModel | null {
     const raw = typeof item === 'string' ? {} : item
     const id = String(typeof item === 'string' ? item : raw.id ?? raw.name ?? raw.model ?? '').trim()
     if (!id || id.length > 200) return null
@@ -160,11 +180,13 @@ export class ModelDiscoveryService {
     const imageCost = this.micros(pricing?.output_cost_per_image ?? pricing?.input_cost_per_image)
     const videoCost = this.micros(pricing?.output_cost_per_video_per_second ?? pricing?.input_cost_per_video_per_second)
     const creditValue = Math.max(1, options.creditValueMicros || 10_000)
+    const exchangeRate = Math.max(1, Math.min(options.pricingUsdExchangeRateMicros || 1_000_000, 100_000_000))
+    const localizedCost = (costMicros: number) => Math.min(2_000_000_000, Math.ceil(costMicros * exchangeRate / 1_000_000))
     const markup = Math.max(100, Math.min(options.markupPercent || 130, 1000)) / 100
-    const inputCredits = inputCost ? Math.max(1, Math.ceil(inputCost * markup / creditValue)) : 0
-    const outputCredits = outputCost ? Math.max(1, Math.ceil(outputCost * markup / creditValue)) : 0
+    const inputCredits = inputCost ? Math.max(1, Math.ceil(localizedCost(inputCost) * markup / creditValue)) : 0
+    const outputCredits = outputCost ? Math.max(1, Math.ceil(localizedCost(outputCost) * markup / creditValue)) : 0
     const mediaCost = capability === ModelCapability.VIDEO ? videoCost : capability === ModelCapability.IMAGE ? imageCost : 0
-    const flatCreditCost = mediaCost ? Math.max(1, Math.ceil(mediaCost * markup / creditValue)) : 0
+    const flatCreditCost = mediaCost ? Math.max(1, Math.ceil(localizedCost(mediaCost) * markup / creditValue)) : 0
     const supportedParameters = Array.isArray(raw.supported_parameters) ? raw.supported_parameters.map(String) : []
     const supportsTools = Boolean(pricing?.supports_function_calling || raw.supports_function_calling || supportedParameters.some((item) => ['tools', 'tool_choice', 'function_call'].includes(item)))
     const supportsStructuredOutput = Boolean(pricing?.supports_response_schema || raw.supports_response_schema || supportedParameters.some((item) => ['response_format', 'json_schema'].includes(item)))

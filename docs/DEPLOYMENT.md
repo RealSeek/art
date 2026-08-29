@@ -1,6 +1,6 @@
 # Xinyue AI 部署与运维指南
 
-产品和技术边界以 [最终代码审计](FINAL_CODE_AUDIT_2026-08-28.md) 为准。本文只维护可直接执行的部署和运维步骤。
+产品和技术边界以 [全栈代码审计与优化报告](FULL_STACK_AUDIT_AND_OPTIMIZATION_2026-08-29.md) 为准。本文只维护可直接执行的部署和运维步骤。
 
 本文覆盖 Docker Compose 生产部署、首次安装、升级、备份恢复、健康检查和手工 Node.js 部署。
 
@@ -30,7 +30,7 @@ Nginx 路由：用户端位于 `/`，管理端位于 `/admin/`，API 位于 `/v1
 Copy-Item .env.production.example .env.production
 ```
 
-必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`，两个密钥均不得少于 32 位；占位值会让生产容器直接启动失败。首次部署默认管理员为 `xinyue@xinyue.mom`，默认密码为 `xinyue.mom`，也可通过 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD` 覆盖。登录后台后应立即在“业务系统配置 > 后台安全”修改管理员邮箱和密码。
+必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，两个系统密钥均不得少于 32 位，管理员密码至少 8 位；占位值或空值会让生产容器直接启动失败。开发环境仍可使用示例文件中的测试管理员，生产环境不会回退到固定管理员密码。
 
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
@@ -48,8 +48,8 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 ### 2.4 首次初始化
 
 1. 查看 `backend` 日志，确认所有迁移完成并出现 `Super admin ready`。
-2. 打开 `/admin/`，使用默认账号 `xinyue@xinyue.mom` 和密码 `xinyue.mom` 登录；如果环境变量覆盖过管理员信息，则使用配置值。
-3. 登录后立即修改管理员邮箱和密码，并关闭不再需要的会话。
+2. 打开 `/admin/`，使用 `.env.production` 中配置的管理员邮箱和密码登录。
+3. 登录后确认管理员信息、会话安全和权限边界，并关闭不再需要的会话。
 4. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
 
 数据库密码包含 `@`、`:`、`/`、`#` 等字符时，需要先在 `DATABASE_URL` 中进行 URL 编码。系统不提供公开安装页，也不会通过浏览器写入运行配置。

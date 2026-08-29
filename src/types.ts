@@ -60,6 +60,7 @@ export interface ConversationSummary {
   sharedAt?: number | null
   createdAt: number
   updatedAt: number
+  archivedAt?: number | null
 }
 
 export interface StudioAsset {

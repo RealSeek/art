@@ -39,10 +39,12 @@
     <section v-if="auth.isAuthenticated" class="workspace-recent" :class="{ 'is-collapsed': !sidebarOpen }">
       <button v-if="!sidebarOpen" class="workspace-recent-collapsed" type="button" aria-label="打开最近对话" title="打开最近对话" @click="sidebarOpen = true"><History :size="19" /></button>
       <template v-else>
-      <header class="workspace-recent__header"><button class="workspace-recent__toggle" type="button" :aria-expanded="recentOpen" @click="recentOpen = !recentOpen">{{ t('workspace.recent') }} <ChevronDown :size="14" :class="{ 'is-up': recentOpen }" /></button><button class="workspace-recent__search-button" type="button" aria-label="搜索对话" title="搜索对话" @click="recentSearchOpen = !recentSearchOpen; recentOpen = true"><Search :size="15" /></button></header>
+      <header class="workspace-recent__header"><button class="workspace-recent__toggle" type="button" :aria-expanded="recentOpen" @click="recentOpen = !recentOpen">对话 <ChevronDown :size="14" :class="{ 'is-up': recentOpen }" /></button><button class="workspace-recent__search-button" type="button" aria-label="搜索对话" title="搜索对话" @click="recentSearchOpen = !recentSearchOpen; recentOpen = true"><Search :size="15" /></button></header>
       <div v-if="recentOpen" class="workspace-recent__body">
         <label v-if="recentSearchOpen" class="workspace-recent__search-field"><Search :size="14" /><input v-model="conversationSearch" aria-label="搜索对话" placeholder="搜索对话" /></label>
-        <div v-for="conversation in visibleRecentConversations" :key="conversation.id" class="workspace-recent-row" :class="{ 'is-active': activeMode === 'chat' && conversation.id === studio.currentConversationId }">
+        <template v-for="conversation in visibleRecentConversations" :key="conversation.id">
+        <h3 v-if="groupLabel(conversation)" class="workspace-recent__group-title">{{ groupLabel(conversation) }}</h3>
+        <div class="workspace-recent-row" :class="{ 'is-active': activeMode === 'chat' && conversation.id === studio.currentConversationId }">
           <form v-if="renamingConversationId === conversation.id" class="workspace-recent-rename" @submit.prevent="saveConversationRename(conversation.id)">
             <input v-model="conversationRename" maxlength="120" aria-label="对话名称" autofocus :disabled="conversationRenameBusy" @keydown.esc="cancelConversationRename" />
             <button type="submit" aria-label="保存重命名" title="保存" :disabled="conversationRenameBusy || !conversationRename.trim()"><LoaderCircle v-if="conversationRenameBusy" :size="14" /><Check v-else :size="14" /></button>
@@ -55,6 +57,7 @@
             <button class="workspace-recent-more" type="button" :aria-label="`打开“${conversation.title}”的对话选项`" :aria-expanded="conversationMenuId === conversation.id" @click.stop="openConversationMenu($event, conversation)"><MoreHorizontal :size="17" /></button>
           </template>
         </div>
+        </template>
         <p v-if="studio.workspaceHydrating && !studio.conversations.length">正在加载对话...</p>
         <p v-else-if="!filteredConversations.length">{{ conversationSearch ? '没有匹配的对话' : t('workspace.noChats') }}</p>
         <button v-else-if="hasMoreRecentConversations" class="workspace-recent-show-more" type="button" @click="recentVisibleCount += recentConversationPageSize">显示更多（剩余 {{ filteredConversations.length - visibleRecentConversations.length }} 条）</button>
@@ -192,8 +195,28 @@ const filteredConversations = computed(() => {
   if (!query) return studio.conversations
   return studio.conversations.filter((item) => item.title.toLocaleLowerCase().includes(query))
 })
-const visibleRecentConversations = computed(() => filteredConversations.value.slice(0, recentVisibleCount.value))
+const visibleRecentConversations = computed(() => [...filteredConversations.value]
+  .sort((left, right) => {
+    const dayDelta = dayStart(right.updatedAt) - dayStart(left.updatedAt)
+    if (dayDelta) return dayDelta
+    if (Boolean(left.pinnedAt) !== Boolean(right.pinnedAt)) return left.pinnedAt ? -1 : 1
+    return right.updatedAt - left.updatedAt
+  })
+  .slice(0, recentVisibleCount.value))
 const hasMoreRecentConversations = computed(() => visibleRecentConversations.value.length < filteredConversations.value.length)
+function dayStart(timestamp: number) {
+  const date = new Date(timestamp)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+function groupLabel(conversation: ConversationSummary) {
+  const index = visibleRecentConversations.value.findIndex((item) => item.id === conversation.id)
+  if (index > 0) {
+    const previous = visibleRecentConversations.value[index - 1]
+    if (dayStart(previous.updatedAt) === dayStart(conversation.updatedAt)) return ''
+  }
+  const days = Math.max(0, Math.floor((dayStart(Date.now()) - dayStart(conversation.updatedAt)) / 86_400_000))
+  return days === 0 ? '今天' : days === 1 ? '昨天' : '三天前'
+}
 watch(conversationSearch, () => { recentVisibleCount.value = recentConversationPageSize })
 
 const currentPlanName = computed(() => props.currentSubscription?.plan.name || '免费版')

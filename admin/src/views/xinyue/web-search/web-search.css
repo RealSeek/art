@@ -115,6 +115,14 @@
   .help {
     margin-top: 6px;
   }
+  .help a {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    margin-left: 8px;
+    color: var(--el-color-primary);
+    text-decoration: none;
+  }
 
   @media (width <= 720px) {
     .page-title {

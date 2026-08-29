@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto'
 import { EmailService } from '../auth/email.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 
 type TemplateInput = {
   key: string
@@ -33,7 +34,7 @@ const DEFAULT_TEMPLATES: Array<Omit<TemplateInput, 'webhookSecret'>> = [
 
 @Injectable()
 export class NotificationsService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly crypto: CredentialCryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly crypto: CredentialCryptoService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async onModuleInit() {
     await Promise.all(DEFAULT_TEMPLATES.map((template) => this.prisma.notificationTemplate.upsert({
@@ -48,7 +49,7 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async saveTemplate(id: string | undefined, input: TemplateInput) {
-    const data = this.templateData(input)
+    const data = await this.templateData(input)
     const secret = input.webhookSecret?.trim()
     if (secret) Object.assign(data, { encryptedWebhookSecret: this.crypto.encrypt(secret), webhookSecretHint: this.crypto.hint(secret) })
     else if (input.webhookSecret === '') Object.assign(data, { encryptedWebhookSecret: '', webhookSecretHint: '' })
@@ -134,7 +135,8 @@ export class NotificationsService implements OnModuleInit {
         const payload = JSON.stringify({ id: delivery.id, type: delivery.templateKey, title: delivery.title, body: delivery.body, metadata: delivery.metadata, occurredAt: delivery.createdAt.toISOString() })
         const secret = encryptedWebhookSecret ? this.crypto.decrypt(encryptedWebhookSecret) : ''
         const signature = secret ? createHmac('sha256', secret).update(payload).digest('hex') : ''
-        const response = await fetch(delivery.recipient, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Signature': `sha256=${signature}` } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
+        const url = await this.endpointPolicy.assertPublicHttpUrl(delivery.recipient)
+        const response = await fetch(url, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Signature': `sha256=${signature}` } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
         if (!response.ok) throw new Error(`Webhook 返回 HTTP ${response.status}`)
       }
       await this.prisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: NotificationDeliveryStatus.SENT, attempts: { increment: 1 }, sentAt: new Date(), lastError: '' } })
@@ -145,12 +147,12 @@ export class NotificationsService implements OnModuleInit {
     }
   }
 
-  private templateData(input: TemplateInput): Prisma.NotificationTemplateUpdateInput {
+  private async templateData(input: TemplateInput): Promise<Prisma.NotificationTemplateUpdateInput> {
     const key = input.key.trim().toLowerCase()
     if (!/^[a-z][a-z0-9_.-]{1,63}$/.test(key)) throw new BadRequestException('模板标识格式不正确')
     const channels = [...new Set(input.channels)]
     if (!channels.length) throw new BadRequestException('至少选择一种通知渠道')
-    if (channels.includes(NotificationChannel.WEBHOOK)) this.assertWebhookUrl(input.webhookUrl || '')
+    if (channels.includes(NotificationChannel.WEBHOOK)) await this.assertWebhookUrl(input.webhookUrl || '')
     return {
       key, name: input.name.trim(), description: input.description?.trim() || '',
       titleTemplate: input.titleTemplate.trim(), bodyTemplate: input.bodyTemplate.trim(), channels,
@@ -162,8 +164,8 @@ export class NotificationsService implements OnModuleInit {
     return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => variables[key] === null || variables[key] === undefined ? '' : String(variables[key]))
   }
 
-  private assertWebhookUrl(value: string) {
-    try { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol)) throw new Error() } catch { throw new BadRequestException('Webhook 地址格式不正确') }
+  private async assertWebhookUrl(value: string) {
+    try { await this.endpointPolicy.assertPublicHttpUrl(value) } catch { throw new BadRequestException('Webhook 仅允许公网 HTTP 或 HTTPS 地址') }
   }
 
   private publicTemplate<T extends { encryptedWebhookSecret: string }>(row: T) { return { ...row, encryptedWebhookSecret: undefined, hasWebhookSecret: Boolean(row.encryptedWebhookSecret) } }
