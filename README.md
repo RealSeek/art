@@ -122,10 +122,6 @@ npm run admin:dev
 
 欢迎提交 Bug 修复、文档改进、UI 优化、Provider 适配和测试补充。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并通过分支和 Pull Request 参与开发。
 
-## License
-
-当前许可证见 [LICENSE](LICENSE)。许可证条款如需调整，将在发布说明中单独公告。
-
 ---
 
 由心悦AI 提供技术支持！[xinyue.mom](https://xinyue.mom)

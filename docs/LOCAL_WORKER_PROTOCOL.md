@@ -1,6 +1,6 @@
 # Xinyue Local Worker 协议
 
-本文定义独立图片工具 Worker 与 Xinyue AI 的最小稳定协议。产品边界、计费和执行顺序仍以 [全栈代码审计与优化报告](FULL_STACK_AUDIT_AND_OPTIMIZATION_2026-08-29.md) 为准。
+本文定义独立图片工具 Worker 与 Xinyue AI 的最小稳定协议。计费和执行顺序以当前版本 API 契约为准。
 
 ## 1. 边界
 

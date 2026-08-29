@@ -26,17 +26,12 @@ npm run admin:build
 Do not commit `.env` files, credentials, logs, generated builds, databases, or
 uploaded user content.
 
-## License and contribution scope
+## Contribution scope
 
-Xinyue AI is distributed under the non-commercial [Xinyue AI Community Source
-License v1.0](LICENSE). Contributions must remain compatible with that license.
-Personal learning, research, and non-commercial self-hosting are in scope;
-commercial SaaS, API aggregation or relay services, token sales, membership
-services, and paid enterprise delivery require separate written authorization.
-
-Never include real API keys, user data, production logs, commercial channel
-configuration, payment secrets, or database backups in a contribution. Keep the
-license and copyright notices in derived versions and describe material changes.
+Keep contributions focused on bug fixes, documentation, UI improvements,
+Provider integrations, tests, and maintainability. Never include real API keys,
+user data, production logs, payment secrets, or database backups. Describe
+material changes in the pull request.
 
 ## Pull requests
 
