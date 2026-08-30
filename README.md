@@ -119,3 +119,5 @@ npm run admin:dev
 ## 🤝 贡献
 
 欢迎提交 Bug 修复、文档改进、UI 优化、Provider 适配和测试补充。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并通过分支和 Pull Request 参与开发。
+社区支持
+学 AI，上 L 站：LinuxDO
