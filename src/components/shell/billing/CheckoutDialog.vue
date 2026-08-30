@@ -24,18 +24,20 @@
         <img v-if="paymentTransaction.qrCodeUrl" class="settings-payment-qr" :src="paymentTransaction.qrCodeUrl" alt="付款二维码" />
         <p v-if="paymentInstructions" class="settings-payment-instructions">{{ paymentInstructions }}</p>
         <p v-if="paymentError" class="settings-feedback is-error">{{ paymentError }}</p>
-        <footer><button type="button" @click="closePayment">稍后查看</button><a v-if="paymentTransaction.checkoutUrl" :href="paymentTransaction.checkoutUrl" target="_blank" rel="noreferrer">前往支付</a><button v-if="!['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(paymentTransaction.status)" type="button" :disabled="paymentBusy" @click="refreshPaymentStatus">我已完成支付</button></footer>
+        <footer><button type="button" @click="closePayment">稍后查看</button><a v-if="safeCheckoutUrl" :href="safeCheckoutUrl" target="_blank" rel="noopener noreferrer">前往支付</a><button v-if="!['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(paymentTransaction.status)" type="button" :disabled="paymentBusy" @click="refreshPaymentStatus">我已完成支付</button></footer>
       </template>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Banknote, CheckCircle2, CircleGauge, CreditCard, LoaderCircle, QrCode, X } from 'lucide-vue-next'
 import { paymentMethodText, paymentProviderText, type PaymentMethodKey } from '../../../constants/payment'
+import { safeHttpNavigationUrl } from '../../../utils/safe-url'
 import type { CommerceQuote, PaymentChannel, PaymentIntent, PaymentTransaction, UserCoupon } from '../types'
 
-defineProps<{
+const props = defineProps<{
   paymentIntent: PaymentIntent
   paymentTransaction: PaymentTransaction | null
   paymentQuote: CommerceQuote | null
@@ -54,6 +56,8 @@ defineProps<{
   closePayment: () => void
   refreshPaymentStatus: () => Promise<void>
 }>()
+
+const safeCheckoutUrl = computed(() => safeHttpNavigationUrl(props.paymentTransaction?.checkoutUrl, window.location.origin))
 
 const selectedCouponId = defineModel<string>('selectedCouponId', { required: true })
 const selectedPaymentMethod = defineModel<PaymentMethodKey | ''>('selectedPaymentMethod', { required: true })

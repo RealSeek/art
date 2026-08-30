@@ -134,8 +134,9 @@ export class GenerationsService {
     }
     const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
     const byokFree = input.kind === 'CHAT' && resolved.source === 'user' && effectivePlan?.byokMode === 'FREE'
-    const effectiveInputRate = byokFree ? 0 : resolved.inputCreditsPerMillion
-    const effectiveOutputRate = byokFree ? 0 : resolved.outputCreditsPerMillion
+    const userTokenFree = byokFree || billedToPlatform
+    const effectiveInputRate = userTokenFree ? 0 : resolved.inputCreditsPerMillion
+    const effectiveOutputRate = userTokenFree ? 0 : resolved.outputCreditsPerMillion
     const tokenPricingConfigured = input.kind === 'CHAT' && (effectiveInputRate > 0 || effectiveOutputRate > 0)
     if (input.kind === 'CHAT' && !billedToPlatform && !byokFree && !tokenPricingConfigured) {
       throw new BadRequestException(resolved.source === 'user'
@@ -179,6 +180,14 @@ export class GenerationsService {
     dailyStart.setUTCHours(0, 0, 0, 0)
     const dailyEnd = new Date(dailyStart.getTime() + 86_400_000)
     const dailyScopeKey = `DAILY:${quotaIdentity}:${dailyStart.toISOString().slice(0, 10)}`
+    // Persist the expected reservation shape before creating any reservation.
+    // If the worker dies between reserve() and the options update, recovery can
+    // distinguish a complete hold from a partial/orphaned hold.
+    const expectedReservationSpecs = tokenQuotaEnabled && reservedTokenUnits > 0
+      ? [{ scopeKey: quotaScopeKey, periodStart: quotaPeriodStart, periodEnd: quotaPeriodEnd, grantedUnits: tokenQuotaUnits }, ...(dailyQuotaUnits > 0n ? [{ scopeKey: dailyScopeKey, periodStart: dailyStart, periodEnd: dailyEnd, grantedUnits: dailyQuotaUnits }] : [])]
+      : []
+    const expectedReservationCount = expectedReservationSpecs.length
+    const expectedReservationScopes = expectedReservationSpecs.map((spec) => spec.scopeKey)
     const directTokenCreditCost = imagePromptTask && !billedToPlatform
       ? reservedTokenUnits
       : reservedOverageCredits
@@ -190,8 +199,8 @@ export class GenerationsService {
     let job: GenerationJob
     try {
       job = await this.prisma.$transaction(async (tx) => {
-        const pricingSnapshot = this.pricing.snapshot({ version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, provider: `${resolved.source}:${resolved.type}`, unitCreditCost, settlementCurrency: resolved.settlementCurrency, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputRate: effectiveInputRate, outputRate: effectiveOutputRate, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource, overageRatePercent, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros })
-        const created = await tx.generationJob.create({ data: { userId, requestId: trace.requestId, traceId: trace.traceId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, subscriptionId: subscription?.id, unitCreditCost, baseCreditCost: chargedBaseCreditCost, reservedTokenUnits, reservedTokenCredits: chargedReservedTokenCredits, maxOutputTokens, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, groupRatePercent: resolved.creditRatePercent, overageRatePercent, billingSource, creditValueMicros: resolved.creditValueMicros, estimatedInputTokens, quotaEnabled: tokenQuotaEnabled, quotaScopeKey, quotaPeriodStart: quotaPeriodStart.toISOString(), quotaPeriodEnd: quotaPeriodEnd.toISOString() }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
+        const pricingSnapshot = this.pricing.snapshot({ version: priceVersion?.version || 0, presetKey: resolved.presetKey || '', source: resolved.source, model: resolved.model, provider: `${resolved.source}:${resolved.type}`, unitCreditCost, settlementCurrency: resolved.settlementCurrency, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputRate: effectiveInputRate, outputRate: effectiveOutputRate, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource, overageRatePercent, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, imageCostMicros: resolved.imageCostMicros, videoCostMicros: resolved.videoCostMicros, expectedReservationCount, expectedReservationScopes, expectedReservationUnits: String(reservedTokenUnits) })
+        const created = await tx.generationJob.create({ data: { userId, requestId: trace.requestId, traceId: trace.traceId, projectId: input.projectId, conversationId: input.conversationId, billingTeamId, kind: input.kind, provider: `${resolved.source}:${resolved.type}`, providerChannelId: resolved.providerId, userCredentialId: resolved.credentialId, userModelRouteId: resolved.source === 'user' ? resolved.routeId : undefined, priceVersionId: priceVersion?.id, pricingSnapshot: pricingSnapshot as Prisma.InputJsonValue, model: resolved.model, prompt: input.prompt, options: { ...normalizedOptions, requestedModel, assistantId: assistant?.id, ...(plugin ? { pluginId: plugin.id, pluginSnapshot: { name: plugin.name, version: plugin.version, capability: plugin.capability } } : {}), presetKey: resolved.presetKey, subscriptionId: subscription?.id, planCode: subscription?.plan.code, billing: { accountType: billingTeamId ? 'TEAM' : 'PERSONAL', teamId: billingTeamId, subscriptionId: subscription?.id, unitCreditCost, baseCreditCost: chargedBaseCreditCost, reservedTokenUnits, reservedTokenCredits: chargedReservedTokenCredits, maxOutputTokens, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: effectiveInputRate, outputCreditsPerMillion: effectiveOutputRate, groupRatePercent: resolved.creditRatePercent, overageRatePercent, billingSource, creditValueMicros: resolved.creditValueMicros, estimatedInputTokens, quotaEnabled: tokenQuotaEnabled, quotaScopeKey, quotaPeriodStart: quotaPeriodStart.toISOString(), quotaPeriodEnd: quotaPeriodEnd.toISOString(), expectedReservationCount, expectedReservationScopes, expectedReservationUnits: String(reservedTokenUnits) }, privacy: { trainingOptOut: privacy?.trainingOptOut ?? true, shareUsageAnalytics: privacy?.shareUsageAnalytics ?? false } } as Prisma.InputJsonValue, creditCost, revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros), idempotencyKey } })
         if (plugin) await tx.pluginUsage.create({ data: { userId, pluginId: plugin.id, jobId: created.id, capability: pluginCapability } })
         return created
       })
@@ -206,7 +215,7 @@ export class GenerationsService {
     let quotaReservations: QuotaReservation[] = []
     try {
       if (tokenQuotaEnabled && reservedTokenUnits > 0) {
-        const reservationSpecs = [{ scopeKey: quotaScopeKey, periodStart: quotaPeriodStart, periodEnd: quotaPeriodEnd, grantedUnits: tokenQuotaUnits }, ...(dailyQuotaUnits > 0n ? [{ scopeKey: dailyScopeKey, periodStart: dailyStart, periodEnd: dailyEnd, grantedUnits: dailyQuotaUnits }] : [])]
+        const reservationSpecs = expectedReservationSpecs
         try {
           for (const spec of reservationSpecs) {
             const reservation = await this.tokenQuota.reserve({ userId, subscriptionId: subscription?.id, ...spec, units: BigInt(reservedTokenUnits), generationId: job.id, metadata: { model: resolved.model, estimatedInputTokens, scopeKey: spec.scopeKey } as Prisma.InputJsonValue })
@@ -216,7 +225,7 @@ export class GenerationsService {
           const quotaInsufficient = error instanceof HttpException && error.getStatus() === HttpStatus.PAYMENT_REQUIRED
           if (!quotaInsufficient || !overageEnabled) throw error
           for (const reservation of quotaReservations) {
-            await this.tokenQuota.release({ userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason: 'OVERAGE_FALLBACK' } as Prisma.InputJsonValue })
+            await this.tokenQuota.release({ userId, reservationId: reservation.reservationId, quotaId: reservation.quotaId, generationId: job.id, metadata: { reason: 'OVERAGE_FALLBACK' } as Prisma.InputJsonValue })
           }
           quotaReservations = []
           tokenQuotaEnabled = false
@@ -230,8 +239,8 @@ export class GenerationsService {
         job = await this.prisma.generationJob.update({ where: { id: job.id }, data: {
           creditCost,
           revenueMicros: Math.min(2_000_000_000, creditCost * resolved.creditValueMicros),
-          pricingSnapshot: { ...currentPricing, billingSource } as Prisma.InputJsonValue,
-          options: { ...currentOptions, billing: { ...currentBilling, quotaEnabled: tokenQuotaEnabled, billingSource, reservedTokenCredits: chargedReservedTokenCredits, quotaId: quotaReservations[0]?.quotaId, quotaReservations: quotaReservations.map((item) => ({ quotaId: item.quotaId, reservedUnits: item.reservedUnits.toString() })) } } as Prisma.InputJsonValue,
+          pricingSnapshot: { ...currentPricing, billingSource, expectedReservationCount: tokenQuotaEnabled ? reservationSpecs.length : 0, expectedReservationScopes: tokenQuotaEnabled ? reservationSpecs.map((spec) => spec.scopeKey) : [], expectedReservationUnits: String(tokenQuotaEnabled ? reservedTokenUnits : 0) } as Prisma.InputJsonValue,
+          options: { ...currentOptions, billing: { ...currentBilling, quotaEnabled: tokenQuotaEnabled, billingSource, reservedTokenCredits: chargedReservedTokenCredits, quotaId: quotaReservations[0]?.quotaId, quotaReservations: quotaReservations.map((item) => ({ reservationId: item.reservationId, quotaId: item.quotaId, reservedUnits: item.reservedUnits.toString() })), expectedReservationCount: tokenQuotaEnabled ? reservationSpecs.length : 0, expectedReservationScopes: tokenQuotaEnabled ? reservationSpecs.map((spec) => spec.scopeKey) : [], expectedReservationUnits: String(tokenQuotaEnabled ? reservedTokenUnits : 0) } } as Prisma.InputJsonValue,
         } })
       }
       if (creditCost > 0) {
@@ -245,13 +254,13 @@ export class GenerationsService {
       return job
     } catch (error) {
       await this.lifecycle.fail(job.id, 'ENQUEUE_FAILED', error instanceof Error ? error.message : 'Unable to enqueue')
-      await this.prisma.generationJob.updateMany({ where: { id: job.id }, data: { settlementStatus: spent ? 'REFUNDED' : 'RELEASED' } }).catch(() => undefined)
       await this.prisma.pluginUsage.updateMany({ where: { jobId: job.id, status: 'QUEUED' }, data: { status: 'FAILED', error: 'Unable to enqueue generation job' } })
       if (spent) {
         await this.credits.refund(userId, creditCost, '任务创建失败退款', `job:${job.id}:enqueue-refund`, { type: 'generation_job', id: job.id }, billingTeamId)
         await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: job.id, amount: creditCost, provider: job.provider, idempotencyKey: `job:${job.id}:enqueue-refund`, metadata: { reason: 'ENQUEUE_FAILED', billingTeamId } as Prisma.InputJsonValue }), `${job.id}:enqueue-refund`)
       }
-      for (const reservation of quotaReservations) await this.tokenQuota.release({ userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason: 'ENQUEUE_FAILED' } as Prisma.InputJsonValue }).catch(() => undefined)
+      const reservationsReleased = await this.releaseTokenReservations(job, 'ENQUEUE_FAILED')
+      await this.prisma.generationJob.updateMany({ where: { id: job.id }, data: { settlementStatus: reservationsReleased ? (spent ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' } }).catch(() => undefined)
       throw error
     }
   }
@@ -300,32 +309,69 @@ export class GenerationsService {
     const job = await this.get(userId, id)
     if (job.status !== JobStatus.QUEUED && job.status !== JobStatus.RUNNING) return job
     const queueJob = await this.queue.getJob(id)
-    if (queueJob && !await queueJob.isActive()) await queueJob.remove()
     const cancelled = await this.lifecycle.cancel(id, userId)
     if (!cancelled) return this.get(userId, id)
-    if (job.providerChannelId) await this.providers.cancelLocalWorkerTask(job.providerChannelId, id).catch(() => undefined)
+    if (queueJob && !await queueJob.isActive()) await queueJob.remove()
+    // Reload after the conditional lifecycle transition. A runner may have
+    // updated usage or billing metadata immediately before cancellation won
+    // the race, so the original read is not a safe source for refunds.
+    const current = await this.prisma.generationJob.findUniqueOrThrow({ where: { id } })
+    if (current.providerChannelId) await this.providers.cancelLocalWorkerTask(current.providerChannelId, id).catch(() => undefined)
     await this.prisma.pluginUsage.updateMany({ where: { jobId: id, status: 'QUEUED' }, data: { status: 'CANCELLED' } })
-    if (job.creditCost > 0) {
-      await this.credits.refund(userId, job.creditCost, '取消生成任务退款', `job:${id}:cancel-refund`, { type: 'generation_job', id }, job.billingTeamId)
-      await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: id, amount: job.creditCost, provider: job.provider, idempotencyKey: `job:${id}:cancel-refund`, metadata: { reason: 'CANCELLED', billingTeamId: job.billingTeamId } as Prisma.InputJsonValue }), `${id}:cancel-refund`)
+    // The cancellation transaction found an in-flight or successful Provider
+    // attempt. Preserve every hold until reconciliation can determine the
+    // upstream charge; automatic refund/release would make the ledger lie.
+    if (current.settlementStatus === 'RECONCILING') return this.get(userId, id)
+    const creditRefund = await this.credits.refundOutstandingGeneration(userId, id, '取消生成任务退款', `job:${id}:cancel-refund`, current.billingTeamId)
+    if (creditRefund?.amount) {
+      await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: id, amount: creditRefund.amount, provider: current.provider, idempotencyKey: `job:${id}:cancel-refund`, metadata: { reason: 'CANCELLED', billingTeamId: current.billingTeamId } as Prisma.InputJsonValue }), `${id}:cancel-refund`)
     }
-    await this.releaseTokenReservations(job, 'CANCELLED')
-    await this.prisma.generationJob.updateMany({ where: { id, status: 'CANCELLED' }, data: { settlementStatus: job.creditCost > 0 ? 'REFUNDED' : 'RELEASED' } })
+    const released = await this.releaseTokenReservations(current, 'CANCELLED')
+    // A cancellation can race with a provider that has already committed its
+    // settlement. Never rewrite a terminal billing state in that case; the
+    // reservation transaction is the source of truth for the charge.
+    await this.prisma.generationJob.updateMany({
+      where: { id, status: 'CANCELLED', settlementStatus: { in: ['PENDING', 'RESERVED', 'RECONCILING'] } },
+      data: { settlementStatus: released ? (creditRefund?.amount ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' },
+    })
     return this.get(userId, id)
   }
 
-  private async releaseTokenReservations(job: GenerationJob, reason: string) {
+  private async releaseTokenReservations(job: GenerationJob, reason: string): Promise<boolean> {
     const options = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
     const billing = options.billing && typeof options.billing === 'object' && !Array.isArray(options.billing) ? options.billing as Record<string, unknown> : {}
-    if (billing.quotaEnabled !== true) return
-    const reservations = Array.isArray(billing.quotaReservations)
+    const optionReservations = Array.isArray(billing.quotaReservations)
       ? billing.quotaReservations.flatMap((item) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return []
         const row = item as Record<string, unknown>
         if (typeof row.quotaId !== 'string') return []
-        try { return [{ quotaId: row.quotaId, reservedUnits: BigInt(String(row.reservedUnits || 0)) }] } catch { return [] }
+        return [{ reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId }]
       })
-      : typeof billing.quotaId === 'string' ? [{ quotaId: billing.quotaId, reservedUnits: BigInt(Math.max(0, Number(billing.reservedTokenCredits || 0))) }] : []
-    for (const reservation of reservations) await this.tokenQuota.release({ userId: job.userId, quotaId: reservation.quotaId, generationId: job.id, reservedUnits: reservation.reservedUnits, metadata: { reason } as Prisma.InputJsonValue }).catch(() => undefined)
+      : []
+    if (typeof billing.quotaId === 'string' && !optionReservations.some((reservation) => reservation.quotaId === billing.quotaId)) {
+      optionReservations.push({ reservationId: undefined, quotaId: billing.quotaId })
+    }
+    let databaseLookupSucceeded = true
+    let databaseReservations: Awaited<ReturnType<TokenQuotaService['reservationsForGeneration']>> = []
+    try {
+      databaseReservations = await this.tokenQuota.reservationsForGeneration(job.userId, job.id)
+    } catch {
+      databaseLookupSucceeded = false
+    }
+    if (databaseReservations.some((reservation) => reservation.status === 'SETTLED')) return false
+    const reservations = new Map(optionReservations.map((reservation) => [reservation.quotaId, reservation]))
+    for (const reservation of databaseReservations) {
+      if (reservation.status !== 'RESERVED') continue
+      reservations.set(reservation.quotaId, { reservationId: reservation.reservationId, quotaId: reservation.quotaId })
+    }
+    let released = databaseLookupSucceeded
+    for (const reservation of reservations.values()) {
+      try {
+        await this.tokenQuota.release({ userId: job.userId, reservationId: reservation.reservationId, quotaId: reservation.quotaId, generationId: job.id, metadata: { reason } as Prisma.InputJsonValue })
+      } catch {
+        released = false
+      }
+    }
+    return released
   }
 }

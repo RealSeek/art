@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :current-generation-cost="currentGenerationCost" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoResolution" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :current-video-credit="currentVideoCredit" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :creation-option-price="creationOptionPrice" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :current-generation-cost="currentGenerationCost" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoResolution" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :current-video-credit="currentVideoCredit" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :creation-option-price="creationOptionPrice" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
 
     <ProjectsPanel v-else-if="activeMode === 'projects'" :key="activeMode" v-model:project-notice="projectNotice" :open-project-details="openProjectDetails" />
 
@@ -380,6 +380,8 @@ const imageTools = ref<ImageTool[]>(mergeImageTools([]) as ImageTool[])
 const selectedImageToolId = ref('')
 const videoInspirations = ref<Inspiration[]>([])
 const commerceInspirations = ref<Inspiration[]>([])
+const inspirationErrors = reactive<Record<'IMAGE' | 'VIDEO' | 'COMMERCE', string>>({ IMAGE: '', VIDEO: '', COMMERCE: '' })
+const inspirationLoading = reactive<Record<'IMAGE' | 'VIDEO' | 'COMMERCE', boolean>>({ IMAGE: false, VIDEO: false, COMMERCE: false })
 const selectedInspirationId = ref('')
 const inspirationPreview = ref<Inspiration | null>(null)
 const assetFilters = [{ label: '全部来源', value: 'all' }, { label: 'AI 生成', value: 'generated' }, { label: '本地上传', value: 'uploaded' }]
@@ -440,6 +442,9 @@ useChatConversationLifecycle({
   scrollThreadToBottom,
 })
 const activeInspirations = computed(() => activeMode.value === 'commerce' ? commerceInspirations.value : activeMode.value === 'videos' ? videoInspirations.value : imageInspirations.value)
+const activeInspirationMode = computed<'IMAGE' | 'VIDEO' | 'COMMERCE'>(() => activeMode.value === 'commerce' ? 'COMMERCE' : activeMode.value === 'videos' ? 'VIDEO' : 'IMAGE')
+const activeInspirationError = computed(() => inspirationErrors[activeInspirationMode.value])
+const activeInspirationLoading = computed(() => inspirationLoading[activeInspirationMode.value])
 const selectedImageTool = computed(() => activeMode.value === 'images' ? imageTools.value.find((tool) => tool.id === selectedImageToolId.value) || null : null)
 const hasCreationInput = computed(() => Boolean(generationPrompt.value.trim()) || Boolean(selectedImageTool.value && creationAttachments.value.length))
 const canSubmitCreation = computed(() => hasCreationInput.value && activeCreationModelAvailable.value)
@@ -628,23 +633,18 @@ function imageToolIcon(tool: ImageTool) {
 }
 
 async function loadInspirations(mode: 'IMAGE' | 'VIDEO' | 'COMMERCE') {
+  inspirationErrors[mode] = ''
+  inspirationLoading[mode] = true
   try {
     const rows = await api<Inspiration[]>(`/inspirations?mode=${mode}`)
     if (mode === 'IMAGE') imageInspirations.value = rows
     else if (mode === 'VIDEO') videoInspirations.value = rows
     else commerceInspirations.value = rows
-  } catch {
-    const fallback = mode === 'IMAGE'
-      ? ['未来感商业海报', '宁静建筑风格海报', '典藏纸币微距摄影', '清爽夏日饮品海报']
-      : mode === 'VIDEO'
-        ? ['电影感城市追逐', '产品动态广告', '梦境建筑运镜', '时尚人像短片', '夏日饮品特写']
-        : ['洗护产品素材包', '香氛商品详情页', '家居产品卖点页', '新品上市素材包']
-    const rows = fallback.map((title, index) => ({ id: `${mode}-${index}`, title, prompt: title, badge: mode === 'COMMERCE' ? (index % 2 ? '详情页' : '素材包') : mode === 'VIDEO' ? '视频灵感' : '', imageUrl: `/assets/inspiration-${index % 4 + 1}.jpg`, options: mode === 'VIDEO' ? { resolution: '720p', duration: index % 2 ? 5 : 10, aspectRatio: index === 3 ? '9:16' : '16:9' } : undefined }))
-    if (mode === 'IMAGE') imageInspirations.value = rows
-    else if (mode === 'VIDEO') videoInspirations.value = rows
-    else commerceInspirations.value = rows
-  }
+  } catch (reason) { inspirationErrors[mode] = reason instanceof Error ? reason.message : '灵感内容加载失败，请稍后重试' }
+  finally { inspirationLoading[mode] = false }
 }
+
+function retryActiveInspirations() { void loadInspirations(activeInspirationMode.value) }
 
 function openPromptLibrary(type?: 'IMAGE' | 'VIDEO' | 'TEXT') { void router.push(type ? { path: '/prompts', query: { type: type.toLowerCase() } } : '/prompts') }
 function selectModel(value: string) { const key = catalogModelKey(chatModels.value, value, 'CHAT'); model.value = key; capabilityModelSelections.CHAT = key; if (auth.isAuthenticated) void store.setConversationModel(key).catch((reason) => { store.lastError = reason instanceof Error ? reason.message : '模型保存失败' }) }

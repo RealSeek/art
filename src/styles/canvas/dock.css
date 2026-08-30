@@ -134,6 +134,24 @@
   .canvas-agent-composer-controls { flex-wrap: wrap; overflow: visible; }
 }
 
+/* The resizable desktop rail must not reserve width on compact screens. Vue
+   Flow ships with height: 100%, so reset it before using explicit insets. */
+.canvas-editor-page { --canvas-sidebar-width: var(--canvas-desktop-sidebar-width, 404px); }
+@media (max-width: 680px) {
+  .canvas-editor-page { --canvas-sidebar-width: 0px; }
+  .canvas-editor-header { top: 0; }
+  .canvas-flow { height: auto; }
+  .canvas-editor-page.is-sidebar-open .canvas-editor-header,
+  .canvas-editor-page.is-sidebar-open .canvas-drama-toolbar,
+  .canvas-editor-page.is-sidebar-open .canvas-flow { right: 0; }
+  .canvas-editor-page.is-sidebar-open:not(.is-inspector-open) .canvas-workspace-sidebar { height: 44vh; }
+  .canvas-editor-page.is-sidebar-open.is-inspector-open .canvas-workspace-sidebar { height: min(58vh, 480px); }
+  .canvas-editor-page.is-sidebar-open:not(.is-inspector-open) .canvas-flow { bottom: 44vh; }
+  .canvas-editor-page.is-sidebar-open.is-inspector-open .canvas-flow { bottom: min(58vh, 480px); }
+  .canvas-editor-page.is-sidebar-open:not(.is-inspector-open) .canvas-tool-dock,
+  .canvas-editor-page.is-sidebar-open:not(.is-inspector-open) .canvas-navigation-dock { bottom: calc(44vh + 12px); }
+}
+
 
 /* Prompt cards use the same compact rhythm as the main prompt library. */
 .canvas-assets-panel-prompt-list { align-content: start; grid-auto-rows: 116px; }
@@ -142,4 +160,3 @@
 .canvas-assets-panel-prompt-list strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-assets-panel-prompt-list button > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .canvas-assets-panel-prompt-heading small { color: var(--studio-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-

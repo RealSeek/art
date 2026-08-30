@@ -26,6 +26,8 @@ RESULT_TTL_SECONDS = max(3600, int(os.getenv("RESULT_TTL_SECONDS", str(7 * 86400
 MODEL_NAME = os.getenv("IOPAINT_MODEL", "lama").strip() or "lama"
 DEVICE = os.getenv("DEVICE", "cpu").strip() or "cpu"
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+if not WORKER_TOKEN:
+    raise RuntimeError("WORKER_TOKEN must be configured for production workers")
 RESULT_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve() / "results"
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
@@ -153,7 +155,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue IOPaint Worker", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Xinyue IOPaint Worker", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

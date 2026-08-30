@@ -626,6 +626,10 @@ html[data-studio-theme="light"] .workspace-recent-rename input { background: #ff
 .shared-state h1 { font-size: 28px; margin: 0 0 12px; }
 .shared-state p { color: #6b6b6b; }
 .shared-state a { color: #171717; text-decoration: underline; text-underline-offset: 3px; }
+.shared-state__actions { align-items: center; display: flex; gap: 14px; justify-content: center; margin-top: 20px; }
+.shared-state__actions button { background: #171717; border: 1px solid #171717; border-radius: 7px; color: #fff; font: inherit; font-size: 13px; min-height: 44px; padding: 0 16px; }
+.shared-state__actions button:disabled { cursor: wait; opacity: .55; }
+.shared-state__actions a { align-items: center; display: inline-flex; min-height: 44px; }
 .shared-conversation { margin: 0 auto; max-width: 760px; padding: 66px 24px 100px; }
 .shared-conversation > header { border-bottom: 1px solid #ececec; padding-bottom: 32px; }
 .shared-conversation > header > span { color: #777; font-size: 12px; }

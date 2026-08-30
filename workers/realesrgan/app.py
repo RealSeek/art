@@ -26,6 +26,8 @@ MAX_OUTPUT_PIXELS = int(os.getenv("MAX_OUTPUT_PIXELS", str(96 * 1024 * 1024)))
 MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
 RESULT_TTL_SECONDS = max(3600, int(os.getenv("RESULT_TTL_SECONDS", str(7 * 86400))))
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+if not WORKER_TOKEN:
+    raise RuntimeError("WORKER_TOKEN must be configured for production workers")
 DEVICE = os.getenv("DEVICE", "cpu").strip() or "cpu"
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "/models")).resolve()
 RESULT_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve() / "results"
@@ -127,7 +129,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue Real-ESRGAN Worker", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Xinyue Real-ESRGAN Worker", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

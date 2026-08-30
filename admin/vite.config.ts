@@ -17,7 +17,7 @@ export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
   const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
-  const appVersion = VITE_VERSION || '1.0.0'
+  const appVersion = VITE_VERSION || '1.0.1'
   const baseUrl = VITE_BASE_URL || '/admin/'
   const apiProxy = {
     '/v1': {

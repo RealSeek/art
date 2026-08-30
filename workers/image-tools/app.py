@@ -22,6 +22,8 @@ MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
 RESULT_TTL_SECONDS = max(3600, int(os.getenv("RESULT_TTL_SECONDS", str(7 * 86400))))
 MODEL_NAME = os.getenv("REMBG_MODEL", "u2net").strip() or "u2net"
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+if not WORKER_TOKEN:
+    raise RuntimeError("WORKER_TOKEN must be configured for production workers")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve()
 RESULT_DIR = DATA_DIR / "results"
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
@@ -47,8 +49,6 @@ def validate_task_id(task_id: str) -> str:
 
 
 def authorize(authorization: str | None = Header(default=None)) -> None:
-    if not WORKER_TOKEN:
-        return
     expected = f"Bearer {WORKER_TOKEN}"
     if not authorization or not hmac.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -100,7 +100,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue Image Tools Worker", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Xinyue Image Tools Worker", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

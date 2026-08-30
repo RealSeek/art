@@ -19,8 +19,16 @@ import { router } from '@/router'
 import { isNavigableMenuItem } from './route'
 
 // 打开外部链接
-export const openExternalLink = (link: string) => {
-  window.open(link, '_blank')
+export const openExternalLink = (link: string): boolean => {
+  try {
+    const url = new URL(link)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false
+    const opened = window.open(url.toString(), '_blank', 'noopener,noreferrer')
+    if (opened) opened.opener = null
+    return Boolean(opened)
+  } catch {
+    return false
+  }
 }
 
 /**

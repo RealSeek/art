@@ -3,10 +3,13 @@ import AdmZip = require('adm-zip')
 import { load as loadYaml } from 'js-yaml'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { isEnvironmentOptInEnabled } from '../common/external-content-policy'
+import { fetchPublicManualRedirect } from '../common/outbound-http'
 import { PluginsService } from './plugins.service'
 
 export type ExternalMarketSource = 'skillsmp' | 'lobehub' | 'cocoloop' | 'skillhub'
 export type ExternalSkillCategory = '开发编程' | '办公效率' | '研究分析' | '内容创作' | '设计创意' | '营销运营' | 'Agent 自动化' | '通用技能'
+export type ExternalLicenseStatus = 'unverified' | 'restricted'
 
 export type ExternalSkill = {
   id: string
@@ -27,6 +30,8 @@ export type ExternalSkill = {
   updatedAt?: string
   category?: ExternalSkillCategory
   installed?: boolean
+  licenseStatus?: ExternalLicenseStatus
+  licenseNote?: string
 }
 
 type SkillsMpRow = {
@@ -41,14 +46,25 @@ type SkillsMpRow = {
   path?: unknown
 }
 
-const SOURCES: Array<{ id: ExternalMarketSource; name: string; homepage: string; description: string }> = [
-  { id: 'lobehub', name: 'LobeHub', homepage: 'https://lobehub.com/zh/skills', description: '面向 Agent 的 Skills 市场，提供 SKILL.md 技能目录。' },
-  { id: 'skillhub', name: 'SkillHub', homepage: 'https://www.skillhub.cn/skills', description: '腾讯 SkillHub 社区，提供 Skills 与插件目录及 SKILL.md 接口。' },
-  { id: 'skillsmp', name: 'SkillsMP', homepage: 'https://skillsmp.com/zh/occupations', description: '大规模 Skills 索引，结果通常指向公开 GitHub 仓库。' },
-  { id: 'cocoloop', name: 'CocoLoop', homepage: 'https://hub.cocoloop.cn/', description: '带安全评级与 ZIP 下载的 Skills 商店。' },
+const SOURCES: Array<{ id: ExternalMarketSource; name: string; homepage: string; description: string; licenseStatus: ExternalLicenseStatus; licenseNote: string }> = [
+  { id: 'lobehub', name: 'LobeHub', homepage: 'https://lobehub.com/zh/skills', description: '面向 Agent 的 Skills 市场，提供 SKILL.md 技能目录。', licenseStatus: 'restricted', licenseNote: '来源采用社区许可并可能包含商业限制，安装前必须核验具体技能及其上游许可证。' },
+  { id: 'skillhub', name: 'SkillHub', homepage: 'https://www.skillhub.cn/skills', description: '腾讯 SkillHub 社区，提供 Skills 与插件目录及 SKILL.md 接口。', licenseStatus: 'unverified', licenseNote: '市场条目的许可证未统一确认，安装和商用前必须逐项核验。' },
+  { id: 'skillsmp', name: 'SkillsMP', homepage: 'https://skillsmp.com/zh/occupations', description: '大规模 Skills 索引，结果通常指向公开 GitHub 仓库。', licenseStatus: 'unverified', licenseNote: '索引不代表获得授权，安装和商用前必须核验目标仓库许可证。' },
+  { id: 'cocoloop', name: 'CocoLoop', homepage: 'https://hub.cocoloop.cn/', description: '带安全评级与 ZIP 下载的 Skills 商店。', licenseStatus: 'unverified', licenseNote: '安全评级不等于许可证审核，安装和商用前必须核验具体条款。' },
 ]
 
-const REMOTE_HOSTS = new Set(['skillsmp.com', 'www.skillsmp.com', 'lobehub.com', 'hub.cocoloop.cn', 'dl.cocoloop.cn', 'api.skillhub.cn', 'github.com', 'raw.githubusercontent.com'])
+// Directory metadata is untrusted. Keep each marketplace's visible source
+// links on the provider's own domains (or its documented GitHub mirror).
+const SOURCE_HOSTS: Record<ExternalMarketSource, ReadonlySet<string>> = {
+  skillsmp: new Set(['skillsmp.com', 'www.skillsmp.com', 'github.com']),
+  lobehub: new Set(['lobehub.com', 'www.lobehub.com', 'github.com']),
+  cocoloop: new Set(['hub.cocoloop.cn', 'dl.cocoloop.cn']),
+  skillhub: new Set(['skillhub.cn', 'www.skillhub.cn', 'api.skillhub.cn']),
+}
+
+const EXTERNAL_MARKET_DISABLED_NOTICE = '外部技能市场默认关闭。部署管理员核验来源许可证后，可通过 EXTERNAL_SKILL_MARKET_ENABLED=true 明确启用。'
+
+const REMOTE_HOSTS = new Set(['skillsmp.com', 'www.skillsmp.com', 'lobehub.com', 'www.lobehub.com', 'hub.cocoloop.cn', 'dl.cocoloop.cn', 'skillhub.cn', 'www.skillhub.cn', 'api.skillhub.cn', 'github.com', 'raw.githubusercontent.com'])
 const RISK_PATTERN = /(?:<script|javascript:|data:text\/html|child_process|eval\s*\()/i
 const COMMAND_PATTERN = /(?:^|\r?\n)\s*(?:powershell|cmd(?:\.exe)?|\/bin\/sh|curl\s|wget\s|npm\s+(?:i|install)|pnpm\s+(?:add|install)|yarn\s+(?:add|install)|pip\s+install|rm\s+-rf|chmod\s+\+x|base64\s+-d)\b/im
 const CATALOG_LIMIT = 2_000
@@ -72,7 +88,15 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly plugins: PluginsService) {}
 
+  private get enabled() {
+    return isEnvironmentOptInEnabled('EXTERNAL_SKILL_MARKET_ENABLED')
+  }
+
   async onModuleInit() {
+    if (!this.enabled) {
+      this.logger.log('外部技能市场未启用；不会读取缓存、联网同步或启动定时任务')
+      return
+    }
     await this.loadDirectory()
     if (!this.directory.length) await this.syncDirectory().catch((error) => this.logger.warn(`社区技能目录首次同步失败：${error instanceof Error ? error.message : String(error)}`))
     else if (this.directoryOutdated()) void this.syncDirectory()
@@ -90,6 +114,9 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
 
   async search(userId: string, query = '', category = '', limit = DEFAULT_RESULT_LIMIT, offset = 0) {
     const normalized = query.trim().slice(0, 100)
+    if (!this.enabled) {
+      return { enabled: false, notice: EXTERNAL_MARKET_DISABLED_NOTICE, query: normalized, categories: SKILL_CATEGORIES, sources: SOURCES, items: [], total: 0, indexedAt: null }
+    }
     const selectedCategory = SKILL_CATEGORIES.includes(category as ExternalSkillCategory) ? category as ExternalSkillCategory : undefined
     const safeLimit = Math.max(1, Math.min(limit, 100))
     const safeOffset = Math.max(0, Math.min(offset, CATALOG_LIMIT))
@@ -101,7 +128,7 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
       ...item,
       installed: installedKeys.has(`${item.source}:${item.id}`),
     }))
-    return { query: normalized, categories: SKILL_CATEGORIES, items, total: matches.length, indexedAt: this.directoryUpdatedAt ? new Date(this.directoryUpdatedAt).toISOString() : null }
+    return { enabled: true, notice: '外部条目来自第三方市场，安全扫描不代表许可证审核；安装和商用前请逐项核验。', query: normalized, categories: SKILL_CATEGORIES, sources: SOURCES, items, total: matches.length, indexedAt: this.directoryUpdatedAt ? new Date(this.directoryUpdatedAt).toISOString() : null }
   }
 
   private async loadDirectory() {
@@ -128,6 +155,7 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async syncDirectory() {
+    if (!this.enabled) return
     if (this.syncPromise) return this.syncPromise
     this.syncPromise = (async () => {
       const pages = Array.from({ length: DIRECTORY_PAGE_COUNT }, (_, index) => index + 1)
@@ -178,7 +206,12 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
       const key = `${item.source}:${item.id}`
       if (seen.has(key)) continue
       seen.add(key)
-      result.push({ ...item, category: this.skillCategory(item) })
+      result.push({
+        ...item,
+        sourceUrl: this.canonicalSourceUrl(item.sourceUrl, item.source),
+        ...this.licenseMetadata(item.source),
+        category: this.skillCategory(item),
+      })
     }
     return result
   }
@@ -217,18 +250,24 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   async install(userId: string, input: { source: ExternalMarketSource; id: string; sourceUrl?: string; githubUrl?: string; downloadUrl?: string; skillUrl?: string }) {
+    if (!this.enabled) throw new BadRequestException(EXTERNAL_MARKET_DISABLED_NOTICE)
     const existing = await this.plugins.findImported(userId, input.source, input.id)
     if (existing) return { ...existing, installed: true, alreadyInstalled: true }
     try {
       // Search results already contain the canonical download URL. Reusing the
       // local directory avoids repeating every external marketplace request.
       const localItem = this.directory.find((item) => item.source === input.source && item.id === input.id)
-      let item = localItem || await this.resolve(input)
+      let item: ExternalSkill = { ...(localItem || await this.resolve(input)), ...this.licenseMetadata(input.source) }
       // Directory entries from page-based marketplaces need one detail-page
       // lookup to discover their actual file endpoint; API/GitHub entries stay
       // fully local and do not incur another marketplace search.
-      if (localItem?.source === 'lobehub' && localItem.skillUrl && !localItem.downloadUrl && !localItem.githubUrl) item = await this.lobeDetail(localItem.skillUrl, localItem.id)
-      if (localItem?.source === 'cocoloop' && localItem.sourceUrl && !localItem.downloadUrl) item = await this.cocoloopDetail(localItem.sourceUrl, localItem.id)
+      if (localItem?.source === 'lobehub' && localItem.skillUrl && !localItem.downloadUrl && !localItem.githubUrl) item = await this.lobeDetail(this.canonicalSourceUrl(localItem.skillUrl, localItem.source), localItem.id)
+      if (localItem?.source === 'cocoloop' && localItem.sourceUrl && !localItem.downloadUrl) item = await this.cocoloopDetail(this.canonicalSourceUrl(localItem.sourceUrl, localItem.source), localItem.id)
+      item = {
+        ...item,
+        sourceUrl: this.canonicalSourceUrl(item.sourceUrl, item.source),
+        ...this.licenseMetadata(item.source),
+      }
       if (!item.installable && !item.githubUrl && !item.downloadUrl) throw new BadRequestException('该技能没有可验证的 SKILL.md 或技能包地址，请先打开来源页确认')
       const { fileName, bytes } = await this.downloadSkill(item)
       const normalized = this.normalizeSkill(fileName, bytes, item)
@@ -244,6 +283,8 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
         externalGithubUrl: item.githubUrl || null,
         externalVersion: item.version,
         externalRisk: item.risk,
+        externalLicenseStatus: item.licenseStatus,
+        externalLicenseNote: item.licenseNote,
         externalCategory: item.category || this.skillCategory(item),
         // Marketplace entries are classified from their directory metadata.
         // Do not copy a legacy "all capabilities" frontmatter declaration.
@@ -273,10 +314,20 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
       const found = result.find((item) => item.id === input.id || item.skillUrl === input.skillUrl)
       if (found) return found
     }
-    if (input.source === 'lobehub' && input.skillUrl) return this.lobeDetail(input.skillUrl, input.id)
-    if (input.source === 'cocoloop' && input.sourceUrl) return this.cocoloopDetail(input.sourceUrl, input.id)
-    const fallback = { id: input.id, source: input.source, sourceName: source.name, name: input.id, description: '', author: '', version: '1.0.0', sourceUrl: input.sourceUrl || source.homepage, githubUrl: input.githubUrl, downloadUrl: input.downloadUrl, skillUrl: input.skillUrl, installable: Boolean(input.githubUrl || input.downloadUrl), risk: 'unreviewed' as const }
+    const sourceUrl = input.sourceUrl ? this.canonicalSourceUrl(input.sourceUrl, input.source) : source.homepage
+    const skillUrl = input.skillUrl ? this.canonicalSourceUrl(input.skillUrl, input.source) : undefined
+    if (input.source === 'lobehub' && skillUrl) return this.lobeDetail(skillUrl, input.id)
+    if (input.source === 'cocoloop' && input.sourceUrl) return this.cocoloopDetail(sourceUrl, input.id)
+    const fallback = { id: input.id, source: input.source, sourceName: source.name, name: input.id, description: '', author: '', version: '1.0.0', sourceUrl, githubUrl: input.githubUrl, downloadUrl: input.downloadUrl, skillUrl, installable: Boolean(input.githubUrl || input.downloadUrl), risk: 'unreviewed' as const }
     return fallback
+  }
+
+  private licenseMetadata(sourceId: ExternalMarketSource) {
+    const source = SOURCES.find((item) => item.id === sourceId)
+    return {
+      licenseStatus: (source?.licenseStatus || 'unverified') as ExternalLicenseStatus,
+      licenseNote: source?.licenseNote || '外部内容许可证未确认，安装和商用前必须核验。',
+    }
   }
 
   private async searchSkillsMp(query: string, limit: number, page = 1): Promise<ExternalSkill[]> {
@@ -335,35 +386,35 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async lobeDetail(skillUrl: string, id: string) {
-    const item = { id, source: 'lobehub' as const, sourceName: 'LobeHub', name: id, description: '', author: '', version: '1.0.0', sourceUrl: skillUrl, skillUrl: `${skillUrl.replace(/\/$/, '')}/skill.md`, installable: true, risk: 'unreviewed' as const }
+    const canonicalUrl = this.canonicalSourceUrl(skillUrl, 'lobehub')
+    const item = { id, source: 'lobehub' as const, sourceName: 'LobeHub', name: id, description: '', author: '', version: '1.0.0', sourceUrl: canonicalUrl, skillUrl: `${canonicalUrl.replace(/\/$/, '')}/skill.md`, installable: true, risk: 'unreviewed' as const }
     let github: string | undefined
     try {
-      const html = await this.textResponse(skillUrl)
+      const html = await this.textResponse(canonicalUrl)
       github = html.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/tree\/[^"'\\ ]+)?/i)?.[0]
     } catch { /* The direct /skill.md endpoint remains the canonical install source. */ }
     return { ...item, githubUrl: github, downloadUrl: github ? this.githubRaw(github) : undefined, installable: true } satisfies ExternalSkill
   }
 
   private async cocoloopDetail(sourceUrl: string, id: string) {
-    const html = await this.textResponse(sourceUrl)
+    const canonicalUrl = this.canonicalSourceUrl(sourceUrl, 'cocoloop')
+    const html = await this.textResponse(canonicalUrl)
     const downloadUrl = html.match(/https:\/\/dl\.cocoloop\.cn\/[^"'\\ ]+\.zip/i)?.[0]
-    return { id, source: 'cocoloop' as const, sourceName: 'CocoLoop', name: id, description: '', author: '', version: '1.0.0', sourceUrl, skillUrl: sourceUrl, downloadUrl, installable: Boolean(downloadUrl), risk: 'unreviewed' as const } satisfies ExternalSkill
+    return { id, source: 'cocoloop' as const, sourceName: 'CocoLoop', name: id, description: '', author: '', version: '1.0.0', sourceUrl: canonicalUrl, skillUrl: canonicalUrl, downloadUrl, installable: Boolean(downloadUrl), risk: 'unreviewed' as const } satisfies ExternalSkill
   }
 
   private async downloadSkill(item: ExternalSkill) {
     const url = item.downloadUrl || (item.githubUrl ? this.githubRaw(item.githubUrl) : '') || item.skillUrl || ''
     if (!url) throw new BadRequestException('外部技能没有下载地址')
-    const parsed = this.allowedUrl(url)
-    let response: Response
-    try {
-      response = await fetch(parsed, { signal: AbortSignal.timeout(12_000), headers: { accept: 'text/plain, application/zip, application/octet-stream' } })
-    } catch {
-      throw new BadRequestException('外部技能下载超时或来源暂时无法访问，请稍后重试')
-    }
+    const { response, url: resolvedUrl } = await this.fetchAllowed(
+      url,
+      { signal: AbortSignal.timeout(12_000), headers: { accept: 'text/plain, application/zip, application/octet-stream' } },
+      '外部技能下载超时或来源暂时无法访问，请稍后重试',
+    )
     if (!response.ok) throw new BadRequestException(`外部技能下载失败（HTTP ${response.status}）`)
     const bytes = Buffer.from(await response.arrayBuffer())
     if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new BadRequestException('外部技能包大小必须在 5MB 以内')
-    const isZip = /\.zip(?:$|\?)/i.test(parsed.pathname)
+    const isZip = /\.zip(?:$|\?)/i.test(resolvedUrl.pathname)
     return { fileName: isZip ? `${item.name || item.id}.zip` : 'SKILL.md', bytes }
   }
 
@@ -425,30 +476,60 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
   private allowedUrl(value: string) {
     let url: URL
     try { url = new URL(value) } catch { throw new BadRequestException('外部技能地址无效') }
-    if (url.protocol !== 'https:' || !REMOTE_HOSTS.has(url.hostname.toLowerCase())) throw new BadRequestException('外部技能来源不在允许列表')
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !REMOTE_HOSTS.has(url.hostname.toLowerCase())) throw new BadRequestException('外部技能来源不在允许列表')
     return url
   }
 
-  private async textResponse(value: string) {
-    const url = this.allowedUrl(value)
-    let response: Response
+  private canonicalSourceUrl(value: string, sourceId: ExternalMarketSource) {
+    const source = SOURCES.find((item) => item.id === sourceId)
+    if (!source) return value
     try {
-      response = await fetch(url, { signal: AbortSignal.timeout(12_000), headers: { accept: 'text/html, application/xhtml+xml' } })
+      const url = new URL(value)
+      const hosts = SOURCE_HOSTS[sourceId]
+      if (url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') && hosts.has(url.hostname.toLowerCase())) return url.toString()
     } catch {
-      throw new BadRequestException('外部市场请求超时或暂时无法访问，请稍后重试')
+      // Invalid upstream metadata falls back to the canonical marketplace page.
     }
+    return source.homepage
+  }
+
+  private async fetchAllowed(value: string, init: RequestInit, unavailableMessage: string) {
+    let current = this.allowedUrl(value)
+    for (let redirects = 0; ; redirects += 1) {
+      let response: Response
+      try {
+        response = await fetchPublicManualRedirect(current, init)
+      } catch (error) {
+        if (error instanceof BadRequestException) throw error
+        throw new BadRequestException(unavailableMessage)
+      }
+      if (response.status < 300 || response.status >= 400) return { response, url: current }
+      await response.body?.cancel().catch(() => undefined)
+      if (redirects >= 3) throw new BadRequestException('外部市场重定向次数超过限制')
+      const location = response.headers.get('location')
+      if (!location) throw new BadRequestException('外部市场重定向地址无效')
+      let next: URL
+      try { next = new URL(location, current) } catch { throw new BadRequestException('外部市场重定向地址无效') }
+      current = this.allowedUrl(next.toString())
+    }
+  }
+
+  private async textResponse(value: string) {
+    const { response } = await this.fetchAllowed(
+      value,
+      { signal: AbortSignal.timeout(12_000), headers: { accept: 'text/html, application/xhtml+xml' } },
+      '外部市场请求超时或暂时无法访问，请稍后重试',
+    )
     if (!response.ok) throw new BadRequestException(`外部市场请求失败（HTTP ${response.status}）`)
     return response.text()
   }
 
   private async json(value: string) {
-    const url = this.allowedUrl(value)
-    let response: Response
-    try {
-      response = await fetch(url, { signal: AbortSignal.timeout(12_000), headers: { accept: 'application/json' } })
-    } catch {
-      throw new BadRequestException('外部市场请求超时或暂时无法访问，请稍后重试')
-    }
+    const { response } = await this.fetchAllowed(
+      value,
+      { signal: AbortSignal.timeout(12_000), headers: { accept: 'application/json' } },
+      '外部市场请求超时或暂时无法访问，请稍后重试',
+    )
     if (!response.ok) throw new BadRequestException(`外部市场请求失败（HTTP ${response.status}）`)
     return response.json()
   }

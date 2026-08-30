@@ -2,6 +2,7 @@
 // 结果输出到 tests/e2e/.ui-audit/，并在 stdout 打印每页问题汇总。
 import { chromium } from '@playwright/test'
 import fs from 'node:fs'
+import { getE2EAdminCredentials } from './e2e-admin-credentials.mjs'
 
 const outDir = 'tests/e2e/.ui-audit'
 fs.rmSync(outDir, { recursive: true, force: true })
@@ -9,6 +10,7 @@ fs.mkdirSync(outDir, { recursive: true })
 
 const base = 'http://localhost:5173'
 const api = 'http://localhost:3100'
+const { email: adminEmail, password: adminPassword } = getE2EAdminCredentials()
 
 const ROUTES = [
   ['landing', '/', false],
@@ -33,7 +35,7 @@ const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const anonCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const login = await ctx.request.post(`${api}/v1/auth/admin/login`, {
-  data: { email: 'admin@flux.local', password: 'FluxAdmin@2026!' },
+  data: { email: adminEmail, password: adminPassword },
 })
 const sc = login.headersArray().find((h) => h.name.toLowerCase() === 'set-cookie')
 const [nv] = sc.value.split(/;\s*/)

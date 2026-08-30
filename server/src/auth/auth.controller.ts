@@ -115,7 +115,8 @@ export class AuthController {
   }
   @Get('setup/status') async setupStatus() { return { required: await this.auth.isSetupRequired() } }
   @Post('setup') @Throttle({ default: { limit: 3, ttl: 60_000 } }) async setup(@Body() body: SetupAdminDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {
-    const result = await this.auth.setupAdmin(body, { ip: request.ip, userAgent: request.headers['user-agent'] })
+    const installToken = request.headers['x-install-token']
+    const result = await this.auth.setupAdmin(body, { ip: request.ip, userAgent: request.headers['user-agent'] }, Array.isArray(installToken) ? installToken[0] : installToken)
     this.setSessionCookie(response, result)
     return { user: result.user }
   }

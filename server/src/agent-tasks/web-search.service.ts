@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { defaultWebSearchPresets, webSearchPresetData } from './default-web-search-presets'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchNoRedirect, fetchPublicManualRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 
 type SearchInput = { query: string; maxResults?: number; topic?: string; includeDomains?: string[]; excludeDomains?: string[]; timeoutMs?: number; signal?: AbortSignal }
 type SearchResult = { title: string; url: string; content: string; publishedAt?: string; score?: number; source?: string }
@@ -167,6 +168,7 @@ export class WebSearchService {
     const currentConfig = this.record(current?.config)
     const endpoint = (input.endpoint ?? current?.endpoint ?? DAILY_HOT_DEFAULT_ENDPOINT).trim().replace(/\/+$/, '')
     if (!this.normalizeWebUrl(endpoint)) throw new BadRequestException('DailyHot API 地址无效')
+    await this.assertSearchEndpoint(endpoint, 'dailyhot')
     const config = {
       integration: 'dailyhot',
       recommendationEnabled: input.recommendationEnabled ?? currentConfig.recommendationEnabled === true,
@@ -443,7 +445,7 @@ export class WebSearchService {
   }
 
   async create(input: ChannelInput) {
-    const row = await this.prisma.webSearchChannel.create({ data: this.channelData(input) })
+    const row = await this.prisma.webSearchChannel.create({ data: await this.channelData(input) })
     return this.publicChannel(row)
   }
 
@@ -451,9 +453,18 @@ export class WebSearchService {
     const current = await this.prisma.webSearchChannel.findUnique({ where: { id } })
     if (!current) throw new NotFoundException('搜索渠道不存在')
     const encryptedApiKey = input.clearApiKey ? '' : input.apiKey ? this.crypto.encrypt(input.apiKey) : current.encryptedApiKey
+    const nextType = input.type || current.type
+    const nextEndpoint = input.endpoint === undefined && input.type === undefined
+      ? current.endpoint
+      : (input.endpoint ?? endpoints[nextType]).trim()
+    const nextConfig = input.config === undefined ? current.config : input.config
+    // Keep the existing disabled SearXNG preset editable while its endpoint
+    // is intentionally blank; execution still fails closed when no endpoint
+    // has been configured.
+    if (nextEndpoint) await this.assertSearchEndpoint(nextEndpoint, this.integration(nextConfig as Prisma.JsonValue))
     const row = await this.prisma.webSearchChannel.update({ where: { id }, data: {
       ...(input.name === undefined ? {} : { name: input.name.trim() }), ...(input.type === undefined ? {} : { type: input.type }),
-      ...(input.endpoint === undefined && input.type === undefined ? {} : { endpoint: (input.endpoint ?? endpoints[input.type || current.type]).trim() }),
+      ...(input.endpoint === undefined && input.type === undefined ? {} : { endpoint: nextEndpoint }),
       ...(input.apiKey === undefined && !input.clearApiKey ? {} : { encryptedApiKey, apiKeyHint: encryptedApiKey ? this.crypto.hint(input.apiKey || this.crypto.decrypt(encryptedApiKey)) : '' }),
       ...(input.enabled === undefined ? {} : { enabled: input.enabled }), ...(input.priority === undefined ? {} : { priority: input.priority }),
       ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }), ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
@@ -511,8 +522,12 @@ export class WebSearchService {
       url.searchParams.set(String(config.maxResultsParam || 'max_results'), String(maxResults))
       endpoint = url.toString()
     }
+    // Validate again immediately before the network request. Rows can be
+    // imported or changed outside the admin API, so write-time validation is
+    // not sufficient to protect the worker's egress boundary.
+    endpoint = (await this.assertSearchEndpoint(endpoint, this.integration(channel.config))).toString()
     const init = this.request(channel.type, apiKey, input, maxResults, config)
-    const response = await fetch(endpoint, { ...init, signal: this.combineSignal(input.signal, Math.min(60_000, Math.max(1000, channel.timeoutMs))) })
+    const response = await fetchPublicNoRedirect(endpoint, { ...init, signal: this.combineSignal(input.signal, Math.min(60_000, Math.max(1000, channel.timeoutMs))) })
     const text = await response.text()
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`)
     let payload: Record<string, unknown>
@@ -528,7 +543,7 @@ export class WebSearchService {
     const maxResults = Math.min(20, Math.max(1, input.maxResults || channel.maxResults))
     let response: Response
     try {
-      response = await fetch(TGMENG_ENDPOINT, {
+      response = await fetchPublicNoRedirect(TGMENG_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: this.combineSignal(input.signal, Math.min(60_000, Math.max(1000, input.timeoutMs ?? channel.timeoutMs))),
         body: JSON.stringify({ license, keywords: query ? [query] : [], mode: 'REALTIME', rootCategories: query ? [] : this.categories(config.rootCategories), limit: maxResults, offset: 0, distinct: true }),
       })
@@ -558,10 +573,12 @@ export class WebSearchService {
 
   private async executeDailyHot(endpoint: string, source: string, timeoutMs: number) {
     const sourceId = this.dailyHotSources([source])[0]
-    const url = `${endpoint.replace(/\/+$/, '')}/${sourceId}`
+    const validated = await this.assertSearchEndpoint(endpoint, 'dailyhot')
+    const url = `${validated.toString().replace(/\/+$/, '')}/${sourceId}`
     let response: Response
     try {
-      response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'XinyueAI/1.0' }, signal: AbortSignal.timeout(Math.min(30_000, Math.max(1000, timeoutMs))) })
+      const request = this.isBuiltInDailyHotEndpoint(validated.toString()) ? fetchNoRedirect : fetchPublicNoRedirect
+      response = await request(url, { headers: { Accept: 'application/json', 'User-Agent': 'XinyueAI/1.0' }, signal: AbortSignal.timeout(Math.min(30_000, Math.max(1000, timeoutMs))) })
     } catch (reason) {
       throw new Error(`${DAILY_HOT_SOURCE_LABELS[sourceId]}：${this.networkError(reason)}`)
     }
@@ -645,8 +662,7 @@ export class WebSearchService {
     let response: Response | null = null
     for (let redirect = 0; redirect <= 3; redirect += 1) {
       await this.endpointPolicy.assertPublicHttpUrl(url)
-      response = await fetch(url, {
-        redirect: 'manual',
+      response = await fetchPublicManualRedirect(url, {
         headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'XinyueAI-Search/1.0' },
         signal: this.combineSignal(signal, 6_000),
       })
@@ -701,7 +717,35 @@ export class WebSearchService {
 
   private markSuccess(id: string, count: number, message?: string) { return this.prisma.webSearchChannel.updateMany({ where: { id }, data: { totalRequests: { increment: 1 }, consecutiveFailures: 0, cooldownUntil: null, lastSuccessAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'healthy', lastHealthMessage: message || `最近调用成功，返回 ${count} 条结果` } }) }
   private async markFailure(id: string, message: string) { const channel = await this.prisma.webSearchChannel.findUnique({ where: { id }, select: { consecutiveFailures: true } }); if (!channel) return; const failures = channel.consecutiveFailures + 1; return this.prisma.webSearchChannel.update({ where: { id }, data: { totalRequests: { increment: 1 }, totalFailures: { increment: 1 }, consecutiveFailures: failures, lastFailureAt: new Date(), lastHealthAt: new Date(), lastHealthStatus: 'unhealthy', lastHealthMessage: message.slice(0, 500), cooldownUntil: new Date(Date.now() + Math.min(300, 15 * 2 ** Math.min(4, failures - 1)) * 1000) } }) }
-  private channelData(input: ChannelInput): Prisma.WebSearchChannelCreateInput { const apiKey = input.apiKey?.trim() || ''; const endpoint = (input.endpoint || endpoints[input.type]).trim(); if (!endpoint) throw new BadRequestException('请填写搜索地址'); return { name: input.name.trim(), type: input.type, endpoint, encryptedApiKey: apiKey ? this.crypto.encrypt(apiKey) : '', apiKeyHint: apiKey ? this.crypto.hint(apiKey) : '', enabled: input.enabled ?? false, priority: input.priority ?? 0, timeoutMs: input.timeoutMs ?? 30000, maxResults: input.maxResults ?? 8, config: (input.config || {}) as Prisma.InputJsonValue } }
+  private async channelData(input: ChannelInput): Promise<Prisma.WebSearchChannelCreateInput> {
+    const apiKey = input.apiKey?.trim() || ''
+    const endpoint = (input.endpoint || endpoints[input.type]).trim()
+    if (!endpoint) throw new BadRequestException('请填写搜索地址')
+    await this.assertSearchEndpoint(endpoint)
+    return { name: input.name.trim(), type: input.type, endpoint, encryptedApiKey: apiKey ? this.crypto.encrypt(apiKey) : '', apiKeyHint: apiKey ? this.crypto.hint(apiKey) : '', enabled: input.enabled ?? false, priority: input.priority ?? 0, timeoutMs: input.timeoutMs ?? 30000, maxResults: input.maxResults ?? 8, config: (input.config || {}) as Prisma.InputJsonValue }
+  }
+  private integration(value: Prisma.JsonValue | null | undefined): 'dailyhot' | 'tgmeng' | undefined {
+    const integration = this.record(value).integration
+    return integration === 'dailyhot' || integration === 'tgmeng' ? integration : undefined
+  }
+  private async assertSearchEndpoint(value: string, integration?: 'dailyhot' | 'tgmeng') {
+    const normalized = this.normalizeWebUrl(value)
+    if (!normalized) throw new BadRequestException('搜索渠道 Endpoint 地址无效')
+    if (integration === 'dailyhot' && this.isBuiltInDailyHotEndpoint(normalized)) return new URL(normalized)
+    if (integration === 'tgmeng' && normalized === TGMENG_ENDPOINT) return new URL(normalized)
+    try { return await this.endpointPolicy.assertPublicHttpUrl(normalized) }
+    catch { throw new BadRequestException('搜索渠道 Endpoint 必须是可解析的公网 HTTP/HTTPS 地址') }
+  }
+  private isBuiltInDailyHotEndpoint(value: string) {
+    try {
+      const url = new URL(value)
+      return url.protocol === 'http:'
+        && url.hostname.toLowerCase() === 'dailyhot'
+        && (url.port || '6688') === '6688'
+        && (url.pathname === '' || url.pathname === '/')
+        && !url.username && !url.password && !url.search && !url.hash
+    } catch { return false }
+  }
   private publicChannel<T extends WebSearchChannel>(row: T) { return { ...row, encryptedApiKey: undefined, hasApiKey: Boolean(row.encryptedApiKey) } }
   private findTgmeng() { return this.prisma.webSearchChannel.findMany({ where: { type: WebSearchProviderType.CUSTOM } }).then((rows) => rows.find((row) => this.isTgmeng(row)) || null) }
   private findDailyHot() { return this.prisma.webSearchChannel.findMany({ where: { type: WebSearchProviderType.CUSTOM } }).then((rows) => rows.find((row) => this.isDailyHot(row)) || null) }

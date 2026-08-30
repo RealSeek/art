@@ -1,6 +1,6 @@
 {
   "name": "flux-studio-ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,8 +10,9 @@
     "verify": "npm run audit:ui-actions && npm run build && npm run server:build && npm run admin:build",
     "clean": "node scripts/clean.cjs",
     "clean:reports": "node scripts/clean.cjs --reports",
+    "test": "npm run test:unit",
     "test:e2e": "playwright test",
-    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "test:unit": "tsx --tsconfig server/tsconfig.json --test tests/unit/*.test.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
     "screenshots:demo": "node scripts/capture-demo-screenshots.mjs",

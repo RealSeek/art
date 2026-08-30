@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { LedgerType, Prisma, type User } from '@prisma/client'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
@@ -7,6 +7,9 @@ import { hashPassword, verifyPassword } from './password'
 import { EmailService } from './email.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { ReferralService } from '../commercial/referral.service'
+import { isInstallTokenValid } from './install-token'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 const hash = (value: string, secret: string) => createHash('sha256').update(`${secret}:${value}`).digest('hex')
 type LoginMeta = { ip?: string; userAgent?: string }
@@ -21,14 +24,17 @@ function jsonInput(value: ExternalProfile | null | undefined) {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly referrals: ReferralService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly emailService: EmailService, private readonly crypto: CredentialCryptoService, private readonly referrals: ReferralService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
 
   async isSetupRequired() {
     const admins = await this.prisma.user.findMany({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { email: true } })
     return !admins.some((admin) => Boolean(admin.email && /^[^@\s]+@[^@\s]+$/.test(admin.email)))
   }
 
-  async setupAdmin(input: { email: string; password: string; displayName?: string }, meta: LoginMeta) {
+  async setupAdmin(input: { email: string; password: string; displayName?: string }, meta: LoginMeta, installToken?: string) {
+    if (!isInstallTokenValid(installToken, this.config.get<string>('INSTALL_TOKEN'))) {
+      throw new ForbiddenException('安装令牌无效')
+    }
     const email = input.email.trim().toLowerCase()
     const user = await this.prisma.$transaction(async (tx) => {
       const admins = await tx.user.findMany({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }, select: { id: true, email: true } })
@@ -133,7 +139,7 @@ export class AuthService {
   async getLinuxDoAuthorization(state: string, codeChallenge: string) {
     const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
     if (!settings.linuxDoLoginEnabled || !settings.linuxDoClientId || !settings.encryptedLinuxDoClientSecret || !settings.linuxDoRedirectUrl) throw new BadRequestException('Linux.do 登录尚未完成配置')
-    const url = new URL(settings.linuxDoAuthorizeUrl)
+    const url = await this.endpointPolicy.assertPublicHttpUrl(settings.linuxDoAuthorizeUrl)
     url.searchParams.set('response_type', 'code')
     url.searchParams.set('client_id', settings.linuxDoClientId)
     url.searchParams.set('redirect_uri', settings.linuxDoRedirectUrl)
@@ -148,11 +154,13 @@ export class AuthService {
     const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
     if (!settings.linuxDoLoginEnabled || !settings.linuxDoClientId || !settings.encryptedLinuxDoClientSecret || !settings.linuxDoRedirectUrl) throw new BadRequestException('Linux.do 登录尚未完成配置')
     const secret = this.crypto.decrypt(settings.encryptedLinuxDoClientSecret)
-    const tokenResponse = await fetch(settings.linuxDoTokenUrl, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'authorization_code', client_id: settings.linuxDoClientId, client_secret: secret, redirect_uri: settings.linuxDoRedirectUrl, code, code_verifier: verifier }), signal: AbortSignal.timeout(15_000) }).catch(() => null)
+    const tokenUrl = await this.endpointPolicy.assertPublicHttpUrl(settings.linuxDoTokenUrl)
+    const tokenResponse = await fetchPublicNoRedirect(tokenUrl, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'authorization_code', client_id: settings.linuxDoClientId, client_secret: secret, redirect_uri: settings.linuxDoRedirectUrl, code, code_verifier: verifier }), signal: AbortSignal.timeout(15_000) }).catch(() => null)
     if (!tokenResponse?.ok) throw new UnauthorizedException('Linux.do 授权交换失败')
     const tokenPayload = await tokenResponse.json().catch(() => null) as { access_token?: string } | null
     if (!tokenPayload?.access_token) throw new UnauthorizedException('Linux.do 未返回访问令牌')
-    const profileResponse = await fetch(settings.linuxDoUserInfoUrl, { headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: 'application/json' }, signal: AbortSignal.timeout(15_000) }).catch(() => null)
+    const userInfoUrl = await this.endpointPolicy.assertPublicHttpUrl(settings.linuxDoUserInfoUrl)
+    const profileResponse = await fetchPublicNoRedirect(userInfoUrl, { headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: 'application/json' }, signal: AbortSignal.timeout(15_000) }).catch(() => null)
     if (!profileResponse?.ok) throw new UnauthorizedException('无法读取 Linux.do 用户信息')
     const raw = await profileResponse.json().catch(() => null) as Record<string, unknown> | null
     const profile = (raw?.data && typeof raw.data === 'object' ? raw.data : raw) as Record<string, unknown> | null

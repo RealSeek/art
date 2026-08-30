@@ -33,10 +33,10 @@ function feed(file, args) {
 }
 
 run(['stop', 'frontend', 'backend', 'redis'])
-run(['up', '-d', 'postgres'])
+run(['up', '-d', '--wait', '--wait-timeout', '180', 'postgres'])
 feed('database.dump', ['exec', '-T', 'postgres', 'pg_restore', '-U', 'flux', '-d', 'flux_studio', '--clean', '--if-exists', '--exit-on-error'])
 feed('uploads.tar.gz', ['run', '--rm', '-T', '--no-deps', 'backend', 'sh', '-c', 'find /app/uploads -mindepth 1 -delete && tar xzf - -C /app/uploads'])
 feed('redis.tar.gz', ['run', '--rm', '-T', '--no-deps', 'redis', 'sh', '-c', 'find /data -mindepth 1 -delete && tar xzf - -C /data'])
-run(['up', '-d', 'redis', 'backend', 'frontend'])
+run(['up', '-d', '--wait', '--wait-timeout', '180', 'redis', 'backend', 'frontend'])
 console.log(`[restore] 恢复完成：${source}`)
 console.log('[restore] 请立即检查 /v1/health、登录、资产下载和任务队列。')

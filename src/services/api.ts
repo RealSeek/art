@@ -13,6 +13,38 @@ export type ApiLifecycleDetail = {
   message?: string
 }
 
+/** Optional browser request timeout used by startup probes and other bounded calls. */
+export type ApiRequestInit = RequestInit & { timeoutMs?: number }
+
+function createTimeoutSignal(signal: AbortSignal | null | undefined, timeoutMs?: number) {
+  if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs <= 0) {
+    return { signal: signal ?? undefined, timedOut: () => false, cleanup: () => undefined }
+  }
+
+  const controller = new AbortController()
+  let timedOut = false
+  const onAbort = () => {
+    if (!controller.signal.aborted) controller.abort()
+  }
+
+  if (signal?.aborted) onAbort()
+  else signal?.addEventListener('abort', onAbort, { once: true })
+
+  const timer = globalThis.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    cleanup: () => {
+      globalThis.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    },
+  }
+}
+
 function emitLifecycle(detail: ApiLifecycleDetail) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent<ApiLifecycleDetail>('xinyue:api-lifecycle', { detail }))
 }
@@ -27,7 +59,7 @@ function localApiBase() {
   if (typeof window === 'undefined') return ''
   const host = window.location.hostname
   const isLocal = host === 'localhost' || host === '127.0.0.1'
-  return isLocal && localFrontendPorts.has(window.location.port) ? 'http://localhost:3100' : ''
+  return isLocal && localFrontendPorts.has(window.location.port) ? `http://${host}:3100` : ''
 }
 
 export function apiUrl(path: string) {
@@ -36,16 +68,20 @@ export function apiUrl(path: string) {
   return base ? `${base}${normalizedPath}` : normalizedPath
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function api<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const method = (init.method || 'GET').toUpperCase()
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method)
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const hasJsonBody = init.body !== undefined && !(init.body instanceof FormData)
+  const { timeoutMs, signal: callerSignal, ...requestInit } = init
+  const requestSignal = createTimeoutSignal(callerSignal, timeoutMs)
   emitLifecycle({ id: requestId, path, method, phase: 'start' })
   try {
     const response = await fetch(apiUrl(path), {
-      ...init,
+      ...requestInit,
       credentials: 'include',
-      headers: { ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
+      headers: { ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}), ...(mutation ? { 'X-Xinyue-Request': '1' } : {}), ...init.headers },
+      ...(requestSignal.signal ? { signal: requestSignal.signal } : {}),
     })
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { message?: string | string[] } | null
@@ -58,9 +94,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (response.status === 204) return undefined as T
     return response.json() as Promise<T>
   } catch (reason) {
+    if (requestSignal.timedOut()) {
+      const error = new ApiError(408, '请求超时，请稍后重试')
+      emitLifecycle({ id: requestId, path, method, phase: 'error', message: error.message })
+      throw error
+    }
     if (!(reason instanceof ApiError)) emitLifecycle({ id: requestId, path, method, phase: 'error', message: reason instanceof Error ? reason.message : '无法连接管理服务' })
     throw reason
   } finally {
+    requestSignal.cleanup()
     emitLifecycle({ id: requestId, path, method, phase: 'end' })
   }
 }

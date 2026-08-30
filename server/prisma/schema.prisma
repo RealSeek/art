@@ -77,6 +77,12 @@ enum TokenQuotaStatus {
   EXHAUSTED
 }
 
+enum TokenQuotaReservationStatus {
+  RESERVED
+  SETTLED
+  RELEASED
+}
+
 enum TokenUsageSource {
   PROVIDER
   TOKENIZER
@@ -471,6 +477,7 @@ model User {
   tokenQuotas             UserTokenQuota[]
   tokenUsageLedgers       TokenUsageLedger[]
   tokenQuotaEvents        TokenQuotaEvent[]
+  tokenQuotaReservations  TokenQuotaReservation[]
   moderationEvents        ModerationEvent[]
   moderationAppeals       ModerationAppeal[]        @relation("ModerationAppealUser")
   reviewedAppeals         ModerationAppeal[]        @relation("ModerationAppealReviewer")
@@ -1006,6 +1013,7 @@ model PromptLibrarySourceConfig {
   displayName String
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0)
+  reviewAcceptedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2207,6 +2215,7 @@ model GenerationJob {
   errorMessage        String?              @db.Text
   startedAt           DateTime?
   lockedBy            String?
+  leaseVersion        Int                  @default(0)
   heartbeatAt         DateTime?
   leaseExpiresAt      DateTime?
   completedAt         DateTime?
@@ -2229,6 +2238,7 @@ model GenerationJob {
   usageRecords        UsageRecord[]
   tokenUsageLedgers   TokenUsageLedger[]
   tokenQuotaEvents    TokenQuotaEvent[]
+  tokenQuotaReservations TokenQuotaReservation[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -2315,10 +2325,34 @@ model UserTokenQuota {
   subscription      UserSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   ledgerEntries     TokenUsageLedger[]
   events            TokenQuotaEvent[]
+  reservations      TokenQuotaReservation[]
 
   @@unique([userId, scopeKey, periodStart])
   @@index([userId, status, periodEnd])
   @@index([subscriptionId, periodStart])
+}
+
+model TokenQuotaReservation {
+  id            String                      @id @default(cuid())
+  userId        String
+  quotaId       String
+  generationId  String
+  reservedUnits BigInt
+  chargedUnits  BigInt                      @default(0)
+  status        TokenQuotaReservationStatus @default(RESERVED)
+  metadata      Json?
+  settledAt     DateTime?
+  releasedAt    DateTime?
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+  user          User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quota         UserTokenQuota              @relation(fields: [quotaId], references: [id], onDelete: Cascade)
+  generation    GenerationJob               @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, quotaId])
+  @@index([userId, status, createdAt])
+  @@index([quotaId, status, createdAt])
+  @@index([generationId, status])
 }
 
 model TokenUsageLedger {

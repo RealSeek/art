@@ -1,8 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import { e2eAdminUrl, e2eApiOrigin, getE2EAdminCredentials } from './helpers'
 
-const adminUrl = 'http://localhost:5174/admin/'
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
+const adminUrl = e2eAdminUrl
 
 const businessPages = [
   ['enterprise/customers/credits', '额度流水'],
@@ -27,9 +26,10 @@ const businessPages = [
 ] as const
 
 async function login(page: Page) {
+  const { email, password } = getE2EAdminCredentials()
   await page.goto(adminUrl)
-  await page.getByPlaceholder('管理员邮箱').fill(adminEmail)
-  await page.getByPlaceholder('密码').fill(adminPassword)
+  await page.getByPlaceholder('管理员邮箱').fill(email)
+  await page.getByPlaceholder('密码').fill(password)
   await page.getByRole('button', { name: '进入管理后台' }).click()
   await expect(page).toHaveURL(/#\/dashboard\/console$/)
   await expect(page.getByText('工作台', { exact: true }).first()).toBeVisible()
@@ -44,13 +44,15 @@ async function assertNoPageOverflow(page: Page) {
 }
 
 test('管理端登录错误由表单处理且保持登录控制 Cookie 生命周期', async ({ page, request }) => {
+  const { email, password } = getE2EAdminCredentials()
+  const mutationHeaders = { 'X-Xinyue-Request': '1' }
   const consoleErrors: string[] = []
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
 
   await page.goto(adminUrl)
-  await page.getByPlaceholder('管理员邮箱').fill(adminEmail)
+  await page.getByPlaceholder('管理员邮箱').fill(email)
   const passwordInput = page.getByPlaceholder('密码')
   await passwordInput.fill('incorrect-password')
   await page.getByRole('button', { name: '进入管理后台' }).click()
@@ -61,20 +63,22 @@ test('管理端登录错误由表单处理且保持登录控制 Cookie 生命周
   await expect(page).toHaveURL(/#\/auth\/login(?:\?|$)/)
   expect(consoleErrors.filter((message) => message.includes('[VueError]'))).toEqual([])
 
-  const sessionResponse = await request.post('http://localhost:5174/v1/auth/admin/login', {
-    data: { email: adminEmail, password: adminPassword, remember: false },
+  const sessionResponse = await request.post(`${e2eApiOrigin}/v1/auth/admin/login`, {
+    data: { email, password, remember: false },
+    headers: mutationHeaders,
   })
   expect(sessionResponse.ok()).toBeTruthy()
   const sessionCookie = sessionResponse.headers()['set-cookie'] || ''
   expect(sessionCookie).not.toMatch(/expires=|max-age=/i)
-  await request.post('http://localhost:5174/v1/auth/logout')
+  await request.post(`${e2eApiOrigin}/v1/auth/logout`, { headers: mutationHeaders })
 
-  const persistentResponse = await request.post('http://localhost:5174/v1/auth/admin/login', {
-    data: { email: adminEmail, password: adminPassword, remember: true },
+  const persistentResponse = await request.post(`${e2eApiOrigin}/v1/auth/admin/login`, {
+    data: { email, password, remember: true },
+    headers: mutationHeaders,
   })
   expect(persistentResponse.ok()).toBeTruthy()
   expect(persistentResponse.headers()['set-cookie'] || '').toMatch(/expires=/i)
-  await request.post('http://localhost:5174/v1/auth/logout')
+  await request.post(`${e2eApiOrigin}/v1/auth/logout`, { headers: mutationHeaders })
 })
 
 test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ page }) => {
@@ -184,10 +188,10 @@ test('用户分组可以创建、编辑策略并删除', async ({ page }) => {
     await page.getByRole('button', { name: '确定', exact: true }).click()
     await expect(row).toHaveCount(0)
   } finally {
-    const groups = await page.request.get('http://localhost:3100/v1/admin/groups')
+    const groups = await page.request.get(`${e2eApiOrigin}/v1/admin/groups`)
     if (groups.ok()) {
       const match = ((await groups.json()) as Array<{ id: string; name: string }>).find((item) => item.name === groupName)
-      if (match) await page.request.delete(`http://localhost:3100/v1/admin/groups/${match.id}`).catch(() => undefined)
+      if (match) await page.request.delete(`${e2eApiOrigin}/v1/admin/groups/${match.id}`).catch(() => undefined)
     }
   }
 })

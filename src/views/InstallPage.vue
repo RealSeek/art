@@ -28,6 +28,14 @@
 
           <form class="setup-form" @submit.prevent="submit">
             <div class="setup-field">
+              <label for="setup-token">安装令牌</label>
+              <div class="setup-input">
+                <ShieldCheck :size="19" aria-hidden="true" />
+                <input id="setup-token" v-model.trim="installToken" type="password" autocomplete="one-time-code" minlength="32" maxlength="200" placeholder="请输入部署时生成的安装令牌" :disabled="busy" required />
+              </div>
+            </div>
+
+            <div class="setup-field">
               <label for="setup-email">管理员邮箱</label>
               <div class="setup-input">
                 <Mail :size="19" aria-hidden="true" />
@@ -99,6 +107,7 @@ import { api, ApiError } from '../services/api'
 const loading = ref(true)
 const busy = ref(false)
 const success = ref(false)
+const installToken = ref('')
 const email = ref('')
 const password = ref('')
 const confirm = ref('')
@@ -113,7 +122,7 @@ async function checkSetupStatus() {
   loading.value = true
   checkError.value = ''
   try {
-    const status = await api<{ required: boolean }>('/auth/setup/status')
+    const status = await api<{ required: boolean }>('/auth/setup/status', { timeoutMs: 8_000 })
     if (!status.required) {
       window.location.replace('/admin/#/auth/login')
       return
@@ -133,7 +142,7 @@ async function submit() {
   }
   busy.value = true
   try {
-    await api('/auth/setup', { method: 'POST', body: JSON.stringify({ email: email.value, password: password.value }) })
+    await api('/auth/setup', { method: 'POST', headers: { 'X-Install-Token': installToken.value }, body: JSON.stringify({ email: email.value, password: password.value }) })
     success.value = true
     await api('/auth/logout', { method: 'POST' }).catch(() => undefined)
     window.location.replace('/admin/#/auth/login')

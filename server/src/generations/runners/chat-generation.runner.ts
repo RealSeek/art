@@ -10,15 +10,16 @@ import { ProvidersService, ResolvedProvider } from '../../providers/providers.se
 import { GenerationJobCancelledError, GenerationRunner } from '../generation-runners'
 import { ChatUsage, mergeChatUsage, normalizeChatUsage } from '../chat-usage'
 import { anthropicMessageContent, chatJsonResult, chatStreamChunk, consumeTaggedReasoning, geminiMessageParts, reasoningText, type ChatProviderContent, type ChatStreamResult } from '../chat-response-parser'
-import { ProviderRequestError } from '../generation-provider-errors'
+import { ProviderRequestError, ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
 import { PricingResolverService, type PricingSnapshot } from '../../billing/pricing-resolver.service'
 import { TokenizerService } from '../../billing/tokenizer.service'
-import { TokenUsageLedgerService } from '../../billing/token-usage-ledger.service'
 import { TokenQuotaService } from '../../billing/token-quota.service'
 import { GenerationEventsService } from '../generation-events.service'
 import { ChatContextService } from '../chat-context.service'
 import { ToolLoopRunner } from '../tool-loop.runner'
 import { calculateChatTokenSettlement, parseChatBillingOptions, type ChatBillingOptions } from '../chat-billing'
+import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-http'
+import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 
 const officeSkillPrompts: Record<string, string> = {
   daily: '你是专业办公助理。输出应清晰、可直接使用，并使用标题、清单或表格组织内容。',
@@ -72,7 +73,34 @@ type WebSearchSource = { title: string; url: string; content?: string; published
 type ChatWebSearch = { enabled: true; status: 'searching' | 'completed' | 'failed'; queries: string[]; sources: WebSearchSource[]; error?: string; answer?: string; mode?: 'native' | 'external'; provider?: string }
 type AgentToolDefinition = AgentToolDescriptor
 type AgentToolCall = { key: string; input: Record<string, unknown> }
-type AgentToolPlan = { calls: AgentToolCall[]; usage?: ChatUsage }
+type MeteredProviderResult = {
+  usage?: ChatUsage
+  usageSource?: TokenUsageSource
+  estimatedUsageFields?: string[]
+  providerRequestId?: string
+}
+type AgentToolPlan = MeteredProviderResult & { calls: AgentToolCall[] }
+type AuxiliaryUsageTrace = {
+  providerAttemptId: string
+  providerRequestId?: string
+  providerId?: string
+  routeId?: string
+  credentialId?: string
+  purpose: 'web_search_planning' | 'native_web_search' | 'agent_tool_planning'
+  round?: number
+  model: string
+  provider: string
+  usage: Required<Pick<ChatUsage, 'prompt_tokens' | 'completion_tokens' | 'cached_input_tokens' | 'reasoning_tokens'>>
+  usageSource: TokenUsageSource
+  estimatedUsageFields: string[]
+  pricingSnapshot: PricingSnapshot
+  upstreamCostMicros: number
+  chargedUnits: bigint
+  chargedCredits: bigint
+  reservedUnits: bigint
+  status: 'SUCCEEDED' | 'FAILED' | 'RUNNING'
+  errorMessage?: string
+}
 
 type BillingOptions = ChatBillingOptions
 
@@ -91,12 +119,12 @@ export class ChatGenerationRunner implements GenerationRunner {
     private readonly webSearch: WebSearchService,
     private readonly pricing: PricingResolverService,
     private readonly tokenizer: TokenizerService,
-    private readonly tokenLedger: TokenUsageLedgerService,
     private readonly tokenQuota: TokenQuotaService,
     private readonly generationEvents: GenerationEventsService,
     private readonly chatContext: ChatContextService,
     private readonly toolLoop: ToolLoopRunner,
     private readonly agentTools: AgentToolsService,
+    private readonly attemptAudit: ProviderAttemptAuditService,
   ) {}
 
   run(task: GenerationJob) {
@@ -110,7 +138,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
@@ -138,7 +166,7 @@ export class ChatGenerationRunner implements GenerationRunner {
 
     let response: Response
     try {
-      response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: AbortSignal.timeout(resolved.timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: AbortSignal.timeout(resolved.timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
@@ -147,7 +175,7 @@ export class ChatGenerationRunner implements GenerationRunner {
       // the same request without them so a configured model still produces an answer.
       const errorText = await response.text()
       if (response.status >= 400 && response.status < 500) {
-        response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(Object.fromEntries(Object.entries(body).filter(([key]) => !(key in reasoningOptions)))), signal: AbortSignal.timeout(resolved.timeoutMs) })
+        response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(Object.fromEntries(Object.entries(body).filter(([key]) => !(key in reasoningOptions)))), signal: AbortSignal.timeout(resolved.timeoutMs) })
       } else {
         throw new ProviderRequestError(`Provider returned ${response.status}: ${errorText.slice(0, 500)}`, response.status)
       }
@@ -155,58 +183,95 @@ export class ChatGenerationRunner implements GenerationRunner {
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
 
     const contentType = response.headers.get('content-type') || ''
-    if (!response.body || contentType.includes('application/json')) {
-      const payload = await response.json() as Record<string, unknown>
-      const normalized = chatJsonResult(resolved.apiProtocol, payload)
-      const tagged = consumeTaggedReasoning(normalized.content, false, '')
-      const result = { content: tagged.content, reasoning: [normalized.reasoning, tagged.reasoning].filter(Boolean).join('') || undefined, usage: normalized.usage }
-      if (result.content || result.reasoning) await onDelta(result.content, result.reasoning)
-      return result
-    }
-
-    let content = ''
-    let reasoning = ''
-    let thinkingTagOpen = false
-    let thinkingTagCarry = ''
-    let usage: ChatUsage | undefined
-    const decoder = new TextDecoder()
-    const reader = response.body.getReader()
-    let buffer = ''
-    const consume = async (block: string) => {
-      const payloadText = block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n').trim()
-      if (!payloadText || payloadText === '[DONE]') return
-      let payload: Record<string, unknown>
-      try { payload = JSON.parse(payloadText) as Record<string, unknown> } catch { return }
-      const chunk = chatStreamChunk(resolved.apiProtocol, payload)
-      const tagged = consumeTaggedReasoning(chunk.delta, thinkingTagOpen, thinkingTagCarry)
-      thinkingTagOpen = tagged.open
-      thinkingTagCarry = tagged.carry
-      const delta = tagged.content
-      const reasoningDelta = `${chunk.reasoningDelta}${tagged.reasoning}`
-      if (delta || reasoningDelta) {
-        content += delta
-        reasoning += reasoningDelta
-        await onDelta(delta, reasoningDelta)
+    const headerRequestId = response.headers.get('x-request-id') || response.headers.get('request-id') || undefined
+    let upstreamAccepted = Boolean(headerRequestId)
+    try {
+      if (!response.body || contentType.includes('application/json')) {
+        const payload = await response.json() as Record<string, unknown>
+        const payloadRequestId = [payload.id, payload.responseId, payload.request_id]
+          .find((value): value is string => typeof value === 'string' && value.length > 0)
+        if (payloadRequestId) upstreamAccepted = true
+        const normalized = chatJsonResult(resolved.apiProtocol, payload)
+        const tagged = consumeTaggedReasoning(normalized.content, false, '')
+        const result = {
+          content: tagged.content,
+          reasoning: [normalized.reasoning, tagged.reasoning].filter(Boolean).join('') || undefined,
+          usage: normalized.usage,
+          ...(normalized.providerRequestId || headerRequestId ? { providerRequestId: normalized.providerRequestId || headerRequestId } : {}),
+        }
+        if (result.providerRequestId || result.content || result.reasoning) upstreamAccepted = true
+        if (result.content || result.reasoning) await onDelta(result.content, result.reasoning)
+        return result
       }
-      if (chunk.usage) usage = { ...usage, ...chunk.usage }
+
+      let content = ''
+      let reasoning = ''
+      let thinkingTagOpen = false
+      let thinkingTagCarry = ''
+      let usage: ChatUsage | undefined
+      let providerRequestId: string | undefined = headerRequestId
+      const decoder = new TextDecoder()
+      const reader = response.body.getReader()
+      let buffer = ''
+      const consume = async (block: string) => {
+        const payloadText = block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n').trim()
+        if (!payloadText || payloadText === '[DONE]') return
+        let payload: Record<string, unknown>
+        try { payload = JSON.parse(payloadText) as Record<string, unknown> } catch { return }
+        const payloadRequestId = [payload.id, payload.responseId, payload.request_id]
+          .find((value): value is string => typeof value === 'string' && value.length > 0)
+        if (payloadRequestId) {
+          providerRequestId = payloadRequestId
+          upstreamAccepted = true
+        }
+        const chunk = chatStreamChunk(resolved.apiProtocol, payload)
+        if (chunk.providerRequestId) {
+          providerRequestId = chunk.providerRequestId
+          upstreamAccepted = true
+        }
+        const tagged = consumeTaggedReasoning(chunk.delta, thinkingTagOpen, thinkingTagCarry)
+        thinkingTagOpen = tagged.open
+        thinkingTagCarry = tagged.carry
+        const delta = tagged.content
+        const reasoningDelta = `${chunk.reasoningDelta}${tagged.reasoning}`
+        if (delta || reasoningDelta) {
+          // From this point an upstream billable response is visible. Any
+          // reader, cancellation, or persistence failure must reconcile the
+          // same attempt instead of trying another Provider.
+          upstreamAccepted = true
+          content += delta
+          reasoning += reasoningDelta
+          await onDelta(delta, reasoningDelta)
+        }
+        if (chunk.usage) usage = { ...usage, ...chunk.usage }
+      }
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+        const blocks = buffer.split(/\r?\n\r?\n/)
+        buffer = blocks.pop() || ''
+        for (const block of blocks) await consume(block)
+        if (done) break
+      }
+      if (buffer.trim()) await consume(buffer)
+      if (thinkingTagCarry) {
+        const trailing = thinkingTagCarry
+        thinkingTagCarry = ''
+        upstreamAccepted = true
+        if (thinkingTagOpen) { reasoning += trailing; await onDelta('', trailing) }
+        else { content += trailing; await onDelta(trailing, '') }
+      }
+      if (!content.trim()) throw new ProviderRequestError('Provider returned an empty response', 502)
+      return { content, reasoning: reasoning || undefined, usage, ...(providerRequestId ? { providerRequestId } : {}) }
+    } catch (error) {
+      if (error instanceof ReconciliationRequiredError) throw error
+      if (upstreamAccepted) {
+        const reason = error instanceof Error ? error.message : '未知错误'
+        throw new ReconciliationRequiredError(`Provider 流已被上游接受，后续处理需要对账：${reason}`)
+      }
+      if (error instanceof ProviderRequestError) throw error
+      throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider response processing failed')
     }
-    while (true) {
-      const { done, value } = await reader.read()
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-      const blocks = buffer.split(/\r?\n\r?\n/)
-      buffer = blocks.pop() || ''
-      for (const block of blocks) await consume(block)
-      if (done) break
-    }
-    if (buffer.trim()) await consume(buffer)
-    if (thinkingTagCarry) {
-      const trailing = thinkingTagCarry
-      thinkingTagCarry = ''
-      if (thinkingTagOpen) { content += ''; reasoning += trailing; await onDelta('', trailing) }
-      else { content += trailing; await onDelta(trailing, '') }
-    }
-    if (!content.trim()) throw new ProviderRequestError('Provider returned an empty response', 502)
-    return { content, reasoning: reasoning || undefined, usage }
   }
 
   private reasoningRequestOptions(resolved: ResolvedProvider): Record<string, unknown> {
@@ -264,7 +329,7 @@ export class ChatGenerationRunner implements GenerationRunner {
   }
 
   private async modelWebSearchQueries(resolved: ResolvedProvider, prompt: string) {
-    const result = await this.providerChatStream(resolved, [
+    const messages: ChatProviderMessage[] = [
       {
         role: 'system',
         content: [
@@ -275,7 +340,8 @@ export class ChatGenerationRunner implements GenerationRunner {
         ].join('\n'),
       },
       { role: 'user', content: prompt.slice(0, 4_000) },
-    ], 220, async () => undefined)
+    ]
+    const result = await this.providerChatStream(resolved, messages, 220, async () => undefined)
     const fenced = result.content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
     const start = fenced.indexOf('[')
     const end = fenced.lastIndexOf(']')
@@ -283,17 +349,42 @@ export class ChatGenerationRunner implements GenerationRunner {
     const parsed = JSON.parse(fenced.slice(start, end + 1)) as unknown
     if (!Array.isArray(parsed)) throw new Error('Search planner returned a non-array value')
     const queries = [...new Set(parsed.filter((item): item is string => typeof item === 'string').map((item) => item.replace(/\s+/g, ' ').trim().slice(0, 180)).filter(Boolean))].slice(0, 3)
-    return { queries: queries.length ? queries : this.localWebSearchQueries(prompt), usage: result.usage }
+    return {
+      queries: queries.length ? queries : this.localWebSearchQueries(prompt),
+      ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}),
+      ...this.completeUsage(
+        result.usage,
+        this.tokenizer.estimateMessages(messages.map((message) => ({ role: message.role, content: message.content })), resolved.model),
+        this.tokenizer.estimateText(result.content, resolved.model),
+      ),
+    }
   }
 
-  private async prepareWebSearch(resolved: ResolvedProvider, prompt: string, fixedSources: WebSearchSource[] = []) {
+  private async prepareWebSearch(
+    task: GenerationJob,
+    resolved: ResolvedProvider,
+    prompt: string,
+    fixedSources: WebSearchSource[] = [],
+    onTrace?: (trace: AuxiliaryUsageTrace) => void,
+  ) {
     let queries = this.localWebSearchQueries(prompt)
     let usage: ChatUsage | undefined
     try {
-      const planned = await this.modelWebSearchQueries(resolved, prompt)
+      const planned = await this.trackAuxiliaryProviderCall(
+        task,
+        resolved,
+        'web_search_planning',
+        undefined,
+        () => this.modelWebSearchQueries(resolved, prompt),
+        onTrace,
+        { inputTokens: this.tokenizer.estimateText(prompt.slice(0, 4_000), resolved.model) + 256, outputTokens: 220 },
+      )
       queries = planned.queries
       usage = planned.usage
-    } catch { /* The original user prompt remains a precise, non-invented fallback query. */ }
+    } catch (error) {
+      if (error instanceof TerminalSettlementError) throw error
+      // The original user prompt remains a precise, non-invented fallback query.
+    }
     if (!queries.length) return { metadata: { enabled: true, status: 'failed', queries: [], sources: [], error: '没有可用于检索的关键词' } satisfies ChatWebSearch, usage }
 
     const sources: WebSearchSource[] = await this.webSearch.resolveSources(fixedSources)
@@ -301,7 +392,15 @@ export class ChatGenerationRunner implements GenerationRunner {
     const nativeErrors: string[] = []
     if (resolved.nativeSearchProvider) {
       try {
-        const native = await this.nativeWebSearch(resolved, queries)
+        const native = await this.trackAuxiliaryProviderCall(
+          task,
+          resolved,
+          'native_web_search',
+          undefined,
+          () => this.nativeWebSearch(resolved, queries),
+          onTrace,
+          { inputTokens: this.tokenizer.estimateText(queries.join('\n'), resolved.model) + 128, outputTokens: 2_048 },
+        )
         if (native.sources.length) {
           for (const item of native.sources) {
             if (seen.has(item.url) || sources.length >= 15) continue
@@ -315,6 +414,7 @@ export class ChatGenerationRunner implements GenerationRunner {
         }
         nativeErrors.push('模型原生搜索没有返回可引用来源')
       } catch (reason) {
+        if (reason instanceof TerminalSettlementError) throw reason
         nativeErrors.push(reason instanceof Error ? reason.message : '模型原生搜索不可用')
       }
     }
@@ -342,7 +442,400 @@ export class ChatGenerationRunner implements GenerationRunner {
     return mergeChatUsage(...items)
   }
 
-  private async nativeWebSearch(resolved: ResolvedProvider, queries: string[]): Promise<{ answer: string; sources: WebSearchSource[]; usage?: ChatUsage }> {
+  private completeUsage(
+    usage: ChatUsage | undefined,
+    estimatedInputTokens: number,
+    estimatedOutputTokens: number,
+  ): MeteredProviderResult & Required<Pick<MeteredProviderResult, 'usage' | 'usageSource' | 'estimatedUsageFields'>> {
+    const estimatedUsageFields: string[] = []
+    const token = (value: unknown) => {
+      const amount = Number(value)
+      return Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)) : 0
+    }
+    let inputTokens = token(usage?.prompt_tokens)
+    let outputTokens = token(usage?.completion_tokens)
+    if (usage?.prompt_tokens === undefined) {
+      inputTokens = token(estimatedInputTokens)
+      estimatedUsageFields.push('inputTokens')
+    }
+    if (usage?.completion_tokens === undefined) {
+      outputTokens = token(estimatedOutputTokens)
+      estimatedUsageFields.push('outputTokens')
+    }
+    return {
+      usage: {
+        prompt_tokens: inputTokens,
+        completion_tokens: outputTokens,
+        cached_input_tokens: Math.min(inputTokens, token(usage?.cached_input_tokens)),
+        reasoning_tokens: Math.min(outputTokens, token(usage?.reasoning_tokens)),
+      },
+      usageSource: usage ? TokenUsageSource.PROVIDER : TokenUsageSource.TOKENIZER,
+      estimatedUsageFields,
+    }
+  }
+
+  private auxiliaryPricingSnapshot(resolved: ResolvedProvider, billing: BillingOptions) {
+    const userBilled = billing.billingSource !== 'BYOK_FREE' && billing.billingSource !== 'PLATFORM'
+    return this.pricing.snapshot({
+      model: resolved.model,
+      provider: `${resolved.source}:${resolved.type}`,
+      source: resolved.source,
+      presetKey: resolved.presetKey || '',
+      inputRate: userBilled ? resolved.inputCreditsPerMillion : 0,
+      outputRate: userBilled ? resolved.outputCreditsPerMillion : 0,
+      baseInputRate: resolved.baseInputCreditsPerMillion,
+      baseOutputRate: resolved.baseOutputCreditsPerMillion,
+      groupRatePercent: resolved.creditRatePercent,
+      inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion,
+      outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion,
+      creditValueMicros: resolved.creditValueMicros,
+      pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros,
+      billingSource: billing.billingSource,
+      overageRatePercent: billing.overageRatePercent,
+    })
+  }
+
+  private auxiliaryUsageDetailLedger(task: GenerationJob, billing: BillingOptions, trace: AuxiliaryUsageTrace) {
+    const aggregateLedgerKey = `job:${task.id}:token-ledger`
+    return {
+      userId: task.userId,
+      generationId: task.id,
+      quotaId: null,
+      subscriptionId: billing.subscriptionId,
+      model: trace.model,
+      provider: trace.provider,
+      providerRequestId: trace.providerRequestId || null,
+      providerAttemptId: trace.providerAttemptId,
+      inputTokens: trace.usage.prompt_tokens,
+      outputTokens: trace.usage.completion_tokens,
+      cachedInputTokens: trace.usage.cached_input_tokens,
+      reasoningTokens: trace.usage.reasoning_tokens,
+      reservedUnits: 0n,
+      chargedUnits: 0n,
+      inputRate: trace.pricingSnapshot.inputRate,
+      outputRate: trace.pricingSnapshot.outputRate,
+      pricingSnapshot: {
+        ...trace.pricingSnapshot,
+        ledgerRole: 'USAGE_DETAIL',
+        aggregateLedgerKey,
+        financialImpact: 'NONE',
+        purpose: trace.purpose,
+        ...(trace.round === undefined ? {} : { round: trace.round }),
+        callStatus: trace.status,
+        attributedChargedUnits: trace.chargedUnits.toString(),
+        attributedChargedCredits: trace.chargedCredits.toString(),
+        attributedReservedUnits: trace.reservedUnits.toString(),
+        attributedUpstreamCostMicros: trace.upstreamCostMicros,
+      } as Prisma.InputJsonValue,
+      usageSource: trace.usageSource,
+      settlementStatus: TokenSettlementStatus.SETTLED,
+      type: TokenLedgerType.ADJUST,
+      idempotencyKey: `${aggregateLedgerKey}:aux:${trace.providerAttemptId}`,
+    }
+  }
+
+  private async persistAuxiliaryUsageDetail(task: GenerationJob, billing: BillingOptions, trace: AuxiliaryUsageTrace) {
+    const ledger = this.auxiliaryUsageDetailLedger(task, billing, trace)
+    try {
+      await this.attemptAudit.withActiveLease(task.id, (tx) => tx.tokenUsageLedger.upsert({
+          where: { idempotencyKey: ledger.idempotencyKey },
+          create: ledger,
+          update: {},
+        }))
+    } catch {
+      throw new ReconciliationRequiredError('辅助模型调用账本写入失败')
+    }
+  }
+
+  private auxiliaryChargeTotals(traces: AuxiliaryUsageTrace[]) {
+    return traces
+      .filter((trace) => trace.status === 'SUCCEEDED')
+      .reduce(
+        (totals, trace) => ({
+          chargedUnits: totals.chargedUnits + trace.chargedUnits,
+          chargedCredits: totals.chargedCredits + trace.chargedCredits,
+        }),
+        { chargedUnits: 0n, chargedCredits: 0n },
+      )
+  }
+
+  /**
+   * Finalize an attempt only when it is still in flight. This preserves a
+   * concurrent SUCCEEDED/FAILED transition while ensuring terminal persistence
+   * errors do not leave an attempt looking permanently active.
+   */
+  private async markProviderAttemptFailed(generationId: string, attemptId: string, errorCode: string, errorMessage: string) {
+    try {
+      await this.attemptAudit.withActiveLease(generationId, (tx) => tx.providerAttempt.updateMany({
+        where: { id: attemptId, status: 'RUNNING' },
+        data: {
+          status: 'FAILED',
+          endedAt: new Date(),
+          errorCode,
+          errorMessage: errorMessage.slice(0, 500),
+        },
+      }))
+    } catch {
+      // Best effort: preserve the original terminal error for reconciliation.
+    }
+  }
+
+  private async trackAuxiliaryProviderCall<T extends MeteredProviderResult>(
+    task: GenerationJob,
+    resolved: ResolvedProvider,
+    purpose: 'web_search_planning' | 'native_web_search' | 'agent_tool_planning',
+    round: number | undefined,
+    execute: () => Promise<T>,
+    onTrace?: (trace: AuxiliaryUsageTrace) => void,
+    reservationEstimate?: { inputTokens: number; outputTokens: number },
+  ): Promise<T> {
+    const startedAt = Date.now()
+    const billing = parseChatBillingOptions(task.options)
+    const pricingSnapshot = this.auxiliaryPricingSnapshot(resolved, billing)
+    const provider = `${resolved.source}:${resolved.type}`
+    const baseMetadata = {
+      auxiliary: true,
+      purpose,
+      ...(round === undefined ? {} : { round }),
+      providerId: resolved.providerId || null,
+      routeId: resolved.routeId || null,
+      credentialId: resolved.credentialId || null,
+      pricingSnapshot,
+    }
+    let providerAttempt: { id: string }
+    try {
+      // Establish the audit row before making a potentially billable request.
+      providerAttempt = await this.attemptAudit.withActiveLease(task.id, (tx) => tx.providerAttempt.create({
+        data: {
+          generationId: task.id,
+          provider,
+          model: resolved.model,
+          status: 'RUNNING',
+          metadata: baseMetadata as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      }))
+    } catch {
+      throw new TerminalSettlementError('辅助模型调用审计初始化失败')
+    }
+    let reservedUnits = 0n
+    if (billing.quotaEnabled === true && reservationEstimate) {
+      const reservations = Array.isArray(billing.quotaReservations)
+        ? billing.quotaReservations.flatMap((row) => row && typeof row.quotaId === 'string'
+          ? [{ reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId }]
+          : [])
+        : billing.quotaId ? [{ reservationId: undefined, quotaId: billing.quotaId }] : []
+      reservedUnits = this.pricing.chargedUnits(pricingSnapshot, reservationEstimate)
+      if (!reservations.length) {
+        await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'PREAUTH_MISSING', 'Auxiliary reservation is missing')
+        throw new TerminalSettlementError('辅助模型调用缺少计费预留')
+      }
+      if (reservedUnits > 0n) {
+        try {
+          await this.tokenQuota.increase({
+            userId: task.userId,
+            generationId: task.id,
+            reservations,
+            units: reservedUnits,
+            idempotencyKey: `aux:${providerAttempt.id}`,
+            metadata: { reason: 'AUXILIARY_PROVIDER_PREAUTH', purpose, ...(round === undefined ? {} : { round }) } as Prisma.InputJsonValue,
+          })
+        } catch {
+          await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'PREAUTH_FAILED', 'Auxiliary reservation failed')
+          throw new TerminalSettlementError('辅助模型调用预留失败')
+        }
+      }
+      try {
+        await this.attemptAudit.withActiveLease(task.id, (tx) => tx.providerAttempt.update({
+          where: { id: providerAttempt.id },
+          data: { metadata: { ...baseMetadata, reservedUnits: reservedUnits.toString(), preauthorized: true } as Prisma.InputJsonValue },
+        }))
+      } catch {
+        await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'PREAUTH_AUDIT_FAILED', 'Auxiliary reservation audit write failed')
+        throw new TerminalSettlementError('辅助模型预留审计写入失败')
+      }
+    }
+    try {
+      const result = await execute()
+      const inputTokens = Math.max(0, Math.trunc(Number(result.usage?.prompt_tokens || 0)))
+      const outputTokens = Math.max(0, Math.trunc(Number(result.usage?.completion_tokens || 0)))
+      const cachedInputTokens = Math.min(inputTokens, Math.max(0, Math.trunc(Number(result.usage?.cached_input_tokens || 0))))
+      const reasoningTokens = Math.min(outputTokens, Math.max(0, Math.trunc(Number(result.usage?.reasoning_tokens || 0))))
+      const usage = { prompt_tokens: inputTokens, completion_tokens: outputTokens, cached_input_tokens: cachedInputTokens, reasoning_tokens: reasoningTokens }
+      const upstreamCostMicros = this.pricing.costMicros(pricingSnapshot, { inputTokens, outputTokens, cachedInputTokens, reasoningTokens })
+      const settlement = this.pricing.settlement(pricingSnapshot, { inputTokens, outputTokens, cachedInputTokens, reasoningTokens })
+      const providerRequestId = typeof (result as Record<string, unknown>).providerRequestId === 'string'
+        ? String((result as Record<string, unknown>).providerRequestId)
+        : undefined
+      const trace: AuxiliaryUsageTrace = {
+        providerAttemptId: providerAttempt.id,
+        ...(providerRequestId ? { providerRequestId } : {}),
+        ...(resolved.providerId ? { providerId: resolved.providerId } : {}),
+        ...(resolved.routeId ? { routeId: resolved.routeId } : {}),
+        ...(resolved.credentialId ? { credentialId: resolved.credentialId } : {}),
+        purpose,
+        ...(round === undefined ? {} : { round }),
+        model: resolved.model,
+        provider,
+        usage,
+        usageSource: result.usageSource || TokenUsageSource.PROVIDER,
+        estimatedUsageFields: result.estimatedUsageFields || [],
+        pricingSnapshot,
+        upstreamCostMicros,
+        chargedUnits: settlement.chargedUnits,
+        chargedCredits: settlement.chargedCredits,
+        reservedUnits,
+        status: 'SUCCEEDED',
+      }
+      try {
+        const ledger = this.auxiliaryUsageDetailLedger(task, billing, trace)
+        await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+          await tx.providerAttempt.update({
+          where: { id: providerAttempt.id },
+          data: {
+            status: 'SUCCEEDED',
+            endedAt: new Date(),
+            inputTokens,
+            outputTokens,
+            upstreamCostMicros,
+            metadata: {
+              ...baseMetadata,
+              latencyMs: Date.now() - startedAt,
+              usage: { inputTokens, outputTokens, cachedInputTokens, reasoningTokens },
+              usageSource: result.usageSource || TokenUsageSource.PROVIDER,
+              estimatedUsageFields: result.estimatedUsageFields || [],
+              upstreamCostMicros,
+              reservedUnits: reservedUnits.toString(),
+              attributedChargedUnits: settlement.chargedUnits.toString(),
+              attributedChargedCredits: settlement.chargedCredits.toString(),
+              ...(providerRequestId ? { providerRequestId } : {}),
+            } as Prisma.InputJsonValue,
+          },
+          })
+          await tx.tokenUsageLedger.upsert({
+            where: { idempotencyKey: ledger.idempotencyKey },
+            create: ledger,
+            update: {},
+          })
+          if (resolved.credentialId && (inputTokens || outputTokens)) {
+            await tx.userApiCredential.updateMany({
+              where: { id: resolved.credentialId },
+              data: {
+                inputTokens: { increment: BigInt(inputTokens) },
+                outputTokens: { increment: BigInt(outputTokens) },
+                lastUsedAt: new Date(),
+              },
+            })
+          }
+        })
+      } catch {
+        throw new ReconciliationRequiredError('辅助模型调用审计或账本写入失败')
+      }
+      onTrace?.(trace)
+      return result
+    } catch (error) {
+      if (error instanceof ReconciliationRequiredError) throw error
+      if (error instanceof TerminalSettlementError) {
+        await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'SETTLEMENT_ERROR', error.message)
+        throw error
+      }
+      const message = error instanceof Error ? error.message : 'Auxiliary provider request failed'
+      try {
+        await this.attemptAudit.withActiveLease(task.id, (tx) => tx.providerAttempt.update({
+          where: { id: providerAttempt.id },
+          data: {
+            status: 'FAILED',
+            endedAt: new Date(),
+            errorCode: error instanceof ProviderRequestError && error.status ? `HTTP_${error.status}` : 'PROVIDER_ERROR',
+            errorMessage: message.slice(0, 500),
+            metadata: { ...baseMetadata, latencyMs: Date.now() - startedAt, reservedUnits: reservedUnits.toString(), attributedChargedUnits: '0', attributedChargedCredits: '0' } as Prisma.InputJsonValue,
+          },
+        }))
+      } catch {
+        await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'PROVIDER_AUDIT_FAILED', 'Auxiliary provider failure audit write failed')
+        throw new TerminalSettlementError('辅助模型调用失败审计写入失败')
+      }
+      const trace: AuxiliaryUsageTrace = {
+        providerAttemptId: providerAttempt.id,
+        ...(resolved.providerId ? { providerId: resolved.providerId } : {}),
+        ...(resolved.routeId ? { routeId: resolved.routeId } : {}),
+        ...(resolved.credentialId ? { credentialId: resolved.credentialId } : {}),
+        purpose,
+        ...(round === undefined ? {} : { round }),
+        model: resolved.model,
+        provider,
+        usage: { prompt_tokens: 0, completion_tokens: 0, cached_input_tokens: 0, reasoning_tokens: 0 },
+        usageSource: TokenUsageSource.TOKENIZER,
+        estimatedUsageFields: ['providerFailure'],
+        pricingSnapshot,
+        upstreamCostMicros: 0,
+        chargedUnits: 0n,
+        chargedCredits: 0n,
+        reservedUnits,
+        status: 'FAILED',
+        errorMessage: message.slice(0, 500),
+      }
+      await this.persistAuxiliaryUsageDetail(task, billing, trace)
+      onTrace?.(trace)
+      throw error
+    }
+  }
+
+  private async persistedAuxiliaryUsageTraces(generationId: string): Promise<AuxiliaryUsageTrace[]> {
+    const attempts = await this.prisma.providerAttempt.findMany({
+      where: { generationId },
+      orderBy: { startedAt: 'asc' },
+      select: { id: true, provider: true, model: true, status: true, inputTokens: true, outputTokens: true, upstreamCostMicros: true, metadata: true },
+    })
+    const traces: AuxiliaryUsageTrace[] = []
+    for (const attempt of attempts) {
+      const metadata = attempt.metadata && typeof attempt.metadata === 'object' && !Array.isArray(attempt.metadata)
+        ? attempt.metadata as Record<string, unknown>
+        : {}
+      if (metadata.auxiliary !== true) continue
+      const snapshot = metadata.pricingSnapshot && typeof metadata.pricingSnapshot === 'object' && !Array.isArray(metadata.pricingSnapshot)
+        ? metadata.pricingSnapshot as PricingSnapshot
+        : null
+      if (!snapshot) throw new TerminalSettlementError('辅助模型调用缺少价格快照')
+      const usageMetadata = metadata.usage && typeof metadata.usage === 'object' && !Array.isArray(metadata.usage)
+        ? metadata.usage as Record<string, unknown>
+        : {}
+      const inputTokens = Math.max(0, Math.trunc(Number(usageMetadata.inputTokens ?? attempt.inputTokens ?? 0)))
+      const outputTokens = Math.max(0, Math.trunc(Number(usageMetadata.outputTokens ?? attempt.outputTokens ?? 0)))
+      const cachedInputTokens = Math.min(inputTokens, Math.max(0, Math.trunc(Number(usageMetadata.cachedInputTokens || 0))))
+      const reasoningTokens = Math.min(outputTokens, Math.max(0, Math.trunc(Number(usageMetadata.reasoningTokens || 0))))
+      const usage = { prompt_tokens: inputTokens, completion_tokens: outputTokens, cached_input_tokens: cachedInputTokens, reasoning_tokens: reasoningTokens }
+      const status = attempt.status === 'SUCCEEDED' ? 'SUCCEEDED' : attempt.status === 'RUNNING' ? 'RUNNING' : 'FAILED'
+      const settlement = status === 'SUCCEEDED'
+        ? this.pricing.settlement(snapshot, { inputTokens, outputTokens, cachedInputTokens, reasoningTokens })
+        : { chargedUnits: 0n, chargedCredits: 0n }
+      let reservedUnits = 0n
+      try { reservedUnits = BigInt(String(metadata.reservedUnits || 0)) } catch { /* Invalid internal metadata is treated as no attributed reservation. */ }
+      traces.push({
+        providerAttemptId: attempt.id,
+        ...(typeof metadata.providerRequestId === 'string' ? { providerRequestId: metadata.providerRequestId } : {}),
+        ...(typeof metadata.providerId === 'string' ? { providerId: metadata.providerId } : {}),
+        ...(typeof metadata.routeId === 'string' ? { routeId: metadata.routeId } : {}),
+        ...(typeof metadata.credentialId === 'string' ? { credentialId: metadata.credentialId } : {}),
+        purpose: metadata.purpose === 'native_web_search' || metadata.purpose === 'agent_tool_planning' ? metadata.purpose : 'web_search_planning',
+        ...(typeof metadata.round === 'number' ? { round: metadata.round } : {}),
+        model: attempt.model,
+        provider: attempt.provider,
+        usage,
+        usageSource: metadata.usageSource === TokenUsageSource.PROVIDER ? TokenUsageSource.PROVIDER : TokenUsageSource.TOKENIZER,
+        estimatedUsageFields: Array.isArray(metadata.estimatedUsageFields) ? metadata.estimatedUsageFields.filter((item): item is string => typeof item === 'string') : [],
+        pricingSnapshot: snapshot,
+        upstreamCostMicros: Math.max(0, Math.trunc(attempt.upstreamCostMicros || 0)),
+        chargedUnits: settlement.chargedUnits,
+        chargedCredits: settlement.chargedCredits,
+        reservedUnits,
+        status,
+      })
+    }
+    return traces
+  }
+
+  private async nativeWebSearch(resolved: ResolvedProvider, queries: string[]): Promise<{ answer: string; sources: WebSearchSource[] } & MeteredProviderResult> {
     const provider = resolved.nativeSearchProvider
     if (!provider) throw new Error('当前模型未声明原生搜索能力')
     const searchPrompt = [
@@ -367,7 +860,7 @@ export class ChatGenerationRunner implements GenerationRunner {
       path = '/chat/completions'
       body = { model: resolved.model, messages: [{ role: 'user', content: searchPrompt }], tools: [{ type: 'web_search' }], stream: false, max_tokens: 2048 }
     }
-    const response = await fetch(`${resolved.baseUrl}${path}`, {
+    const response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, {
       method: 'POST',
       headers: this.providers.buildRequestHeaders(resolved, protocol),
       body: JSON.stringify(body),
@@ -377,10 +870,25 @@ export class ChatGenerationRunner implements GenerationRunner {
     if (!response.ok) throw new Error(`模型原生搜索返回 ${response.status}: ${text.slice(0, 300)}`)
     let payload: Record<string, unknown>
     try { payload = JSON.parse(text) as Record<string, unknown> } catch { throw new Error('模型原生搜索返回的不是有效 JSON') }
+    const providerRequestId = [
+      response.headers.get('x-request-id'),
+      response.headers.get('request-id'),
+      payload.id,
+      payload.responseId,
+      payload.request_id,
+    ].find((value): value is string => typeof value === 'string' && value.length > 0)
     const answer = this.nativeSearchAnswer(provider, payload)
     const sources = this.nativeSearchSources(payload)
-    const usage = this.nativeSearchUsage(provider, payload)
-    return { answer, sources, usage }
+    return {
+      answer,
+      sources,
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...this.completeUsage(
+        this.nativeSearchUsage(provider, payload),
+        this.tokenizer.estimateText(JSON.stringify(body), resolved.model),
+        this.tokenizer.estimateText(answer || JSON.stringify(sources), resolved.model),
+      ),
+    }
   }
 
   private nativeSearchAnswer(provider: NonNullable<ResolvedProvider['nativeSearchProvider']>, payload: Record<string, unknown>) {
@@ -497,29 +1005,49 @@ export class ChatGenerationRunner implements GenerationRunner {
       body = { ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), contents: conversation.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })), tools: [{ functionDeclarations: tools.map((tool) => ({ name: tool.key, description: tool.description || tool.name, parameters: this.toolSchema(tool) })) }] }
     }
     let response: Response
-    try { response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: signal || AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: signal || AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ProviderRequestError(error instanceof Error ? error.message : 'Agent planning request failed') }
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     const payload = await response.json() as Record<string, unknown>
+    const providerRequestId = [
+      response.headers.get('x-request-id'),
+      response.headers.get('request-id'),
+      payload.id,
+      payload.responseId,
+      payload.request_id,
+    ].find((value): value is string => typeof value === 'string' && value.length > 0)
+    let normalizedCalls: AgentToolCall[] = []
+    let usage: ChatUsage | undefined
     if (resolved.apiProtocol === 'anthropic') {
       const blocks = Array.isArray(payload.content) ? payload.content as Array<Record<string, unknown>> : []
-      return { calls: blocks.filter((block) => block.type === 'tool_use' && typeof block.name === 'string').slice(0, 4).map((block) => ({ key: String(block.name), input: block.input && typeof block.input === 'object' && !Array.isArray(block.input) ? block.input as Record<string, unknown> : {} })), usage: normalizeChatUsage('anthropic', payload.usage) }
-    }
-    if (resolved.apiProtocol === 'gemini') {
+      normalizedCalls = blocks.filter((block) => block.type === 'tool_use' && typeof block.name === 'string').slice(0, 4).map((block) => ({ key: String(block.name), input: block.input && typeof block.input === 'object' && !Array.isArray(block.input) ? block.input as Record<string, unknown> : {} }))
+      usage = normalizeChatUsage('anthropic', payload.usage)
+    } else if (resolved.apiProtocol === 'gemini') {
       const candidates = Array.isArray(payload.candidates) ? payload.candidates as Array<Record<string, unknown>> : []
       const content = candidates[0]?.content as Record<string, unknown> | undefined
       const parts = Array.isArray(content?.parts) ? content.parts as Array<Record<string, unknown>> : []
-      return { calls: parts.map((part) => part.functionCall as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).slice(0, 4).map((call) => ({ key: String(call.name), input: call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {} })), usage: normalizeChatUsage('gemini', payload.usageMetadata) }
+      normalizedCalls = parts.map((part) => part.functionCall as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).slice(0, 4).map((call) => ({ key: String(call.name), input: call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {} }))
+      usage = normalizeChatUsage('gemini', payload.usageMetadata)
+    } else {
+      const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : []
+      const message = choices[0]?.message as Record<string, unknown> | undefined
+      const calls = Array.isArray(message?.tool_calls) ? message.tool_calls as Array<Record<string, unknown>> : []
+      normalizedCalls = calls.slice(0, 4).map((call) => call.function as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).map((call) => {
+        let input: Record<string, unknown> = {}
+        try { input = typeof call.arguments === 'string' ? JSON.parse(call.arguments) as Record<string, unknown> : {} } catch { input = {} }
+        return { key: String(call.name), input }
+      })
+      usage = normalizeChatUsage('openai', payload.usage)
     }
-    const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : []
-    const message = choices[0]?.message as Record<string, unknown> | undefined
-    const calls = Array.isArray(message?.tool_calls) ? message.tool_calls as Array<Record<string, unknown>> : []
-    const normalizedCalls = calls.slice(0, 4).map((call) => call.function as Record<string, unknown> | undefined).filter((call): call is Record<string, unknown> => Boolean(call && typeof call.name === 'string')).map((call) => {
-      let input: Record<string, unknown> = {}
-      try { input = typeof call.arguments === 'string' ? JSON.parse(call.arguments) as Record<string, unknown> : {} } catch { input = {} }
-      return { key: String(call.name), input }
-    })
-    return { calls: normalizedCalls, usage: normalizeChatUsage('openai', payload.usage) }
+    return {
+      calls: normalizedCalls,
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...this.completeUsage(
+        usage,
+        this.tokenizer.estimateText(JSON.stringify(body), resolved.model),
+        this.tokenizer.estimateText(JSON.stringify(normalizedCalls), resolved.model),
+      ),
+    }
   }
 
   private async executeAgentTools(task: GenerationJob, assistantId: string, tools: AgentToolDefinition[], calls: AgentToolCall[], callOffset = 0, signal?: AbortSignal) {
@@ -559,12 +1087,18 @@ export class ChatGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
+  }
+
+  private providerFetch(resolved: ResolvedProvider, input: string | URL, init: RequestInit) {
+    return resolved.source === 'user'
+      ? fetchPublicNoRedirect(input, init)
+      : fetchNoRedirect(input, init)
   }
 
   private canFailover(error: unknown) {
@@ -575,27 +1109,66 @@ export class ChatGenerationRunner implements GenerationRunner {
 
   private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE', execute: (provider: ResolvedProvider) => Promise<T>) {
     const options = task.options as Record<string, unknown>
+    const billing = parseChatBillingOptions(task.options)
+    const userBilled = billing.billingSource !== 'BYOK_FREE' && billing.billingSource !== 'PLATFORM'
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
     let lastError: unknown
     for (const candidate of candidates) {
       const startedAt = Date.now()
-      const providerAttempt = await this.prisma.providerAttempt.create({ data: { generationId: task.id, provider: `${candidate.source}:${candidate.type}`, model: candidate.model, status: 'RUNNING', metadata: { providerId: candidate.providerId || null, routeId: candidate.routeId || null, credentialId: candidate.credentialId || null } as Prisma.InputJsonValue } }).catch(() => null)
+      // A Provider request must never start without an auditable attempt row.
+      // Creation failures are safe for the queue to retry because no upstream
+      // request has happened yet.
+      const attemptMetadata = { auxiliary: false, providerId: candidate.providerId || null, routeId: candidate.routeId || null, credentialId: candidate.credentialId || null }
+      const providerAttempt = await this.attemptAudit.start({ generationId: task.id, provider: `${candidate.source}:${candidate.type}`, model: candidate.model, metadata: attemptMetadata as Prisma.InputJsonValue })
       try {
         const result = await execute(candidate)
-        if (providerAttempt) await this.prisma.providerAttempt.update({ where: { id: providerAttempt.id }, data: { status: 'SUCCEEDED', endedAt: new Date(), metadata: { ...(providerAttempt.metadata && typeof providerAttempt.metadata === 'object' && !Array.isArray(providerAttempt.metadata) ? providerAttempt.metadata as Record<string, unknown> : {}), latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue } }).catch(() => undefined)
-        attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
-        await this.providers.recordCandidateResult(candidate, true)
-        const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: this.pricing.snapshot({ ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, provider: `${candidate.source}:${candidate.type}`, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, inputRate: candidate.inputCreditsPerMillion, outputRate: candidate.outputCreditsPerMillion, baseInputRate: candidate.baseInputCreditsPerMillion, baseOutputRate: candidate.baseOutputCreditsPerMillion, groupRatePercent: candidate.creditRatePercent, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros }) as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
-        return { result, provider: candidate, providerAttemptId: providerAttempt?.id || null }
+        const resultRecord = result && typeof result === 'object' ? result as Record<string, unknown> : undefined
+        const nestedResponse = resultRecord?.response && typeof resultRecord.response === 'object' ? resultRecord.response as Record<string, unknown> : undefined
+        const requestId = typeof resultRecord?.providerRequestId === 'string'
+          ? resultRecord.providerRequestId
+          : typeof nestedResponse?.providerRequestId === 'string' ? nestedResponse.providerRequestId : undefined
+        try {
+          await this.attemptAudit.succeed({ id: providerAttempt.id, generationId: task.id, metadata: { ...attemptMetadata, latencyMs: Date.now() - startedAt, ...(requestId ? { providerRequestId: requestId } : {}) } as Prisma.InputJsonValue })
+          attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
+          const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
+          const updated = await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+            const route = await tx.generationJob.updateMany({
+              where: { id: task.id, status: 'RUNNING' },
+              data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: this.pricing.snapshot({ ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, provider: `${candidate.source}:${candidate.type}`, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, inputRate: userBilled ? candidate.inputCreditsPerMillion : 0, outputRate: userBilled ? candidate.outputCreditsPerMillion : 0, baseInputRate: candidate.baseInputCreditsPerMillion, baseOutputRate: candidate.baseOutputCreditsPerMillion, groupRatePercent: candidate.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros }) as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue, settlementStatus: 'RECONCILING' },
+            })
+            await this.providers.recordCandidateResult(candidate, true).catch(() => undefined)
+            return route
+          })
+          if (updated.count !== 1) throw new Error('Generation worker lease was lost')
+        } catch (error) {
+          // The upstream request has already succeeded. Treat all subsequent
+          // persistence failures as reconciliation-only so queue retry/failover
+          // cannot issue a duplicate paid Provider request or refund the charge.
+          if (error instanceof ReconciliationRequiredError) throw error
+          throw new ReconciliationRequiredError(`主模型成功后的审计写入失败：${error instanceof Error ? error.message : '未知错误'}`)
+        }
+        return { result, provider: candidate, providerAttemptId: providerAttempt.id }
       } catch (error) {
         lastError = error
         const message = error instanceof Error ? error.message : 'Provider request failed'
-        if (providerAttempt) await this.prisma.providerAttempt.update({ where: { id: providerAttempt.id }, data: { status: 'FAILED', endedAt: new Date(), errorCode: error instanceof ProviderRequestError && error.status ? `HTTP_${error.status}` : 'PROVIDER_ERROR', errorMessage: message.slice(0, 500), metadata: { ...(providerAttempt.metadata && typeof providerAttempt.metadata === 'object' && !Array.isArray(providerAttempt.metadata) ? providerAttempt.metadata as Record<string, unknown> : {}), latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue } }).catch(() => undefined)
+        if (error instanceof ReconciliationRequiredError) throw error
+        if (error instanceof TerminalSettlementError) {
+          await this.markProviderAttemptFailed(task.id, providerAttempt.id, 'SETTLEMENT_ERROR', error.message)
+          throw error
+        }
+        try {
+          await this.attemptAudit.fail({ id: providerAttempt.id, generationId: task.id, errorCode: error instanceof ProviderRequestError && error.status ? `HTTP_${error.status}` : 'PROVIDER_ERROR', errorMessage: message, metadata: { ...attemptMetadata, latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue })
+        } catch {
+          throw new TerminalSettlementError('主模型调用失败审计写入失败')
+        }
         attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'failed', latencyMs: Date.now() - startedAt, error: message.slice(0, 500), at: new Date().toISOString() })
-        await this.providers.recordCandidateResult(candidate, false, message)
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { options: { ...options, providerAttempts: attempts } as Prisma.InputJsonValue } })
+        const updated = await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+          const route = await tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { options: { ...options, providerAttempts: attempts } as Prisma.InputJsonValue } })
+          await this.providers.recordCandidateResult(candidate, false, message).catch(() => undefined)
+          return route
+        })
+        if (updated.count !== 1) throw new TerminalSettlementError('主模型失败路由审计写入失败')
         if (!this.canFailover(error)) break
       }
     }
@@ -639,7 +1212,8 @@ export class ChatGenerationRunner implements GenerationRunner {
       { role: 'user', content: [{ type: 'text', text: responseSchema }, { type: 'image_url', image_url: { url: imageUrl } }] },
     ], Math.max(400, Math.min(3000, Number(billing.maxOutputTokens || 1800))), async () => this.assertNotCancelled(task.id)))
 
-    const resolved = execution.provider
+    try {
+      const resolved = execution.provider
     const raw = execution.result.content.trim()
     const fenced = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
     let parsed: Record<string, unknown> = {}
@@ -666,42 +1240,104 @@ export class ChatGenerationRunner implements GenerationRunner {
     const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(execution.result.usage?.cached_input_tokens || 0)))
     const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(execution.result.usage?.reasoning_tokens || 0)))
     const upstreamCostMicros = this.pricing.costMicros(this.pricing.snapshot({ model: resolved.model, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros }), { inputTokens, outputTokens })
-    const settlementBilling: BillingOptions = { ...billing, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent }
+    const userBilled = billing.billingSource !== 'BYOK_FREE' && billing.billingSource !== 'PLATFORM'
+    const settlementBilling: BillingOptions = { ...billing, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: userBilled ? resolved.inputCreditsPerMillion : 0, outputCreditsPerMillion: userBilled ? resolved.outputCreditsPerMillion : 0, groupRatePercent: resolved.creditRatePercent }
     const reservedTokenUnits = Math.max(0, Number(billing.reservedTokenUnits ?? billing.reservedTokenCredits ?? 0))
     const reservedTokenCredits = Math.max(0, Number(billing.reservedTokenCredits || 0))
     const tokenSettlement = calculateChatTokenSettlement(this.pricing, settlementBilling, inputTokens, outputTokens)
     const actualTokenCredits = tokenSettlement.chargedUnits
     const finalCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + tokenSettlement.chargedCredits)
-    const latest = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id }, select: { options: true } })
-    const latestOptions = latest.options && typeof latest.options === 'object' && !Array.isArray(latest.options) ? latest.options as Record<string, unknown> : options
-    const updated = await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: {
-      options: { ...latestOptions, imagePromptResult: result } as Prisma.InputJsonValue,
-      inputTokens,
-      outputTokens,
-      cachedInputTokens,
-      reasoningTokens,
-      upstreamCostMicros,
-      creditCost: finalCreditCost,
-      revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)),
-    } })
+    const updated = await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+      const latest = await tx.generationJob.findUniqueOrThrow({ where: { id: task.id }, select: { options: true } })
+      const latestOptions = latest.options && typeof latest.options === 'object' && !Array.isArray(latest.options) ? latest.options as Record<string, unknown> : options
+      const attempt = await tx.providerAttempt.findUnique({ where: { id: execution.providerAttemptId }, select: { metadata: true } })
+      const attemptMetadata = attempt?.metadata && typeof attempt.metadata === 'object' && !Array.isArray(attempt.metadata)
+        ? attempt.metadata as Record<string, unknown>
+        : {}
+      const attemptUpdated = await tx.providerAttempt.updateMany({
+        where: { id: execution.providerAttemptId, generationId: task.id, status: 'SUCCEEDED' },
+        data: {
+          inputTokens,
+          outputTokens,
+          upstreamCostMicros,
+          metadata: {
+            ...attemptMetadata,
+            usageRecorded: true,
+            usage: { inputTokens, outputTokens, cachedInputTokens, reasoningTokens },
+            usageSource,
+            ...(execution.result.providerRequestId ? { providerRequestId: execution.result.providerRequestId } : {}),
+          } as Prisma.InputJsonValue,
+        },
+      })
+      if (attemptUpdated.count !== 1) throw new Error('ProviderAttempt usage state changed concurrently')
+      if (resolved.credentialId && (inputTokens || outputTokens)) {
+        await tx.userApiCredential.updateMany({
+          where: { id: resolved.credentialId },
+          data: { inputTokens: { increment: BigInt(inputTokens) }, outputTokens: { increment: BigInt(outputTokens) }, lastUsedAt: new Date() },
+        })
+      }
+      return tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: {
+        options: { ...latestOptions, imagePromptResult: result } as Prisma.InputJsonValue,
+        inputTokens,
+        outputTokens,
+        cachedInputTokens,
+        reasoningTokens,
+        upstreamCostMicros,
+        creditCost: finalCreditCost,
+        revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)),
+      } })
+    })
     if (!updated.count) throw new JobCancelledError('Generation job was cancelled')
     const extra = finalCreditCost - reservedCreditCost
     if (!quotaEnabled && extra > 0) {
       await this.credits.spend(task.userId, extra, 'Token 实际用量补扣', `job:${task.id}:token-settlement-extra`, { type: 'generation_job', id: task.id }, task.billingTeamId)
       await this.billingTransactions.safely(this.billingTransactions.recordPreAuth({ userId: task.userId, generationId: task.id, amount: extra, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-extra`, metadata: { reason: 'TOKEN_SETTLEMENT_EXTRA', billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-extra`)
     }
-    await this.providers.recordCredentialUsage(resolved.credentialId, inputTokens, outputTokens)
     const refund = reservedCreditCost - finalCreditCost
     if (!quotaEnabled && refund > 0) {
       await this.credits.refund(task.userId, refund, '图片反推预授权结算退款', `job:${task.id}:token-settlement-refund`, { type: 'generation_job', id: task.id }, task.billingTeamId)
       await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: task.userId, generationId: task.id, amount: refund, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-refund`, metadata: { reason: 'TOKEN_SETTLEMENT', finalCreditCost, billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-refund`)
     }
-    await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { settlementStatus: 'RECONCILING' } })
-    if (quotaEnabled) await this.settleTokenQuota(task, settlementBilling, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
     const provider = `${resolved.source}:${resolved.type}`
-    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
-    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
-    await this.prisma.generationJob.update({ where: { id: task.id }, data: { settlementStatus: 'SETTLED' } })
+    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider, inputRate: userBilled ? resolved.inputCreditsPerMillion : 0, outputRate: userBilled ? resolved.outputCreditsPerMillion : 0, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
+    const quotaRows = Array.isArray(billing.quotaReservations) && billing.quotaReservations.length
+      ? billing.quotaReservations
+      : billing.quotaId ? [{ reservationId: undefined, quotaId: billing.quotaId, reservedUnits: billing.reservedTokenCredits || 0 }] : []
+    const quotaReservationRefs = quotaRows.flatMap((row) => row && typeof row.quotaId === 'string'
+      ? [{ reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId }]
+      : [])
+    const incrementalReservedUnits = Math.max(0, actualTokenCredits - reservedTokenUnits)
+    const quotaSettlements: Array<Parameters<TokenQuotaService['settleMany']>[0][number]> = []
+    if (quotaEnabled) for (const row of quotaRows) {
+      if (!row || typeof row.quotaId !== 'string') continue
+      quotaSettlements.push({ userId: task.userId, reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId, generationId: task.id, chargedUnits: BigInt(Math.max(0, Math.trunc(actualTokenCredits))), inputTokens, outputTokens, cachedInputTokens, reasoningTokens, metadata: { model: resolved.model, scope: row.quotaId === billing.quotaId ? 'monthly' : 'daily' } as Prisma.InputJsonValue })
+    }
+    try {
+      if (quotaEnabled && !quotaReservationRefs.length) throw new Error('Token 计费预留不存在')
+      if (quotaEnabled && incrementalReservedUnits > 0) {
+        await this.tokenQuota.increase({
+          userId: task.userId,
+          generationId: task.id,
+          reservations: quotaReservationRefs,
+          units: BigInt(incrementalReservedUnits),
+          idempotencyKey: 'actual-usage',
+          metadata: { reason: 'ACTUAL_USAGE_EXCEEDED_ESTIMATE', model: resolved.model } as Prisma.InputJsonValue,
+        })
+      }
+      await this.tokenQuota.settleGeneration({
+        userId: task.userId,
+        generationId: task.id,
+        reservations: quotaSettlements,
+        ledger: { userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerRequestId: typeof execution.result.providerRequestId === 'string' ? execution.result.providerRequestId : null, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenUnits + incrementalReservedUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` },
+      })
+      } catch (error) {
+        throw new ReconciliationRequiredError(error instanceof Error ? `Token 结算失败：${error.message}` : 'Token 结算失败')
+      }
+    } catch (error) {
+      if (error instanceof ReconciliationRequiredError) throw error
+      const reason = error instanceof Error ? error.message : '未知错误'
+      throw new ReconciliationRequiredError(`图片反推上游已成功，本地处理需要对账：${reason}`)
+    }
   }
 
   private async runChat(task: GenerationJob) {
@@ -756,9 +1392,9 @@ export class ChatGenerationRunner implements GenerationRunner {
     const parentMessage = [...messages].reverse().find((message) => message.role === 'USER')
     const streamParentId = parentMessage?.id
     const streamBranchIndex = streamParentId ? await this.prisma.message.count({ where: { conversationId: conversation.id, parentId: streamParentId, deletedAt: null } }) : 0
-    const streamMessage = persistedResult
-      ? await this.prisma.message.update({ where: { id: persistedResult.id }, data: { content: '', metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
-      : await this.prisma.message.create({ data: { conversationId: conversation.id, role: 'ASSISTANT', content: '', model: task.model, parentId: streamParentId, branchIndex: streamBranchIndex, metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
+    const streamMessage = await this.attemptAudit.withActiveLease(task.id, (tx) => persistedResult
+      ? tx.message.update({ where: { id: persistedResult.id }, data: { content: '', metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } })
+      : tx.message.create({ data: { conversationId: conversation.id, role: 'ASSISTANT', content: '', model: task.model, parentId: streamParentId, branchIndex: streamBranchIndex, metadata: { jobId: task.id, streaming: true, reasoning: '', ...(initialWebSearch ? { webSearch: initialWebSearch } : {}) } }, select: { id: true } }))
     let streamedContent = ''
     let streamedReasoning = ''
     let lastFlushAt = 0
@@ -779,29 +1415,35 @@ export class ChatGenerationRunner implements GenerationRunner {
           void this.generationEvents.append(task.id, reasoningDelta && !textDelta ? 'thinking_delta' : 'text_delta', { textDelta, reasoningDelta }).catch(() => undefined)
         }
       }
-      await this.prisma.$transaction([
-        this.prisma.message.update({ where: { id: streamMessage.id }, data: { content: streamedContent, metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, ...(searchMetadata ? { webSearch: searchMetadata } : {}) } } }),
-        this.prisma.generationJob.update({ where: { id: task.id }, data: { updatedAt: new Date() } }),
-      ])
+      await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+        await tx.message.update({ where: { id: streamMessage.id }, data: { content: streamedContent, metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, ...(searchMetadata ? { webSearch: searchMetadata } : {}) } } })
+      })
     }
     let content: string
     let usage: ChatUsage | undefined
-    let agentContext = ''
-    let searchPrepared = false
     let searchMetadata = initialWebSearch
-    let searchUsage: ChatUsage | undefined
-    let toolPlanningUsage: ChatUsage | undefined
+    // This collector intentionally lives outside the failover callback. If a
+    // candidate spends tokens on planning and the primary response then
+    // fails, that paid auxiliary call must remain auditable and billable.
+    const auxiliaryTraces: AuxiliaryUsageTrace[] = []
+    const collectAuxiliaryTrace = (trace: AuxiliaryUsageTrace) => {
+      if (!auxiliaryTraces.some((item) => item.providerAttemptId === trace.providerAttemptId)) auxiliaryTraces.push(trace)
+    }
     const execution = await this.withProviderFailover(task, 'CHAT', async (resolved) => {
       streamedContent = ''
       streamedReasoning = ''
       await flushStream(true)
       const maxOutputTokens = Math.max(1, Math.min(32768, Number(billing.maxOutputTokens || 4096)))
-      if (webSearchEnabled && !searchPrepared) {
-        const prepared = await this.prepareWebSearch(resolved, task.prompt, fixedWebSearchSources)
-        searchMetadata = prepared.metadata
-        searchUsage = prepared.usage
-        searchPrepared = true
-        await this.prisma.message.update({ where: { id: streamMessage.id }, data: { metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, webSearch: searchMetadata } } })
+      let candidateSearchMetadata = initialWebSearch
+      let candidateSearchUsage: ChatUsage | undefined
+      let candidateToolPlanningUsage: ChatUsage | undefined
+      let candidateAgentContext = ''
+      if (webSearchEnabled) {
+        const prepared = await this.prepareWebSearch(task, resolved, task.prompt, fixedWebSearchSources, collectAuxiliaryTrace)
+        candidateSearchMetadata = prepared.metadata
+        candidateSearchUsage = prepared.usage
+        searchMetadata = candidateSearchMetadata
+        await this.attemptAudit.withActiveLease(task.id, (tx) => tx.message.update({ where: { id: streamMessage.id }, data: { metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, webSearch: candidateSearchMetadata } } }))
       }
       if (assistantId && agentTools.length && options.disableAssistantTools !== true) {
         try {
@@ -810,15 +1452,29 @@ export class ChatGenerationRunner implements GenerationRunner {
             maxCallsPerRound: Number(options.maxToolCallsPerRound || 4),
             maxTotalCalls: Number(options.maxToolCalls || 8),
             timeoutMs: Number(options.toolTimeoutMs || 90_000),
-            plan: async (_round, context, signal) => {
-              const plan = await this.planAgentTools(
+            plan: async (round, context, signal) => {
+              const planningMessages = context
+                ? [...providerMessages, { role: 'system', content: `上一轮工具执行结果（仅供继续规划）：\n${context}` }]
+                : providerMessages
+              const plan = await this.trackAuxiliaryProviderCall(
+                task,
                 resolved,
-                context ? [...providerMessages, { role: 'system', content: `上一轮工具执行结果（仅供继续规划）：\n${context}` }] : providerMessages,
-                maxOutputTokens,
-                agentTools,
-                signal,
+                'agent_tool_planning',
+                round,
+                () => this.planAgentTools(
+                  resolved,
+                  planningMessages,
+                  maxOutputTokens,
+                  agentTools,
+                  signal,
+                ),
+                collectAuxiliaryTrace,
+                {
+                  inputTokens: this.tokenizer.estimateMessages(planningMessages.map((message) => ({ role: message.role, content: message.content })), resolved.model),
+                  outputTokens: Math.min(maxOutputTokens, 2_048),
+                },
               )
-              toolPlanningUsage = this.mergeUsage(toolPlanningUsage, plan.usage)
+              candidateToolPlanningUsage = this.mergeUsage(candidateToolPlanningUsage, plan.usage)
               return plan.calls
             },
             execute: (calls, round, signal) => this.executeAgentTools(task, assistantId, agentTools, calls, (round - 1) * 8, signal),
@@ -827,56 +1483,152 @@ export class ChatGenerationRunner implements GenerationRunner {
               void this.generationEvents.append(task.id, 'tool_loop', event).catch(() => undefined)
             },
           })
-          agentContext = outcome.results.length
+          candidateAgentContext = outcome.results.length
             ? `工具调用已经完成。请基于以下真实结果回答用户，不要声称执行了未列出的工具：\n${JSON.stringify(outcome.results).slice(0, 16_000)}`
             : ''
           if (outcome.exhausted) {
-            agentContext += `${agentContext ? '\n\n' : ''}工具执行预算已用尽。请停止继续调用工具，直接基于已有结果给出最终答复。`
+            candidateAgentContext += `${candidateAgentContext ? '\n\n' : ''}工具执行预算已用尽。请停止继续调用工具，直接基于已有结果给出最终答复。`
           }
         } catch (error) {
-          agentContext = '工具执行未能在预算内完成。请不要声称工具已经成功执行，直接给出当前可确认的答复。'
+          if (error instanceof TerminalSettlementError) throw error
+          candidateAgentContext = '工具执行未能在预算内完成。请不要声称工具已经成功执行，直接给出当前可确认的答复。'
           void this.generationEvents.append(task.id, 'tool_loop', { error: error instanceof Error ? error.message : '工具循环失败', exhausted: true }).catch(() => undefined)
         }
       }
-      const runtimeContext = [searchMetadata ? this.webSearchContext(searchMetadata) : '', agentContext].filter(Boolean).join('\n\n')
+      const runtimeContext = [candidateSearchMetadata ? this.webSearchContext(candidateSearchMetadata) : '', candidateAgentContext].filter(Boolean).join('\n\n')
       const executionMessages = runtimeContext ? [{ role: 'system', content: runtimeContext }, ...providerMessages] : providerMessages
-      return this.providerChatStream(resolved, executionMessages, maxOutputTokens, async (delta, reasoningDelta = '') => {
+      const response = await this.providerChatStream(resolved, executionMessages, maxOutputTokens, async (delta, reasoningDelta = '') => {
         streamedContent += delta
         streamedReasoning += reasoningDelta
         await flushStream()
         await this.assertNotCancelled(task.id)
       })
+      return { response, searchMetadata: candidateSearchMetadata, searchUsage: candidateSearchUsage, toolPlanningUsage: candidateToolPlanningUsage, executionMessages }
     })
-    const resolved = execution.provider
+    try {
+      const resolved = execution.provider
     // Flush the final delta even when the provider ended inside the event
     // throttle window, so the durable event stream and the persisted message
     // contain the same visible tail.
     await flushStream(true)
-    content = this.validateSearchCitations(execution.result.content, searchMetadata)
-    const reasoning = execution.result.reasoning || streamedReasoning
-    usage = execution.result.usage
+    searchMetadata = execution.result.searchMetadata
+    content = this.validateSearchCitations(execution.result.response.content, searchMetadata)
+    const reasoning = execution.result.response.reasoning || streamedReasoning
+    const primaryUsage = this.completeUsage(
+      execution.result.response.usage,
+      this.tokenizer.estimateMessages(execution.result.executionMessages.map((message) => ({ role: message.role, content: message.content })), resolved.model),
+      this.tokenizer.estimateText(content, resolved.model),
+    )
+    usage = primaryUsage.usage
     await this.assertNotCancelled(task.id)
     const latestUserPrompt = [...messages].reverse().find((message) => message.role === 'USER')?.content || task.prompt
     let suggestions = followUpSuggestions(latestUserPrompt, content)
     // Keep completion tied to the primary answer. A second provider request for
     // follow-up suggestions used to leave a complete answer looking "stuck".
-    const usageSource = usage || searchUsage || toolPlanningUsage ? TokenUsageSource.PROVIDER : TokenUsageSource.TOKENIZER
-    const inputTokens = Math.max(0, Number(usage?.prompt_tokens || 0) + Number(searchUsage?.prompt_tokens || 0) + Number(toolPlanningUsage?.prompt_tokens || 0) || this.tokenizer.estimateMessages(providerMessages.map((message) => ({ role: message.role, content: message.content })), resolved.model))
-    const outputTokens = Math.max(0, Number(usage?.completion_tokens || 0) + Number(searchUsage?.completion_tokens || 0) + Number(toolPlanningUsage?.completion_tokens || 0) || this.tokenizer.estimateText(content, resolved.model))
-    const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0) + Number(searchUsage?.cached_input_tokens || 0) + Number(toolPlanningUsage?.cached_input_tokens || 0)))
-    const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(usage?.reasoning_tokens || 0) + Number(searchUsage?.reasoning_tokens || 0) + Number(toolPlanningUsage?.reasoning_tokens || 0)))
-    const upstreamCostMicros = this.pricing.costMicros(this.pricing.snapshot({ model: resolved.model, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros }), { inputTokens, outputTokens })
-    const settlementBilling: BillingOptions = { ...billing, baseInputCreditsPerMillion: resolved.baseInputCreditsPerMillion, baseOutputCreditsPerMillion: resolved.baseOutputCreditsPerMillion, inputCreditsPerMillion: resolved.inputCreditsPerMillion, outputCreditsPerMillion: resolved.outputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent }
+    let accountedAuxiliaryTraces: AuxiliaryUsageTrace[]
+    try {
+      accountedAuxiliaryTraces = await this.persistedAuxiliaryUsageTraces(task.id)
+    } catch (error) {
+      if (error instanceof TerminalSettlementError) throw error
+      throw new TerminalSettlementError('辅助模型调用账务读取失败')
+    }
+    if (auxiliaryTraces.some((trace) => !accountedAuxiliaryTraces.some((persisted) => persisted.providerAttemptId === trace.providerAttemptId))) {
+      throw new TerminalSettlementError('辅助模型调用账务记录不完整')
+    }
+    const successfulAuxiliaryTraces = accountedAuxiliaryTraces.filter((trace) => trace.status === 'SUCCEEDED')
+    const totalUsage = this.mergeUsage(usage, ...successfulAuxiliaryTraces.map((trace) => trace.usage)) || usage
+    const usageSource = primaryUsage.usageSource === TokenUsageSource.PROVIDER
+      || successfulAuxiliaryTraces.some((trace) => trace.usageSource === TokenUsageSource.PROVIDER)
+      ? TokenUsageSource.PROVIDER
+      : TokenUsageSource.TOKENIZER
+    const inputTokens = Math.max(0, Number(totalUsage?.prompt_tokens || 0))
+    const outputTokens = Math.max(0, Number(totalUsage?.completion_tokens || 0))
+    const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(totalUsage?.cached_input_tokens || 0)))
+    const reasoningTokens = Math.min(outputTokens, Math.max(0, Number(totalUsage?.reasoning_tokens || 0)))
+    const primaryPricingSnapshot = this.pricing.snapshot({
+      model: resolved.model,
+      provider: `${resolved.source}:${resolved.type}`,
+      inputRate: billing.billingSource === 'BYOK_FREE' || billing.billingSource === 'PLATFORM' ? 0 : resolved.inputCreditsPerMillion,
+      outputRate: billing.billingSource === 'BYOK_FREE' || billing.billingSource === 'PLATFORM' ? 0 : resolved.outputCreditsPerMillion,
+      baseInputRate: resolved.baseInputCreditsPerMillion,
+      baseOutputRate: resolved.baseOutputCreditsPerMillion,
+      groupRatePercent: resolved.creditRatePercent,
+      inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion,
+      outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion,
+      creditValueMicros: resolved.creditValueMicros,
+      pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros,
+      billingSource: billing.billingSource,
+      overageRatePercent: billing.overageRatePercent,
+    })
+    const primaryInputTokens = Math.max(0, Number(usage?.prompt_tokens || 0))
+    const primaryOutputTokens = Math.max(0, Number(usage?.completion_tokens || 0))
+    const primaryCachedInputTokens = Math.min(primaryInputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0)))
+    const primaryReasoningTokens = Math.min(primaryOutputTokens, Math.max(0, Number(usage?.reasoning_tokens || 0)))
+    const primarySettlement = this.pricing.settlement(primaryPricingSnapshot, {
+      inputTokens: primaryInputTokens,
+      outputTokens: primaryOutputTokens,
+      cachedInputTokens: primaryCachedInputTokens,
+      reasoningTokens: primaryReasoningTokens,
+    })
+    const primaryUpstreamCostMicros = this.pricing.costMicros(primaryPricingSnapshot, {
+      inputTokens: primaryInputTokens,
+      outputTokens: primaryOutputTokens,
+      cachedInputTokens: primaryCachedInputTokens,
+      reasoningTokens: primaryReasoningTokens,
+    })
+    // Every successful auxiliary request incurred provider cost, including
+    // calls made before a primary-provider failover. Attribute all of them to
+    // the successfully delivered task.
+    const auxiliaryCharges = this.auxiliaryChargeTotals(successfulAuxiliaryTraces)
+    const totalChargedUnits = primarySettlement.chargedUnits + auxiliaryCharges.chargedUnits
+    const totalChargedCredits = primarySettlement.chargedCredits + auxiliaryCharges.chargedCredits
+    if (totalChargedUnits > BigInt(Number.MAX_SAFE_INTEGER) || totalChargedCredits > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new TerminalSettlementError('Token 结算金额超过安全范围')
+    }
+    const upstreamCostMicros = Math.min(2_000_000_000, successfulAuxiliaryTraces.reduce((total, trace) => total + trace.upstreamCostMicros, primaryUpstreamCostMicros))
     const reservedTokenUnits = Math.max(0, Number(billing.reservedTokenUnits ?? billing.reservedTokenCredits ?? 0))
     const reservedTokenCredits = Math.max(0, Number(billing.reservedTokenCredits || 0))
-    const tokenSettlement = calculateChatTokenSettlement(this.pricing, settlementBilling, inputTokens, outputTokens)
-    const actualTokenCredits = tokenSettlement.chargedUnits
-    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost ?? task.creditCost) + tokenSettlement.chargedCredits)
-    await this.prisma.$transaction(async (tx) => {
+    const actualTokenCredits = Number(totalChargedUnits)
+    const finalCreditCost = Math.max(0, Number(billing.baseCreditCost ?? task.creditCost) + Number(totalChargedCredits))
+    await this.attemptAudit.withActiveLease(task.id, async (tx) => {
+      const attempt = await tx.providerAttempt.findUnique({ where: { id: execution.providerAttemptId }, select: { metadata: true } })
+      const attemptMetadata = attempt?.metadata && typeof attempt.metadata === 'object' && !Array.isArray(attempt.metadata)
+        ? attempt.metadata as Record<string, unknown>
+        : {}
+      const attemptUpdated = await tx.providerAttempt.updateMany({
+        where: { id: execution.providerAttemptId, generationId: task.id, status: 'SUCCEEDED' },
+        data: {
+          inputTokens: primaryInputTokens,
+          outputTokens: primaryOutputTokens,
+          upstreamCostMicros: primaryUpstreamCostMicros,
+          metadata: {
+            ...attemptMetadata,
+            usageRecorded: true,
+            usage: {
+              inputTokens: primaryInputTokens,
+              outputTokens: primaryOutputTokens,
+              cachedInputTokens: primaryCachedInputTokens,
+              reasoningTokens: primaryReasoningTokens,
+            },
+            usageSource: primaryUsage.usageSource,
+            estimatedUsageFields: primaryUsage.estimatedUsageFields,
+            pricingSnapshot: primaryPricingSnapshot,
+            upstreamCostMicros: primaryUpstreamCostMicros,
+            ...(execution.result.response.providerRequestId ? { providerRequestId: execution.result.response.providerRequestId } : {}),
+          } as Prisma.InputJsonValue,
+        },
+      })
+      if (attemptUpdated.count !== 1) throw new Error('ProviderAttempt usage state changed concurrently')
       const active = await tx.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, creditCost: finalCreditCost, revenueMicros: Math.min(2_000_000_000, finalCreditCost * Number(billing.creditValueMicros || resolved.creditValueMicros)) } })
       if (!active.count) throw new JobCancelledError('Generation job was cancelled')
       await tx.message.update({ where: { id: streamMessage.id }, data: { content, model: resolved.model, inputTokens, outputTokens, metadata: { jobId: task.id, streaming: false, reasoning, providerSource: resolved.source, providerType: resolved.type, presetKey: resolved.presetKey, apiProtocol: resolved.apiProtocol, suggestionVersion: 3, suggestions, ...(searchMetadata ? { webSearch: searchMetadata } : {}) } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: { activeLeafId: streamMessage.id, updatedAt: new Date() } })
+      if (resolved.credentialId && (primaryInputTokens || primaryOutputTokens)) {
+        await tx.userApiCredential.updateMany({
+          where: { id: resolved.credentialId },
+          data: { inputTokens: { increment: BigInt(primaryInputTokens) }, outputTokens: { increment: BigInt(primaryOutputTokens) }, lastUsedAt: new Date() },
+        })
+      }
     })
     void this.generationEvents.append(task.id, 'usage', { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, usageSource }).catch(() => undefined)
     const extra = finalCreditCost - reservedCreditCost
@@ -885,30 +1637,88 @@ export class ChatGenerationRunner implements GenerationRunner {
       await this.billingTransactions.safely(this.billingTransactions.recordPreAuth({ userId: task.userId, generationId: task.id, amount: extra, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-extra`, metadata: { reason: 'TOKEN_SETTLEMENT_EXTRA', billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-extra`)
     }
     const refund = reservedCreditCost - finalCreditCost
-    await this.providers.recordCredentialUsage(resolved.credentialId, inputTokens, outputTokens)
     if (!quotaEnabled && refund > 0) {
       await this.credits.refund(task.userId, refund, 'Token 预授权结算退款', `job:${task.id}:token-settlement-refund`, { type: 'generation_job', id: task.id }, task.billingTeamId)
       await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: task.userId, generationId: task.id, amount: refund, provider: task.provider, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, upstreamCostMicros, idempotencyKey: `job:${task.id}:token-settlement-refund`, metadata: { reason: 'TOKEN_SETTLEMENT', finalCreditCost, billingTeamId: task.billingTeamId } as Prisma.InputJsonValue }), `${task.id}:token-settlement-refund`)
     }
-    await this.prisma.generationJob.updateMany({ where: { id: task.id, status: 'RUNNING' }, data: { settlementStatus: 'RECONCILING' } })
-    if (quotaEnabled) await this.settleTokenQuota(task, settlementBilling, actualTokenCredits, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, resolved.model)
     const provider = `${resolved.source}:${resolved.type}`
-    const snapshot = this.pricing.snapshot({ ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}), model: resolved.model, provider, inputRate: resolved.inputCreditsPerMillion, outputRate: resolved.outputCreditsPerMillion, baseInputRate: resolved.baseInputCreditsPerMillion, baseOutputRate: resolved.baseOutputCreditsPerMillion, groupRatePercent: resolved.creditRatePercent, billingSource: billing.billingSource, overageRatePercent: billing.overageRatePercent, creditValueMicros: resolved.creditValueMicros, pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion, outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion })
-    await this.tokenLedger.record({ userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(reservedTokenUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: `job:${task.id}:token-ledger` })
-    await this.prisma.generationJob.update({ where: { id: task.id }, data: { settlementStatus: 'SETTLED' } })
-  }
-  private async settleTokenQuota(task: GenerationJob, billing: BillingOptions, chargedUnits: number, inputTokens: number, outputTokens: number, cachedInputTokens: number, reasoningTokens: number, model: string) {
+    const aggregateLedgerKey = `job:${task.id}:token-ledger`
+    const auxiliaryReservedUnits = accountedAuxiliaryTraces.reduce((total, trace) => total + trace.reservedUnits, 0n)
+    if (auxiliaryReservedUnits > BigInt(Number.MAX_SAFE_INTEGER)) throw new TerminalSettlementError('辅助模型预留金额超过安全范围')
+    const preSettlementReservedUnits = reservedTokenUnits + Number(auxiliaryReservedUnits)
+    const incrementalReservedUnits = Math.max(0, actualTokenCredits - preSettlementReservedUnits)
+    const effectiveReservedTokenUnits = preSettlementReservedUnits + incrementalReservedUnits
+    const snapshot = this.pricing.snapshot({
+      ...(task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}),
+      model: resolved.model,
+      provider,
+      inputRate: primaryPricingSnapshot.inputRate,
+      outputRate: primaryPricingSnapshot.outputRate,
+      baseInputRate: resolved.baseInputCreditsPerMillion,
+      baseOutputRate: resolved.baseOutputCreditsPerMillion,
+      groupRatePercent: resolved.creditRatePercent,
+      billingSource: billing.billingSource,
+      overageRatePercent: billing.overageRatePercent,
+      creditValueMicros: resolved.creditValueMicros,
+      pricingUsdExchangeRateMicros: resolved.pricingUsdExchangeRateMicros,
+      inputCostMicrosPerMillion: resolved.inputCostMicrosPerMillion,
+      outputCostMicrosPerMillion: resolved.outputCostMicrosPerMillion,
+      ledgerRole: 'AGGREGATE',
+      initialReservedUnits: String(reservedTokenUnits),
+      auxiliaryReservedUnits: auxiliaryReservedUnits.toString(),
+      incrementalReservedUnits: String(incrementalReservedUnits),
+      componentCount: 1 + accountedAuxiliaryTraces.length,
+      auxiliaryComponents: accountedAuxiliaryTraces.map((trace) => ({
+        providerAttemptId: trace.providerAttemptId,
+        provider: trace.provider,
+        model: trace.model,
+        purpose: trace.purpose,
+        ...(trace.round === undefined ? {} : { round: trace.round }),
+        status: trace.status,
+        attributedChargedUnits: trace.chargedUnits.toString(),
+        attributedReservedUnits: trace.reservedUnits.toString(),
+        attributedUpstreamCostMicros: trace.upstreamCostMicros,
+      })),
+    })
     const rows = Array.isArray(billing.quotaReservations) && billing.quotaReservations.length
       ? billing.quotaReservations
-      : billing.quotaId ? [{ quotaId: billing.quotaId, reservedUnits: billing.reservedTokenCredits || 0 }] : []
+      : billing.quotaId ? [{ reservationId: undefined, quotaId: billing.quotaId, reservedUnits: billing.reservedTokenCredits || 0 }] : []
+    const reservationRefs = rows.flatMap((row) => row && typeof row.quotaId === 'string'
+      ? [{ reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId }]
+      : [])
     const inputs: Array<Parameters<TokenQuotaService['settleMany']>[0][number]> = []
-    for (const row of rows) {
+    if (quotaEnabled) for (const row of rows) {
       if (!row || typeof row.quotaId !== 'string') continue
-      let reservedUnits: bigint
-      try { reservedUnits = BigInt(String(row.reservedUnits || 0)) } catch { reservedUnits = 0n }
-      inputs.push({ userId: task.userId, quotaId: row.quotaId, generationId: task.id, reservedUnits, chargedUnits: BigInt(Math.max(0, Math.trunc(chargedUnits))), inputTokens, outputTokens, cachedInputTokens, reasoningTokens, metadata: { model, scope: row.quotaId === billing.quotaId ? 'monthly' : 'daily' } as Prisma.InputJsonValue })
+      inputs.push({ userId: task.userId, reservationId: typeof row.reservationId === 'string' ? row.reservationId : undefined, quotaId: row.quotaId, generationId: task.id, chargedUnits: BigInt(Math.max(0, Math.trunc(actualTokenCredits))), inputTokens, outputTokens, cachedInputTokens, reasoningTokens, metadata: { model: resolved.model, scope: row.quotaId === billing.quotaId ? 'monthly' : 'daily' } as Prisma.InputJsonValue })
     }
-    if (inputs.length) await this.tokenQuota.settleMany(inputs)
+    const detailLedgers = accountedAuxiliaryTraces.map((trace) => this.auxiliaryUsageDetailLedger(task, billing, trace))
+    try {
+      if (quotaEnabled && !reservationRefs.length) throw new Error('Token 计费预留不存在')
+      if (quotaEnabled && incrementalReservedUnits > 0) {
+        await this.tokenQuota.increase({
+          userId: task.userId,
+          generationId: task.id,
+          reservations: reservationRefs,
+          units: BigInt(incrementalReservedUnits),
+          idempotencyKey: 'actual-usage',
+          metadata: { reason: 'ACTUAL_USAGE_EXCEEDED_ESTIMATE', model: resolved.model } as Prisma.InputJsonValue,
+        })
+      }
+      await this.tokenQuota.settleGeneration({
+        userId: task.userId,
+        generationId: task.id,
+        reservations: inputs,
+        ledger: { userId: task.userId, generationId: task.id, quotaId: quotaEnabled ? billing.quotaId : null, subscriptionId: billing.subscriptionId, model: resolved.model, provider, providerRequestId: typeof execution.result.response.providerRequestId === 'string' ? execution.result.response.providerRequestId : null, providerAttemptId: execution.providerAttemptId, inputTokens, outputTokens, cachedInputTokens, reasoningTokens, reservedUnits: BigInt(effectiveReservedTokenUnits), chargedUnits: BigInt(actualTokenCredits), inputRate: snapshot.inputRate, outputRate: snapshot.outputRate, pricingSnapshot: snapshot as Prisma.InputJsonValue, usageSource, settlementStatus: TokenSettlementStatus.SETTLED, type: TokenLedgerType.CHARGE, idempotencyKey: aggregateLedgerKey },
+        detailLedgers,
+      })
+      } catch (error) {
+        throw new ReconciliationRequiredError(error instanceof Error ? `Token 结算失败：${error.message}` : 'Token 结算失败')
+      }
+    } catch (error) {
+      if (error instanceof ReconciliationRequiredError) throw error
+      const reason = error instanceof Error ? error.message : '未知错误'
+      throw new ReconciliationRequiredError(`聊天上游已成功，本地处理需要对账：${reason}`)
+    }
   }
 
   private async chatAttachmentContext(userId: string, assets: Array<{ id: string; name: string; mimeType: string }>) {

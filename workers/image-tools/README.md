@@ -12,7 +12,7 @@ Then create a `LOCAL_WORKER` provider in the admin console:
 
 ```text
 Base URL: http://image-worker:8080
-Token: value of LOCAL_WORKER_TOKEN, or empty when both services are on a trusted private network
+Token: value of LOCAL_WORKER_TOKEN (required; the worker fails closed when it is missing)
 ```
 
 Run provider detection, create an image model using discovered capability `rembg`, bind the route, set its price, and publish the corresponding image tool.

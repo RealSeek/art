@@ -17,5 +17,5 @@ import { BillingReconciliationService } from './billing-reconciliation.service'
 import { AdminOverviewService } from './admin-overview.service'
 import { AdminHealthService } from './admin-health.service'
 
-@Module({ imports: [CreditsModule, AssetsModule, GenerationsModule, PromptTemplatesModule, NotificationsModule], controllers: [AdminController, AdminOperationsController, AdminInspirationsController, AdminPromptTemplatesController, AdminPromptLibraryController, AdminNotificationsController, AdminRolesController], providers: [AdminGuard, AdminRolesService, BillingReconciliationService, AdminOverviewService, AdminHealthService] })
+@Module({ imports: [CreditsModule, AssetsModule, GenerationsModule, PromptTemplatesModule, NotificationsModule], controllers: [AdminController, AdminOperationsController, AdminInspirationsController, AdminPromptTemplatesController, AdminPromptLibraryController, AdminNotificationsController, AdminRolesController], providers: [AdminGuard, AdminRolesService, BillingReconciliationService, AdminOverviewService, AdminHealthService], exports: [AdminGuard] })
 export class AdminModule {}

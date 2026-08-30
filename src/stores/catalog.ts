@@ -221,6 +221,7 @@ export const useCatalogStore = defineStore('catalog', {
     } as PublicCatalogSettings,
     loaded: false,
     loading: false,
+    loadError: '',
   }),
   getters: {
     registrationEnabled: (state) => state.loaded && state.settings.registrationEnabled,
@@ -236,6 +237,7 @@ export const useCatalogStore = defineStore('catalog', {
   actions: {
     async load(force = false) {
       if (this.loaded && !force) return this.settings
+      const hadUsableSettings = this.loaded && !this.loadError
       this.loading = true
       try {
         pendingLoad ||= api<Partial<PublicCatalogSettings>>('/catalog/settings')
@@ -261,9 +263,13 @@ export const useCatalogStore = defineStore('catalog', {
             },
           }
         }
+        this.loadError = ''
         void this.refreshRecommendations()
       } catch {
-        if (!this.loaded) this.settings = { ...emptySettings }
+        if (!hadUsableSettings) {
+          this.settings = { ...emptySettings }
+          this.loadError = '暂时无法连接 Xinyue AI 服务，请确认服务已启动后重试。'
+        }
       } finally {
         pendingLoad = null
         this.loaded = true

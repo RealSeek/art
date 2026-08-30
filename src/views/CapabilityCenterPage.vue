@@ -150,7 +150,7 @@ async function deleteKnowledgeBase() {
   catch (reason) { error.value = reason instanceof Error ? reason.message : '知识库删除失败' }
   finally { saving.value = false }
 }
-function goToAssets() { selectedKnowledge.value = null; void router.push('/assets') }
+function goToAssets() { selectedKnowledge.value = null; void router.push('/workspace?tab=files') }
 watch(section, () => { query.value = '' })
 onMounted(() => { if (!auth.isAuthenticated) void router.replace('/login?redirect=/capabilities'); else void load() })
 </script>

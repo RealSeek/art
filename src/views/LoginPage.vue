@@ -21,8 +21,18 @@
       </header>
 
       <section class="login-form" aria-live="polite">
-        <div v-if="!catalog.loaded" class="auth-step auth-step--availability">
+        <div v-if="!catalog.loaded || catalog.loading" class="auth-step auth-step--availability">
           <LoaderCircle class="is-spinning" :size="22" />
+        </div>
+
+        <div v-else-if="catalog.loadError" class="auth-step auth-step--availability">
+          <div class="login-heading">
+            <h1>暂时无法连接服务</h1>
+            <p>{{ catalog.loadError }}</p>
+          </div>
+          <button class="button button--solid login-submit" type="button" @click="catalog.load(true)">
+            <RotateCcw :size="17" />重新加载
+          </button>
         </div>
 
         <div v-else-if="!hasAnyLogin" class="auth-step auth-step--availability">
@@ -232,21 +242,26 @@ const availableModes = computed(() => [
 const showLinuxDoLogin = computed(() => catalog.linuxDoLoginReady)
 const hasAnyLogin = computed(() => catalog.passwordLoginEnabled || catalog.emailLoginEnabled || catalog.emailVerifyEnabled || catalog.passwordRegistrationEnabled || catalog.linuxDoLoginReady)
 
+function clearSensitiveAuthState() {
+  password.value = ''
+  passwordConfirm.value = ''
+  registrationTicket.value = ''
+  pendingRegistration.value = null
+}
+
 function selectMode(value: LoginMode) {
   mode.value = value
   step.value = 'main'
   error.value = ''
   code.value = ''
-  registrationTicket.value = ''
-  pendingRegistration.value = null
+  clearSensitiveAuthState()
 }
 
 function toggleRegister() {
   isRegister.value = !isRegister.value
   error.value = ''
   code.value = ''
-  registrationTicket.value = ''
-  pendingRegistration.value = null
+  clearSensitiveAuthState()
   step.value = 'main'
 }
 
@@ -429,8 +444,7 @@ function backToEmailEntry() {
   step.value = 'main'
   error.value = ''
   code.value = ''
-  registrationTicket.value = ''
-  pendingRegistration.value = null
+  clearSensitiveAuthState()
   clearCountdown()
 }
 
@@ -440,8 +454,7 @@ function startEmailRegister() {
   step.value = 'main'
   error.value = ''
   code.value = ''
-  registrationTicket.value = ''
-  pendingRegistration.value = null
+  clearSensitiveAuthState()
 }
 
 function particleStyle(index: number) {

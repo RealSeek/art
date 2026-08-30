@@ -2,12 +2,14 @@
 // 结果输出到 tests/e2e/.ui-audit-admin/，并在 stdout 打印每页问题汇总。
 import { chromium } from '@playwright/test'
 import fs from 'node:fs'
+import { getE2EAdminCredentials } from './e2e-admin-credentials.mjs'
 
 const outDir = 'tests/e2e/.ui-audit-admin'
 fs.rmSync(outDir, { recursive: true, force: true })
 fs.mkdirSync(outDir, { recursive: true })
 
 const adminUrl = 'http://localhost:5174/admin/'
+const { email: adminEmail, password: adminPassword } = getE2EAdminCredentials()
 
 const routes = [
   ['dashboard/console', '工作台'], ['dashboard/analysis', '分析页'], ['dashboard/ecommerce', '电子商务'],
@@ -37,8 +39,8 @@ const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 await page.goto(adminUrl)
-await page.getByPlaceholder('管理员邮箱').fill('admin@flux.local')
-await page.getByPlaceholder('密码').fill('FluxAdmin@2026!')
+await page.getByPlaceholder('管理员邮箱').fill(adminEmail)
+await page.getByPlaceholder('密码').fill(adminPassword)
 await page.getByRole('button', { name: '进入管理后台' }).click()
 await page.waitForURL(/#\/dashboard\/console$/, { timeout: 15000 })
 

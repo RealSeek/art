@@ -1,9 +1,12 @@
 node_modules/
 dist/
+coverage/
 test-results/
 playwright-report/
 .playwright-cli/
 output/playwright/
+/output/
+tests/e2e/.ui-audit/
 xiaoye.io_yibazhan/
 
 # Runtime data and user uploads stay on the server, never in source control.
@@ -14,6 +17,12 @@ server/storage/
 *.sqlite
 *.sqlite3
 *.db
+*.dump
+/backups/
+/backup*.sql
+/dump*.sql
+/tmp/
+/cache/
 
 # Local editor and OS metadata.
 .vscode/
@@ -31,3 +40,39 @@ __pycache__/
 .env.*
 !.env.example
 !.env.production.example
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Internal documents
+*_REPORT.md
+LOCAL_*.md
+FINAL_*.md
+*_CHECK.md
+AUDIT*.md
+TEST*.md
+/MIGRATION_GUIDE.md
+/RELEASE_NOTES.md
+/ROLLBACK_GUIDE.md
+/docs/archive/
+
+# Environment-specific audit output stays local. These files can contain
+# deployment hostnames, dataset counts, or operational findings and are not
+# part of the public release surface.
+/DATABASE_PRODUCTION_CHECK.md
+/DATABASE_PROVENANCE_REPORT.md
+/DOCKER_SECURITY_REPORT.md
+/FINAL_FULL_RELEASE_REPORT.md
+/FINAL_PRODUCTION_READINESS_REPORT.md
+/LOAD_TEST_PLAN.md
+/PRODUCTION_NETWORK_SECURITY_REPORT.md
+/PROVIDER_STAGING_TEST_PLAN.md
+/RELEASE_APPROVAL.md
+/RELEASE_READY_REPORT.md
+/SECRET_SECURITY_REPORT.md
+/UPLOADS_PERMISSION_REPORT.md
+/security-final-report.md
+/docs/archive/*_2026-08-30.md

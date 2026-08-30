@@ -6,6 +6,7 @@ import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { WebSearchService } from './web-search.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 export type AgentToolDescriptor = {
   id?: string
@@ -64,9 +65,8 @@ export class AgentToolsService {
       const secretHeaders = configured.encryptedHeaders ? this.record(JSON.parse(this.crypto.decrypt(configured.encryptedHeaders))) : {}
       const url = await this.endpointPolicy.assertPublicHttpUrl(configured.endpoint)
       if (method === 'GET' || method === 'DELETE') Object.entries(input).forEach(([key, value]) => { if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value)) })
-      const response = await fetch(url, {
+      const response = await fetchPublicNoRedirect(url, {
         method,
-        redirect: 'error',
         headers: { ...publicHeaders, ...secretHeaders, 'Content-Type': publicHeaders['Content-Type'] || publicHeaders['content-type'] || 'application/json', ...(executionKey ? { 'Idempotency-Key': executionKey } : {}) },
         ...(method === 'GET' || method === 'DELETE' ? {} : { body: JSON.stringify(input) }),
         signal: signal

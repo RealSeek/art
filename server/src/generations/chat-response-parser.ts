@@ -1,7 +1,8 @@
 import { normalizeChatUsage, type ChatUsage } from './chat-usage'
 
 export type ChatProtocol = 'openai' | 'anthropic' | 'gemini'
-export type ChatStreamResult = { content: string; reasoning?: string; usage?: ChatUsage }
+export type ChatStreamResult = { content: string; reasoning?: string; usage?: ChatUsage; providerRequestId?: string }
+export type ChatStreamChunk = { delta: string; reasoningDelta: string; usage?: ChatUsage; providerRequestId?: string }
 export type ChatContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
@@ -86,6 +87,9 @@ export function consumeTaggedReasoning(value: string, open: boolean, carry: stri
 }
 
 export function chatJsonResult(protocol: ChatProtocol, payload: Record<string, unknown>): ChatStreamResult {
+  const providerRequestId = [payload.id, payload.responseId, payload.request_id]
+    .find((value): value is string => typeof value === 'string' && value.length > 0)
+  const providerRequest = providerRequestId ? { providerRequestId } : {}
   if (protocol === 'anthropic') {
     const blocks = Array.isArray(payload.content) ? payload.content as Array<Record<string, unknown>> : []
     const content = blocks
@@ -99,7 +103,8 @@ export function chatJsonResult(protocol: ChatProtocol, payload: Record<string, u
     return {
       content,
       reasoning: reasoning || undefined,
-      usage: normalizeChatUsage('anthropic', payload.usage)
+      usage: normalizeChatUsage('anthropic', payload.usage),
+      ...providerRequest,
     }
   }
   if (protocol === 'gemini') {
@@ -121,7 +126,8 @@ export function chatJsonResult(protocol: ChatProtocol, payload: Record<string, u
     return {
       content,
       reasoning: reasoning || undefined,
-      usage: normalizeChatUsage('gemini', payload.usageMetadata)
+      usage: normalizeChatUsage('gemini', payload.usageMetadata),
+      ...providerRequest,
     }
   }
   const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : []
@@ -151,18 +157,23 @@ export function chatJsonResult(protocol: ChatProtocol, payload: Record<string, u
   return {
     content,
     reasoning: reasoning || undefined,
-    usage: normalizeChatUsage('openai', payload.usage)
+    usage: normalizeChatUsage('openai', payload.usage),
+    ...providerRequest,
   }
 }
 
-export function chatStreamChunk(protocol: ChatProtocol, payload: Record<string, unknown>) {
+export function chatStreamChunk(protocol: ChatProtocol, payload: Record<string, unknown>): ChatStreamChunk {
+  const providerRequestId = [payload.id, payload.responseId, payload.request_id]
+    .find((value): value is string => typeof value === 'string' && value.length > 0)
   if (protocol === 'anthropic') {
     const delta = payload.delta as Record<string, unknown> | undefined
     const message = payload.message as Record<string, unknown> | undefined
+    const requestId = providerRequestId || (typeof message?.id === 'string' ? message.id : undefined)
     return {
       delta: delta?.type === 'thinking_delta' ? '' : typeof delta?.text === 'string' ? delta.text : '',
       reasoningDelta: delta?.type === 'thinking_delta' && typeof delta?.thinking === 'string' ? delta.thinking : '',
-      usage: normalizeChatUsage('anthropic', message?.usage || payload.usage)
+      usage: normalizeChatUsage('anthropic', message?.usage || payload.usage),
+      ...(requestId ? { providerRequestId: requestId } : {}),
     }
   }
   if (protocol === 'gemini') {
@@ -170,15 +181,16 @@ export function chatStreamChunk(protocol: ChatProtocol, payload: Record<string, 
     return {
       delta: normalized.content,
       reasoningDelta: normalized.reasoning || '',
-      usage: normalized.usage
+      usage: normalized.usage,
+      ...(normalized.providerRequestId ? { providerRequestId: normalized.providerRequestId } : {}),
     }
   }
   const eventType = typeof payload.type === 'string' ? payload.type : ''
   if (/reasoning.*(?:summary|text).*delta/i.test(eventType)) {
-    return { delta: '', reasoningDelta: reasoningText(payload.delta) }
+    return { delta: '', reasoningDelta: reasoningText(payload.delta), ...(providerRequestId ? { providerRequestId } : {}) }
   }
   if (/(?:output_text|content).*delta/i.test(eventType) && typeof payload.delta === 'string') {
-    return { delta: payload.delta, reasoningDelta: '' }
+    return { delta: payload.delta, reasoningDelta: '', ...(providerRequestId ? { providerRequestId } : {}) }
   }
   const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : []
   const delta = choices[0]?.delta as Record<string, unknown> | undefined
@@ -209,6 +221,7 @@ export function chatStreamChunk(protocol: ChatProtocol, payload: Record<string, 
   return {
     delta: content,
     reasoningDelta: reasoning,
-    usage: normalizeChatUsage('openai', payload.usage)
+    usage: normalizeChatUsage('openai', payload.usage),
+    ...(providerRequestId ? { providerRequestId } : {}),
   }
 }

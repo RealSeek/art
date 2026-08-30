@@ -11,6 +11,7 @@ import { PromptLibraryService } from './prompt-library.service'
 class PromptLibrarySourceUpdateDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) displayName?: string
   @IsOptional() @IsBoolean() enabled?: boolean
+  @IsOptional() @IsBoolean() reviewAccepted?: boolean
   @IsOptional() @IsInt() @Min(0) @Max(100000) sortOrder?: number
 }
 
@@ -48,7 +49,17 @@ export class AdminPromptLibraryController {
   @Patch('sources/:id')
   async updateSource(@CurrentUser() admin: AuthenticatedUser, @Req() request: FastifyRequest, @Param('id') id: string, @Body() body: PromptLibrarySourceUpdateDto) {
     const result = await this.library.updateSource(id, body)
-    await this.audit(admin.id, request, 'prompt_library.source.update', id, { ...body })
+    await this.audit(admin.id, request, 'prompt_library.source.update', id, {
+      sourceId: result.id,
+      displayName: result.displayName,
+      enabled: result.enabled,
+      configuredEnabled: result.configuredEnabled,
+      sortOrder: result.sortOrder,
+      external: result.external,
+      reviewStatus: result.reviewStatus,
+      reviewNote: result.reviewNote,
+      reviewAcceptedAt: result.reviewAcceptedAt,
+    })
     return result
   }
 

@@ -141,7 +141,7 @@ export const useUserStore = defineStore(
      * 如果是同一账号重新登录，保留工作台标签页
      */
     const logOut = () => {
-      void fetch('/v1/auth/logout', { method: 'POST', credentials: 'include' }).catch(
+      void fetch('/v1/auth/logout', { method: 'POST', credentials: 'include', headers: { 'X-Xinyue-Request': '1' } }).catch(
         () => undefined
       )
       // 保存当前用户 ID，用于下次登录时判断是否为同一用户

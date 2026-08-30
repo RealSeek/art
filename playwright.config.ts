@@ -1,5 +1,26 @@
 import { defineConfig } from '@playwright/test'
 
+const baseURL = (process.env.E2E_BASE_URL || 'http://localhost:5173').replace(/\/+$/, '')
+const apiOrigin = (process.env.E2E_API_ORIGIN || 'http://localhost:3100').replace(/\/+$/, '')
+const webServers = [
+  ...(process.env.E2E_BASE_URL
+    ? []
+    : [{
+        command: 'npm run dev -- --port 5173',
+        url: 'http://127.0.0.1:5173',
+        reuseExistingServer: true,
+        timeout: 120_000,
+      }]),
+  ...(process.env.E2E_API_ORIGIN
+    ? []
+    : [{
+        command: 'npm --prefix server run start',
+        url: `${apiOrigin}/v1/health`,
+        reuseExistingServer: true,
+        timeout: 120_000,
+      }]),
+]
+
 export default defineConfig({
   testDir: './tests/e2e',
   outputDir: './test-results/artifacts',
@@ -9,25 +30,12 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     channel: 'chrome',
     viewport: { width: 1440, height: 900 },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
   },
-  webServer: [
-    {
-      command: 'npm run dev -- --port 5173',
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer: true,
-      timeout: 120_000,
-    },
-    {
-      command: 'npm --prefix server run start',
-      url: 'http://127.0.0.1:3100/v1/health',
-      reuseExistingServer: true,
-      timeout: 120_000,
-    },
-  ],
+  webServer: webServers.length ? webServers : undefined,
 })

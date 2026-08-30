@@ -350,6 +350,7 @@ import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useStudioStore } from '../stores/studio'
 import { api, apiUrl } from '../services/api'
+import { safeHttpNavigationUrl } from '../utils/safe-url'
 import { readStoredSettings, updateStoredSettings, writeStoredSettings } from '../utils/settings-storage'
 import { useTeamManagement } from '../composables/shell/useTeamManagement'
 import { useKnowledgeBases } from '../composables/shell/useKnowledgeBases'
@@ -967,12 +968,14 @@ async function confirmCheckout() {
   if (!intent || !channel || !selectedPaymentMethod.value) return
   paymentBusy.value = true; paymentError.value = ''
   const paymentWindow = channel.providerKey === 'MANUAL' ? null : window.open('', '_blank')
+  if (paymentWindow) paymentWindow.opener = null
   try {
     const order = intent.existingOrderId ? { id: intent.existingOrderId } : intent.orderType === 'SUBSCRIPTION'
       ? await api<{ id: string }>('/subscriptions/orders', { method: 'POST', body: JSON.stringify({ planId: intent.productId, paymentMethod: selectedPaymentMethod.value, userCouponId: selectedCouponId.value || undefined }) })
       : await api<{ id: string }>('/recharge/orders', { method: 'POST', body: JSON.stringify({ packageId: intent.productId, paymentMethod: selectedPaymentMethod.value }) })
     paymentTransaction.value = await api<PaymentTransaction>('/payments/checkout', { method: 'POST', body: JSON.stringify({ orderType: intent.orderType, orderId: order.id, channelId: channel.id, paymentMethod: selectedPaymentMethod.value }) })
-    if (paymentTransaction.value.checkoutUrl && paymentWindow) paymentWindow.location.href = paymentTransaction.value.checkoutUrl
+    const checkoutUrl = safeHttpNavigationUrl(paymentTransaction.value.checkoutUrl, window.location.origin)
+    if (checkoutUrl && paymentWindow) paymentWindow.location.replace(checkoutUrl)
     else paymentWindow?.close()
     await refreshOrderHistory(intent.orderType)
     schedulePaymentPoll()

@@ -1,8 +1,18 @@
-import { Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  isEnvironmentOptInEnabled,
+  isSourceEffectivelyEnabled,
+} from "../common/external-content-policy";
+import { fetchPublicManualRedirect } from "../common/outbound-http";
 import { PrismaService } from "../prisma/prisma.service";
 import { localPromptLibraryEntries } from "./prompt-library.defaults";
 import {
@@ -33,9 +43,17 @@ export type PromptLibrarySource = {
     | "youmind-sitemap"
     | "higgsfield-sitemaps";
   defaultSortOrder: number;
+  external: boolean;
+  defaultEnabled: boolean;
+  reviewStatus: PromptLibraryReviewStatus;
+  reviewNote: string;
 };
 
 export type PromptLibraryType = "IMAGE" | "VIDEO";
+export type PromptLibraryReviewStatus = "internal" | "unverified" | "restricted";
+
+const PROMPT_LIBRARY_EXTERNAL_SYNC_ENV =
+  "PROMPT_LIBRARY_EXTERNAL_SYNC_ENABLED";
 
 export type PromptLibraryItem = {
   id: string;
@@ -68,6 +86,8 @@ type SourceCache = {
 type SourceRuntime = PromptLibrarySource & {
   displayName: string;
   enabled: boolean;
+  configuredEnabled: boolean;
+  reviewAcceptedAt: Date | null;
   sortOrder: number;
 };
 
@@ -75,6 +95,21 @@ const SOURCE_BASE =
   "https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources";
 const SOURCE_FALLBACK_BASE =
   "https://raw.githubusercontent.com/yukkcat/image-prompts/main/dist/sources";
+const PROMPT_REMOTE_HOSTS = new Set([
+  "cdn.jsdelivr.net",
+  "fastly.jsdelivr.net",
+  "gcore.jsdelivr.net",
+  "origin.jsdelivr.net",
+  "raw.githubusercontent.com",
+  "github.com",
+  "generateprompt.net",
+  "www.generateprompt.net",
+  "youmind.com",
+  "www.youmind.com",
+  "higgsfield.ai",
+  "www.higgsfield.ai",
+]);
+const PROMPT_MAX_REDIRECTS = 3;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const AUTO_REFRESH_MS = 6 * 60 * 60 * 1000;
 const CACHE_DIRECTORY = join(process.cwd(), "storage", "prompt-library-cache");
@@ -90,6 +125,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://www.upma.cn/image-prompts",
     format: "upma",
     defaultSortOrder: 10,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "youmind-gpt-image-2",
@@ -100,6 +139,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://youmind.com/zh-CN/prompts/image",
     format: "youmind-image-sitemap",
     defaultSortOrder: 20,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "youmind-nano-banana-pro",
@@ -112,6 +155,10 @@ const SOURCES: PromptLibrarySource[] = [
       "https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts",
     format: "normalized",
     defaultSortOrder: 30,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "banana-prompt-quicker",
@@ -123,6 +170,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://glidea.github.io/banana-prompt-quicker/",
     format: "normalized",
     defaultSortOrder: 40,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "davidwu-gpt-image2-prompts",
@@ -134,6 +185,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://github.com/davidwuw0811-boop/awesome-gpt-image2-prompts",
     format: "normalized",
     defaultSortOrder: 50,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "awesome-gpt-image",
@@ -145,6 +200,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://github.com/ZeroLu/awesome-gpt-image",
     format: "normalized",
     defaultSortOrder: 60,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "awesome-gpt4o-image-prompts",
@@ -156,6 +215,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://github.com/ImgEdify/Awesome-GPT4o-Image-Prompts",
     format: "normalized",
     defaultSortOrder: 70,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "video-generateprompt",
@@ -167,6 +230,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://generateprompt.net/zh/video-prompts",
     format: "generateprompt-html",
     defaultSortOrder: 120,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "video-youmind",
@@ -176,6 +243,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "https://youmind.com/zh-CN/prompts/video",
     format: "youmind-sitemap",
     defaultSortOrder: 110,
+    external: true,
+    defaultEnabled: false,
+    reviewStatus: "unverified",
+    reviewNote: "上游提示词内容的授权范围尚未由管理员确认",
   },
   {
     id: "published-works-image",
@@ -185,6 +256,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "/prompts",
     format: "works",
     defaultSortOrder: 200,
+    external: false,
+    defaultEnabled: true,
+    reviewStatus: "internal",
+    reviewNote: "Xinyue AI 内部公开作品",
   },
   {
     id: "published-works-video",
@@ -194,6 +269,10 @@ const SOURCES: PromptLibrarySource[] = [
     homepage: "/prompts",
     format: "works",
     defaultSortOrder: 210,
+    external: false,
+    defaultEnabled: true,
+    reviewStatus: "internal",
+    reviewNote: "Xinyue AI 内部公开作品",
   },
 ];
 
@@ -255,7 +334,13 @@ export class PromptLibraryService implements OnModuleInit {
   async onModuleInit() {
     setTimeout(() => {
       void this.configuredSources()
-        .then((sources) => Promise.all(sources.map((source) => this.loadSource(source))))
+        .then((sources) =>
+          Promise.all(
+            sources
+              .filter((source) => source.enabled)
+              .map((source) => this.loadSource(source)),
+          ),
+        )
         .catch(() => undefined);
     }, 1_000).unref();
     await this.queue.upsertJobScheduler("prompt-library-refresh", { every: AUTO_REFRESH_MS }, {
@@ -334,7 +419,12 @@ export class PromptLibraryService implements OnModuleInit {
 
   async adminSources() {
     const sources = await this.configuredSources();
-    await Promise.all(sources.map((source) => this.loadSource(source)));
+    // Disabled sources are intentionally not read from disk or the network.
+    await Promise.all(
+      sources
+        .filter((source) => source.enabled)
+        .map((source) => this.loadSource(source)),
+    );
     const hiddenCounts = await this.prisma.promptLibraryItemOverride.groupBy({
       by: ["sourceId"],
       where: { enabled: false },
@@ -344,7 +434,7 @@ export class PromptLibraryService implements OnModuleInit {
       hiddenCounts.map((row) => [row.sourceId, row._count.itemId]),
     );
     return sources.map((source) => {
-      const cached = this.cache.get(source.id);
+      const cached = source.enabled ? this.cache.get(source.id) : undefined;
       return {
         id: source.id,
         promptType: source.promptType,
@@ -353,6 +443,12 @@ export class PromptLibraryService implements OnModuleInit {
         upstreamName: source.upstreamName,
         homepage: source.homepage,
         enabled: source.enabled,
+        configuredEnabled: source.configuredEnabled,
+        external: source.external,
+        defaultEnabled: source.defaultEnabled,
+        reviewStatus: source.reviewStatus,
+        reviewNote: source.reviewNote,
+        reviewAcceptedAt: source.reviewAcceptedAt?.toISOString() || null,
         sortOrder: source.sortOrder,
         count: Math.max(
           0,
@@ -361,8 +457,8 @@ export class PromptLibraryService implements OnModuleInit {
         lastSuccessAt: cached?.lastSuccessAt || "",
         lastError: cached?.lastError || "",
         fetchedAt: cached?.fetchedAt ? new Date(cached.fetchedAt).toISOString() : "",
-        complete: cached?.complete !== false,
-        refreshing: this.loading.has(source.id),
+        complete: source.enabled && cached?.complete !== false,
+        refreshing: source.enabled && this.loading.has(source.id),
         cacheRevision: source.cacheRevision || 1,
         autoRefreshHours: AUTO_REFRESH_MS / 60 / 60 / 1000,
       };
@@ -371,20 +467,41 @@ export class PromptLibraryService implements OnModuleInit {
 
   async updateSource(
     id: string,
-    input: { displayName?: string; enabled?: boolean; sortOrder?: number },
+    input: {
+      displayName?: string;
+      enabled?: boolean;
+      reviewAccepted?: boolean;
+      sortOrder?: number;
+    },
   ) {
     const source = SOURCES.find((item) => item.id === id);
     if (!source) throw new NotFoundException("提示词渠道不存在");
+    const externalSyncEnabled = isEnvironmentOptInEnabled(
+      PROMPT_LIBRARY_EXTERNAL_SYNC_ENV,
+    );
     const existing = await this.prisma.promptLibrarySourceConfig.findUnique({
       where: { id },
     });
+    const requiresReview =
+      source.external &&
+      input.enabled === true &&
+      (!existing?.reviewAcceptedAt || existing.enabled === false);
+    if (requiresReview && input.reviewAccepted !== true) {
+      throw new BadRequestException(
+        "启用外部提示词来源前必须确认授权范围",
+      );
+    }
+    const reviewAcceptedAt = requiresReview ? new Date() : undefined;
     const row = await this.prisma.promptLibrarySourceConfig.upsert({
       where: { id },
       create: {
         id,
         displayName: input.displayName?.trim() || source.defaultDisplayName,
-        enabled: input.enabled ?? true,
+        enabled:
+          input.enabled ??
+          (source.external ? externalSyncEnabled : source.defaultEnabled),
         sortOrder: input.sortOrder ?? source.defaultSortOrder,
+        ...(reviewAcceptedAt ? { reviewAcceptedAt } : {}),
       },
       update: {
         ...(input.displayName !== undefined
@@ -394,18 +511,33 @@ export class PromptLibraryService implements OnModuleInit {
             }
           : {}),
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(reviewAcceptedAt ? { reviewAcceptedAt } : {}),
         ...(input.sortOrder !== undefined
           ? { sortOrder: input.sortOrder }
           : {}),
       },
     });
+    if (input.enabled === false) {
+      this.cache.delete(id);
+    }
+    const runtime = (await this.configuredSources()).find(
+      (item) => item.id === id,
+    );
+    const cached = runtime?.enabled ? this.cache.get(id) : undefined;
     return {
       ...row,
       upstreamName: source.upstreamName,
       homepage: source.homepage,
-      count: this.cache.get(id)?.items.length || 0,
-      lastSuccessAt: this.cache.get(id)?.lastSuccessAt || "",
-      lastError: this.cache.get(id)?.lastError || "",
+      enabled: runtime?.enabled ?? false,
+      configuredEnabled: runtime?.configuredEnabled ?? row.enabled,
+      external: source.external,
+      defaultEnabled: source.defaultEnabled,
+      reviewStatus: source.reviewStatus,
+      reviewNote: source.reviewNote,
+      reviewAcceptedAt: runtime?.reviewAcceptedAt?.toISOString() || null,
+      count: cached?.items.length || 0,
+      lastSuccessAt: cached?.lastSuccessAt || "",
+      lastError: cached?.lastError || "",
       created: !existing,
     };
   }
@@ -422,7 +554,9 @@ export class PromptLibraryService implements OnModuleInit {
       ? this.parsePromptType(input.promptType)
       : null;
     const sources = (await this.configuredSources()).filter(
-      (source) => !requestedType || source.promptType === requestedType,
+      (source) =>
+        source.enabled &&
+        (!requestedType || source.promptType === requestedType),
     );
     const sourceId = input.sourceId?.trim() || "";
     const selectedSources = sourceId
@@ -520,8 +654,10 @@ export class PromptLibraryService implements OnModuleInit {
   }
 
   async refreshAll() {
-    this.cache.clear();
-    const sources = await this.configuredSources();
+    const sources = (await this.configuredSources()).filter(
+      (source) => source.enabled,
+    );
+    for (const source of sources) this.cache.delete(source.id);
     const results = await Promise.all(
       sources.map(async (source) => ({
         source,
@@ -540,6 +676,13 @@ export class PromptLibraryService implements OnModuleInit {
   async refreshSource(id: string) {
     const source = (await this.configuredSources()).find((item) => item.id === id);
     if (!source) throw new NotFoundException("提示词渠道不存在");
+    if (!source.enabled) {
+      throw new BadRequestException(
+        source.external
+          ? "外部提示词渠道未启用，请先由管理员确认授权范围并启用"
+          : "提示词渠道未启用",
+      );
+    }
     const cache = await this.loadSource(source, true);
     return {
       id: source.id,
@@ -554,12 +697,28 @@ export class PromptLibraryService implements OnModuleInit {
   private async configuredSources(): Promise<SourceRuntime[]> {
     const rows = await this.prisma.promptLibrarySourceConfig.findMany();
     const configs = new Map(rows.map((row) => [row.id, row]));
+    const externalSyncEnabled = isEnvironmentOptInEnabled(
+      PROMPT_LIBRARY_EXTERNAL_SYNC_ENV,
+    );
     return SOURCES.map((source) => {
       const config = configs.get(source.id);
+      const configuredEnabled = config?.enabled ?? source.defaultEnabled;
+      const enabled = isSourceEffectivelyEnabled({
+        external: source.external,
+        configuredEnabled:
+          config?.enabled ?? (source.external ? undefined : source.defaultEnabled),
+        reviewAcceptedAt: config?.reviewAcceptedAt,
+        environmentOptIn: externalSyncEnabled,
+      });
+      if (!enabled) {
+        this.cache.delete(source.id);
+      }
       return {
         ...source,
         displayName: config?.displayName || source.defaultDisplayName,
-        enabled: config?.enabled ?? true,
+        enabled,
+        configuredEnabled,
+        reviewAcceptedAt: config?.reviewAcceptedAt || null,
         sortOrder: config?.sortOrder ?? source.defaultSortOrder,
       };
     }).sort(
@@ -588,8 +747,9 @@ export class PromptLibraryService implements OnModuleInit {
     sources: SourceRuntime[],
     includeDisabled = false,
   ) {
+    const enabledSources = sources.filter((source) => source.enabled);
     const caches = await Promise.all(
-      sources.map((source) => this.loadSource(source)),
+      enabledSources.map((source) => this.loadSource(source)),
     );
     const originals = caches.flatMap((cache) => cache.items);
     if (!originals.length) return [];
@@ -597,7 +757,9 @@ export class PromptLibraryService implements OnModuleInit {
       where: { itemId: { in: originals.map((item) => item.id) } },
     });
     const overrideMap = new Map(overrides.map((row) => [row.itemId, row]));
-    const sourceMap = new Map(sources.map((source) => [source.id, source]));
+    const sourceMap = new Map(
+      enabledSources.map((source) => [source.id, source]),
+    );
     return originals
       .map((item) => {
         const override = overrideMap.get(item.id);
@@ -644,6 +806,19 @@ export class PromptLibraryService implements OnModuleInit {
     source: SourceRuntime,
     force = false,
   ): Promise<SourceCache> {
+    if (!source.enabled) {
+      // Do not read a persisted cache for disabled sources. This also prevents
+      // stale external content from becoming visible after an administrator
+      // disables a source.
+      this.cache.delete(source.id);
+      return {
+        items: [],
+        fetchedAt: 0,
+        lastSuccessAt: "",
+        lastError: "提示词渠道未启用",
+        complete: false,
+      };
+    }
     const cached = this.cache.get(source.id);
     const crawler = this.isCrawlerSource(source);
     if (
@@ -864,7 +1039,7 @@ export class PromptLibraryService implements OnModuleInit {
       try {
         const expectsJson =
           source.format === "normalized" || source.format === "upma";
-        const response = await fetch(url, {
+        const response = await this.fetchPromptRemote(url, {
           headers: {
             accept: expectsJson
               ? "application/json"
@@ -882,6 +1057,51 @@ export class PromptLibraryService implements OnModuleInit {
       }
     }
     throw failure;
+  }
+
+  /**
+   * Fetch a configured prompt source without allowing an upstream redirect to
+   * escape the public source allowlist. A single timeout signal is shared by
+   * the complete redirect chain.
+   */
+  private async fetchPromptRemote(value: string, init: RequestInit) {
+    let current = this.allowedPromptUrl(value);
+    for (let redirects = 0; ; redirects += 1) {
+      const response = await fetchPublicManualRedirect(current, init);
+      if (response.status < 300 || response.status >= 400) return response;
+      await response.body?.cancel().catch(() => undefined);
+      if (redirects >= PROMPT_MAX_REDIRECTS) {
+        throw new Error("提示词源重定向次数超过限制");
+      }
+      const location = response.headers.get("location");
+      if (!location) throw new Error("提示词源重定向地址无效");
+      let next: URL;
+      try {
+        next = new URL(location, current);
+      } catch {
+        throw new Error("提示词源重定向地址无效");
+      }
+      current = this.allowedPromptUrl(next.toString());
+    }
+  }
+
+  private allowedPromptUrl(value: string) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error("提示词源地址无效");
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== "443") ||
+      !PROMPT_REMOTE_HOSTS.has(url.hostname.toLowerCase())
+    ) {
+      throw new Error("提示词源重定向目标不在允许列表");
+    }
+    return url;
   }
 
   private normalizeItem(
@@ -959,7 +1179,9 @@ export class PromptLibraryService implements OnModuleInit {
   }
 
   private async getOriginalItem(itemId: string) {
-    const sources = await this.configuredSources();
+    const sources = (await this.configuredSources()).filter(
+      (source) => source.enabled,
+    );
     const caches = await Promise.all(
       sources.map((source) => this.loadSource(source)),
     );

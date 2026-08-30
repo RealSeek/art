@@ -36,6 +36,7 @@ import { RequestContextInterceptor } from './common/request-context'
 import { FeatureFlagsModule } from './features/feature-flags.module'
 import { ExportsModule } from './exports/exports.module'
 import { RuntimeMetricsService } from './common/runtime-metrics.service'
+import { ReadinessService } from './common/readiness.service'
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { RuntimeMetricsService } from './common/runtime-metrics.service'
         : '请求过于频繁，请稍后再试',
     }),
     BullModule.forRoot({ connection: { url: process.env.REDIS_URL || 'redis://localhost:6379' } }),
+    BullModule.registerQueue({ name: 'generation' }),
     PrismaModule,
     ResourceAccessModule,
     AuthModule,
@@ -79,6 +81,7 @@ import { RuntimeMetricsService } from './common/runtime-metrics.service'
   controllers: [HealthController],
   providers: [
     RuntimeMetricsService,
+    ReadinessService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },
   ],

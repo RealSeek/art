@@ -16,6 +16,18 @@ test('聊天主页配置限制数量并校验跳转协议', () => {
   assert.equal(result.doubaoRecommendations[1].targetUrl, '/chat?item=1')
 })
 
+test('聊天主页配置拒绝协议相对和反斜线相对地址', () => {
+  const result = normalizeChatHomeContent({
+    qianwenBanners: [
+      { title: '协议相对地址', targetUrl: '//attacker.example/path' },
+      { title: '反斜线地址', targetUrl: '/\\attacker.example/path' },
+    ],
+  })
+
+  assert.equal(result.qianwenBanners[0]?.targetUrl, '/office')
+  assert.equal(result.qianwenBanners[1]?.targetUrl, '/office')
+})
+
 test('快捷能力 ID 去重且只接受受支持的动作类型', () => {
   const result = normalizeChatHomeContent({
     quickActions: {

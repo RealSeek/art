@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 type RuleInput = { enabled?: boolean; severity?: string; cooldownMinutes?: number; notifyInApp?: boolean; notifyWebhook?: boolean; webhookUrl?: string; webhookSecret?: string }
 type Candidate = { fingerprint: string; title: string; message: string; source: string; targetId?: string; metadata?: Record<string, unknown> }
@@ -121,7 +122,7 @@ export class AlertsService implements OnModuleInit {
       const signature = secret ? createHmac('sha256', secret).update(payload).digest('hex') : ''
       try {
         const url = await this.endpointPolicy.assertPublicHttpUrl(rule.webhookUrl)
-        await fetch(url, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Alert-Signature': signature } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
+        await fetchPublicNoRedirect(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Alert-Signature': signature } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
       } catch { /* Alert delivery must not interrupt rule evaluation. */ }
     }
   }

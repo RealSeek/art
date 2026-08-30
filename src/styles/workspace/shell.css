@@ -936,6 +936,9 @@ html[data-studio-theme="light"] .attachment-remove { background: #292929; border
 .inspiration-section { margin-top: 49px; max-width: 100%; width: 100%; }
 .inspiration-section > header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 24px; }
 .inspiration-section h2 { font-size: 24px; font-weight: 400; line-height: 32px; margin: 0; }
+.inspiration-error { align-items: center; background: color-mix(in srgb, #db4b4b 8%, var(--studio-panel)); border: 1px solid color-mix(in srgb, #db4b4b 28%, var(--studio-border)); border-radius: 8px; color: #d65b5b; display: flex; font-size: 12px; gap: 12px; justify-content: space-between; margin-bottom: 16px; padding: 11px 12px; }
+.inspiration-error span,.inspiration-error button { align-items: center; display: inline-flex; gap: 7px; }
+.inspiration-error button { background: var(--studio-panel); border: 1px solid var(--studio-border); border-radius: 7px; color: var(--studio-text); min-height: 36px; padding: 0 11px; }
 .inspiration-header-actions { align-items: center; display: flex; gap: 12px; }
 .inspiration-more { align-items: center; background: transparent; border: 0; border-radius: 7px; color: var(--studio-muted); display: inline-flex; font-size: 12px; gap: 5px; height: 36px; padding: 0 9px; }
 .inspiration-more:hover { background: var(--studio-control); color: var(--studio-text); }
@@ -949,6 +952,7 @@ html[data-studio-theme="light"] .attachment-remove { background: #292929; border
 .inspiration-rail::-webkit-scrollbar { display: none; }
 .inspiration-loading { display: flex; gap: 12px; width: 100%; }
 .inspiration-loading i { animation: workspace-skeleton-pulse 1.25s ease-in-out infinite; background: var(--studio-control); border-radius: 16px; flex: 0 0 144px; height: 180px; }
+.inspiration-empty { align-items: center; color: var(--studio-muted); display: flex; justify-content: center; min-height: 180px; width: 100%; }
 .inspiration-card { background: #171717; border: 1px solid #252525; border-radius: 16px; color: inherit; flex: 0 0 144px; height: 180px; overflow: hidden; padding: 0; position: relative; text-align: left; }
 .inspiration-card:hover,
 .inspiration-card.is-selected { border-color: #8b8b8b; transform: translateY(-2px); }

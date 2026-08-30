@@ -55,7 +55,7 @@ Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片
 curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
 ```
 
-安装脚本会检查 Docker、生成运行密钥，并启动 PostgreSQL、Redis、Backend 和 Frontend，默认监听主机 `8080` 端口；如果该端口已被占用，会从 `8081` 起自动选择可用端口并在终端输出实际地址。首次访问 `http://服务器IP:实际端口/install` 页面创建管理员，完成后入口会自动关闭；也可以在 `.env.production` 设置 `XINYUE_HTTP_PORT`。
+安装脚本会检查 Docker、生成运行密钥和一次性安装令牌，并启动 PostgreSQL、Redis、Backend 和 Frontend，默认监听主机 `8080` 端口；如果该端口已被占用，会从 `8081` 起自动选择可用端口并在终端输出实际地址。首次访问 `http://服务器IP:实际端口/install`，使用服务器本机 `.env.production` 中的安装令牌创建管理员；令牌不会打印到终端，初始化完成后入口会自动关闭。也可以在 `.env.production` 设置 `XINYUE_HTTP_PORT`。
 
 已克隆仓库时可以直接运行：
 
@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh
 git clone https://github.com/qiantingwl/xinyueai.git
 cd xinyueai
 cp .env.production.example .env.production
-# 编辑 .env.production，填写站点、密钥和存储配置；管理员在 /install 引导页创建
+# 编辑 .env.production，生成 INSTALL_TOKEN 并填写站点、密钥和存储配置
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
@@ -103,12 +103,12 @@ npm run admin:dev
 - 管理端：`http://localhost:5174/admin/`
 - API：`http://localhost:3100/v1`
 
-初始化脚本会创建本地管理员；账号信息来自本机配置文件。
+初始化脚本只准备数据库和安全配置，不会创建固定管理员。首次打开 `/install`，使用 `server/.env` 中自动生成的 `INSTALL_TOKEN` 创建管理员。
 
 ## ⚙️ 配置与文档
 
 - [部署与运维指南](docs/DEPLOYMENT.md)
-- [本地 Worker 协议](docs/LOCAL_WORKER_PROTOCOL.md)
+- [本地 Worker 协议](docs/WORKER_PROTOCOL.md)
 - [更新日志](CHANGELOG.md)
 - [安全策略](SECURITY.md)
 - [贡献指南](CONTRIBUTING.md)
@@ -117,6 +117,5 @@ npm run admin:dev
 运行时配置、日志、数据库、构建产物和用户上传文件不会提交到 Git。更多安全约定见 [安全策略](SECURITY.md)。
 
 ## 🤝 贡献
-<p dir="auto">学 AI，上 L 站：<a href="https://linux.do/" rel="nofollow">LinuxDO</a></p>
 欢迎提交 Bug 修复、文档改进、UI 优化、Provider 适配和测试补充。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并通过分支和 Pull Request 参与开发。
 

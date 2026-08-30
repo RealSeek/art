@@ -8,6 +8,7 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service'
 import { ReferralService } from '../commercial/referral.service'
 import { PAYMENT_METHODS, PAYMENT_METHODS_BY_PROVIDER, PAYMENT_PROVIDERS, type PaymentMethod, type PaymentProvider } from './payment.constants'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 type ChannelInput = {
   name: string
@@ -341,23 +342,24 @@ export class PaymentsService {
   private async createGatewayCheckout(channel: GatewayChannel, transaction: GatewayTransaction, productName: string, origin: string): Promise<GatewayCheckout> {
     const config = this.safePublicConfig(channel.publicConfig)
     const secrets = this.channelSecrets(channel.encryptedSecrets)
-    const baseUrl = String(config.publicBaseUrl || process.env.PUBLIC_BASE_URL || origin).replace(/\/$/, '')
+    const configuredWebOrigin = String(process.env.WEB_ORIGIN || '').split(',')[0].trim()
+    const baseUrl = String(config.publicBaseUrl || process.env.PUBLIC_BASE_URL || configuredWebOrigin || origin).replace(/\/$/, '')
     const webOrigin = String(config.webOrigin || process.env.WEB_ORIGIN || 'http://localhost:5173').split(',')[0].replace(/\/$/, '')
     if (channel.providerKey === 'MANUAL') return { checkoutUrl: String(config.paymentUrl || ''), qrCodeUrl: String(config.qrCodeUrl || ''), instructions: String(config.instructions || '请按页面说明完成付款，到账后由管理员确认。') }
     if (channel.providerKey === 'EXTERNAL') {
-      const target = new URL(String(config.checkoutUrl))
+      const target = await this.endpointPolicy.assertPublicHttpUrl(String(config.checkoutUrl))
       target.searchParams.set('out_trade_no', transaction.outTradeNo); target.searchParams.set('amount', (transaction.amountCents / 100).toFixed(2)); target.searchParams.set('currency', transaction.currency); target.searchParams.set('notify_url', `${baseUrl}/v1/payments/webhooks/${channel.id}`); target.searchParams.set('return_url', `${webOrigin}/?payment=success&trade=${transaction.outTradeNo}`)
       return { checkoutUrl: target.toString() }
     }
     if (channel.providerKey === 'EASYPAY') {
       const params: Record<string, string> = { pid: String(config.merchantId), type: transaction.paymentMethod === 'wechat' ? 'wxpay' : 'alipay', out_trade_no: transaction.outTradeNo, notify_url: `${baseUrl}/v1/payments/webhooks/${channel.id}`, return_url: `${webOrigin}/?payment=success&trade=${transaction.outTradeNo}`, name: productName.slice(0, 100), money: (transaction.amountCents / 100).toFixed(2), sign_type: 'MD5' }
       params.sign = this.easyPaySign(params, secrets.merchantKey)
-      const endpoint = String(config.apiUrl).replace(/\/$/, '')
+      const endpoint = (await this.endpointPolicy.assertPublicHttpUrl(String(config.apiUrl))).toString().replace(/\/$/, '')
       return { checkoutUrl: `${endpoint}/submit.php?${new URLSearchParams(params)}` }
     }
     if (channel.providerKey === 'STRIPE') {
       const form = new URLSearchParams({ mode: 'payment', success_url: `${webOrigin}/?payment=success&trade=${transaction.outTradeNo}`, cancel_url: `${webOrigin}/?payment=cancelled&trade=${transaction.outTradeNo}`, client_reference_id: transaction.outTradeNo, 'metadata[out_trade_no]': transaction.outTradeNo, 'line_items[0][price_data][currency]': transaction.currency.toLowerCase(), 'line_items[0][price_data][unit_amount]': String(transaction.amountCents), 'line_items[0][price_data][product_data][name]': productName, 'line_items[0][quantity]': '1' })
-      const response = await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { Authorization: `Bearer ${secrets.secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
+      const response = await fetchPublicNoRedirect('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { Authorization: `Bearer ${secrets.secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
       const result = await response.json() as StripeCheckoutResponse
       if (!response.ok || !result.url) throw new BadGatewayException(result.error?.message || 'Stripe Checkout 创建失败')
       return { checkoutUrl: result.url, providerTradeNo: result.id }
@@ -390,15 +392,16 @@ export class PaymentsService {
     if (!transaction.providerTradeNo) throw new BadRequestException('交易缺少上游单号，无法自动原路退款')
     if (channel.providerKey === 'STRIPE') {
       const form = new URLSearchParams({ payment_intent: transaction.providerTradeNo, amount: String(refund.amountCents), 'metadata[payment_refund_id]': refund.id })
-      const response = await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { Authorization: `Bearer ${secrets.secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': refund.id }, body: form })
+      const response = await fetchPublicNoRedirect('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { Authorization: `Bearer ${secrets.secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': refund.id }, body: form })
       const result = await response.json() as { id?: string; status?: string; error?: { message?: string } }
       if (!response.ok || !result.id || !['pending', 'succeeded'].includes(String(result.status))) throw new BadGatewayException(result.error?.message || 'Stripe 退款创建失败')
       return { providerRefundId: result.id, payload: { status: result.status } }
     }
     if (channel.providerKey === 'EASYPAY') {
-      const endpoint = `${String(config.apiUrl).replace(/\/$/, '')}/api.php`
+      const baseEndpoint = (await this.endpointPolicy.assertPublicHttpUrl(String(config.apiUrl))).toString().replace(/\/$/, '')
+      const endpoint = `${baseEndpoint}/api.php`
       const form = new URLSearchParams({ act: 'refund', pid: String(config.merchantId), key: secrets.merchantKey || '', trade_no: transaction.providerTradeNo, money: (refund.amountCents / 100).toFixed(2) })
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
+      const response = await fetchPublicNoRedirect(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
       const result = await response.json().catch(() => ({})) as { code?: number | string; msg?: string; trade_no?: string; refund_no?: string }
       if (!response.ok || !['0', '1', '200'].includes(String(result.code))) throw new BadGatewayException(result.msg || '易支付退款请求失败')
       return { providerRefundId: result.refund_no || result.trade_no || `EASYPAY-${refund.id}`, payload: { code: result.code, message: result.msg || '' } }
@@ -408,7 +411,7 @@ export class PaymentsService {
       const refundUrl = await this.endpointPolicy.assertPublicHttpUrl(String(config.refundUrl))
       const payload = JSON.stringify({ refund_id: refund.id, trade_no: transaction.providerTradeNo, out_trade_no: transaction.outTradeNo, amount: (refund.amountCents / 100).toFixed(2), currency: transaction.currency })
       const signature = createHmac('sha256', secrets.webhookSecret || '').update(payload).digest('hex')
-      const response = await fetch(refundUrl, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', 'X-Payment-Signature': signature, 'Idempotency-Key': refund.id }, body: payload })
+      const response = await fetchPublicNoRedirect(refundUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Payment-Signature': signature, 'Idempotency-Key': refund.id }, body: payload })
       const result = await response.json().catch(() => ({})) as { success?: boolean; status?: string; refund_id?: string; message?: string }
       if (!response.ok || !(result.success || ['pending', 'succeeded', 'success'].includes(String(result.status).toLowerCase()))) throw new BadGatewayException(result.message || '外部收银台退款失败')
       return { providerRefundId: result.refund_id || refund.id, payload: { status: result.status || 'success' } }
@@ -464,6 +467,7 @@ export class PaymentsService {
     const config = input.publicConfig || {}, secrets = input.secrets || {}
     if (input.providerKey === 'EASYPAY' && (!config.apiUrl || !config.merchantId || !secrets.merchantKey)) throw new BadRequestException('易支付需要 API 地址、商户 ID 和商户密钥')
     if (input.providerKey === 'EASYPAY' && !/^\d+$/.test(String(config.merchantId))) throw new BadRequestException('易支付商户 ID（PID）必须为数字')
+    if (input.providerKey === 'EASYPAY') await this.endpointPolicy.assertPublicHttpUrl(String(config.apiUrl))
     if (input.providerKey === 'STRIPE' && (!secrets.secretKey || !secrets.webhookSecret)) throw new BadRequestException('Stripe 需要 Secret Key 和 Webhook Secret')
     if (input.providerKey === 'EXTERNAL' && (!config.checkoutUrl || !secrets.webhookSecret)) throw new BadRequestException('外部收银台需要结账地址和回调密钥')
     if (input.providerKey === 'EXTERNAL') {

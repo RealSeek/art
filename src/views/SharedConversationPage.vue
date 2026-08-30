@@ -9,7 +9,10 @@
     <section v-else-if="error" class="shared-state shared-state--error">
       <h1>无法打开此共享对话</h1>
       <p>{{ error }}</p>
-      <RouterLink to="/chat">返回 Xinyue AI</RouterLink>
+      <div class="shared-state__actions">
+        <button type="button" :disabled="loading" @click="loadConversation">重新加载</button>
+        <RouterLink to="/chat">返回 Xinyue AI</RouterLink>
+      </div>
     </section>
     <article v-else-if="conversation" class="shared-conversation">
       <header>
@@ -46,9 +49,20 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value))
 }
 
-onMounted(async () => {
+function loadErrorMessage(reason: unknown) {
+  const message = reason instanceof Error ? reason.message : ''
+  if (/failed to fetch|networkerror|network request failed/i.test(message)) return '网络连接失败，请检查网络后重试。'
+  return message || '共享链接不存在或已失效'
+}
+
+async function loadConversation() {
+  loading.value = true
+  error.value = ''
+  conversation.value = null
   try { conversation.value = await api<SharedConversation>(`/shares/${String(route.params.token || '')}`) }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '共享链接不存在或已失效' }
+  catch (reason) { error.value = loadErrorMessage(reason) }
   finally { loading.value = false }
-})
+}
+
+onMounted(loadConversation)
 </script>

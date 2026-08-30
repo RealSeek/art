@@ -24,6 +24,8 @@ RESULT_TTL_SECONDS = max(3600, int(os.getenv("RESULT_TTL_SECONDS", str(7 * 86400
 COMFYUI_TIMEOUT_SECONDS = max(30, int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "600")))
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://comfyui:8188").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "")
+if not WORKER_TOKEN:
+    raise RuntimeError("WORKER_TOKEN must be configured for production workers")
 RESULT_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve() / "results"
 WORKFLOW_DIR = Path(os.getenv("WORKFLOW_DIR", "/workflows")).resolve()
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
@@ -208,7 +210,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue Controlled ComfyUI Gateway", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Xinyue Controlled ComfyUI Gateway", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

@@ -1,10 +1,36 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # The official entrypoint needs these capabilities only during its
+    # initialization step to prepare the data directory and switch to the
+    # postgres user; all other capabilities remain dropped.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPU_LIMIT:-2.0}"
+          memory: "${POSTGRES_MEMORY_LIMIT:-1G}"
     environment:
       POSTGRES_USER: flux
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: flux_studio
     volumes:
       - xinyue_postgres:/var/lib/postgresql/data
@@ -15,8 +41,23 @@ services:
       retries: 30
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # redis's setpriv entrypoint must be able to drop from root to redis.
+    cap_add:
+      - SETUID
+      - SETGID
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${REDIS_CPU_LIMIT:-1.0}"
+          memory: "${REDIS_MEMORY_LIMIT:-512M}"
     command: redis-server --appendonly yes
     volumes:
       - xinyue_redis:/data
@@ -26,15 +67,50 @@ services:
       timeout: 3s
       retries: 30
 
-  dailyhot:
-    image: imsyy/dailyhot-api:latest
+  dailyhot-redis:
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     profiles: ["recommendations"]
     restart: unless-stopped
+    init: true
+    command: redis-server --save "" --appendonly no
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${DAILYHOT_REDIS_CPU_LIMIT:-1.0}"
+          memory: "${DAILYHOT_REDIS_MEMORY_LIMIT:-256M}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - recommendations
+
+  dailyhot:
+    image: imsyy/dailyhot-api:v2.0.8@sha256:748fc79d29a422f512018e8a58ef1a0e20306dd6254637933960573fa37b1e5e
+    profiles: ["recommendations"]
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${DAILYHOT_CPU_LIMIT:-1.0}"
+          memory: "${DAILYHOT_MEMORY_LIMIT:-512M}"
     environment:
       PORT: "6688"
       ALLOWED_DOMAIN: "*"
       DISALLOW_ROBOT: "true"
-      REDIS_HOST: redis
+      REDIS_HOST: dailyhot-redis
       REDIS_PORT: "6379"
       REDIS_DB: "2"
       CACHE_TTL: "1800"
@@ -42,16 +118,29 @@ services:
       USE_LOG_FILE: "false"
       RSS_MODE: "false"
     depends_on:
-      redis:
+      dailyhot-redis:
         condition: service_healthy
+    networks:
+      - recommendations
 
   image-worker:
     build:
       context: ./workers/image-tools
     profiles: ["image-tools"]
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOCAL_WORKER_CPU_LIMIT:-2.0}"
+          memory: "${LOCAL_WORKER_MEMORY_LIMIT:-2G}"
     environment:
-      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:?LOCAL_WORKER_TOKEN must be set}
       MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
       RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
       REMBG_MODEL: ${LOCAL_WORKER_REMBG_MODEL:-u2net}
@@ -69,8 +158,19 @@ services:
       context: ./workers/iopaint
     profiles: ["iopaint"]
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOCAL_WORKER_CPU_LIMIT:-2.0}"
+          memory: "${LOCAL_WORKER_MEMORY_LIMIT:-2G}"
     environment:
-      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:?LOCAL_WORKER_TOKEN must be set}
       MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
       RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
       IOPAINT_MODEL: ${LOCAL_WORKER_IOPAINT_MODEL:-lama}
@@ -89,8 +189,19 @@ services:
       context: ./workers/realesrgan
     profiles: ["realesrgan"]
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOCAL_WORKER_CPU_LIMIT:-2.0}"
+          memory: "${LOCAL_WORKER_MEMORY_LIMIT:-2G}"
     environment:
-      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:?LOCAL_WORKER_TOKEN must be set}
       MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
       RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
       DEVICE: ${LOCAL_WORKER_REALESRGAN_DEVICE:-cpu}
@@ -109,8 +220,19 @@ services:
       context: ./workers/comfyui-gateway
     profiles: ["comfyui"]
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOCAL_WORKER_CPU_LIMIT:-2.0}"
+          memory: "${LOCAL_WORKER_MEMORY_LIMIT:-2G}"
     environment:
-      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:-}
+      WORKER_TOKEN: ${LOCAL_WORKER_TOKEN:?LOCAL_WORKER_TOKEN must be set}
       MAX_CONCURRENCY: ${LOCAL_WORKER_CONCURRENCY:-1}
       RESULT_TTL_SECONDS: ${LOCAL_WORKER_RESULT_TTL_SECONDS:-604800}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
@@ -124,10 +246,38 @@ services:
       timeout: 5s
       retries: 20
 
+  uploads-init:
+    image: alpine:3.20
+    restart: "no"
+    user: "0:0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+    logging: *default-logging
+    command: ["sh", "-c", "mkdir -p /uploads && chown 1000:1000 /uploads && chmod 770 /uploads"]
+    volumes:
+      - xinyue_uploads:/uploads
+
   backend:
     build:
       context: ./server
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPU_LIMIT:-2.0}"
+          memory: "${BACKEND_MEMORY_LIMIT:-1G}"
     env_file:
       - .env.production
     volumes:
@@ -137,8 +287,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      uploads-init:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - recommendations
+    expose:
+      - "3100"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -147,11 +304,32 @@ services:
     build:
       context: .
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${FRONTEND_CPU_LIMIT:-1.0}"
+          memory: "${FRONTEND_MEMORY_LIMIT:-256M}"
     ports:
-      - "${XINYUE_HTTP_PORT:-8080}:80"
+      # Bind to loopback by default. Put a TLS reverse proxy in front of this
+      # port; set XINYUE_HTTP_BIND explicitly only for a controlled network.
+      - "${XINYUE_HTTP_BIND:-127.0.0.1}:${XINYUE_HTTP_PORT:-8080}:8080"
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      # Verify the public reverse-proxy path, not only the static SPA shell.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
 volumes:
   xinyue_postgres:
@@ -164,3 +342,6 @@ volumes:
   xinyue_realesrgan_models:
   xinyue_realesrgan_data:
   xinyue_comfyui_gateway_data:
+
+networks:
+  recommendations:

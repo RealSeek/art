@@ -73,7 +73,6 @@ pnpm clean:dev
 
 ## 技术支持
 
-QQ群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=Gg6yzZLFaNgmRhK0T5Qcjf7-XcAFWWXm&jump_from=webapi&authKey=YpRKVJQyFKYbGTiKw0GJ/YQXnNF+GdXNZC5beQQqnGZTvuLlXoMO7nw5fNXvmVhA">1038930070</a>（点击链接加入群聊）
 
 ## 兼容性
 

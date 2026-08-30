@@ -36,12 +36,17 @@
         @command="changeLanguage"
         popper-class="langDropDownStyle"
       >
-        <div class="btn language-btn h-8 w-8 c-p flex-cc tad-300">
+        <button
+          type="button"
+          class="btn language-btn h-11 w-11 c-p flex-cc tad-300"
+          :aria-label="languageButtonLabel"
+          :title="languageButtonLabel"
+        >
           <ArtSvgIcon
             icon="ri:translate-2"
             class="text-[19px] text-g-800 transition-colors duration-300"
           />
-        </div>
+        </button>
         <template #dropdown>
           <ElDropdownMenu>
             <div v-for="lang in languageOptions" :key="lang.value" class="lang-btn-item">
@@ -56,16 +61,19 @@
           </ElDropdownMenu>
         </template>
       </ElDropdown>
-      <div
+      <button
         v-if="shouldShowThemeToggle"
-        class="btn theme-btn h-8 w-8 c-p flex-cc tad-300"
+        type="button"
+        class="btn theme-btn h-11 w-11 c-p flex-cc tad-300"
+        :aria-label="themeButtonLabel"
+        :title="themeButtonLabel"
         @click="themeAnimation"
       >
         <ArtSvgIcon
           :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'"
           class="text-xl text-g-800 transition-colors duration-300"
         />
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -90,6 +98,13 @@
 
   const mainColors = AppConfig.systemMainColor
   const color = systemThemeColor // css v-bind 使用
+  const languageButtonLabel = computed(() =>
+    locale.value === LanguageEnum.ZH ? '切换语言' : 'Switch language'
+  )
+  const themeButtonLabel = computed(() => {
+    if (locale.value === LanguageEnum.ZH) return isDark.value ? '切换为浅色模式' : '切换为深色模式'
+    return isDark.value ? 'Switch to light mode' : 'Switch to dark mode'
+  })
 
   const changeLanguage = (lang: LanguageEnum) => {
     if (locale.value === lang) return

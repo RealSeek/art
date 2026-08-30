@@ -58,7 +58,7 @@ export function normalizeChatHomeContent(value: Prisma.JsonValue | Record<string
   const text = (item: unknown, fallback = '', max = 500) => typeof item === 'string' ? item.trim().slice(0, max) : fallback
   const destination = (item: unknown, fallback: string) => {
     const value = text(item, fallback, 1000)
-    if (value.startsWith('/')) return value
+    if (value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\')) return value
     try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.toString() : fallback } catch { return fallback }
   }
   const defaultRecommendations = DEFAULT_CHAT_HOME_CONTENT.doubaoRecommendations as Array<{ title: string; prompt: string; targetUrl: string }>

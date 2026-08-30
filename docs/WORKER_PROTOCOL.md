@@ -31,7 +31,7 @@ GET /v1/health
 ```json
 {
   "ok": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "device": "cuda",
   "queueDepth": 0
 }
@@ -117,8 +117,8 @@ Worker 应立即记录取消标记并尽力终止尚未开始或支持中断的�
 | 服务 | 目录 | Compose profile | 说明 |
 | --- | --- | --- | --- |
 | 背景移除 | `workers/image-tools` | `image-tools` | `rembg`，CPU 默认 |
-| 擦除与扩图 | `workers/iopaint` | `iopaint` | IOPaint，默认 `lama` CPU 模型 |
-| 清晰化 | `workers/realesrgan` | `realesrgan` | Real-ESRGAN x2/x4，首次调用下载权重 |
+| 擦除与扩图 | `workers/iopaint` | `iopaint` | IOPaint，默认 `lama` CPU 模型；当前未认证，默认禁用 |
+| 清晰化 | `workers/realesrgan` | `realesrgan` | Real-ESRGAN x2/x4，首次调用下载权重；当前未认证，默认禁用 |
 | 图片工作流 | `workers/comfyui-gateway` | `comfyui` | 只执行只读挂载的管理员白名单工作流 |
 
 每个服务都需要单独建立 `LOCAL_WORKER` 渠道。不要把多个服务填写成同一个地址，也不要将 Worker 端口直接暴露到公网。

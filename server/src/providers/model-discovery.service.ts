@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ModelCapability } from '@prisma/client'
+import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 type RemoteModel = string | Record<string, unknown>
 
@@ -102,6 +104,8 @@ export class ModelDiscoveryService {
   private catalogSource: 'litellm' | 'fallback' = 'fallback'
   private catalogLoadedAt = 0
 
+  constructor(private readonly endpointPolicy: PublicEndpointPolicyService) {}
+
   normalizeResponse(payload: unknown): RemoteModel[] {
     if (Array.isArray(payload)) return payload.filter((item): item is RemoteModel => typeof item === 'string' || Boolean(item && typeof item === 'object'))
     if (!payload || typeof payload !== 'object') return []
@@ -129,9 +133,8 @@ export class ModelDiscoveryService {
     const catalogUrls = primaryUrl === DEFAULT_CATALOG_URL ? [primaryUrl, DEFAULT_CATALOG_MIRROR_URL] : [primaryUrl]
     for (const catalogUrl of catalogUrls) {
       try {
-        const parsedUrl = new URL(catalogUrl)
-        if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error('价格目录地址无效')
-        const response = await fetch(parsedUrl, { redirect: 'error', signal: AbortSignal.timeout(12_000) })
+        const parsedUrl = await this.endpointPolicy.assertPublicHttpUrl(catalogUrl)
+        const response = await fetchPublicNoRedirect(parsedUrl, { signal: AbortSignal.timeout(12_000) })
         if (!response.ok) throw new Error(`价格目录返回 HTTP ${response.status}`)
         const declaredSize = Number(response.headers.get('content-length') || 0)
         if (declaredSize > MAX_CATALOG_BYTES) throw new Error('价格目录超过 20 MB')

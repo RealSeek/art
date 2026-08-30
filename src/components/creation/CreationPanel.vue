@@ -89,9 +89,11 @@
               </nav>
             </div>
           </header>
+          <div v-if="inspirationError" class="inspiration-error" role="alert"><span><RefreshCw :size="16" />{{ inspirationError }}</span><button type="button" @click="retryInspirations"><RefreshCw :size="15" />重新加载</button></div>
           <div class="inspiration-browser">
             <div ref="inspirationRail" class="inspiration-rail" @scroll="syncInspirationNavigation">
-              <div v-if="!activeInspirations.length" class="inspiration-loading" aria-label="正在加载灵感"><i v-for="index in 5" :key="index" /></div>
+              <div v-if="inspirationLoading" class="inspiration-loading" aria-label="正在加载灵感"><i v-for="index in 5" :key="index" /></div>
+              <p v-else-if="!activeInspirations.length && !inspirationError" class="inspiration-empty">暂无可用灵感</p>
               <button v-for="item in activeInspirations" :key="item.id" type="button" class="inspiration-card" :class="{ 'is-selected': selectedInspirationId === item.id, 'is-video': activeMode === 'videos' }" :aria-label="`查看灵感：${item.title}`" @click="openInspiration(item)">
                 <video v-if="activeMode === 'videos' && item.videoUrl" :src="item.videoUrl" :poster="item.imageUrl" muted loop playsinline preload="metadata" :aria-label="`${item.title} 视频预览`" @mouseenter="playInspirationVideo" @mouseleave="pauseInspirationVideo" />
                 <img v-else :src="item.imageUrl" :alt="item.title" />
@@ -195,6 +197,8 @@ const props = defineProps<{
   imageTools: ImageTool[]
   selectedImageToolId: string
   activeInspirations: Inspiration[]
+  inspirationLoading: boolean
+  inspirationError: string
   selectedInspirationId: string
   pendingVideoRuns: GenerationRun[]
   currentVideoCredit: number
@@ -214,6 +218,7 @@ const props = defineProps<{
   openInspiration: (item: Inspiration) => void
   playInspirationVideo: (event: Event) => void
   pauseInspirationVideo: (event: Event) => void
+  retryInspirations: () => void
   stopGeneration: (generation: GenerationRun) => void
   deleteAsset: (assetId: string) => void
   useAssetPrompt: (asset: StudioAsset) => void

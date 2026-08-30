@@ -93,11 +93,16 @@ export const operationsApi = {
       showSuccessMessage: true
     }),
   promptSources: () => request.get<OperationRow[]>({ url: '/v1/admin/prompt-library/sources' }),
-  savePromptSource: (row: OperationRow) =>
+  savePromptSource: (row: OperationRow, reviewAccepted = false) =>
     request.request({
       url: `/v1/admin/prompt-library/sources/${row.id}`,
       method: 'PATCH',
-      data: { displayName: row.displayName, enabled: row.enabled, sortOrder: row.sortOrder },
+      data: {
+        displayName: row.displayName,
+        enabled: row.enabled,
+        sortOrder: row.sortOrder,
+        ...(reviewAccepted ? { reviewAccepted: true } : {})
+      },
       showSuccessMessage: true
     }),
   refreshPromptSource: (id: string) =>

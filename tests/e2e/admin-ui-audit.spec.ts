@@ -1,8 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import { e2eAdminUrl, getE2EAdminCredentials } from './helpers'
 
-const adminUrl = 'http://localhost:5174/admin/'
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
+const adminUrl = e2eAdminUrl
 
 const routes = [
   ['dashboard/console', '工作台'], ['dashboard/analysis', '分析页'], ['dashboard/ecommerce', '电子商务'],
@@ -29,9 +28,10 @@ const routes = [
 ] as const
 
 async function login(page: Page) {
+  const { email, password } = getE2EAdminCredentials()
   await page.goto(adminUrl)
-  await page.getByPlaceholder('管理员邮箱').fill(adminEmail)
-  await page.getByPlaceholder('密码').fill(adminPassword)
+  await page.getByPlaceholder('管理员邮箱').fill(email)
+  await page.getByPlaceholder('密码').fill(password)
   await page.getByRole('button', { name: '进入管理后台' }).click()
   await expect(page).toHaveURL(/#\/dashboard\/console$/)
 }
@@ -71,7 +71,13 @@ test('管理端所有业务页面 UI 宽度巡检', async ({ page }) => {
 
   for (const [path, title] of routes) {
     await page.goto(`${adminUrl}#/${path}`)
-    await expect(page.locator('main').getByText(title, { exact: true }).last()).toBeVisible({ timeout: 12_000 })
+    if (path === 'article/article-list') {
+      // A clean staging database has no seeded articles. The page heading is
+      // still required, while the content list may legitimately be empty.
+      await expect(page.locator('main .el-empty, main .content-card').first()).toBeVisible({ timeout: 12_000 })
+    } else {
+      await expect(page.locator('main').getByText(title, { exact: true }).last()).toBeVisible({ timeout: 12_000 })
+    }
     await page.waitForTimeout(500)
     await expect(page.getByText('页面不存在', { exact: true })).toHaveCount(0)
     const desktop = await layoutMetrics(page)

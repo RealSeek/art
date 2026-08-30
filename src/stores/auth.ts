@@ -93,7 +93,7 @@ export const useAuthStore = defineStore('auth', {
       // login (or another tab) unlocks the user workspace without a second
       // sign-in step, while public pages do not emit a predictable 401.
       try {
-        const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string; authMethod?: string } | null }>('/auth/session')
+        const response = await api<{ user: { id: string; email: string | null; username?: string; displayName?: string; authMethod?: string } | null }>('/auth/session', { timeoutMs: 8_000 })
         const user = response.user
         if (!user) {
           this.session = null

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { AssetKind, GenerationJob, PluginCapability, Prisma, ProviderType } from '@prisma/client'
 import { AssetsService } from '../../assets/assets.service'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -7,7 +7,11 @@ import { GenerationJobCancelledError, GenerationRunner } from '../generation-run
 import { GenerationOutputService } from '../generation-output.service'
 import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
 import { readResponseBytes } from '../../common/response-bytes'
+import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-http'
 import { detectImageFormat, identifyImageFormat, imageFormatMetadata, normalizeImageOptions } from '../image-options'
+import { GenerationSettlementService } from '../generation-settlement.service'
+import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
+import { ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
 
 type ProviderPayload = {
   [key: string]: unknown
@@ -23,11 +27,20 @@ class ImageProviderError extends Error {
 @Injectable()
 export class ImageGenerationRunner implements GenerationRunner {
   readonly kind = 'IMAGE' as const
+  private readonly logger = new Logger(ImageGenerationRunner.name)
 
-  constructor(private readonly prisma: PrismaService, private readonly assets: AssetsService, private readonly providers: ProvidersService, private readonly outputs: GenerationOutputService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assets: AssetsService,
+    private readonly providers: ProvidersService,
+    private readonly outputs: GenerationOutputService,
+    private readonly endpointPolicy: PublicEndpointPolicyService,
+    private readonly attemptAudit: ProviderAttemptAuditService,
+    private readonly settlement: GenerationSettlementService,
+  ) {}
 
   async run(task: GenerationJob) {
-    await this.outputs.cleanup(task)
+    await this.outputs.cleanup(task, { requireActiveLease: true })
     const options = task.options as Record<string, unknown>
     const basePrompt = await this.pluginPrompt(task)
     const selectedStyle = typeof options.style === 'string' ? options.style.trim() : ''
@@ -51,7 +64,7 @@ export class ImageGenerationRunner implements GenerationRunner {
         const height = Number.isInteger(rawHeight) ? rawHeight : 1024
         const requestPollinations = async (singlePrompt: string) => {
           const url = this.providers.buildPollinationsImageUrl(resolved.baseUrl, singlePrompt, { model: resolved.model || 'flux', width, height, seed: Math.floor(Math.random() * 2_147_483_647) })
-          const response = await fetch(url, { headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), signal: AbortSignal.timeout(resolved.timeoutMs) })
+          const response = await this.providerFetch(resolved, url, { headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), signal: AbortSignal.timeout(resolved.timeoutMs) })
           const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
           const declaredSize = Number(response.headers.get('content-length') || 0)
           if (!response.ok) throw new ImageProviderError(`Pollinations 返回 ${response.status}: ${(await response.text()).slice(0, 300)}`, response.status)
@@ -97,6 +110,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     })
     const { resolved, payload } = execution.result
     if (!Array.isArray(payload.data) || !payload.data.length) throw new ImageProviderError('Provider returned no images', 502)
+    if (payload.data.length !== count) throw new ReconciliationRequiredError(`Provider 图片数量不完整：期望 ${count} 张，实际 ${payload.data.length} 张`)
     const imageOptions = normalizeImageOptions(options, resolved.imageCapabilities)
     for (const [position, item] of payload.data.entries()) {
       await this.assertNotCancelled(task.id)
@@ -108,7 +122,10 @@ export class ImageGenerationRunner implements GenerationRunner {
       const asset = await this.outputs.storeAndLink(task, { data: bytes, projectId: task.projectId || undefined, name: task.kind === 'COMMERCE' ? `${options.creationType || '商品视觉'} ${position + 1}${moduleLabel ? ` - ${moduleLabel}` : ''}.${file.extension}` : `生成图片 ${position + 1}.${file.extension}`, mimeType: file.mimeType, kind: task.kind === 'COMMERCE' ? AssetKind.PRODUCT_PACK : AssetKind.IMAGE, position, metadata: { purpose: 'generated', prompt: task.prompt, model: task.model, jobId: task.id, position, moduleLabel, creationType: options.creationType, platform: options.platform, options: { ...options, outputFormat: format } } })
       try { await this.assertNotCancelled(task.id) } catch (error) { await this.assets.remove(task.userId, asset.id); throw error }
     }
-    await this.prisma.generationJob.update({ where: { id: task.id }, data: { upstreamCostMicros: this.localizedCostMicros(payload.data.length * execution.provider.imageCostMicros, execution.provider.pricingUsdExchangeRateMicros) } })
+    await this.updateRunningTask(task, {
+      upstreamCostMicros: this.localizedCostMicros(payload.data.length * execution.provider.imageCostMicros, execution.provider.pricingUsdExchangeRateMicros),
+    }, true)
+    await this.settlement.settleNonChat(task.id, execution.providerAttemptId)
   }
 
   private localizedCostMicros(usdMicros: number, exchangeRateMicros: number) {
@@ -123,26 +140,43 @@ export class ImageGenerationRunner implements GenerationRunner {
     let lastError: unknown
     for (const candidate of candidates) {
       const startedAt = Date.now()
-      const providerAttempt = await this.prisma.providerAttempt.create({ data: { generationId: task.id, provider: `${candidate.source}:${candidate.type}`, model: candidate.model, status: 'RUNNING', metadata: { providerId: candidate.providerId || null, routeId: candidate.routeId || null, credentialId: candidate.credentialId || null } as Prisma.InputJsonValue } }).catch(() => null)
+      const attemptMetadata = { providerId: candidate.providerId || null, routeId: candidate.routeId || null, credentialId: candidate.credentialId || null }
+      const providerAttempt = await this.attemptAudit.start({ generationId: task.id, provider: `${candidate.source}:${candidate.type}`, model: candidate.model, metadata: attemptMetadata as Prisma.InputJsonValue })
+      let result: T
       try {
-        const result = await execute(candidate)
-        if (providerAttempt) await this.prisma.providerAttempt.update({ where: { id: providerAttempt.id }, data: { status: 'SUCCEEDED', endedAt: new Date(), metadata: { ...(providerAttempt.metadata && typeof providerAttempt.metadata === 'object' && !Array.isArray(providerAttempt.metadata) ? providerAttempt.metadata as Record<string, unknown> : {}), latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue } }).catch(() => undefined)
-        attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
-        await this.providers.recordCandidateResult(candidate, true)
-        const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, imageCostMicros: candidate.imageCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue } })
-        return { result, provider: candidate }
+        result = await execute(candidate)
       } catch (error) {
         lastError = error
         const message = error instanceof Error ? error.message : 'Provider request failed'
-        if (providerAttempt) await this.prisma.providerAttempt.update({ where: { id: providerAttempt.id }, data: { status: 'FAILED', endedAt: new Date(), errorCode: error instanceof ImageProviderError && error.status ? `HTTP_${error.status}` : 'PROVIDER_ERROR', errorMessage: message.slice(0, 500), metadata: { ...(providerAttempt.metadata && typeof providerAttempt.metadata === 'object' && !Array.isArray(providerAttempt.metadata) ? providerAttempt.metadata as Record<string, unknown> : {}), latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue } }).catch(() => undefined)
+        await this.attemptAudit.fail({ id: providerAttempt.id, generationId: task.id, errorCode: error instanceof ImageProviderError && error.status ? `HTTP_${error.status}` : 'PROVIDER_ERROR', errorMessage: message, metadata: { ...attemptMetadata, latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue })
         attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'failed', latencyMs: Date.now() - startedAt, error: message.slice(0, 500), at: new Date().toISOString() })
-        await this.providers.recordCandidateResult(candidate, false, message)
-        await this.prisma.generationJob.update({ where: { id: task.id }, data: { options: { ...options, providerAttempts: attempts } as Prisma.InputJsonValue } })
+        try { await this.providers.recordCandidateResult(candidate, false, message) } catch (reason) { this.logger.warn(`Provider health write failed: ${reason instanceof Error ? reason.message : String(reason)}`) }
+        await this.updateRunningTask(task, { options: { ...options, providerAttempts: attempts } as Prisma.InputJsonValue })
         if (!this.canFailover(error)) break
+        continue
       }
+      await this.attemptAudit.succeed({ id: providerAttempt.id, generationId: task.id, metadata: { ...attemptMetadata, latencyMs: Date.now() - startedAt } as Prisma.InputJsonValue })
+      attempts.push({ source: candidate.source, providerId: candidate.providerId, credentialId: candidate.credentialId, routeId: candidate.routeId, label: candidate.label, model: candidate.model, status: 'succeeded', latencyMs: Date.now() - startedAt, at: new Date().toISOString() })
+      try { await this.providers.recordCandidateResult(candidate, true) } catch (reason) { this.logger.warn(`Provider health write failed: ${reason instanceof Error ? reason.message : String(reason)}`) }
+      const originalPricing = task.pricingSnapshot && typeof task.pricingSnapshot === 'object' && !Array.isArray(task.pricingSnapshot) ? task.pricingSnapshot as Record<string, unknown> : {}
+      await this.updateRunningTask(task, { provider: `${candidate.source}:${candidate.type}`, providerChannelId: candidate.providerId || null, userCredentialId: candidate.credentialId || null, userModelRouteId: candidate.source === 'user' ? candidate.routeId || null : null, model: candidate.model, pricingSnapshot: { ...originalPricing, source: candidate.source, presetKey: candidate.presetKey || '', model: candidate.model, settlementCurrency: candidate.settlementCurrency, creditValueMicros: candidate.creditValueMicros, pricingUsdExchangeRateMicros: candidate.pricingUsdExchangeRateMicros, imageCostMicros: candidate.imageCostMicros } as Prisma.InputJsonValue, options: { ...options, providerAttempts: attempts, successfulRouteId: candidate.routeId, successfulCredentialId: candidate.credentialId } as Prisma.InputJsonValue, settlementStatus: 'RECONCILING' }, true)
+      return { result, provider: candidate, providerAttemptId: providerAttempt.id }
     }
     throw lastError || new Error('没有可用的模型渠道')
+  }
+
+  private async updateRunningTask(task: GenerationJob, data: Prisma.GenerationJobUncheckedUpdateManyInput, reconciliationRequired = false) {
+    try {
+      const updated = await this.prisma.generationJob.updateMany({
+        where: { id: task.id, status: 'RUNNING', lockedBy: task.lockedBy, leaseVersion: task.leaseVersion, leaseExpiresAt: { gt: new Date() } },
+        data,
+      })
+      if (updated.count !== 1) throw new Error('Generation worker lease was lost')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误'
+      if (reconciliationRequired) throw new ReconciliationRequiredError(`图片任务持久化失败：${message}`)
+      throw new TerminalSettlementError(`图片任务状态写入失败：${message}`)
+    }
   }
 
   private async localWorkerImage(task: GenerationJob, resolved: ResolvedProvider, prompt: string, imageOptions: ReturnType<typeof normalizeImageOptions>): Promise<ProviderPayload> {
@@ -161,7 +195,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     for (const reference of references) form.append('input', new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), reference.name)
     if (imageOptions.maskAssetId) { const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId); form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name) }
     let response: Response
-    try { response = await fetch(`${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', undefined), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', undefined), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(`本地 Worker 连接失败：${error instanceof Error ? error.message : '网络错误'}`, 503) }
     const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
     const declaredSize = Number(response.headers.get('content-length') || 0)
@@ -179,7 +213,7 @@ export class ImageGenerationRunner implements GenerationRunner {
   private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs) {
     if (!resolved.apiKey) throw new ImageProviderError('AI provider is not configured')
     let response: Response
-    try { response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }) }
     catch (error) { throw new ImageProviderError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ImageProviderError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
@@ -188,7 +222,7 @@ export class ImageGenerationRunner implements GenerationRunner {
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {
     if (!resolved.apiKey) throw new ImageProviderError('AI provider is not configured')
     let response: Response
-    try { response = await fetch(`${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ImageProviderError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
@@ -231,12 +265,19 @@ export class ImageGenerationRunner implements GenerationRunner {
     try { url = new URL(item.url, `${resolved.baseUrl}/`) } catch { throw new ImageProviderError('Provider returned an invalid image URL', 502) }
     const providerOrigin = new URL(resolved.baseUrl).origin
     if (url.origin !== providerOrigin) await this.endpointPolicy.assertPublicHttpUrl(url.toString())
-    const response = await fetch(url, { redirect: 'error', headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
+    const request = url.origin === providerOrigin && resolved.source !== 'user' ? fetchNoRedirect : fetchPublicNoRedirect
+    const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
     if (!response.ok) throw new ImageProviderError(`Provider image download returned ${response.status}`, response.status)
     let bytes: Uint8Array
     try { bytes = await readResponseBytes(response, MAX_GENERATED_IMAGE_BYTES, 'Provider 图片') }
     catch { throw new ImageProviderError('Provider image exceeds 50 MB', 502) }
     this.assertValidImageBytes(bytes, 'Provider'); return bytes
+  }
+
+  private providerFetch(resolved: ResolvedProvider, input: string | URL, init: RequestInit) {
+    return resolved.source === 'user'
+      ? fetchPublicNoRedirect(input, init)
+      : fetchNoRedirect(input, init)
   }
 
   private async assertNotCancelled(jobId: string) {

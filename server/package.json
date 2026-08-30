@@ -1,6 +1,6 @@
 {
   "name": "flux-studio-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
@@ -59,6 +59,7 @@
     "typescript": "^5.9.2"
   },
   "overrides": {
+    "deepmerge-ts": "8.0.2",
     "find-my-way": "9.7.0",
     "uuid": "14.0.1"
   }

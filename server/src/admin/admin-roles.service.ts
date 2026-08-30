@@ -10,12 +10,11 @@ export class AdminRolesService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    const full = await this.prisma.adminRole.upsert({
+    await this.prisma.adminRole.upsert({
       where: { code: 'system_administrator' },
       update: { permissions: ['*'], builtIn: true, enabled: true },
       create: { id: 'role_system_administrator', code: 'system_administrator', name: '系统管理员', description: '拥有全部后台业务权限。', permissions: ['*'], builtIn: true },
     })
-    await this.prisma.user.updateMany({ where: { role: UserRole.ADMIN, adminRoleId: null }, data: { adminRoleId: full.id } })
   }
 
   catalog() { return ADMIN_PERMISSION_CATALOG }

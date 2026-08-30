@@ -64,6 +64,7 @@
 <script setup lang="ts">
   import { useFastEnter } from '@/hooks/core/useFastEnter'
   import type { FastEnterApplication, FastEnterQuickLink } from '@/types/config'
+  import { openExternalLink } from '@/utils/navigation/jump'
 
   defineOptions({ name: 'ArtFastEnter' })
 
@@ -79,17 +80,15 @@
    * @param link 外部链接
    */
   const handleNavigate = (routeName?: string, link?: string): void => {
-    const targetPath = routeName || link
-
-    if (!targetPath) {
+    if (!routeName && !link) {
       console.warn('导航配置无效：缺少路由名称或链接')
       return
     }
 
-    if (targetPath.startsWith('http')) {
-      window.open(targetPath, '_blank')
+    if (link) {
+      openExternalLink(link)
     } else {
-      router.push({ name: targetPath })
+      router.push({ name: routeName })
     }
 
     popoverRef.value?.hide()

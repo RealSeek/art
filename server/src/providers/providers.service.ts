@@ -17,6 +17,7 @@ import {
   userCredentialCreditCost
 } from './provider-routing'
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
+import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 
 type ProviderInput = {
   name: string
@@ -672,7 +673,7 @@ export class ProvidersService implements OnModuleInit {
     try {
       if (provider.type === ProviderType.POLLINATIONS) {
         const url = this.buildPollinationsImageUrl(provider.baseUrl, 'minimal blue circle on white background', { model: 'flux', width: 64, height: 64, seed: 1 })
-        const response = await fetch(url, { headers: this.headers(provider.customHeaders), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const response = await fetchNoRedirect(url, { headers: this.headers(provider.customHeaders), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
         const declaredSize = Number(response.headers.get('content-length') || 0)
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`)
@@ -687,9 +688,9 @@ export class ProvidersService implements OnModuleInit {
       }
       if (provider.type === ProviderType.LOCAL_WORKER) {
         const headers = this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey)
-        const health = await fetch(`${provider.baseUrl}/health`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const health = await fetchNoRedirect(`${provider.baseUrl}/health`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         if (!health.ok) throw new Error(`Worker 健康检查返回 HTTP ${health.status}: ${(await health.text()).slice(0, 300)}`)
-        const response = await fetch(`${provider.baseUrl}/models`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const response = await fetchNoRedirect(`${provider.baseUrl}/models`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         const raw = await response.text()
         if (!response.ok) throw new Error(`Worker 模型目录返回 HTTP ${response.status}: ${raw.slice(0, 300)}`)
         const parsed = JSON.parse(raw) as { data?: Array<string | { id?: string }>; models?: Array<string | { id?: string; name?: string }> }
@@ -700,7 +701,7 @@ export class ProvidersService implements OnModuleInit {
         const candidates = await this.describeDiscoveredModels(parsed)
         return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
       }
-      const response = await fetch(`${provider.baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+      const response = await fetchNoRedirect(`${provider.baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
       const raw = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
       const parsed = JSON.parse(raw) as unknown
@@ -875,7 +876,7 @@ export class ProvidersService implements OnModuleInit {
     const apiKey = this.crypto.decrypt(provider.encryptedApiKey)
     let response: Response
     try {
-      response = await fetch(`${provider.baseUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      response = await fetchNoRedirect(`${provider.baseUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
         method: 'POST',
         headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey),
         signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 5_000)),
@@ -1283,8 +1284,7 @@ export class ProvidersService implements OnModuleInit {
     try {
       const apiKey = this.crypto.decrypt(credential.encryptedApiKey)
       const baseUrl = await this.assertUserProviderUrl(credential.baseUrl)
-      const response = await fetch(`${baseUrl}/models`, {
-        redirect: 'error',
+      const response = await fetchPublicNoRedirect(`${baseUrl}/models`, {
         headers: this.applyAuth(this.headers(credential.customHeaders), credential.authType, apiKey),
         signal: AbortSignal.timeout(30_000),
       })

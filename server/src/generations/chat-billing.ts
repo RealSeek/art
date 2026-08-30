@@ -17,7 +17,7 @@ export type ChatBillingOptions = {
   creditValueMicros?: number
   quotaEnabled?: boolean
   quotaId?: string
-  quotaReservations?: Array<{ quotaId: string; reservedUnits: string | number }>
+  quotaReservations?: Array<{ reservationId?: string; quotaId: string; reservedUnits: string | number }>
 }
 
 export function parseChatBillingOptions(options: Prisma.JsonValue): ChatBillingOptions {

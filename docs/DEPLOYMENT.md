@@ -8,7 +8,7 @@
 
 | 服务 | 作用 | 默认暴露 |
 | --- | --- | --- |
-| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 主机 `8080`（可通过 `XINYUE_HTTP_PORT` 修改） |
+| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 默认仅绑定 `127.0.0.1:8080`（可通过 `XINYUE_HTTP_BIND`/`XINYUE_HTTP_PORT` 修改） |
 | `backend` | NestJS API、BullMQ Worker、迁移和幂等初始化 | 容器 `3100` |
 | `postgres` | 主业务数据库 | 仅 Compose 内网 |
 | `redis` | 队列、缓存和任务状态 | 仅 Compose 内网 |
@@ -30,9 +30,9 @@ Nginx 路由：用户端位于 `/`，管理端位于 `/admin/`，API 位于 `/v1
 Copy-Item .env.production.example .env.production
 ```
 
-必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`，两个系统密钥均不得少于 32 位；占位值或空值会让生产容器直接启动失败。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
+必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`INSTALL_TOKEN` 和 `LOCAL_WORKER_TOKEN`，所有系统令牌均不得少于 32 位且不能使用占位值。`INSTALL_TOKEN` 只用于授权首次管理员创建，不能放入 URL、日志或工单。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
 
-Web 默认使用宿主机 `8080` 端口。一键安装脚本发现端口被占用时会自动选择后续可用端口，并写回 `XINYUE_HTTP_PORT`；手工部署可以直接修改该变量。
+Web 默认使用宿主机回环地址 `127.0.0.1:8080`。一键安装脚本发现端口被占用时会自动选择后续可用端口并写回 `XINYUE_HTTP_PORT`；手工部署可以直接修改 `XINYUE_HTTP_BIND` 和该变量。生产环境不要把 8080 直接暴露到公网。
 
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
@@ -45,16 +45,28 @@ docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend
 ```
 
-后端每次启动都会先执行 `prisma migrate deploy`，然后幂等初始化全局设置和默认用户组；完成后才启动 API。管理员通过 `/install` 页面创建，重复启动不会创建重复管理员或重复用户组。
+后端每次启动都会先执行 `prisma migrate deploy`，然后幂等初始化全局设置和默认用户组；完成后才启动 API。管理员通过 `/install` 页面使用安装令牌创建，重复启动不会创建重复管理员或重复用户组。
 
 ### 2.4 首次初始化
 
 1. 查看 `backend` 日志，确认所有迁移完成并出现 API 启动成功日志。
-2. 打开 `/install`，填写管理员邮箱和至少 8 位密码并提交。
-3. 创建成功后进入 `/admin/`，确认管理员信息、会话安全和权限边界。
-4. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
+2. 仅在服务器本机从权限受控的 `.env.production` 读取 `INSTALL_TOKEN`；安装脚本不会把它输出到终端或日志，也不要通过 URL、聊天工具或工单传递。
+3. 打开 `/install`，填写安装令牌、管理员邮箱和至少 8 位密码并提交。
+4. 创建成功后进入 `/admin/`，确认管理员信息、会话安全和权限边界。
+5. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
 
-数据库密码包含 `@`、`:`、`/`、`#` 等字符时，需要先在 `DATABASE_URL` 中进行 URL 编码。系统不提供公开安装页，也不会通过浏览器写入运行配置。
+数据库密码包含 `@`、`:`、`/`、`#` 等字符时，需要先在 `DATABASE_URL` 中进行 URL 编码。安装页面不会返回或修改服务器配置；缺少正确安装令牌时，创建管理员请求会被拒绝。
+
+外部 Prompt 同步和外部 Skill 市场默认关闭，启动时不会访问第三方站点，也不会读取其本地缓存。部署所有者逐项核验来源许可证及商业使用条件后，才可在 `.env.production` 中明确设置：
+
+```dotenv
+PROMPT_LIBRARY_EXTERNAL_SYNC_ENABLED=true
+EXTERNAL_SKILL_MARKET_ENABLED=true
+```
+
+外部 Skill 的安全扫描只检查格式、脚本和危险命令，不构成许可证授权或商业使用确认。Prompt 渠道也可由管理员在后台逐个审核并启用；明确关闭的渠道不会被环境变量强制打开。
+
+从旧版本升级时，历史上已标记为启用、但没有审核时间戳的外部 Prompt 渠道会保持停用。管理员完成核验后，可在来源管理中逐个重新启用；内部公开作品来源不受影响。
 
 ### 2.5 HTTPS 和域名
 
@@ -62,7 +74,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 
 ```dotenv
 WEB_ORIGIN=https://xinyue.example.com
+PUBLIC_BASE_URL=https://xinyue.example.com
 COOKIE_SECURE=true
+TRUST_PROXY=1
 ```
 
 然后重建后端：
@@ -71,7 +85,21 @@ COOKIE_SECURE=true
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build backend
 ```
 
-`WEB_ORIGIN` 必须与浏览器实际访问的 Origin 完全一致，否则登录 Cookie 和跨域请求会失败。
+`WEB_ORIGIN` 必须与浏览器实际访问的 Origin 完全一致，否则登录 Cookie 和跨域请求会失败。`PUBLIC_BASE_URL` 是支付 Webhook 对外地址；前后端同域时与首个 `WEB_ORIGIN` 保持一致。内置 Docker 拓扑只有一层 Nginx，因此 `TRUST_PROXY=1`；手工部署时必须按真实代理跳数或代理 IP/CIDR 配置，不能使用 `true` 信任任意转发头。外层 TLS 代理必须覆盖 `X-Forwarded-Proto`，且 8080 只能绑定回环或受控内网。
+
+### 2.6 出口网络与 SSRF 边界
+
+应用会在外部请求前拒绝回环、私网、链路本地、云 Metadata 地址和非 HTTP(S) 协议，并拒绝不受信重定向。但域名校验和 TCP 建连不是同一个网络操作，DNS 记录可能在两者之间变化；使用正向代理时，目标域名还可能由代理服务器解析。因此，应用层校验不能替代生产 egress 策略。
+
+生产环境必须按实际拓扑配置安全组、防火墙、容器网络策略或专用 egress proxy：
+
+- 只允许 Backend/Worker 访问明确需要的 PostgreSQL、Redis、DailyHot 或本地 Worker 地址和端口；
+- 拒绝访问其余回环、RFC 1918、链路本地、Docker/Kubernetes 管理网段及 IPv6 ULA/链路本地网段；
+- 显式阻断云厂商 Metadata 地址，包括 `169.254.169.254` 及云平台提供的 IPv6 Metadata 地址；
+- 普通公网请求尽量只允许经受控 egress proxy 访问 `80/443`，并由代理在实际解析和建连时再次执行公网 IP 校验；
+- 上线前用 DNS 重绑定、私网 A/AAAA 记录、302 跳转到 Metadata 和代理远端解析四类用例验证规则确实生效。
+
+如果业务允许管理员配置内网 Local Worker，应给该服务建立独立、最小化的目的地址白名单，不要因此对所有用户自定义 Provider、Tool、Webhook 或搜索地址开放内网访问。
 
 ## 3. 持久化与备份
 
@@ -156,6 +184,8 @@ docker compose --profile recommendations --env-file .env.production -f docker-co
 
 先在 `.env.production` 生成独立令牌并启动 profile：
 
+`LOCAL_WORKER_TOKEN` 也是生产启动门禁的一部分，即使暂不启用可选 Worker profile 也必须生成。这样后续启用任一 profile 时不会出现空 token 的内部服务。
+
 ```dotenv
 LOCAL_WORKER_TOKEN=替换为独立随机令牌
 LOCAL_WORKER_CONCURRENCY=1
@@ -174,9 +204,9 @@ API 地址：http://image-worker:8080
 访问令牌：LOCAL_WORKER_TOKEN 的值
 ```
 
-执行渠道检测后，使用发现的 `rembg` 能力创建图片模型、绑定路由、配置价格和用户分组，再发布对应图片工具。模型缓存保存在 `xinyue_worker_models`，七天幂等结果缓存保存在 `xinyue_worker_data`；两者都不进入 Git。完整接口和取消语义见 [LOCAL_WORKER_PROTOCOL.md](LOCAL_WORKER_PROTOCOL.md)。
+执行渠道检测后，使用发现的 `rembg` 能力创建图片模型、绑定路由、配置价格和用户分组，再发布对应图片工具。模型缓存保存在 `xinyue_worker_models`，七天幂等结果缓存保存在 `xinyue_worker_data`；两者都不进入 Git。完整接口和取消语义见 [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md)。
 
-其余图片 Worker 按需启动，不需要时不要构建：
+其余图片 Worker 按需启动，不需要时不要构建。`iopaint` 和 `realesrgan` 当前属于未认证的实验 profile，不得作为生产能力启用；只有在完成各自 README 中的依赖、漏洞和推理验收后，才可以在隔离 staging 使用：
 
 ```powershell
 docker compose --profile iopaint --env-file .env.production -f docker-compose.prod.yml up -d --build iopaint-worker
@@ -213,12 +243,14 @@ Prisma 迁移不会自动执行数据库降级，不能只回退代码而忽略�
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail 200 backend
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail 200 frontend
-Invoke-RestMethod http://localhost/v1/health
+Invoke-RestMethod http://localhost:8080/v1/health/live
+Invoke-RestMethod http://localhost:8080/v1/health/ready
 ```
 
 上线检查：
 
-- `/v1/health` 返回 `ok: true`
+- `/v1/health/live` 返回 `ok: true`
+- `/v1/health/ready` 返回 `ok: true`，且 PostgreSQL、Redis、BullMQ 均为 `up`
 - `/`、`/login`、`/install` 和 `/admin/` 路由状态正确；管理员创建后 `/install` 自动关闭
 - 超级管理员可以登录，普通用户不能进入管理后台
 - PostgreSQL、Redis、文件存储在管理端系统健康页均正常
@@ -257,7 +289,7 @@ npm --prefix server run prisma:deploy
 - Nginx 将 `/v1/` 代理到 `127.0.0.1:3100`
 - `UPLOAD_DIR` 指向持久化目录
 
-后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY` 和存储配置。管理员通过 `/install` 创建；也可以同时提供 `ADMIN_EMAIL`、`ADMIN_PASSWORD` 让启动脚本执行幂等初始化。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy`。
+后端至少需要配置：`NODE_ENV=production`、`DATABASE_URL`、`REDIS_URL`、`WEB_ORIGIN`、`COOKIE_SECURE`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`INSTALL_TOKEN` 和存储配置。管理员通过 `/install` 创建；也可以同时提供 `ADMIN_EMAIL`、`ADMIN_PASSWORD` 让启动脚本执行幂等初始化。手工部署升级时，应在启动新进程前先执行 `npm --prefix server run prisma:deploy`。
 
 ## 7. 发布前验证
 

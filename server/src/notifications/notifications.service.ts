@@ -5,6 +5,7 @@ import { EmailService } from '../auth/email.service'
 import { CredentialCryptoService } from '../providers/credential-crypto.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { fetchPublicNoRedirect } from '../common/outbound-http'
 
 type TemplateInput = {
   key: string
@@ -136,7 +137,7 @@ export class NotificationsService implements OnModuleInit {
         const secret = encryptedWebhookSecret ? this.crypto.decrypt(encryptedWebhookSecret) : ''
         const signature = secret ? createHmac('sha256', secret).update(payload).digest('hex') : ''
         const url = await this.endpointPolicy.assertPublicHttpUrl(delivery.recipient)
-        const response = await fetch(url, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Signature': `sha256=${signature}` } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
+        const response = await fetchPublicNoRedirect(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signature ? { 'X-Xinyue-Signature': `sha256=${signature}` } : {}) }, body: payload, signal: AbortSignal.timeout(10_000) })
         if (!response.ok) throw new Error(`Webhook 返回 HTTP ${response.status}`)
       }
       await this.prisma.notificationDelivery.update({ where: { id: delivery.id }, data: { status: NotificationDeliveryStatus.SENT, attempts: { increment: 1 }, sentAt: new Date(), lastError: '' } })

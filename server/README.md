@@ -39,7 +39,7 @@ API 地址为 `http://localhost:3100/v1`。用户端和管理端开发服务器�
 - 提示词、技能、助手、工具授权、CMS、公告、通知、工单和内容审核
 - 本地/S3 资产、校验、迁移、生命周期、备份和恢复
 
-没有健康模型渠道时，API 会明确返回不可用错误，不生成伪造的演示回复。图片工具 Worker 使用独立容器和协议，见 [LOCAL_WORKER_PROTOCOL](../docs/LOCAL_WORKER_PROTOCOL.md)。
+没有健康模型渠道时，API 会明确返回不可用错误，不生成伪造的演示回复。图片工具 Worker 使用独立容器和协议，见 [WORKER_PROTOCOL](../docs/WORKER_PROTOCOL.md)。
 
 ## 管理端
 

@@ -1,5 +1,5 @@
 <template>
-  <section class="canvas-editor-page" :class="{ 'is-inspector-open': nodeConfigOpen && selectedNode, 'is-short-drama': isDramaCanvas, 'is-assets-open': assetsPanelOpen, 'is-sidebar-open': sidebarOpen, 'has-selection-actions': selectionCount > 1 || selectedEdgeCount }" :style="{ '--canvas-sidebar-width': `${canvasSidebarWidth}px` }">
+  <section class="canvas-editor-page" :class="{ 'is-inspector-open': nodeConfigOpen && selectedNode, 'is-short-drama': isDramaCanvas, 'is-assets-open': assetsPanelOpen, 'is-sidebar-open': sidebarOpen, 'has-selection-actions': selectionCount > 1 || selectedEdgeCount }" :style="{ '--canvas-desktop-sidebar-width': `${canvasSidebarWidth}px` }">
     <header class="canvas-editor-header">
       <button type="button" class="canvas-icon-button canvas-menu-trigger" aria-label="打开画布菜单" title="打开画布菜单" :class="{ 'is-active': canvasMenuOpen }" @click="canvasMenuOpen = !canvasMenuOpen"><Menu :size="20" /></button>
       <button type="button" class="canvas-icon-button canvas-back-trigger" aria-label="返回画布列表" title="返回画布列表" @click="goBack"><ArrowLeft :size="19" /></button>
@@ -450,6 +450,7 @@ const clearCanvasOpen = ref(false)
 const pendingPanelAsset = ref<CanvasAssetPanelItem | null>(null)
 const agentSidebarOpen = ref(false)
 const canvasSidebarWidth = ref(404)
+const compactCanvasQuery = window.matchMedia('(max-width: 680px)')
 const miniMapOpen = ref(false)
 const canvasAppearanceOpen = ref(false)
 const agentPluginId = ref('')
@@ -629,6 +630,7 @@ onMounted(() => {
   window.addEventListener('blur', resetTemporaryPan)
   window.addEventListener('paste', handleClipboardPaste)
   window.addEventListener('beforeunload', handleBeforeUnload)
+  compactCanvasQuery.addEventListener('change', handleCompactCanvasChange)
   void studio.refreshCredits().catch(() => undefined)
   void api<Array<{ readAt?: string | null }>>('/notifications').then((items) => { unreadNotifications.value = items.filter((item) => !item.readAt).length }).catch(() => undefined)
   void loadCanvas()
@@ -640,6 +642,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', resetTemporaryPan)
   window.removeEventListener('paste', handleClipboardPaste)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  compactCanvasQuery.removeEventListener('change', handleCompactCanvasChange)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 })
@@ -676,7 +679,7 @@ async function loadCanvas() {
     // The reference canvas opens with the Agent workspace visible. Keep the
     // connection state in the real panel so an unconfigured Agent is still
     // actionable rather than presenting a dead button.
-    agentSidebarOpen.value = true
+    agentSidebarOpen.value = !compactCanvasQuery.matches
     workspacePanel.value = 'agent'
     // Keep the complete Agent workspace visible before a model is configured;
     // the action button and notice explain the missing setup in place.
@@ -689,6 +692,12 @@ async function loadCanvas() {
     }
   } catch (reason) { loadError.value = reason instanceof Error ? reason.message : '画布加载失败' }
   finally { loading.value = false }
+}
+
+function handleCompactCanvasChange(event: MediaQueryListEvent) {
+  if (!event.matches) return
+  agentSidebarOpen.value = false
+  productionSidebarOpen.value = false
 }
 
 function applyCanvasCatalogResults(

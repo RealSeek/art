@@ -1,8 +1,8 @@
 import { BadGatewayException, BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { ModelCapability, Prisma, ProjectSkillChangeType } from '@prisma/client'
+import { JobKind, Prisma, ProjectSkillChangeType } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ProvidersService, ResolvedProvider } from '../providers/providers.service'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { GenerationsService } from '../generations/generations.service'
 
 type ActivateSkillInput = {
   name: string
@@ -14,7 +14,7 @@ type ActivateSkillInput = {
 
 @Injectable()
 export class ProjectSkillsService {
-  constructor(private readonly prisma: PrismaService, private readonly providers: ProvidersService, private readonly access: ResourceAccessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly generations: GenerationsService, private readonly access: ResourceAccessService) {}
 
   async status(userId: string, projectId: string) {
     const project = await this.accessibleProject(userId, projectId)
@@ -91,7 +91,7 @@ export class ProjectSkillsService {
     const transcript = messages.map((item) => `${item.role === 'USER' ? '用户' : '助手'}：${item.content}`).join('\n\n').slice(-40_000)
     const oldSkill = project.activeSkillVersion?.enabled ? project.activeSkillVersion : null
     const prompt = `你是企业项目技能维护助手。请从旧技能和项目对话中提炼可复用、明确、可执行的新技能。保留有效规则，吸收已经验证的偏好、流程和质量标准；禁止写入一次性任务、个人隐私、账号密钥或对话原文。\n\n旧技能名称：${oldSkill?.name || '未设置'}\n旧技能内容：\n${oldSkill?.content || '无'}\n\n调整要求：\n${request.trim() || '结合对话自动提炼'}\n\n来源对话《${conversation.title}》：\n${transcript}\n\n只返回 JSON：{"name":"简短技能名称","content":"完整技能正文","changeSummary":"本次变化摘要"}`
-    const candidate = await this.generateCandidate(userId, project.defaultModel || undefined, prompt)
+    const candidate = await this.generateCandidate(userId, projectId, project.defaultModel || undefined, prompt)
     return { ...candidate, sourceConversation: { id: conversation.id, title: conversation.title }, basedOnVersion: oldSkill?.version || null }
   }
 
@@ -166,42 +166,48 @@ export class ProjectSkillsService {
     })
   }
 
-  private async generateCandidate(userId: string, model: string | undefined, prompt: string) {
-    const candidates = await this.providers.resolveCandidates(userId, model, ModelCapability.CHAT, {})
-    let lastError: unknown
-    for (const provider of candidates) {
-      try {
-        const content = await this.requestProvider(provider, prompt)
-        await this.providers.recordCandidateResult(provider, true)
-        return this.parseCandidate(content)
-      } catch (error) {
-        lastError = error
-        await this.providers.recordCandidateResult(provider, false, error instanceof Error ? error.message : '技能总结失败')
+  private async generateCandidate(userId: string, projectId: string, model: string | undefined, prompt: string) {
+    const conversation = await this.prisma.conversation.create({
+      data: {
+        userId,
+        projectId,
+        title: 'Project skill summary',
+        model: model || '',
+        temporary: true,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+        messages: { create: { authorId: userId, role: 'USER', content: prompt, metadata: { internal: true, purpose: 'project-skill-summary' } } },
+      },
+    })
+    let job: Awaited<ReturnType<GenerationsService['create']>>
+    try {
+      job = await this.generations.create(userId, {
+        kind: JobKind.CHAT,
+        prompt,
+        model,
+        projectId,
+        conversationId: conversation.id,
+        options: { disableAssistantTools: true, maxOutputTokens: 4096, internalPurpose: 'project-skill-summary' },
+        idempotencyKey: `project-skill-summary:${conversation.id}`,
+      })
+    } catch (error) {
+      await this.prisma.conversation.delete({ where: { id: conversation.id } }).catch(() => undefined)
+      throw error
+    }
+    const deadline = Date.now() + 5 * 60_000
+    while (Date.now() < deadline) {
+      const current = await this.generations.get(userId, job.id)
+      if (current.status === 'SUCCEEDED') {
+        const content = current.stream?.content || ''
+        if (!content.trim()) throw new BadGatewayException('技能总结模型未返回内容')
+        try { return this.parseCandidate(content) }
+        catch (error) { throw new BadGatewayException(error instanceof Error ? error.message : '技能总结失败') }
       }
+      if (current.status === 'FAILED') throw new BadGatewayException(current.errorMessage || '技能总结失败')
+      if (current.status === 'CANCELLED') throw new BadGatewayException('技能总结已取消')
+      await new Promise((resolve) => setTimeout(resolve, 400))
     }
-    throw new BadGatewayException(lastError instanceof Error ? lastError.message : '技能总结失败')
-  }
-
-  private async requestProvider(provider: ResolvedProvider, prompt: string) {
-    let path = '/chat/completions'
-    let protocol: 'openai' | 'claude' | 'gemini' = 'openai'
-    let body: Record<string, unknown> = { model: provider.model, messages: [{ role: 'user', content: prompt }], max_tokens: 4096, response_format: { type: 'json_object' } }
-    if (provider.apiProtocol === 'anthropic') {
-      protocol = 'claude'; path = '/messages'; body = { model: provider.model, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] }
-    } else if (provider.apiProtocol === 'gemini') {
-      protocol = 'gemini'; path = `/models/${encodeURIComponent(provider.model)}:generateContent`; body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 4096, responseMimeType: 'application/json' } }
-    }
-    const response = await fetch(`${provider.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(provider, protocol), body: JSON.stringify(body), signal: AbortSignal.timeout(provider.timeoutMs) })
-    if (!response.ok) throw new Error(`模型服务返回 ${response.status}: ${(await response.text()).slice(0, 300)}`)
-    const payload = await response.json() as Record<string, unknown>
-    if (provider.apiProtocol === 'anthropic') return ((payload.content as Array<Record<string, unknown>> | undefined) || []).map((item) => String(item.text || '')).join('')
-    if (provider.apiProtocol === 'gemini') {
-      const candidate = ((payload.candidates as Array<Record<string, unknown>> | undefined) || [])[0]
-      const content = candidate?.content as Record<string, unknown> | undefined
-      return ((content?.parts as Array<Record<string, unknown>> | undefined) || []).map((item) => String(item.text || '')).join('')
-    }
-    const choice = ((payload.choices as Array<Record<string, unknown>> | undefined) || [])[0]
-    return String((choice?.message as Record<string, unknown> | undefined)?.content || '')
+    await this.generations.cancel(userId, job.id).catch(() => undefined)
+    throw new BadGatewayException('技能总结超时')
   }
 
   private parseCandidate(raw: string) {

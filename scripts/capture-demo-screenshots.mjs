@@ -1,11 +1,11 @@
 import { chromium } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { getE2EAdminCredentials } from './e2e-admin-credentials.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const outputDir = resolve(root, 'docs', 'images')
-const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@flux.local'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'FluxAdmin@2026!'
+const { email: adminEmail, password: adminPassword } = getE2EAdminCredentials()
 
 await mkdir(outputDir, { recursive: true })
 

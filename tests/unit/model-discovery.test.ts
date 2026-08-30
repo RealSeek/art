@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ModelDiscoveryService } from '../../server/src/providers/model-discovery.service'
 
+const endpointPolicy = { assertPublicHttpUrl: async (value: string) => new URL(value) }
+
 test('模型价格目录刷新失败时保留上一次成功结果', async () => {
   const originalFetch = globalThis.fetch
-  const service = new ModelDiscoveryService()
+  const service = new ModelDiscoveryService(endpointPolicy as never)
   try {
     globalThis.fetch = async () => new Response(JSON.stringify({
       'example-chat': {
@@ -29,7 +31,7 @@ test('模型价格目录刷新失败时保留上一次成功结果', async () =>
 
 test('模型售价会按 USD 汇率换算为结算币种额度', async () => {
   const originalFetch = globalThis.fetch
-  const service = new ModelDiscoveryService()
+  const service = new ModelDiscoveryService(endpointPolicy as never)
   try {
     globalThis.fetch = async () => new Response(JSON.stringify({
       'exchange-chat': {

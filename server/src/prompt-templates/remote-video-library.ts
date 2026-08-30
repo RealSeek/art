@@ -24,6 +24,17 @@ const REQUEST_HEADERS = {
   "user-agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36 XinyueAI/1.0",
 };
+const REMOTE_PROMPT_HOSTS = new Set([
+  "youmind.com",
+  "www.youmind.com",
+  "higgsfield.ai",
+  "www.higgsfield.ai",
+  "generateprompt.net",
+  "www.generateprompt.net",
+]);
+const MAX_REMOTE_REDIRECTS = 3;
+
+type HttpFetchInit = NonNullable<Parameters<typeof httpFetch>[1]>;
 
 let proxyDispatcher: Dispatcher | undefined;
 
@@ -38,7 +49,7 @@ function dispatcher() {
   return proxyDispatcher;
 }
 
-async function requestText(
+export async function requestText(
   url: string,
   headers: Record<string, string> = {},
   timeoutMs = 25_000,
@@ -46,7 +57,7 @@ async function requestText(
   let failure: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await httpFetch(url, {
+      const response = await fetchRemote(url, {
         dispatcher: dispatcher(),
         headers: { ...REQUEST_HEADERS, ...headers },
         signal: AbortSignal.timeout(timeoutMs),
@@ -59,6 +70,46 @@ async function requestText(
     }
   }
   throw failure instanceof Error ? failure : new Error("远程提示词请求失败");
+}
+
+async function fetchRemote(value: string, init: HttpFetchInit) {
+  let current = allowedRemoteUrl(value);
+  for (let redirects = 0; ; redirects += 1) {
+    const response = await httpFetch(current, { ...init, redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) return response;
+    await response.body?.cancel().catch(() => undefined);
+    if (redirects >= MAX_REMOTE_REDIRECTS) {
+      throw new Error("远程提示词重定向次数超过限制");
+    }
+    const location = response.headers.get("location");
+    if (!location) throw new Error("远程提示词重定向地址无效");
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      throw new Error("远程提示词重定向地址无效");
+    }
+    current = allowedRemoteUrl(next.toString());
+  }
+}
+
+function allowedRemoteUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("远程提示词地址无效");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    (url.port && url.port !== "443") ||
+    !REMOTE_PROMPT_HOSTS.has(url.hostname.toLowerCase())
+  ) {
+    throw new Error("远程提示词来源不在允许列表");
+  }
+  return url;
 }
 
 function urlsFromSitemap(xml: string) {

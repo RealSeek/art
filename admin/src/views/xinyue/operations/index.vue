@@ -801,7 +801,27 @@
     }
   }
   async function savePromptSource(row: Row) {
-    await operationsApi.savePromptSource(row)
+    const requiresReview =
+      row.external === true &&
+      row.enabled === true &&
+      (!row.reviewAcceptedAt || row.configuredEnabled === false)
+    if (requiresReview) {
+      try {
+        await ElMessageBox.confirm(
+          xt('外部提示词内容可能有单独的版权或商业使用限制。请确认你已核验该来源的授权范围，并愿意承担启用后的使用责任。'),
+          xt('确认启用外部来源'),
+          {
+            confirmButtonText: xt('已核验并启用'),
+            cancelButtonText: xt('取消'),
+            type: 'warning'
+          }
+        )
+      } catch {
+        await openPromptSources()
+        return
+      }
+    }
+    await operationsApi.savePromptSource(row, requiresReview)
     await openPromptSources()
     await load()
   }

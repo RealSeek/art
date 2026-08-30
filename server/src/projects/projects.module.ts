@@ -4,8 +4,9 @@ import {
 } from "./projects.controller";
 import { AdminProjectsController } from "./admin-projects.controller";
 import { ProvidersModule } from "../providers/providers.module";
+import { GenerationsModule } from "../generations/generations.module";
 import { ProjectSkillsController } from "./project-skills.controller";
 import { ProjectSkillsService } from "./project-skills.service";
 
-@Module({ imports: [ProvidersModule], controllers: [ProjectsController, AdminProjectsController, ProjectSkillsController], providers: [ProjectSkillsService] })
+@Module({ imports: [ProvidersModule, GenerationsModule], controllers: [ProjectsController, AdminProjectsController, ProjectSkillsController], providers: [ProjectSkillsService] })
 export class ProjectsModule {}

@@ -23,7 +23,19 @@ app.use(pinia).use(router).use(i18n)
 
 async function bootstrap() {
   // Resolve the cookie-backed session before protected controls can be used.
-  await useAuthStore(pinia).refresh()
+  // A stalled backend must never prevent the public shell from mounting.
+  let deadline: ReturnType<typeof globalThis.setTimeout> | undefined
+  const deadlineReached = new Promise<void>((resolve) => {
+    deadline = globalThis.setTimeout(resolve, 8_000)
+  })
+  try {
+    await Promise.race([
+      useAuthStore(pinia).refresh().catch(() => undefined),
+      deadlineReached,
+    ])
+  } finally {
+    if (deadline !== undefined) globalThis.clearTimeout(deadline)
+  }
   app.mount('#app')
 }
 

@@ -71,6 +71,10 @@ const axiosInstance = axios.create({
 /** 请求拦截器 */
 axiosInstance.interceptors.request.use(
   (request: InternalAxiosRequestConfig) => {
+    const method = request.method?.toUpperCase() || 'GET'
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      request.headers.set('X-Xinyue-Request', '1')
+    }
     if (request.data && !(request.data instanceof FormData) && !request.headers['Content-Type']) {
       request.headers.set('Content-Type', 'application/json')
       request.data = JSON.stringify(request.data)

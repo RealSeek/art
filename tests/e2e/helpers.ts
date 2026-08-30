@@ -1,7 +1,16 @@
 import { expect, type Page } from '@playwright/test'
 
-export const adminEmail = process.env.E2E_ADMIN_EMAIL || 'xinyue@xinyue.mom'
-export const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'xinyue.mom'
+export const e2eBaseUrl = (process.env.E2E_BASE_URL || 'http://localhost:5173').replace(/\/+$/, '')
+export const e2eAdminUrl = `${(process.env.E2E_ADMIN_URL || 'http://localhost:5174/admin').replace(/\/+$/, '')}/`
+export const e2eApiOrigin = (process.env.E2E_API_ORIGIN || 'http://localhost:3100').replace(/\/+$/, '')
+export const adminEmail = process.env.E2E_ADMIN_EMAIL || ''
+export const adminPassword = process.env.E2E_ADMIN_PASSWORD || ''
+export function getE2EAdminCredentials() {
+  if (!adminEmail || !adminPassword) {
+    throw new Error('Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD before running E2E tests.')
+  }
+  return { email: adminEmail, password: adminPassword }
+}
 type SessionCookie = { name: string; value: string; domain: string; path: string; expires: number; httpOnly: boolean; secure: boolean; sameSite: 'Strict' | 'Lax' | 'None' }
 let cachedSessionCookie: SessionCookie | undefined
 
@@ -14,7 +23,7 @@ function parseSessionCookie(setCookieHeader: string): SessionCookie | null {
   const cookie: SessionCookie = {
     name,
     value,
-    domain: 'localhost',
+    domain: new URL(e2eBaseUrl).hostname,
     path: '/',
     expires: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
     httpOnly: false,
@@ -43,12 +52,17 @@ function parseSessionCookie(setCookieHeader: string): SessionCookie | null {
 }
 
 export async function loginAdminByApi(page: Page) {
+  const credentials = getE2EAdminCredentials()
+  // Authenticated E2E writes must satisfy the same-origin mutation guard.
+  // This helper is only used by the user workspace/canvas suites, so the
+  // marker never leaks into the Admin suite's third-party Iconify requests.
+  await page.context().setExtraHTTPHeaders({ 'X-Xinyue-Request': '1' })
   if (cachedSessionCookie) {
     await page.context().addCookies([cachedSessionCookie])
     return
   }
   const response = await page.request.post('/v1/auth/admin/login', {
-    data: { email: adminEmail, password: adminPassword },
+    data: credentials,
   })
   expect(response.ok()).toBeTruthy()
   const setCookie = response.headersArray().find((header) => header.name.toLowerCase() === 'set-cookie')

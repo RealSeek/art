@@ -23,10 +23,10 @@ function capture(file, args) {
 }
 function checksum(file) { return createHash('sha256').update(readFileSync(resolve(target, file))).digest('hex') }
 
-run(['up', '-d', 'postgres'])
+run(['up', '-d', '--wait', '--wait-timeout', '180', 'postgres'])
 capture('database.dump', ['exec', '-T', 'postgres', 'pg_dump', '-U', 'flux', '-Fc', 'flux_studio'])
 capture('uploads.tar.gz', ['run', '--rm', '-T', '--no-deps', 'backend', 'tar', 'czf', '-', '-C', '/app/uploads', '.'])
-run(['up', '-d', 'redis'])
+run(['up', '-d', '--wait', '--wait-timeout', '180', 'redis'])
 run(['exec', '-T', 'redis', 'redis-cli', 'SAVE'])
 capture('redis.tar.gz', ['run', '--rm', '-T', '--no-deps', 'redis', 'tar', 'czf', '-', '-C', '/data', '.'])
 copyFileSync(envFile, resolve(target, 'environment.production'))

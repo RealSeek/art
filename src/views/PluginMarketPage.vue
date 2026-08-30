@@ -22,14 +22,15 @@
 
       <div v-if="error" class="plugin-feedback" role="alert"><CircleAlert :size="16" /><span>{{ error }}</span><button type="button" @click="loadAll">重试</button></div>
       <div v-else-if="notice" class="plugin-feedback plugin-feedback--success" role="status"><Check :size="16" /><span>{{ notice }}</span><button type="button" aria-label="关闭提示" @click="notice = ''"><X :size="15" /></button></div>
+      <div v-else-if="activeTab === 'external' && externalNotice" class="plugin-feedback plugin-feedback--policy" role="status"><ShieldCheck :size="16" /><span>{{ externalNotice }}</span></div>
       <section v-if="loading" class="plugin-empty"><LoaderCircle class="plugin-spin" :size="22" /><span>正在加载技能</span></section>
       <template v-else-if="activeTab === 'external' && externalItems.length">
         <section class="plugin-grid">
           <article v-for="skill in externalItems" :key="`${skill.source}:${skill.id}`" class="plugin-card plugin-card--external">
-            <header><span class="plugin-card__icon"><Globe2 :size="21" /></span><div><strong>{{ skill.name }}</strong><small>{{ skill.category || '通用技能' }}<template v-if="skill.author"> · {{ skill.author }}</template><template v-if="skill.version"> · v{{ skill.version }}</template></small></div><em>{{ skill.risk === 'reviewed' ? '已审核' : '待扫描' }}</em></header>
-            <p>{{ skill.description || '外部市场技能，安装前会在服务端进行格式与安全检查。' }}</p>
-            <div class="plugin-capabilities"><span>{{ skill.installable ? '可直接安装' : '仅供浏览' }}</span><span v-if="skill.stars">{{ skill.stars }} stars</span></div>
-            <footer><a class="plugin-source-link" :href="skill.sourceUrl" target="_blank" rel="noreferrer">查看说明</a><button :class="{ primary: !skill.installed }" type="button" :disabled="busyId === `${skill.source}:${skill.id}` || !skill.installable || skill.installed" @click="installExternal(skill)"><LoaderCircle v-if="busyId === `${skill.source}:${skill.id}`" class="plugin-spin" :size="15" /><Check v-else-if="skill.installed" :size="15" /><Download v-else :size="15" />{{ skill.installed ? '已安装' : skill.installable ? '安装到技能库' : '暂不可安装' }}</button></footer>
+            <header><span class="plugin-card__icon"><Globe2 :size="21" /></span><div><strong>{{ skill.name }}</strong><small>{{ skill.category || '通用技能' }}<template v-if="skill.author"> · {{ skill.author }}</template><template v-if="skill.version"> · v{{ skill.version }}</template></small></div><em>{{ skill.licenseStatus === 'restricted' ? '商业限制待核验' : '许可证待核验' }}</em></header>
+            <p>{{ skill.description || '外部市场技能，安装前会在服务端进行格式与安全检查。' }}<small v-if="skill.licenseNote" class="plugin-license-note">{{ skill.licenseNote }}</small></p>
+            <div class="plugin-capabilities"><span>{{ skill.installable ? '可直接安装' : '仅供浏览' }}</span><span>{{ skill.risk === 'reviewed' ? '安全已审核' : '安全待扫描' }}</span><span v-if="skill.stars">{{ skill.stars }} stars</span></div>
+            <footer><a class="plugin-source-link" :href="externalSourceUrl(skill)" target="_blank" rel="noopener noreferrer">查看说明</a><button :class="{ primary: !skill.installed }" type="button" :disabled="busyId === `${skill.source}:${skill.id}` || !skill.installable || skill.installed" @click="installExternal(skill)"><LoaderCircle v-if="busyId === `${skill.source}:${skill.id}`" class="plugin-spin" :size="15" /><Check v-else-if="skill.installed" :size="15" /><Download v-else :size="15" />{{ skill.installed ? '已安装' : skill.installable ? '安装到技能库' : '暂不可安装' }}</button></footer>
           </article>
         </section>
         <button v-if="externalItems.length < externalTotal" class="plugin-load-more" type="button" :disabled="externalLoadingMore" @click="loadMoreExternal"><LoaderCircle v-if="externalLoadingMore" class="plugin-spin" :size="15" />{{ externalLoadingMore ? '加载中' : `加载更多（剩余 ${externalTotal - externalItems.length} 项）` }}</button>
@@ -43,7 +44,7 @@
           <footer v-else><span><ShieldCheck :size="14" />不可公开或分享</span><div><button type="button" @click="openEditor(plugin)"><Pencil :size="15" />编辑</button><button class="danger" type="button" :disabled="busyId === plugin.id" aria-label="删除技能" @click="removePrivate(plugin)"><Trash2 :size="15" /></button></div></footer>
         </article>
       </section>
-      <section v-else class="plugin-empty"><Blocks :size="28" /><strong>{{ activeTab === 'mine' ? '还没有私有技能' : activeTab === 'installed' ? '还没有安装技能' : activeTab === 'external' ? '没有匹配的社区技能' : '没有找到技能' }}</strong><p>{{ activeTab === 'mine' ? '创建私有技能，用于自己的对话和任务。' : activeTab === 'external' ? '调整关键词或切换技能分类。' : '从技能市场安装后即可在工作区调用。' }}</p></section>
+      <section v-else class="plugin-empty"><Blocks :size="28" /><strong>{{ activeTab === 'mine' ? '还没有私有技能' : activeTab === 'installed' ? '还没有安装技能' : activeTab === 'external' && !externalEnabled ? '外部技能市场未启用' : activeTab === 'external' ? '没有匹配的社区技能' : '没有找到技能' }}</strong><p>{{ activeTab === 'mine' ? '创建私有技能，用于自己的对话和任务。' : activeTab === 'external' && !externalEnabled ? '请由部署管理员完成许可证核验并明确开启后再使用。' : activeTab === 'external' ? '调整关键词或切换技能分类。' : '从技能市场安装后即可在工作区调用。' }}</p></section>
     </div>
     <input ref="skillFileInput" type="file" accept=".md,.skill,.zip,application/zip,text/markdown" hidden @change="importSkill" />
 
@@ -61,9 +62,15 @@ withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 
 type Tab = 'market' | 'external' | 'installed' | 'mine'
 const activeTab = ref<Tab>('market'); const market = ref<Plugin[]>([]); const externalItems = ref<ExternalSkill[]>([]); const installed = ref<Plugin[]>([]); const mine = ref<Plugin[]>([]); const categories = ref<PluginCategory[]>([])
-const loading = ref(true); const error = ref(''); const notice = ref(''); const query = ref(''); const category = ref(''); const busyId = ref(''); const saving = ref(false); const editorOpen = ref(false); const externalTotal = ref(0); const externalLoadingMore = ref(false)
+const loading = ref(true); const error = ref(''); const notice = ref(''); const externalNotice = ref(''); const externalEnabled = ref(true); const query = ref(''); const category = ref(''); const busyId = ref(''); const saving = ref(false); const editorOpen = ref(false); const externalTotal = ref(0); const externalLoadingMore = ref(false)
 const externalCategory = ref<ExternalSkillCategory | ''>('')
 const externalCategories: ExternalSkillCategory[] = ['开发编程', '办公效率', '研究分析', '内容创作', '设计创意', '营销运营', 'Agent 自动化', '通用技能']
+const externalSourcePolicy: Record<ExternalSkill['source'], { homepage: string; hosts: string[] }> = {
+  skillsmp: { homepage: 'https://skillsmp.com/zh/occupations', hosts: ['skillsmp.com', 'www.skillsmp.com', 'github.com'] },
+  lobehub: { homepage: 'https://lobehub.com/zh/skills', hosts: ['lobehub.com', 'www.lobehub.com', 'github.com'] },
+  cocoloop: { homepage: 'https://hub.cocoloop.cn/', hosts: ['hub.cocoloop.cn', 'dl.cocoloop.cn'] },
+  skillhub: { homepage: 'https://www.skillhub.cn/skills', hosts: ['skillhub.cn', 'www.skillhub.cn', 'api.skillhub.cn'] }
+}
 const skillFileInput = ref<HTMLInputElement | null>(null)
 const emptyDraft = () => ({ id: '', name: '', description: '', instruction: '', icon: 'blocks', categoryId: '', version: '1.0.0', recommendedModel: '', outputRequirements: '', capabilities: ['CHAT'] as PluginCapability[] }); const draft = reactive(emptyDraft())
 const capabilityOptions: Array<{ id: PluginCapability; label: string }> = [{ id: 'CHAT', label: '对话' }, { id: 'IMAGE', label: '图片' }, { id: 'VIDEO', label: '视频' }, { id: 'COMMERCE', label: '电商' }, { id: 'OFFICE', label: '办公' }]
@@ -73,9 +80,17 @@ const visiblePlugins = computed(() => activeTab.value === 'installed' ? installe
 const icons = { aperture: Aperture, 'badge-palette': Badge, blocks: Blocks, 'briefcase-business': BriefcaseBusiness, 'chart-no-axes-combined': ChartNoAxesCombined, clapperboard: Clapperboard, 'code-2': Code2, 'file-search': FileSearch, 'graduation-cap': GraduationCap, image: Image, landmark: Landmark, 'layout-template': LayoutTemplate, megaphone: Megaphone, 'messages-square': MessagesSquare, network: Network, 'notebook-tabs': NotebookTabs, palette: Palette, presentation: Presentation, scale: Scale, 'scan-code': CodeXml, 'search-check': SearchCheck, 'shopping-bag': ShoppingBag, 'table-2': Table2, video: Video, chat: MessageSquare }
 function pluginIcon(name: string) { return markRaw(icons[name as keyof typeof icons] || Blocks) }
 function capabilityName(value: PluginCapability) { return capabilityOptions.find((item) => item.id === value)?.label || value }
-async function loadExternal(append = false) { const params = new URLSearchParams({ limit: '96', ...(append ? { offset: String(externalItems.value.length) } : {}), ...(query.value ? { q: query.value } : {}), ...(externalCategory.value ? { category: externalCategory.value } : {}) }); const result = await api<{ items: ExternalSkill[]; total: number }>(`/plugins/external/search?${params}`); externalItems.value = append ? [...externalItems.value, ...result.items] : result.items; externalTotal.value = result.total }
+function externalSourceUrl(skill: ExternalSkill) {
+  const policy = externalSourcePolicy[skill.source]
+  try {
+    const url = new URL(skill.sourceUrl)
+    if (url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') && policy.hosts.includes(url.hostname.toLowerCase())) return url.toString()
+  } catch { /* Fall through to the canonical marketplace page. */ }
+  return policy.homepage
+}
+async function loadExternal(append = false) { const params = new URLSearchParams({ limit: '96', ...(append ? { offset: String(externalItems.value.length) } : {}), ...(query.value ? { q: query.value } : {}), ...(externalCategory.value ? { category: externalCategory.value } : {}) }); const result = await api<{ enabled?: boolean; notice?: string; items: ExternalSkill[]; total: number }>(`/plugins/external/search?${params}`); externalEnabled.value = result.enabled !== false; externalNotice.value = result.notice || ''; externalItems.value = append ? [...externalItems.value, ...result.items] : result.items; externalTotal.value = result.total }
 async function loadMoreExternal() { externalLoadingMore.value = true; error.value = ''; try { await loadExternal(true) } catch (reason) { error.value = reason instanceof Error ? reason.message : '更多外部技能加载失败' } finally { externalLoadingMore.value = false } }
-async function loadAll() { loading.value = true; error.value = ''; try { const [marketRows, installedRows, mineRows, categoryRows, externalRows] = await Promise.all([api<Plugin[]>(`/plugins/market?${new URLSearchParams({ ...(activeTab.value === 'market' && query.value ? { q: query.value } : {}), ...(category.value ? { category: category.value } : {}) })}`), api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine'), api<PluginCategory[]>('/plugins/categories'), api<{ items: ExternalSkill[]; total: number }>('/plugins/external/search?limit=96')]); market.value = marketRows; installed.value = installedRows; mine.value = mineRows; categories.value = categoryRows; externalItems.value = externalRows.items; externalTotal.value = externalRows.total } catch (reason) { error.value = reason instanceof Error ? reason.message : '技能加载失败' } finally { loading.value = false } }
+async function loadAll() { loading.value = true; error.value = ''; try { const [marketRows, installedRows, mineRows, categoryRows, externalRows] = await Promise.all([api<Plugin[]>(`/plugins/market?${new URLSearchParams({ ...(activeTab.value === 'market' && query.value ? { q: query.value } : {}), ...(category.value ? { category: category.value } : {}) })}`), api<Plugin[]>('/plugins/installed'), api<Plugin[]>('/plugins/mine'), api<PluginCategory[]>('/plugins/categories'), api<{ enabled?: boolean; notice?: string; items: ExternalSkill[]; total: number }>('/plugins/external/search?limit=96')]); market.value = marketRows; installed.value = installedRows; mine.value = mineRows; categories.value = categoryRows; externalEnabled.value = externalRows.enabled !== false; externalNotice.value = externalRows.notice || ''; externalItems.value = externalRows.items; externalTotal.value = externalRows.total } catch (reason) { error.value = reason instanceof Error ? reason.message : '技能加载失败' } finally { loading.value = false } }
 async function install(plugin: Plugin) { busyId.value = plugin.id; try { await api(`/plugins/${plugin.id}/install`, { method: 'POST' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '安装失败' } finally { busyId.value = '' } }
 async function uninstall(plugin: Plugin) { busyId.value = plugin.id; error.value = ''; notice.value = ''; try { await api(plugin.owned && plugin.visibility === 'PRIVATE' ? `/plugins/mine/${plugin.id}` : `/plugins/${plugin.id}/install`, { method: 'DELETE' }); await loadAll() } catch (reason) { error.value = reason instanceof Error ? reason.message : '卸载失败' } finally { busyId.value = '' } }
 async function installExternal(skill: ExternalSkill) {

@@ -41,7 +41,9 @@ set_env() {
 set_env_if_missing() {
   key="$1"; value="$2"
   current=$(grep -E "^${key}=" .env.production | head -n 1 | cut -d= -f2- || true)
-  if [[ -z "$current" || "$current" == replace-with* ]]; then set_env "$key" "$value"; fi
+  if [[ -z "$current" || "$current" =~ (replace-with|change-me|changeme|example|dev_password|default-password|your[_-]|flux[_-]?dev|xinyue[_-]?(rc|dev|test)|local[_-]?only|staging|test[_-]?(secret|password)) ]]; then
+    set_env "$key" "$value"
+  fi
 }
 
 # A previous curl|bash release could accidentally write the shell source into
@@ -56,8 +58,17 @@ fi
 set_env_if_missing POSTGRES_PASSWORD "$(random_secret)"
 set_env_if_missing SESSION_SECRET "$(random_secret)"
 set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
+set_env_if_missing INSTALL_TOKEN "${XINYUE_INSTALL_TOKEN:-$(random_secret)}"
+set_env_if_missing LOCAL_WORKER_TOKEN "$(random_secret)"
 set_env_if_missing NODE_ENV production
-set_env_if_missing XINYUE_HTTP_PORT "${XINYUE_HTTP_PORT:-8080}"
+set_env_if_missing XINYUE_HTTP_BIND 127.0.0.1
+if [[ -n "${XINYUE_HTTP_PORT:-}" ]]; then
+  # An explicit shell override must also be persisted so Compose and the
+  # address printed below use the same host port.
+  set_env XINYUE_HTTP_PORT "$XINYUE_HTTP_PORT"
+else
+  set_env_if_missing XINYUE_HTTP_PORT 8080
+fi
 
 port_in_use() {
   port="$1"
@@ -66,12 +77,20 @@ port_in_use() {
   elif command -v netstat >/dev/null 2>&1; then
     netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
   else
-    docker ps --format '{{.Ports}}' | grep -Eq "(0\.0\.0\.0|:::):${port}->"
+    docker ps --format '{{.Ports}}' | grep -Eq "(0\.0\.0\.0|127\.0\.0\.1|:::|\[::\]):${port}->"
   fi
 }
 
 http_port=$(grep -E '^XINYUE_HTTP_PORT=' .env.production | head -n 1 | cut -d= -f2- || true)
+http_bind=$(grep -E '^XINYUE_HTTP_BIND=' .env.production | head -n 1 | cut -d= -f2- || true)
 [[ "$http_port" =~ ^[0-9]+$ ]] && (( http_port >= 1 && http_port <= 65535 )) || die 'XINYUE_HTTP_PORT 必须是 1-65535 的端口号。'
+[[ -n "$http_bind" ]] || die 'XINYUE_HTTP_BIND 不能为空。'
+
+for secret_key in POSTGRES_PASSWORD SESSION_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALL_TOKEN LOCAL_WORKER_TOKEN; do
+  secret_value=$(grep -E "^${secret_key}=" .env.production | head -n 1 | cut -d= -f2- || true)
+  [[ ${#secret_value} -ge 32 ]] || die "${secret_key} 必须至少包含 32 个字符。"
+  [[ ! "$secret_value" =~ (replace-with|change-me|changeme|example|dev_password|default-password|your[_-]|flux[_-]?dev|xinyue[_-]?(rc|dev|test)|local[_-]?only|staging|test[_-]?(secret|password)) ]] || die "${secret_key} 仍是占位值或测试值。"
+done
 frontend_running=$(docker compose --env-file .env.production -f docker-compose.prod.yml ps --status running --services 2>/dev/null | grep -x 'frontend' || true)
 if [[ -z "$frontend_running" ]] && port_in_use "$http_port"; then
   original_port="$http_port"
@@ -85,8 +104,13 @@ fi
 chmod 600 .env.production 2>/dev/null || true
 rm -f .env.production.bak
 
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+# Do not report a successful installation until the API and web container
+# health checks have passed. This makes failed migrations/configuration
+# visible to the operator instead of leaving a partially started stack.
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-printf '\nXinyue AI 已安装，访问地址：http://服务器IP:%s/\n' "$http_port"
-printf '首次启动请打开：http://服务器IP:%s/install\n' "$http_port"
+printf '\nXinyue AI 已安装，内部地址：http://%s:%s/\n' "$http_bind" "$http_port"
+printf '首次启动请打开：http://%s:%s/install（通过 HTTPS 反代访问时使用外部域名）\n' "$http_bind" "$http_port"
+printf '一次性安装令牌已保存到当前目录的 .env.production，不会输出到终端或日志。\n'
+printf '请仅在服务器本机按最小权限读取，并在初始化页面中输入；不要通过 URL、聊天工具或工单传输。\n'
 printf '启用 HTTPS 后请将 WEB_ORIGIN 改为 https://域名，并设置 COOKIE_SECURE=true。\n'

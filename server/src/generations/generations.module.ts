@@ -20,11 +20,13 @@ import { UsageRecordsService } from './usage-records.service'
 import { BillingModule } from '../billing/billing.module'
 import { ChatContextService } from './chat-context.service'
 import { ToolLoopRunner } from './tool-loop.runner'
+import { GenerationSettlementService } from './generation-settlement.service'
+import { ProviderAttemptAuditService } from './provider-attempt-audit.service'
 
 @Module({
   imports: [BullModule.registerQueue({ name: 'generation' }), BillingModule, CreditsModule, AssetsModule, ProvidersModule, ModerationModule, PluginsModule, WebSearchModule, FeatureFlagsModule],
   controllers: [GenerationsController],
-  providers: [GenerationsService, GenerationsProcessor, GenerationEventsService, GenerationLifecycleService, GenerationOutputService, UsageRecordsService, ChatContextService, ToolLoopRunner, ChatGenerationRunner, ImageGenerationRunner, VideoGenerationRunner],
+  providers: [GenerationsService, GenerationsProcessor, GenerationEventsService, GenerationLifecycleService, GenerationOutputService, GenerationSettlementService, ProviderAttemptAuditService, UsageRecordsService, ChatContextService, ToolLoopRunner, ChatGenerationRunner, ImageGenerationRunner, VideoGenerationRunner],
   exports: [GenerationsService],
 })
 export class GenerationsModule {}

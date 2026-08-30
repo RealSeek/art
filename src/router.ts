@@ -35,7 +35,7 @@ export const router = createRouter({
         { path: '/office', name: 'office', component: OfficeCenterPage, meta: { title: '办公中心' } },
         { path: '/prompts', name: 'prompts', component: PromptLibraryPage, meta: { title: '提示词库' } },
         { path: '/capabilities', name: 'capabilities', component: CapabilityCenterPage, meta: { title: '能力中心' } },
-        { path: '/works', name: 'works', component: WorksPage, beforeEnter: (to) => to.query.view === 'mine' ? true : { path: '/prompts', query: { type: 'image' } }, meta: { title: '我的作品' } },
+        { path: '/works', name: 'works', component: WorksPage, meta: { title: '作品中心' } },
         { path: '/canvases', name: 'canvases', component: CanvasLibraryPage, meta: { title: '画布' } },
         { path: '/image-prompt', name: 'image-prompt', component: ImagePromptPage, meta: { title: '图片反推' } },
         { path: '/canvas/:id', name: 'canvas', component: CanvasEditorPage, meta: { title: '画布编辑器' } },
@@ -64,9 +64,11 @@ let setupState: 'unknown' | 'required' | 'complete' = 'unknown'
 router.beforeEach(async (to) => {
   if (setupState === 'unknown') {
     try {
-      setupState = (await api<{ required: boolean }>('/auth/setup/status')).required ? 'required' : 'complete'
+      setupState = (await api<{ required: boolean }>('/auth/setup/status', { timeoutMs: 8_000 })).required ? 'required' : 'complete'
     } catch {
-      return to.name === 'install' ? true : { path: '/install', query: { redirect: to.fullPath } }
+      // An unavailable backend does not mean this installation is incomplete.
+      // Keep the requested route and retry the probe on the next navigation.
+      return true
     }
   }
   if (setupState === 'required') return to.name === 'install' ? true : { path: '/install', query: { redirect: to.fullPath } }
@@ -78,5 +80,6 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta.title ? `${String(to.meta.title)} | Xinyue AI` : 'Xinyue AI'
+  const title = String(to.meta.title || '').trim()
+  document.title = title && title !== 'Xinyue AI' ? `${title} | Xinyue AI` : 'Xinyue AI'
 })
