@@ -117,7 +117,6 @@ npm run admin:dev
 运行时配置、日志、数据库、构建产物和用户上传文件不会提交到 Git。更多安全约定见 [安全策略](SECURITY.md)。
 
 ## 🤝 贡献
-
+<p dir="auto">学 AI，上 L 站：<a href="https://linux.do/" rel="nofollow">LinuxDO</a></p>
 欢迎提交 Bug 修复、文档改进、UI 优化、Provider 适配和测试补充。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并通过分支和 Pull Request 参与开发。
-社区支持
-学 AI，上 L 站：LinuxDO
+
