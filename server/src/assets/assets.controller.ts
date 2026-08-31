@@ -7,6 +7,7 @@ import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
 import { assetDisposition, AssetsService, resolveRasterImageMime, resolveVideoMime } from './assets.service'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { publicAssetSelect, toPublicAsset } from './public-asset.dto'
 
 const kinds = new Set(Object.values(AssetKind))
 const uploadPurposes = new Set(['library', 'reference', 'mask', 'attachment', 'image-prompt'])
@@ -21,11 +22,11 @@ export class AssetsController {
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser, @Query('kind') kind?: AssetKind, @Query('q') query?: string) {
     if (kind && !kinds.has(kind)) throw new BadRequestException('文件类型无效')
-    const rows = await this.prisma.asset.findMany({ where: { ...this.access.assetWhere(user.id), deletedAt: null, kind, name: query ? { contains: query, mode: 'insensitive' } : undefined }, orderBy: { createdAt: 'desc' }, take: 100, include: { team: { select: { id: true, name: true, ownerId: true, members: { where: { userId: user.id }, select: { role: true } } } }, project: { select: { userId: true, members: { where: { userId: user.id }, select: { role: true } }, team: { select: { ownerId: true, members: { where: { userId: user.id }, select: { role: true } } } } } }, user: { select: { id: true, displayName: true } } } })
-    return rows.map(({ team, project, ...asset }) => {
-      const teamManager = team?.ownerId === user.id || team?.members.some((member) => member.role === 'ADMIN')
+    const rows = await this.prisma.asset.findMany({ where: { ...this.access.assetWhere(user.id), deletedAt: null, kind, name: query ? { contains: query, mode: 'insensitive' } : undefined }, orderBy: { createdAt: 'desc' }, take: 100, select: { ...publicAssetSelect, userId: true, team: { select: { id: true, name: true, ownerId: true, members: { where: { userId: user.id }, select: { role: true } } } }, project: { select: { userId: true, members: { where: { userId: user.id }, select: { role: true } }, team: { select: { ownerId: true, members: { where: { userId: user.id }, select: { role: true } } } } } }, user: { select: { id: true, displayName: true } } } })
+    return rows.map(({ project, ...asset }) => {
+      const teamManager = asset.team?.ownerId === user.id || asset.team?.members.some((member) => member.role === 'ADMIN')
       const projectManager = project?.userId === user.id || project?.members.some((member) => member.role === 'ADMIN') || project?.team?.ownerId === user.id || project?.team?.members.some((member) => member.role === 'ADMIN')
-      return { ...asset, team: team ? { id: team.id, name: team.name } : null, canManage: asset.userId === user.id || Boolean(teamManager || projectManager), size: Number(asset.size), contentUrl: `/v1/assets/${asset.id}/content` }
+      return toPublicAsset({ ...asset, team: asset.team ? { id: asset.team.id, name: asset.team.name } : null }, { canManage: asset.userId === user.id || Boolean(teamManager || projectManager) })
     })
   }
 
@@ -46,7 +47,7 @@ export class AssetsController {
       throw new BadRequestException('请选择 MP4、WebM 或 MOV 视频')
     }
     const asset = await this.assets.storeUpload(user.id, { stream: part.file, name: part.filename, mimeType: imageMimeType || videoMimeType || part.mimetype || 'application/octet-stream', kind, projectId, metadata: { purpose } })
-    return { ...asset, size: Number(asset.size), contentUrl: `/v1/assets/${asset.id}/content` }
+    return toPublicAsset(asset)
   }
 
   @Get(':id/content')
@@ -59,7 +60,7 @@ export class AssetsController {
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.assets.remove(user.id, id) }
 
   @Patch(':id/team')
-  assignTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: AssignAssetTeamDto) {
-    return this.assets.assignTeam(user.id, id, body.teamId || null)
+  async assignTeam(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: AssignAssetTeamDto) {
+    return toPublicAsset(await this.assets.assignTeam(user.id, id, body.teamId || null))
   }
 }

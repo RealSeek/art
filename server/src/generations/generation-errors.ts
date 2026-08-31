@@ -1,7 +1,8 @@
 import { JobKind, JobStatus } from '@prisma/client'
 
 export function publicGenerationError(kind: JobKind, status: JobStatus, errorMessage?: string | null) {
-  if (status !== JobStatus.FAILED) return errorMessage || null
+  if (status === JobStatus.CANCELLED) return '任务已取消'
+  if (status !== JobStatus.FAILED) return null
 
   const message = (errorMessage || '').toLowerCase()
   const subject = kind === JobKind.VIDEO ? '视频生成' : kind === JobKind.CHAT ? '回复生成' : kind === JobKind.COMMERCE ? '商品素材生成' : '图片生成'

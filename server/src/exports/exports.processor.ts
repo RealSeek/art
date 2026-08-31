@@ -7,6 +7,9 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PrismaService } from '../prisma/prisma.service'
 import { Queue } from 'bullmq'
+import { publicExportGenerationSelect, toPublicExportGeneration } from './public-export-generation.dto'
+import { publicAssetMetadata } from '../assets/public-asset.dto'
+import { publicMessageMetadata } from '../conversations/public-message.dto'
 
 const EXPORT_DIR = join(process.cwd(), 'storage', 'exports')
 
@@ -65,7 +68,7 @@ export class ExportsProcessor extends WorkerHost implements OnModuleInit {
         if (!rows.length) break
         const messages = await this.prisma.message.findMany({ where: { conversationId: { in: rows.map((row) => row.id) }, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, conversationId: true, role: true, content: true, model: true, metadata: true, createdAt: true } })
         const byConversation = new Map<string, unknown[]>()
-        for (const message of messages) { const list = byConversation.get(message.conversationId) || []; list.push({ id: message.id, role: message.role, content: message.content, model: message.model, metadata: message.metadata, createdAt: message.createdAt }); byConversation.set(message.conversationId, list) }
+        for (const message of messages) { const list = byConversation.get(message.conversationId) || []; list.push({ id: message.id, role: message.role, content: message.content, model: message.model, metadata: publicMessageMetadata(message.metadata), createdAt: message.createdAt }); byConversation.set(message.conversationId, list) }
         conversations.push(...rows.map((row) => ({ ...row, messages: byConversation.get(row.id) || [] })))
         conversationCursor = rows.at(-1)
         if (rows.length < 200) break
@@ -76,12 +79,12 @@ export class ExportsProcessor extends WorkerHost implements OnModuleInit {
       const [projects, assets, generations] = await Promise.all([
         this.readBatches((cursor) => this.prisma.project.findMany({ where: { ...projectWhere, ...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200, select: { id: true, name: true, description: true, instructions: true, archivedAt: true, createdAt: true, updatedAt: true } })),
         this.readBatches((cursor) => this.prisma.asset.findMany({ where: { ...assetWhere, ...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200, select: { id: true, projectId: true, teamId: true, kind: true, name: true, mimeType: true, size: true, width: true, height: true, metadata: true, createdAt: true } })),
-        this.readBatches((cursor) => this.prisma.generationJob.findMany({ where: { ...generationWhere, ...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200, select: { id: true, kind: true, status: true, model: true, provider: true, prompt: true, creditCost: true, inputTokens: true, outputTokens: true, cachedInputTokens: true, reasoningTokens: true, createdAt: true, completedAt: true, errorCode: true, errorMessage: true } })),
+        this.readBatches((cursor) => this.prisma.generationJob.findMany({ where: { ...generationWhere, ...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 200, select: publicExportGenerationSelect })),
       ])
       await mkdir(EXPORT_DIR, { recursive: true })
       const fileName = 'xinyue-export-' + exportJob.id + '.json'
       const filePath = join(EXPORT_DIR, fileName)
-      const payload = { exportedAt: new Date().toISOString(), scope: exportJob.scope, account, team, conversations, projects, assets: assets.map((asset) => ({ ...asset, size: Number(asset.size) })), generations }
+      const payload = { exportedAt: new Date().toISOString(), scope: exportJob.scope, account, team, conversations, projects, assets: assets.map((asset) => ({ ...asset, size: Number(asset.size), metadata: publicAssetMetadata(asset.metadata) })), generations: generations.map(toPublicExportGeneration) }
       await writeFile(filePath, JSON.stringify(payload, (_key, value) => typeof value === 'bigint' ? Number(value) : value), 'utf8')
       const finalized = await this.prisma.exportJob.updateMany({ where: { id: exportJob.id, status: ExportJobStatus.RUNNING, expiresAt: { gt: new Date() } }, data: { status: ExportJobStatus.SUCCEEDED, fileName, filePath, completedAt: new Date() } })
       if (!finalized.count) await unlink(filePath).catch(() => undefined)

@@ -9,6 +9,7 @@ import AutoImport from 'unplugin-auto-import/vite'
 import ElementPlus from 'unplugin-element-plus/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import tailwindcss from '@tailwindcss/vite'
+import packageJson from './package.json'
 // import { visualizer } from 'rollup-plugin-visualizer'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -16,8 +17,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
-  const { VITE_VERSION, VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
-  const appVersion = VITE_VERSION || '1.0.1'
+  const { VITE_PORT, VITE_BASE_URL, VITE_API_URL, VITE_API_PROXY_URL } = env
+  const appVersion = packageJson.version
   const baseUrl = VITE_BASE_URL || '/admin/'
   const apiProxy = {
     '/v1': {

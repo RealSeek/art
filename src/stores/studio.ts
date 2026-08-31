@@ -9,7 +9,7 @@ type ServerMessageMetadata = { jobId?: string; feedback?: 'UP' | 'DOWN' | null; 
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; parentId?: string | null; branchIndex?: number; branchCount?: number; branches?: Array<{ id: string; branchIndex: number }>; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
-type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; objectKey?: string; contentUrl: string; createdAt: string; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
+type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; contentUrl: string; createdAt: string; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null; metadata?: ServerMessageMetadata | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
 type ServerGenerationEvent = { id?: string; sequence?: number; type?: string; payload?: unknown }
 
@@ -82,6 +82,7 @@ function mapAsset(item: ServerAsset): StudioAsset {
   const kind = item.kind === 'IMAGE' ? 'image' : item.kind === 'VIDEO' ? 'video' : item.kind === 'PRODUCT_PACK' ? 'product-pack' : 'text'
   const isVisual = item.kind === 'IMAGE' || item.kind === 'PRODUCT_PACK' || item.mimeType.startsWith('image/')
   const sizeLabel = `${Math.max(1, Math.ceil(Number(item.size || 0) / 1024))} KB`
+  const generated = item.metadata?.purpose === 'generated'
   return {
     id: item.id,
     kind,
@@ -94,8 +95,8 @@ function mapAsset(item: ServerAsset): StudioAsset {
     status: 'done',
     createdAt: Date.parse(item.createdAt),
     tags: [item.kind === 'PRODUCT_PACK' ? '商品素材' : item.kind === 'IMAGE' ? '图片' : item.kind === 'VIDEO' ? '视频' : '文件', sizeLabel],
-    source: item.objectKey?.includes('/generated/') ? 'generated' : 'upload',
-    purpose: typeof item.metadata?.purpose === 'string' ? item.metadata.purpose as StudioAsset['purpose'] : item.objectKey?.includes('/generated/') ? 'generated' : 'library',
+    source: generated ? 'generated' : 'upload',
+    purpose: typeof item.metadata?.purpose === 'string' ? item.metadata.purpose as StudioAsset['purpose'] : generated ? 'generated' : 'library',
     jobId: typeof item.metadata?.jobId === 'string' ? item.metadata.jobId : undefined,
     position: typeof item.metadata?.position === 'number' ? item.metadata.position : undefined,
     moduleLabel: typeof item.metadata?.moduleLabel === 'string' ? item.metadata.moduleLabel : undefined,

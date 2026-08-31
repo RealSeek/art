@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq'
-import { Injectable, OnModuleInit } from '@nestjs/common'
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { GenerationJob, Prisma } from '@prisma/client'
 import { Job, Queue } from 'bullmq'
@@ -17,8 +17,12 @@ import { ReconciliationRequiredError, TerminalProviderJobError, TerminalSettleme
 import { TokenQuotaService } from '../billing/token-quota.service'
 import { runWithOutboundSignal } from '../common/outbound-http'
 import { GenerationSettlementService } from './generation-settlement.service'
+import { GenerationReconciliationService } from './generation-reconciliation.service'
 
 const RESERVATION_CREATION_GRACE_MS = 5_000
+const DEFAULT_STALE_LEASE_REAPER_INTERVAL_MS = 30_000
+const LEGACY_STALE_LEASE_AGE_MS = 30 * 60 * 1000
+const RECOVERY_BATCH_SIZE = 1000
 type ReleasableGeneration = Pick<GenerationJob, 'id' | 'userId' | 'status' | 'options'>
 
 class GenerationLeaseLostError extends Error {
@@ -30,10 +34,13 @@ class GenerationLeaseLostError extends Error {
 
 @Injectable()
 @Processor('generation', { concurrency: 20 })
-export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
+export class GenerationsProcessor extends WorkerHost implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(GenerationsProcessor.name)
   private readonly runners: GenerationRunnerRegistry
   private readonly workerId = `${process.env.HOSTNAME || 'generation-worker'}:${randomUUID()}`
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly lifecycle: GenerationLifecycleService, private readonly chatRunner: ChatGenerationRunner, private readonly imageRunner: ImageGenerationRunner, private readonly videoRunner: VideoGenerationRunner, private readonly outputs: GenerationOutputService, private readonly usageRecords: UsageRecordsService, private readonly tokenQuota: TokenQuotaService, private readonly settlement: GenerationSettlementService, @InjectQueue('generation') private readonly queue: Queue) {
+  private recoveryTimer?: ReturnType<typeof setInterval>
+  private recoveryInFlight: Promise<void> | null = null
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly lifecycle: GenerationLifecycleService, private readonly chatRunner: ChatGenerationRunner, private readonly imageRunner: ImageGenerationRunner, private readonly videoRunner: VideoGenerationRunner, private readonly outputs: GenerationOutputService, private readonly usageRecords: UsageRecordsService, private readonly tokenQuota: TokenQuotaService, private readonly settlement: GenerationSettlementService, private readonly reconciliation: GenerationReconciliationService, @InjectQueue('generation') private readonly queue: Queue) {
     super()
     this.runners = new GenerationRunnerRegistry([
       this.chatRunner,
@@ -44,119 +51,220 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.recoverTerminalReservations()
-    const now = new Date()
-    const staleJobs = await this.prisma.generationJob.findMany({
-      where: {
-        status: 'RUNNING',
-        OR: [
-          { leaseExpiresAt: { lt: now } },
-          { leaseExpiresAt: null, updatedAt: { lt: new Date(now.getTime() - 30 * 60 * 1000) } },
-        ],
-      },
-      select: { id: true },
-      take: 1000,
-    })
-    for (const job of staleJobs) {
-      const reset = await this.prisma.generationJob.updateMany({
-        where: {
-          id: job.id,
-          status: 'RUNNING',
-          OR: [
-            { leaseExpiresAt: { lt: now } },
-            { leaseExpiresAt: null, updatedAt: { lt: new Date(now.getTime() - 30 * 60 * 1000) } },
-          ],
-        },
-        data: { status: 'QUEUED', startedAt: null, lockedBy: null, leaseVersion: { increment: 1 }, heartbeatAt: null, leaseExpiresAt: null },
+    await this.runRecoveryPass(new Date(), true)
+    const intervalMs = this.staleLeaseReaperIntervalMs()
+    if (intervalMs === 0) return
+    this.recoveryTimer = setInterval(() => {
+      void this.runRecoveryPass().catch((error) => {
+        this.logger.error(`Generation stale-lease recovery failed: ${error instanceof Error ? error.message : String(error)}`)
       })
-      if (reset.count) await this.lifecycle.appendRecovery(job.id)
-    }
-    const pending = await this.prisma.generationJob.findMany({
-      where: {
-        status: 'QUEUED',
-        OR: [
-          { settlementStatus: { in: ['PENDING', 'RESERVED', 'SETTLED'] } },
-          { settlementStatus: 'RECONCILING', kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } },
-        ],
-      },
-      select: { id: true, kind: true },
-      orderBy: { createdAt: 'asc' },
-      take: 1000,
-    })
-    for (const task of pending) {
-      const existing = await this.queue.getJob(task.id)
-      if (existing) {
-        const state = await existing.getState()
-        if (!['waiting', 'prioritized', 'delayed', 'active'].includes(state)) await existing.remove().catch(() => undefined)
-        else continue
-      }
-      await this.queue.add(task.kind.toLowerCase(), { jobId: task.id }, { jobId: task.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
+    }, intervalMs)
+    this.recoveryTimer.unref?.()
+  }
+
+  async onModuleDestroy() {
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer)
+    this.recoveryTimer = undefined
+    await this.recoveryInFlight?.catch(() => undefined)
+  }
+
+  private async runRecoveryPass(now = new Date(), includeAllQueued = false) {
+    if (this.recoveryInFlight) return this.recoveryInFlight
+    const pass = this.recoverGenerationJobs(now, includeAllQueued)
+    this.recoveryInFlight = pass
+    try {
+      await pass
+    } finally {
+      if (this.recoveryInFlight === pass) this.recoveryInFlight = null
     }
   }
 
-  private async recoverTerminalReservations() {
-    const terminalJobs = await this.prisma.generationJob.findMany({
-      where: {
-        status: { in: ['FAILED', 'CANCELLED'] },
-        settlementStatus: { in: ['PENDING', 'RESERVED'] },
-      },
-      select: { id: true, userId: true, status: true, options: true },
-      orderBy: { updatedAt: 'asc' },
-      take: 1000,
-    })
-    for (const task of terminalJobs) {
-      const safeToRelease = await this.prisma.$transaction(async (tx) => {
-        // Serialize recovery with any final ProviderAttempt transition. A
-        // terminal job normally cannot start a new attempt, but the row lock
-        // also closes the crash window between cancellation and audit writes.
-        const locked = await tx.generationJob.updateMany({
+  private async recoverGenerationJobs(now: Date, includeAllQueued: boolean) {
+    const recoveredIds = await this.recoverStaleLeases(now)
+    await this.enqueueQueuedJobs(recoveredIds, includeAllQueued)
+    await this.recoverTerminalReservations()
+  }
+
+  private async recoverStaleLeases(now: Date) {
+    const legacyCutoff = new Date(now.getTime() - LEGACY_STALE_LEASE_AGE_MS)
+    const recoveredIds = new Set<string>()
+    let cursor: string | undefined
+    do {
+      const staleJobs = await this.prisma.generationJob.findMany({
+        where: {
+          status: 'RUNNING',
+          OR: [
+            { leaseExpiresAt: { lt: now } },
+            { leaseExpiresAt: null, updatedAt: { lt: legacyCutoff } },
+          ],
+        },
+        select: {
+          id: true,
+          kind: true,
+          leaseVersion: true,
+        },
+        orderBy: { id: 'asc' },
+        take: RECOVERY_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      if (!staleJobs.length) break
+      cursor = staleJobs.at(-1)?.id
+      for (const job of staleJobs) {
+        const staleLeaseWhere: Prisma.GenerationJobWhereInput = {
+          id: job.id,
+          status: 'RUNNING',
+          leaseVersion: job.leaseVersion,
+          OR: [
+            { leaseExpiresAt: { lt: now } },
+            { leaseExpiresAt: null, updatedAt: { lt: legacyCutoff } },
+          ],
+        }
+        const resetData: Prisma.GenerationJobUpdateManyMutationInput = {
+          status: 'QUEUED',
+          startedAt: null,
+          lockedBy: null,
+          leaseVersion: { increment: 1 },
+          heartbeatAt: null,
+          leaseExpiresAt: null,
+        }
+        // Guard on the relation inside UPDATE, not only in the preceding read.
+        // A ProviderAttempt transaction that started just before lease expiry may
+        // still be committing while this pass scans; PostgreSQL rechecks this
+        // predicate after the row lock is acquired.
+        let reset = await this.prisma.generationJob.updateMany({
           where: {
-            id: task.id,
-            status: task.status,
+            ...staleLeaseWhere,
             settlementStatus: { in: ['PENDING', 'RESERVED'] },
-          },
-          data: { updatedAt: new Date() },
-        })
-        if (locked.count !== 1) return false
-        const unresolvedAttempt = await tx.providerAttempt.findFirst({
-          where: { generationId: task.id, status: { in: ['RUNNING', 'SUCCEEDED'] } },
-          select: { id: true, status: true },
-          orderBy: { startedAt: 'desc' },
-        })
-        if (!unresolvedAttempt) return true
-        const reconciled = await tx.generationJob.updateMany({
-          where: {
-            id: task.id,
-            status: task.status,
-            settlementStatus: { in: ['PENDING', 'RESERVED'] },
+            providerAttempts: { some: { status: { in: ['RUNNING', 'SUCCEEDED'] } } },
           },
           data: {
+            ...resetData,
             settlementStatus: 'RECONCILING',
             errorCode: 'SETTLEMENT_RECONCILING',
-            errorMessage: `终态恢复发现 ${unresolvedAttempt.status} ProviderAttempt，已阻止自动释放`,
+            errorMessage: 'Worker 租约过期时存在未完成的 ProviderAttempt，已阻止重复调用 Provider',
           },
         })
-        if (reconciled.count !== 1) throw new Error('终态任务对账状态发生并发变化')
-        return false
-      })
-      if (!safeToRelease) continue
-      const released = await this.releaseTokenReservation(task)
-      if (!released) continue
-      await this.prisma.generationJob.updateMany({
+        if (!reset.count) {
+          reset = await this.prisma.generationJob.updateMany({
+            where: {
+              ...staleLeaseWhere,
+              AND: [
+                {
+                  OR: [
+                    { settlementStatus: { in: ['SETTLED', 'RECONCILING'] } },
+                    {
+                      settlementStatus: { in: ['PENDING', 'RESERVED'] },
+                      providerAttempts: { none: { status: { in: ['RUNNING', 'SUCCEEDED'] } } },
+                    },
+                  ],
+                },
+              ],
+            },
+            data: resetData,
+          })
+        }
+        if (!reset.count) continue
+        recoveredIds.add(job.id)
+        await this.lifecycle.appendRecovery(job.id)
+        await this.enqueueTask(job.id, job.kind, `${job.id}-recovery-${job.leaseVersion + 1}`)
+      }
+      if (staleJobs.length < RECOVERY_BATCH_SIZE) break
+    } while (cursor)
+    return recoveredIds
+  }
+
+  private async enqueueQueuedJobs(excludedIds = new Set<string>(), includeAllQueued = false) {
+    let cursor: string | undefined
+    do {
+      const pending = await this.prisma.generationJob.findMany({
         where: {
-          id: task.id,
-          status: task.status,
-          settlementStatus: { in: ['PENDING', 'RESERVED'] },
+          status: 'QUEUED',
+          ...(includeAllQueued ? {} : { startedAt: null, leaseVersion: { gt: 0 } }),
+          OR: [
+            { settlementStatus: { in: ['PENDING', 'RESERVED', 'SETTLED'] } },
+            { settlementStatus: 'RECONCILING' },
+          ],
         },
-        data: { settlementStatus: 'RELEASED' },
+        select: { id: true, kind: true, leaseVersion: true, startedAt: true },
+        orderBy: { id: 'asc' },
+        take: RECOVERY_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
-    }
+      if (!pending.length) break
+      cursor = pending.at(-1)?.id
+      for (const task of pending) {
+        if (excludedIds.has(task.id)) continue
+        const recoveryJobId = task.leaseVersion > 0 && task.startedAt === null
+          ? `${task.id}-recovery-${task.leaseVersion}`
+          : task.id
+        const existing = await this.queue.getJob(recoveryJobId)
+        if (existing) {
+          const state = await existing.getState()
+          if (!['waiting', 'prioritized', 'delayed', 'active'].includes(state)) await existing.remove().catch(() => undefined)
+          else continue
+        }
+        await this.enqueueTask(task.id, task.kind, recoveryJobId)
+      }
+      if (pending.length < RECOVERY_BATCH_SIZE) break
+    } while (cursor)
+  }
+
+  private enqueueTask(generationId: string, kind: GenerationJob['kind'], queueJobId: string) {
+    return this.queue.add(kind.toLowerCase(), { jobId: generationId }, {
+      jobId: queueJobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    })
+  }
+
+  private staleLeaseReaperIntervalMs() {
+    const configured = process.env.GENERATION_STALE_LEASE_REAPER_INTERVAL_MS
+    if (configured === undefined || configured.trim() === '') return DEFAULT_STALE_LEASE_REAPER_INTERVAL_MS
+    const intervalMs = Number(configured)
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) return DEFAULT_STALE_LEASE_REAPER_INTERVAL_MS
+    return Math.max(5_000, Math.trunc(intervalMs))
+  }
+
+  private async recoverTerminalReservations() {
+    let cursor: string | undefined
+    do {
+      const terminalJobs = await this.prisma.generationJob.findMany({
+        where: {
+          status: { in: ['FAILED', 'CANCELLED'] },
+          settlementStatus: { in: ['PENDING', 'RESERVED', 'RECONCILING'] },
+        },
+        orderBy: { id: 'asc' },
+        take: RECOVERY_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      if (!terminalJobs.length) break
+      cursor = terminalJobs.at(-1)?.id
+      for (const task of terminalJobs) {
+        try {
+          await this.completeTerminalReconciliation(task, task.status === 'CANCELLED' ? 'CANCELLED' : 'FAILED')
+        } catch (error) {
+          // A single row may need a later retry or manual repair. Keep startup
+          // and the recovery pass available for every other terminal task.
+          this.logger.warn(`Generation ${task.id} reconciliation remains pending: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      if (terminalJobs.length < RECOVERY_BATCH_SIZE) break
+    } while (cursor)
   }
 
   async process(queueJob: Job<{ jobId: string }>) {
     const started = await this.lifecycle.claim(queueJob.data.jobId, this.workerId, { attempt: queueJob.attemptsMade + 1 })
     let task = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: queueJob.data.jobId } })
-    if (!started || task.status === 'CANCELLED' || task.lockedBy !== this.workerId) return task
+    if (!started || task.status === 'CANCELLED' || task.lockedBy !== this.workerId) {
+      if ((task.status === 'FAILED' || task.status === 'CANCELLED')
+        && ['PENDING', 'RESERVED', 'RECONCILING'].includes(task.settlementStatus)) {
+        await this.completeTerminalReconciliation(task, task.status)
+        task = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
+      }
+      return task
+    }
     const lease: GenerationLease = { workerId: this.workerId, leaseVersion: task.leaseVersion }
     const abortController = new AbortController()
     let leaseLost = false
@@ -182,7 +290,7 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
       // lifecycle is marked successful. Recovery must finish bookkeeping only;
       // calling the Provider again would duplicate upstream cost and output.
       if (task.settlementStatus === 'RECONCILING') {
-        if (task.kind === 'CHAT') throw new ReconciliationRequiredError('聊天任务需要人工账务对账，已阻止重复调用 Provider')
+        if (task.kind === 'CHAT') return this.finalizeRunningReconciliation(task, lease, '聊天任务从待对账状态恢复')
         await runWithOutboundSignal(abortController.signal, () => this.settlement.settleNonChat(task.id), lease)
       } else if (task.settlementStatus !== 'SETTLED') {
         // Reservation creation is intentionally outside the job-options update
@@ -238,6 +346,11 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
           || current.leaseExpiresAt.getTime() <= Date.now()))) {
         return current
       }
+      if (current.status === 'CANCELLED' || error instanceof GenerationJobCancelledError) {
+        if (current.status !== 'CANCELLED') throw error
+        await this.completeTerminalReconciliation(current, 'CANCELLED')
+        return this.prisma.generationJob.findUniqueOrThrow({ where: { id: current.id } })
+      }
       // Financial settlement is the terminal source of truth. Post-settlement
       // audit failures are retried without calling the Provider again.
       if (current.settlementStatus === 'SETTLED') {
@@ -250,39 +363,23 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
           where: { id: current.id, status: 'RUNNING', lockedBy: lease.workerId, leaseVersion: lease.leaseVersion, leaseExpiresAt: { gt: new Date() } },
           data: { settlementStatus: 'RECONCILING', errorCode: 'SETTLEMENT_RECONCILING', errorMessage: message.slice(0, 500) },
         })
+        const finalAttempt = queueJob.attemptsMade + 1 >= Math.max(1, Number(queueJob.opts.attempts || 1))
+        if (marked.count && (current.kind === 'CHAT' || finalAttempt)) {
+          const reconciling = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: current.id } })
+          return this.finalizeRunningReconciliation(reconciling, lease, message)
+        }
         if (marked.count) await this.lifecycle.releaseForRetry(current.id, lease, { reason: 'settlement_reconciliation', attemptsMade: queueJob.attemptsMade + 1 })
         throw error
-      }
-      if (current.status === 'CANCELLED' || error instanceof GenerationJobCancelledError) {
-        const creditRefund = await this.credits.refundOutstandingGeneration(current.userId, current.id, '取消生成任务退款', `job:${current.id}:cancel-refund`, current.billingTeamId)
-        if (creditRefund?.amount) {
-          await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: current.userId, generationId: current.id, amount: creditRefund.amount, provider: current.provider, idempotencyKey: `job:${current.id}:cancel-refund`, metadata: { reason: 'CANCELLED', billingTeamId: current.billingTeamId } as Prisma.InputJsonValue }), `${current.id}:cancel-refund`)
-        }
-        const released = await this.releaseTokenReservation(current)
-        await this.prisma.generationJob.updateMany({
-          where: { id: task.id, status: 'CANCELLED', settlementStatus: { in: ['PENDING', 'RESERVED', 'RECONCILING'] } },
-          data: { settlementStatus: released ? (creditRefund?.amount ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' },
-        }).catch(() => undefined)
-        await this.finishPluginUsage(task, 'CANCELLED')
-        await this.cleanupCancelledSideEffects(task)
-        await this.recordUsage(current)
-        return current
       }
       const finalAttempt = error instanceof TerminalProviderJobError || error instanceof TerminalSettlementError || queueJob.attemptsMade + 1 >= (queueJob.opts.attempts || 1)
       if (finalAttempt) {
         if (task.conversationId) await this.prisma.message.deleteMany({ where: { conversationId: task.conversationId, metadata: { path: ['jobId'], equals: task.id } } })
         const message = error instanceof Error ? error.message : 'Provider request failed'
         const failed = await this.lifecycle.fail(task.id, error instanceof TerminalSettlementError ? 'SETTLEMENT_ERROR' : 'PROVIDER_ERROR', message, { attemptsMade: queueJob.attemptsMade + 1 }, lease)
-        const creditRefund = failed
-          ? await this.credits.refundOutstandingGeneration(current.userId, current.id, '生成失败退款', `job:${current.id}:failure-refund`, current.billingTeamId)
-          : null
-        if (creditRefund?.amount) {
-          await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId: current.userId, generationId: current.id, amount: creditRefund.amount, provider: current.provider, idempotencyKey: `job:${current.id}:failure-refund`, metadata: { reason: 'FAILED', billingTeamId: current.billingTeamId } as Prisma.InputJsonValue }), `${current.id}:failure-refund`)
+        if (failed) {
+          const terminal = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
+          await this.completeTerminalReconciliation(terminal, 'FAILED', message)
         }
-        const released = failed ? await this.releaseTokenReservation(current) : true
-        if (failed) await this.prisma.generationJob.updateMany({ where: { id: task.id, settlementStatus: { in: ['PENDING', 'RESERVED', 'RECONCILING'] } }, data: { settlementStatus: released ? (creditRefund?.amount ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' } }).catch(() => undefined)
-        if (failed) await this.finishPluginUsage(task, 'FAILED', message)
-        await this.recordUsageById(task.id)
       } else {
         await this.lifecycle.releaseForRetry(task.id, lease, { reason: 'queue_retry', attemptsMade: queueJob.attemptsMade + 1 })
       }
@@ -291,6 +388,39 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit {
       clearInterval(heartbeat)
       abortController.abort()
     }
+  }
+
+  /**
+   * An interrupted chat response is never replayed because the Provider may
+   * already have accepted billable work. The deterministic recovery policy is
+   * to fail the incomplete delivery, absorb any ambiguous upstream cost, and
+   * release the user's holds exactly once.
+   */
+  private async finalizeRunningReconciliation(task: GenerationJob, lease: GenerationLease, reason: string) {
+    const errorCode = task.kind === 'CHAT' ? 'PROVIDER_STREAM_INCOMPLETE' : 'SETTLEMENT_RECONCILIATION_FAILED'
+    const errorMessage = task.kind === 'CHAT'
+      ? '模型响应中断，任务已安全结束且不会扣费'
+      : '生成结果未能完成结算，任务已安全结束且不会扣费'
+    // Fence the running job first. Only the worker that still owns this lease
+    // may make it terminal; ProviderAttempt cleanup happens afterwards.
+    const failed = await this.lifecycle.fail(task.id, errorCode, errorMessage, { reconciled: true }, lease)
+    if (!failed) return this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
+    const terminal = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
+    await this.completeTerminalReconciliation(terminal, 'FAILED', reason)
+    return this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
+  }
+
+  private async completeTerminalReconciliation(task: GenerationJob, reason: 'FAILED' | 'CANCELLED', error?: string) {
+    const reconciled = await this.reconciliation.finalizeTerminal(task.id, reason)
+    if (!reconciled || !['RELEASED', 'REFUNDED', 'SETTLED'].includes(reconciled.settlementStatus)) {
+      throw new TerminalSettlementError('生成任务终态对账尚未完成')
+    }
+    await this.finishPluginUsage(task, reason, error)
+    if (task.conversationId) {
+      await this.prisma.message.deleteMany({ where: { conversationId: task.conversationId, metadata: { path: ['jobId'], equals: task.id } } })
+    }
+    if (task.kind !== 'CHAT') await this.outputs.cleanup(task)
+    await this.recordUsageById(task.id)
   }
 
   private async recoverTokenReservations(task: GenerationJob): Promise<GenerationJob> {

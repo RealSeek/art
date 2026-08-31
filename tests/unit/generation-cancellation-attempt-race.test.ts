@@ -118,7 +118,7 @@ test('ProviderAttempt winning the lock makes cancellation reconcile without refu
   const { prisma, job } = serialHarness()
   const generationLifecycle = lifecycle(prisma)
   const audit = new ProviderAttemptAuditService(prisma as never)
-  const calls = { refunds: 0, releases: 0 }
+  const calls = { refunds: 0, releases: 0, queueRemovals: 0 }
   await runWithOutboundSignal(
     new AbortController().signal,
     () => audit.start({ generationId: 'job-race', provider: 'system:openai', model: 'gpt-test', metadata: { auxiliary: false } }),
@@ -143,13 +143,14 @@ test('ProviderAttempt winning the lock makes cancellation reconcile without refu
       release: async () => { calls.releases += 1 },
     } as never,
     {} as never,
-    { getJob: async () => null } as never,
+    { finalizeTerminal: async () => job } as never,
+    { getJob: async () => ({ isActive: async () => false, remove: async () => { calls.queueRemovals += 1 } }) } as never,
   )
 
   const result = await service.cancel('user-1', 'job-race')
 
   assert.equal(job.status, 'CANCELLED')
   assert.equal(job.settlementStatus, 'RECONCILING')
-  assert.equal(result.settlementStatus, 'RECONCILING')
-  assert.deepEqual(calls, { refunds: 0, releases: 0 })
+  assert.equal('settlementStatus' in result, false)
+  assert.deepEqual(calls, { refunds: 0, releases: 0, queueRemovals: 0 })
 })

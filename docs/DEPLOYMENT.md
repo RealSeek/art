@@ -99,7 +99,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - 普通公网请求尽量只允许经受控 egress proxy 访问 `80/443`，并由代理在实际解析和建连时再次执行公网 IP 校验；
 - 上线前用 DNS 重绑定、私网 A/AAAA 记录、302 跳转到 Metadata 和代理远端解析四类用例验证规则确实生效。
 
-如果业务允许管理员配置内网 Local Worker，应给该服务建立独立、最小化的目的地址白名单，不要因此对所有用户自定义 Provider、Tool、Webhook 或搜索地址开放内网访问。
+如果业务允许管理员配置内网 Local Worker，应通过 `LOCAL_WORKER_ALLOWED_HOSTS` 建立独立、最小化的主机或 `主机:端口` 白名单；留空时仅允许仓库 Compose 内置的 Worker 服务名。不要因此对普通 Provider、用户自定义 Provider、Tool、Webhook 或搜索地址开放内网访问。
 
 ## 3. 持久化与备份
 
@@ -274,10 +274,10 @@ Invoke-RestMethod http://localhost:8080/v1/health/ready
 npm ci
 npm --prefix server ci
 pnpm --dir admin install --frozen-lockfile
+npm --prefix server run prisma:generate
 npm run build
 npm run admin:build
 npm run server:build
-npm --prefix server run prisma:generate
 npm --prefix server run prisma:deploy
 ```
 

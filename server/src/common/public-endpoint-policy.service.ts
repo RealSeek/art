@@ -12,6 +12,37 @@ export function publicHttpUrl(value: string | URL): URL {
   return url
 }
 
+/**
+ * Local workers are intentionally reachable on a private network, but their
+ * targets must still be explicitly allowlisted.  This keeps the exception
+ * narrow instead of turning every admin-configurable provider into an SSRF
+ * primitive.
+ */
+export function localWorkerHttpUrl(value: string | URL, allowedHosts: Iterable<string>): URL {
+  let url: URL
+  try { url = value instanceof URL ? new URL(value.toString()) : new URL(value) } catch { throw new BadRequestException('本地 Worker Endpoint 地址无效') }
+  const hostname = normalizedHostname(url)
+  if (!['http:', 'https:'].includes(url.protocol) || !hostname || url.username || url.password) throw new BadRequestException('本地 Worker Endpoint 仅允许 HTTP/HTTPS 地址')
+
+  const normalized = new Set([...allowedHosts].map((item) => normalizeAllowedHost(item)).filter(Boolean))
+  const host = hostname.toLowerCase().replace(/\.$/, '')
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80')
+  if (!normalized.has(host) && !normalized.has(`${host}:${port}`)) throw new BadRequestException('本地 Worker Endpoint 不在允许列表中')
+  return url
+}
+
+function normalizeAllowedHost(value: string) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return ''
+  try {
+    const parsed = raw.includes('://') ? new URL(raw) : null
+    if (parsed) return `${normalizedHostname(parsed)}${parsed.port ? `:${parsed.port}` : ''}`
+  } catch {
+    return ''
+  }
+  return raw.replace(/^\[/, '').replace(/\]$/, '').replace(/\.$/, '')
+}
+
 export function normalizedHostname(url: URL) {
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
   return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname

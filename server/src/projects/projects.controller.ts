@@ -18,6 +18,7 @@ import { AuthGuard } from "../auth/auth.guard";
 import { CurrentUser, AuthenticatedUser } from "../common/request-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { ResourceAccessService } from "../common/resource-access.service";
+import { publicAssetSelect, toPublicAsset } from "../assets/public-asset.dto";
 
 import {
   AssignProjectTeamDto,
@@ -115,6 +116,7 @@ export class ProjectsController {
           where: { deletedAt: null },
           orderBy: { createdAt: "desc" },
           take: 30,
+          select: { ...publicAssetSelect, userId: true },
         },
         conversations: {
           where: { archivedAt: null },
@@ -149,11 +151,7 @@ export class ProjectsController {
       team: project.team ? { id: project.team.id, name: project.team.name } : null,
       accessRole,
       conversations: visibleConversations,
-      assets: visibleAssets.map((asset) => ({
-        ...asset,
-        size: Number(asset.size),
-        contentUrl: `/v1/assets/${asset.id}/content`,
-      })),
+      assets: visibleAssets.map((asset) => toPublicAsset(asset)),
       _count: { ...project._count, assets: visibleAssets.length, conversations: visibleConversations.length },
     };
   }

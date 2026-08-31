@@ -6,6 +6,7 @@ import { AuthGuard } from '../auth/auth.guard'
 import { CurrentUser, AuthenticatedRequest, AuthenticatedUser } from '../common/request-user'
 import { GenerationsService } from './generations.service'
 import { GenerationEventsService } from './generation-events.service'
+import { toPublicGenerationEvent } from './public-generation.dto'
 
 class CreateJobDto {
   @IsEnum(JobKind) kind!: JobKind
@@ -40,14 +41,14 @@ export class GenerationsController {
     const parsed = Number.parseInt(String(after || lastEventId || '0'), 10)
     let sequence = Number.isFinite(parsed) ? Math.max(0, parsed) : 0
     return defer(() => from(this.generations.get(user.id, id))).pipe(
-      switchMap(() => interval(250).pipe(
+      switchMap((job) => interval(250).pipe(
         startWith(0),
         switchMap(() => from(this.generationEvents.listAfter(id, sequence, 200))),
         mergeMap((rows) => from(rows)),
         filter((row) => Number(row.sequence) > sequence),
         map((row) => {
           sequence = Number(row.sequence)
-          return { id: String(sequence), type: 'generation_event', retry: 3000, data: { id: row.id, sequence, type: row.type, payload: row.payload, createdAt: row.createdAt } }
+          return { id: String(sequence), type: 'generation_event', retry: 3000, data: toPublicGenerationEvent(row, job.kind) }
         }),
         takeWhile((event) => !['done', 'error', 'cancelled'].includes(String(event.data.type)), true),
       )),

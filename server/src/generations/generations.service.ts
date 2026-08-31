@@ -9,7 +9,6 @@ import { ProvidersService } from '../providers/providers.service'
 import { ModerationService } from '../moderation/moderation.service'
 import { imageCapabilities, imageCreditCost, imageResolutionTier, normalizeImageOptions } from './image-options'
 import { normalizeVideoOptions, videoCapabilities, videoCreditCost } from './video-options'
-import { publicGenerationError } from './generation-errors'
 import { PluginsService } from '../plugins/plugins.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { GenerationEventsService } from './generation-events.service'
@@ -20,18 +19,20 @@ import { PricingResolverService } from '../billing/pricing-resolver.service'
 import { TokenizerService } from '../billing/tokenizer.service'
 import { TokenQuotaService, type QuotaReservation } from '../billing/token-quota.service'
 import { ChatContextService } from './chat-context.service'
+import { publicGenerationDetailSelect, publicGenerationListSelect, toPublicGeneration, toPublicGenerationEvent, type PublicGenerationDto, type PublicGenerationEventDto } from './public-generation.dto'
+import { GenerationReconciliationService } from './generation-reconciliation.service'
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
 
 @Injectable()
 export class GenerationsService {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, private readonly chatContext: ChatContextService, @InjectQueue('generation') private readonly queue: Queue) {}
-  async create(userId: string, input: CreateJobInput, trace: RequestTrace = {}) {
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, private readonly chatContext: ChatContextService, private readonly reconciliation: GenerationReconciliationService, @InjectQueue('generation') private readonly queue: Queue) {}
+  async create(userId: string, input: CreateJobInput, trace: RequestTrace = {}): Promise<PublicGenerationDto> {
     const idempotencyKey = input.idempotencyKey ? `${userId}:${input.idempotencyKey}` : undefined
     if (input.idempotencyKey) {
-      const existing = await this.prisma.generationJob.findFirst({ where: { userId, idempotencyKey: { in: [idempotencyKey!, input.idempotencyKey] } } })
-      if (existing) return existing
+      const existing = await this.prisma.generationJob.findFirst({ where: { userId, idempotencyKey: { in: [idempotencyKey!, input.idempotencyKey] } }, select: publicGenerationListSelect })
+      if (existing) return toPublicGeneration(existing)
     }
     const imagePromptTask = input.kind === 'CHAT' && input.options.taskType === 'IMAGE_PROMPT_EXTRACTION'
     if (imagePromptTask) {
@@ -206,8 +207,8 @@ export class GenerationsService {
       })
     } catch (error) {
       if (idempotencyKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const existing = await this.prisma.generationJob.findUnique({ where: { idempotencyKey } })
-        if (existing) return existing
+        const existing = await this.prisma.generationJob.findUnique({ where: { idempotencyKey }, select: publicGenerationListSelect })
+        if (existing) return toPublicGeneration(existing)
       }
       throw error
     }
@@ -251,7 +252,8 @@ export class GenerationsService {
       await this.prisma.generationJob.update({ where: { id: job.id }, data: { settlementStatus: 'RESERVED' } })
       await this.eventsService.append(job.id, 'queued', { requestId: trace.requestId, traceId: trace.traceId, kind: job.kind, model: job.model })
       await this.queue.add(input.kind.toLowerCase(), { jobId: job.id }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
-      return job
+      const created = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: job.id }, select: publicGenerationListSelect })
+      return toPublicGeneration(created)
     } catch (error) {
       await this.lifecycle.fail(job.id, 'ENQUEUE_FAILED', error instanceof Error ? error.message : 'Unable to enqueue')
       await this.prisma.pluginUsage.updateMany({ where: { jobId: job.id, status: 'QUEUED' }, data: { status: 'FAILED', error: 'Unable to enqueue generation job' } })
@@ -274,18 +276,18 @@ export class GenerationsService {
     if (assets.length !== allIds.length) throw new NotFoundException('参考图片不存在或你没有访问权限')
     if (assets.some((asset) => asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/'))) throw new BadRequestException('参考图和蒙版必须是图片文件')
   }
-  async get(userId: string, id: string) {
-    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } }, events: { orderBy: { sequence: 'asc' }, take: 500 }, providerAttempts: { orderBy: { startedAt: 'asc' }, take: 50 }, billingTransactions: { orderBy: { createdAt: 'asc' }, take: 50 }, usageRecords: true } })
+  async get(userId: string, id: string): Promise<PublicGenerationDto> {
+    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, select: publicGenerationDetailSelect })
     if (!job) throw new NotFoundException('任务不存在')
     const streamMessage = job.kind === 'CHAT' && job.conversationId ? await this.prisma.message.findFirst({ where: { conversationId: job.conversationId, deletedAt: null, metadata: { path: ['jobId'], equals: job.id } }, select: { id: true, content: true, model: true, metadata: true } }) : null
-    return { ...job, errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage), stream: streamMessage ? { messageId: streamMessage.id, content: streamMessage.content, model: streamMessage.model, metadata: streamMessage.metadata } : null, outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })) }
+    return toPublicGeneration(job, streamMessage ? { messageId: streamMessage.id, content: streamMessage.content, model: streamMessage.model, metadata: streamMessage.metadata } : null)
   }
-  async events(userId: string, id: string) {
-    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, select: { id: true } })
+  async events(userId: string, id: string): Promise<PublicGenerationEventDto[]> {
+    const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, select: { id: true, kind: true } })
     if (!job) throw new NotFoundException('任务不存在')
-    return this.eventsService.list(id)
+    return (await this.eventsService.list(id)).map((event) => toPublicGenerationEvent(event, job.kind))
   }
-  async retry(userId: string, id: string, trace: RequestTrace = {}) {
+  async retry(userId: string, id: string, trace: RequestTrace = {}): Promise<PublicGenerationDto> {
     const job = await this.prisma.generationJob.findFirst({ where: { id, userId } })
     if (!job) throw new NotFoundException('任务不存在')
     if (job.status !== JobStatus.FAILED && job.status !== JobStatus.CANCELLED) throw new BadRequestException('只有失败或已取消的任务可以重试')
@@ -301,39 +303,30 @@ export class GenerationsService {
       idempotencyKey: `retry:${id}:${randomUUID()}`,
     }, trace)
   }
-  async list(userId: string, kind?: JobKind) {
-    const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { include: { asset: true }, orderBy: { position: 'asc' } } } })
-    return jobs.map((job) => ({ ...job, errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage), outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })) }))
+  async list(userId: string, kind?: JobKind): Promise<PublicGenerationDto[]> {
+    const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind }, orderBy: { createdAt: 'desc' }, take: 100, select: publicGenerationListSelect })
+    return jobs.map((job) => toPublicGeneration(job))
   }
-  async cancel(userId: string, id: string) {
+  async cancel(userId: string, id: string): Promise<PublicGenerationDto> {
     const job = await this.get(userId, id)
     if (job.status !== JobStatus.QUEUED && job.status !== JobStatus.RUNNING) return job
     const queueJob = await this.queue.getJob(id)
     const cancelled = await this.lifecycle.cancel(id, userId)
     if (!cancelled) return this.get(userId, id)
-    if (queueJob && !await queueJob.isActive()) await queueJob.remove()
     // Reload after the conditional lifecycle transition. A runner may have
     // updated usage or billing metadata immediately before cancellation won
     // the race, so the original read is not a safe source for refunds.
     const current = await this.prisma.generationJob.findUniqueOrThrow({ where: { id } })
     if (current.providerChannelId) await this.providers.cancelLocalWorkerTask(current.providerChannelId, id).catch(() => undefined)
     await this.prisma.pluginUsage.updateMany({ where: { jobId: id, status: 'QUEUED' }, data: { status: 'CANCELLED' } })
-    // The cancellation transaction found an in-flight or successful Provider
-    // attempt. Preserve every hold until reconciliation can determine the
-    // upstream charge; automatic refund/release would make the ledger lie.
-    if (current.settlementStatus === 'RECONCILING') return this.get(userId, id)
-    const creditRefund = await this.credits.refundOutstandingGeneration(userId, id, '取消生成任务退款', `job:${id}:cancel-refund`, current.billingTeamId)
-    if (creditRefund?.amount) {
-      await this.billingTransactions.safely(this.billingTransactions.recordRefund({ userId, generationId: id, amount: creditRefund.amount, provider: current.provider, idempotencyKey: `job:${id}:cancel-refund`, metadata: { reason: 'CANCELLED', billingTeamId: current.billingTeamId } as Prisma.InputJsonValue }), `${id}:cancel-refund`)
-    }
-    const released = await this.releaseTokenReservations(current, 'CANCELLED')
-    // A cancellation can race with a provider that has already committed its
-    // settlement. Never rewrite a terminal billing state in that case; the
-    // reservation transaction is the source of truth for the charge.
-    await this.prisma.generationJob.updateMany({
-      where: { id, status: 'CANCELLED', settlementStatus: { in: ['PENDING', 'RESERVED', 'RECONCILING'] } },
-      data: { settlementStatus: released ? (creditRefund?.amount ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' },
-    })
+    // Cancellation invalidates the worker lease first. Compensation then runs
+    // through one idempotent path for both queued and in-flight tasks.
+    const reconciled = await this.reconciliation.finalizeTerminal(id, 'CANCELLED')
+    const compensationComplete = reconciled
+      && ['RELEASED', 'REFUNDED', 'SETTLED'].includes(reconciled.settlementStatus)
+    // Keep an incomplete terminal job available so a queued worker can retry
+    // compensation instead of waiting for the next process restart.
+    if (compensationComplete && queueJob && !await queueJob.isActive()) await queueJob.remove()
     return this.get(userId, id)
   }
 

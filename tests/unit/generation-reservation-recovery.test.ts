@@ -39,15 +39,31 @@ function processorHarness(reservations: Reservation[]) {
     generationJob: {
       updateMany: async (input: Record<string, unknown>) => { updateInput = input; return { count: 1 } },
       findUniqueOrThrow: async () => ({ ...task, settlementStatus: 'RESERVED', options: updateInput?.data && typeof updateInput.data === 'object' ? (updateInput.data as Record<string, unknown>).options : task.options }),
+      findUnique: async () => null,
     },
     providerAttempt: { findFirst: async () => null },
   }
   Object.assign(prisma, { $transaction: async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma) })
   const tokenQuota = {
     reservationsForGeneration: async () => reservations,
-    release: async (input: Record<string, unknown>) => { released.push(input); return { releasedUnits: 100n } },
+    release: async (input: Record<string, unknown>) => {
+      released.push(input)
+      const reservation = reservations.find((item) => item.reservationId === input.reservationId)
+      if (reservation?.status === 'RESERVED') reservation.status = 'RELEASED'
+      return { releasedUnits: reservation?.reservedUnits || 0n }
+    },
+  }
+  const reconciliation = {
+    finalizeTerminal: async (_id: string, _reason: 'FAILED' | 'CANCELLED') => {
+      for (const reservation of reservations) {
+        if (reservation.status === 'RESERVED') await tokenQuota.release({ reservationId: reservation.reservationId, quotaId: reservation.quotaId })
+      }
+      return { ...task, status: _reason, settlementStatus: 'RELEASED' }
+    },
   }
   const noop = {}
+  const outputs = { cleanup: async () => 0 }
+  const usageRecords = { record: async () => undefined }
   const chatRunner = { kind: 'CHAT' as const, run: async () => undefined }
   const imageRunner = { kind: 'IMAGE' as const, run: async () => undefined }
   const videoRunner = { kind: 'VIDEO' as const, run: async () => undefined }
@@ -59,10 +75,11 @@ function processorHarness(reservations: Reservation[]) {
     chatRunner as never,
     imageRunner as never,
     videoRunner as never,
-    noop as never,
-    noop as never,
+    outputs as never,
+    usageRecords as never,
     tokenQuota as never,
     noop as never,
+    reconciliation as never,
     noop as never,
   )
   return { processor, task, released, getUpdate: () => updateInput }
@@ -134,7 +151,7 @@ test('reservation lookup failure does not claim that release succeeded', async (
   assert.equal(result, false)
 })
 
-test('startup recovery releases reservations left on terminal jobs after a process crash', async () => {
+test('startup recovery delegates terminal jobs to idempotent reconciliation', async () => {
   const { processor, released } = processorHarness([
     reservation('reservation-monthly', 'quota-monthly', 'MONTHLY:sub-1'),
     reservation('reservation-daily', 'quota-daily', 'DAILY:sub-1:2026-08-30'),
@@ -148,29 +165,42 @@ test('startup recovery releases reservations left on terminal jobs after a proce
     }
     recoverTerminalReservations: () => Promise<void>
   }
-  let terminalUpdate: Record<string, unknown> | undefined
   internal.prisma.generationJob.findMany = async () => [{
     id: 'job-recovery',
     userId: 'user-1',
     status: 'FAILED',
     options: { billing: { quotaEnabled: true } },
   }]
-  internal.prisma.generationJob.updateMany = async (input) => {
-    terminalUpdate = input
-    return { count: 1 }
-  }
 
   await internal.recoverTerminalReservations()
 
   assert.deepEqual(new Set(released.map((input) => input.reservationId)), new Set(['reservation-monthly', 'reservation-daily']))
-  assert.equal((terminalUpdate?.data as Record<string, unknown>).settlementStatus, 'RELEASED')
-  assert.deepEqual((terminalUpdate?.where as Record<string, unknown>).settlementStatus, {
-    in: ['PENDING', 'RESERVED'],
-  })
+})
+
+test('one pending terminal reconciliation does not block recovery of later jobs', async () => {
+  const { processor } = processorHarness([])
+  const recovered: string[] = []
+  const internal = processor as unknown as {
+    prisma: { generationJob: { findMany: () => Promise<Array<Record<string, unknown>>> } }
+    reconciliation: { finalizeTerminal: (id: string, reason: 'FAILED' | 'CANCELLED') => Promise<Record<string, unknown>> }
+    recoverTerminalReservations: () => Promise<void>
+  }
+  internal.prisma.generationJob.findMany = async () => [
+    { id: 'job-needs-manual-repair', userId: 'user-1', kind: 'CHAT', status: 'FAILED', settlementStatus: 'RECONCILING', options: {} },
+    { id: 'job-can-release', userId: 'user-1', kind: 'CHAT', status: 'CANCELLED', settlementStatus: 'RESERVED', options: {} },
+  ]
+  internal.reconciliation.finalizeTerminal = async (id, reason) => {
+    recovered.push(id)
+    return { id, userId: 'user-1', kind: 'CHAT', status: reason, settlementStatus: id === 'job-can-release' ? 'RELEASED' : 'RECONCILING', options: {} }
+  }
+
+  await internal.recoverTerminalReservations()
+
+  assert.deepEqual(recovered, ['job-needs-manual-repair', 'job-can-release'])
 })
 
 for (const status of ['RUNNING', 'SUCCEEDED'] as const) {
-  test(`startup recovery preserves reservations when a terminal job has a ${status} ProviderAttempt`, async () => {
+  test(`startup recovery reconciles a terminal job with a legacy ${status} ProviderAttempt`, async () => {
     const { processor, released } = processorHarness([
       reservation('reservation-monthly', 'quota-monthly', 'MONTHLY:sub-1'),
       reservation('reservation-daily', 'quota-daily', 'DAILY:sub-1:2026-08-30'),
@@ -185,7 +215,6 @@ for (const status of ['RUNNING', 'SUCCEEDED'] as const) {
       }
       recoverTerminalReservations: () => Promise<void>
     }
-    const updates: Array<Record<string, unknown>> = []
     internal.prisma.generationJob.findMany = async () => [{
       id: 'job-recovery',
       userId: 'user-1',
@@ -193,16 +222,11 @@ for (const status of ['RUNNING', 'SUCCEEDED'] as const) {
       settlementStatus: 'RESERVED',
       options: { billing: { quotaEnabled: true } },
     }]
-    internal.prisma.generationJob.updateMany = async (input) => {
-      updates.push(input)
-      return { count: 1 }
-    }
     internal.prisma.providerAttempt.findFirst = async () => ({ id: 'attempt-unresolved', status })
 
     await internal.recoverTerminalReservations()
 
-    assert.equal(released.length, 0)
-    assert.equal((updates.at(-1)?.data as Record<string, unknown>).settlementStatus, 'RECONCILING')
+    assert.deepEqual(new Set(released.map((input) => input.reservationId)), new Set(['reservation-monthly', 'reservation-daily']))
   })
 }
 

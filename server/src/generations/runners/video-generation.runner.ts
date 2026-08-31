@@ -241,7 +241,10 @@ export class VideoGenerationRunner implements GenerationRunner {
     try { url = new URL(input, `${resolved.baseUrl}/`) } catch { throw new ProviderRequestError('视频上游返回了无效的结果地址', 502) }
     const providerOrigin = new URL(resolved.baseUrl).origin
     if (url.origin !== providerOrigin) await this.endpointPolicy.assertPublicHttpUrl(url.toString())
-    const request = url.origin === providerOrigin && resolved.source !== 'user' ? fetchNoRedirect : fetchPublicNoRedirect
+    // Only explicitly allowlisted local workers may bypass the public DNS
+    // dispatcher. Admin-managed public Providers must use the dispatcher even
+    // for same-origin result URLs so DNS rebinding cannot reach a private IP.
+    const request = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
     const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
     if (!response.ok) throw new ProviderRequestError(`视频下载返回 ${response.status}`, response.status)
     let bytes: Uint8Array
@@ -253,9 +256,9 @@ export class VideoGenerationRunner implements GenerationRunner {
   }
 
   private providerFetch(resolved: ResolvedProvider, input: string | URL, init: RequestInit) {
-    return resolved.source === 'user'
-      ? fetchPublicNoRedirect(input, init)
-      : fetchNoRedirect(input, init)
+    return resolved.type === ProviderType.LOCAL_WORKER
+      ? fetchNoRedirect(input, init)
+      : fetchPublicNoRedirect(input, init)
   }
 
   private async assertNotCancelled(jobId: string) {

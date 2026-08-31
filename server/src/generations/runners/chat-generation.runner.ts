@@ -1096,9 +1096,9 @@ export class ChatGenerationRunner implements GenerationRunner {
   }
 
   private providerFetch(resolved: ResolvedProvider, input: string | URL, init: RequestInit) {
-    return resolved.source === 'user'
-      ? fetchPublicNoRedirect(input, init)
-      : fetchNoRedirect(input, init)
+    return resolved.type === 'LOCAL_WORKER'
+      ? fetchNoRedirect(input, init)
+      : fetchPublicNoRedirect(input, init)
   }
 
   private canFailover(error: unknown) {

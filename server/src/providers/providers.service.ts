@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException,
 import { ConfigService } from '@nestjs/config'
 import { ModelCapability, Prisma, ProviderAuthType, ProviderType, SystemSetting } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
+import { localWorkerHttpUrl, PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
 import { CredentialCryptoService } from './credential-crypto.service'
 import { normalizeSiteContent } from './site-content'
 import { CapabilityRegistryService } from './capability-registry.service'
@@ -343,6 +343,35 @@ export class ProvidersService implements OnModuleInit {
     return url.toString().replace(/\/$/, '')
   }
 
+  private localWorkerAllowedHosts() {
+    const configured = this.config.get<string>('LOCAL_WORKER_ALLOWED_HOSTS', '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    // These are the service names shipped by docker-compose.prod.yml. Custom
+    // workers must be added explicitly through LOCAL_WORKER_ALLOWED_HOSTS.
+    return configured.length ? configured : ['image-worker', 'iopaint-worker', 'realesrgan-worker', 'comfyui-gateway', 'comfyui']
+  }
+
+  private async assertProviderEndpoint(input: string, type: ProviderType) {
+    const normalized = this.normalizeBaseUrl(input, type)
+    if (type === ProviderType.LOCAL_WORKER) {
+      localWorkerHttpUrl(normalized, this.localWorkerAllowedHosts())
+      return normalized
+    }
+    await this.endpointPolicy.assertPublicHttpUrl(normalized)
+    return normalized
+  }
+
+  private async providerEndpointAllowed(input: string, type: ProviderType) {
+    try {
+      await this.assertProviderEndpoint(input, type)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   private providerReady(provider: { type: ProviderType; encryptedApiKey: string }) {
     return provider.type === ProviderType.POLLINATIONS || provider.type === ProviderType.LOCAL_WORKER || Boolean(provider.encryptedApiKey)
   }
@@ -609,8 +638,9 @@ export class ProvidersService implements OnModuleInit {
     if (input.templateId && !template) throw new BadRequestException('渠道模板不存在')
     const metadata = { ...(template ? { apiProtocol: template.apiProtocol, nativeSearchProvider: template.nativeSearchProvider } : {}), ...(input.metadata || {}) }
     const providerType = template?.type ?? input.type
+    const baseUrl = await this.assertProviderEndpoint(input.baseUrl || template?.baseUrl || '', providerType)
     const row = await this.prisma.providerChannel.create({ data: {
-      name: input.name.trim(), templateId: input.templateId || null, type: providerType, baseUrl: this.normalizeBaseUrl(input.baseUrl || template?.baseUrl || '', providerType), encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: template?.authType ?? input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: providerType !== ProviderType.POLLINATIONS && providerType !== ProviderType.LOCAL_WORKER && input.allowUserKeys, customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue, metadata: metadata as Prisma.InputJsonValue,
+      name: input.name.trim(), templateId: input.templateId || null, type: providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: template?.authType ?? input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: providerType !== ProviderType.POLLINATIONS && providerType !== ProviderType.LOCAL_WORKER && input.allowUserKeys, customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue, metadata: metadata as Prisma.InputJsonValue,
     } })
     return this.publicProvider(row)
   }
@@ -625,11 +655,18 @@ export class ProvidersService implements OnModuleInit {
     const metadata = input.templateId !== undefined
       ? { ...existingMetadata, ...(template ? { apiProtocol: template.apiProtocol, nativeSearchProvider: template.nativeSearchProvider } : {}), ...(input.metadata || {}) }
       : input.metadata
+    const endpointChanged = input.baseUrl !== undefined || input.type !== undefined || (template && template.type !== existing.type)
+    const baseUrl = endpointChanged
+      ? await this.assertProviderEndpoint(input.baseUrl ?? existing.baseUrl, nextType)
+      : existing.baseUrl
     const row = await this.prisma.providerChannel.update({ where: { id }, data: {
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
       ...(input.templateId !== undefined ? { templateId: input.templateId || null } : {}),
       ...(input.type !== undefined || template ? { type: nextType } : {}),
-      ...(input.baseUrl !== undefined || input.type !== undefined ? { baseUrl: this.normalizeBaseUrl(input.baseUrl ?? existing.baseUrl, nextType) } : {}),
+      ...(endpointChanged ? { baseUrl } : {}),
+      // A URL change must not silently reuse a credential against a new
+      // destination. Require an explicit key rotation for the new endpoint.
+      ...(endpointChanged && !input.apiKey ? { encryptedApiKey: '', apiKeyHint: '', lastHealthStatus: null, lastHealthMessage: '渠道地址已变更，请重新配置 API 密钥', cooldownUntil: null } : {}),
       ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), lastRotatedAt: new Date(), lastHealthStatus: null, lastHealthMessage: '密钥已轮换，等待重新检测', cooldownUntil: null } : {}),
       ...(input.apiKey === '' ? { encryptedApiKey: '', apiKeyHint: '' } : {}),
       ...(input.authType !== undefined || template ? { authType: template?.authType ?? input.authType } : {}),
@@ -671,9 +708,10 @@ export class ProvidersService implements OnModuleInit {
     if (!apiKey && provider.type !== ProviderType.POLLINATIONS && provider.type !== ProviderType.LOCAL_WORKER) throw new BadRequestException('请先配置渠道 API 密钥')
     const startedAt = Date.now()
     try {
+      const baseUrl = await this.assertProviderEndpoint(provider.baseUrl, provider.type)
       if (provider.type === ProviderType.POLLINATIONS) {
-        const url = this.buildPollinationsImageUrl(provider.baseUrl, 'minimal blue circle on white background', { model: 'flux', width: 64, height: 64, seed: 1 })
-        const response = await fetchNoRedirect(url, { headers: this.headers(provider.customHeaders), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const url = this.buildPollinationsImageUrl(baseUrl, 'minimal blue circle on white background', { model: 'flux', width: 64, height: 64, seed: 1 })
+        const response = await fetchPublicNoRedirect(url, { headers: this.headers(provider.customHeaders), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
         const declaredSize = Number(response.headers.get('content-length') || 0)
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`)
@@ -688,9 +726,9 @@ export class ProvidersService implements OnModuleInit {
       }
       if (provider.type === ProviderType.LOCAL_WORKER) {
         const headers = this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey)
-        const health = await fetchNoRedirect(`${provider.baseUrl}/health`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const health = await fetchNoRedirect(`${baseUrl}/health`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         if (!health.ok) throw new Error(`Worker 健康检查返回 HTTP ${health.status}: ${(await health.text()).slice(0, 300)}`)
-        const response = await fetchNoRedirect(`${provider.baseUrl}/models`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+        const response = await fetchNoRedirect(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
         const raw = await response.text()
         if (!response.ok) throw new Error(`Worker 模型目录返回 HTTP ${response.status}: ${raw.slice(0, 300)}`)
         const parsed = JSON.parse(raw) as { data?: Array<string | { id?: string }>; models?: Array<string | { id?: string; name?: string }> }
@@ -701,7 +739,7 @@ export class ProvidersService implements OnModuleInit {
         const candidates = await this.describeDiscoveredModels(parsed)
         return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
       }
-      const response = await fetchNoRedirect(`${provider.baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+      const response = await fetchPublicNoRedirect(`${baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
       const raw = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
       const parsed = JSON.parse(raw) as unknown
@@ -873,10 +911,11 @@ export class ProvidersService implements OnModuleInit {
   async cancelLocalWorkerTask(providerChannelId: string, taskId: string) {
     const provider = await this.prisma.providerChannel.findUnique({ where: { id: providerChannelId } })
     if (!provider || provider.type !== ProviderType.LOCAL_WORKER) return { requested: false, reason: 'not-local-worker' }
+    const baseUrl = await this.assertProviderEndpoint(provider.baseUrl, provider.type)
     const apiKey = this.crypto.decrypt(provider.encryptedApiKey)
     let response: Response
     try {
-      response = await fetchNoRedirect(`${provider.baseUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      response = await fetchNoRedirect(`${baseUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
         method: 'POST',
         headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey),
         signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 5_000)),
@@ -1530,15 +1569,21 @@ export class ProvidersService implements OnModuleInit {
         weight: route.weight ?? route.provider.weight
       }))
     )
-    if (requiredSource !== 'user') for (const route of routes) candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, options: { ...presetOptions, ...routeOptionsRecord(route.options) }, nativeSearchProvider: this.nativeSearchProvider(route.provider.baseUrl, apiProtocol, route.options, presetOptions, route.provider.metadata), videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
+    if (requiredSource !== 'user') for (const route of routes) {
+      if (!await this.providerEndpointAllowed(route.provider.baseUrl, route.provider.type)) continue
+      candidates.push({ source: 'admin', providerId: route.provider.id, routeId: route.id, label: route.provider.name, type: route.provider.type, baseUrl: route.provider.baseUrl, apiKey: this.crypto.decrypt(route.provider.encryptedApiKey), authType: route.provider.authType, headers: this.headers(route.provider.customHeaders), timeoutMs: route.provider.timeoutMs, model: route.upstreamModelOverride || model, presetKey: preset?.key, creditCost, ...basePricing, options: { ...presetOptions, ...routeOptionsRecord(route.options) }, nativeSearchProvider: this.nativeSearchProvider(route.provider.baseUrl, apiProtocol, route.options, presetOptions, route.provider.metadata), videoCapabilities: this.routeVideoCapabilities(route.options, basePricing.videoCapabilities), inputCostMicrosPerMillion: route.inputCostMicrosPerMillion ?? basePricing.inputCostMicrosPerMillion, outputCostMicrosPerMillion: route.outputCostMicrosPerMillion ?? basePricing.outputCostMicrosPerMillion, imageCostMicros: route.imageCostMicros ?? basePricing.imageCostMicros, videoCostMicros: route.videoCostMicros ?? basePricing.videoCostMicros })
+    }
 
     if (requiredSource !== 'user' && !allConfiguredRoutes.length && preset?.provider?.enabled && this.providerReady(preset.provider)) {
-      candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(preset.provider.baseUrl, apiProtocol, presetOptions, preset.provider.metadata) })
+      if (await this.providerEndpointAllowed(preset.provider.baseUrl, preset.provider.type)) candidates.push({ source: 'admin', providerId: preset.provider.id, label: preset.provider.name, type: preset.provider.type, baseUrl: preset.provider.baseUrl, apiKey: this.crypto.decrypt(preset.provider.encryptedApiKey), authType: preset.provider.authType, headers: this.headers(preset.provider.customHeaders), timeoutMs: preset.provider.timeoutMs, model, presetKey: preset.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(preset.provider.baseUrl, apiProtocol, presetOptions, preset.provider.metadata) })
     }
 
     const envKey = this.config.get<string>('AI_PROVIDER_API_KEY') || ''
     const envBase = this.config.get<string>('AI_PROVIDER_BASE_URL') || 'https://api.openai.com/v1'
-    if (requiredSource !== 'user' && envKey) candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: this.normalizeBaseUrl(envBase), apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(envBase, apiProtocol, presetOptions) })
+    if (requiredSource !== 'user' && envKey) {
+      const baseUrl = await this.assertProviderEndpoint(envBase, ProviderType.OPENAI_COMPATIBLE)
+      candidates.push({ source: 'environment', label: '环境变量渠道', type: ProviderType.OPENAI_COMPATIBLE, baseUrl, apiKey: envKey, authType: ProviderAuthType.BEARER, headers: {}, timeoutMs: 120_000, model, presetKey: preset?.key, creditCost, ...basePricing, options: presetOptions, nativeSearchProvider: this.nativeSearchProvider(baseUrl, apiProtocol, presetOptions) })
+    }
     if (!candidates.length && capability === ModelCapability.VIDEO && allConfiguredRoutes.length && !configuredRoutes.length) throw new BadRequestException('当前视频规格没有可用上游渠道，请调整分辨率、时长或画面比例')
     if (!candidates.length && requiredSource === 'user') throw new ServiceUnavailableException('图片反推当前由用户 BYOK 承担费用，请先在设置中添加可用的个人 API 密钥和聊天模型')
     if (!candidates.length && requiredSource === 'platform') throw new ServiceUnavailableException('图片反推尚未绑定可用的平台视觉模型渠道')

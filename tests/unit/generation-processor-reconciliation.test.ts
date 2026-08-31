@@ -136,6 +136,7 @@ function harness(initialStatus: 'RESERVED' | 'RECONCILING' | 'SETTLED' = 'RESERV
     tokenQuota as never,
     settlement as never,
     {} as never,
+    {} as never,
   )
   const queueJob = (attemptsMade = 0) => ({
     data: { jobId: current.id },

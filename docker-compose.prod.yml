@@ -50,6 +50,9 @@ services:
       - ALL
     # redis's setpriv entrypoint must be able to drop from root to redis.
     cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
       - SETUID
       - SETGID
     logging: *default-logging

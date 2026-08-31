@@ -36,7 +36,7 @@ export class CatalogController {
 
   @Get('chat-home-images/:id')
   async chatHomeImage(@Param('id') id: string, @Res({ passthrough: true }) response: FastifyReply) {
-    const result = await this.assets.readForAdmin(id)
+    const result = await this.assets.readPublicChatHomeImage(id)
     response.header('Cache-Control', 'public, max-age=3600')
     return new StreamableFile(result.file, { type: result.mimeType, disposition: assetDisposition(result.mimeType, result.name) })
   }

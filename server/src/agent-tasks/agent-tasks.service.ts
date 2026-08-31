@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ProvidersService } from '../providers/providers.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { AgentTaskCancellationService } from './agent-task-cancellation.service'
+import { publicAgentGenerationSelect, toPublicAgentGeneration } from './public-agent-generation.dto'
 
 export interface CreateAgentTaskInput {
   title: string
@@ -40,7 +41,7 @@ export class AgentTasksService {
   ) {}
 
   async list(userId: string, archived = false) {
-    return this.prisma.agentTask.findMany({
+    const tasks = await this.prisma.agentTask.findMany({
       where: { userId, archivedAt: archived ? { not: null } : null },
       orderBy: { updatedAt: 'desc' },
       take: 100,
@@ -48,12 +49,16 @@ export class AgentTasksService {
         assistant: { select: { id: true, name: true } },
         project: { select: { id: true, name: true } },
         steps: { orderBy: { position: 'asc' } },
-        generationJob: { select: { id: true, status: true, creditCost: true, errorMessage: true } },
+        generationJob: { select: publicAgentGenerationSelect },
         conversation: { select: { id: true, messages: { where: { role: 'ASSISTANT', deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } } } },
         runs: { orderBy: { createdAt: 'desc' }, take: 1, include: { toolCalls: { orderBy: [{ iteration: 'asc' }, { position: 'asc' }] }, events: { orderBy: { createdAt: 'desc' }, take: 30 } } },
         schedule: { select: { id: true, title: true, enabled: true, cronExpression: true, timezone: true, nextRunAt: true } },
       },
     })
+    return tasks.map((task) => ({
+      ...task,
+      generationJob: toPublicAgentGeneration(task.generationJob),
+    }))
   }
 
   async create(userId: string, input: CreateAgentTaskInput) {

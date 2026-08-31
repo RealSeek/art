@@ -6,8 +6,10 @@ import { AuthGuard } from '../auth/auth.guard'
 import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { ModerationService } from '../moderation/moderation.service'
 import { PrismaService } from '../prisma/prisma.service'
-import { publicGenerationError } from '../generations/generation-errors'
+import { publicGenerationListSelect, toPublicGeneration } from '../generations/public-generation.dto'
 import { ResourceAccessService } from '../common/resource-access.service'
+import { publicAssetSelect } from '../assets/public-asset.dto'
+import { toPublicMessage } from './public-message.dto'
 
 class CreateConversationDto { @IsOptional() @IsString() @MinLength(1) @MaxLength(100) projectId?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(160) model?: string; @IsOptional() @IsString() @Matches(/\S/) @MaxLength(120) title?: string; @IsOptional() @IsBoolean() temporary?: boolean }
 class AddMessageDto { @IsString() @Matches(/\S/) @MinLength(1) @MaxLength(50_000) content!: string; @IsOptional() @IsString() @MaxLength(100) parentId?: string; @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @IsNotEmpty({ each: true }) assetIds?: string[] }
@@ -45,13 +47,16 @@ export class ConversationsController {
     ])
     const temporary = body.temporary ?? userSettings?.temporaryChatDefault ?? (userSettings ? !userSettings.chatHistoryEnabled : false)
     const retentionHours = Math.max(1, settings?.temporaryChatRetentionHours || 24)
-    return this.prisma.conversation.create({ data: { userId: user.id, projectId: body.projectId, title: body.title?.trim() || '新对话', model: body.model?.trim() || process.env.AI_CHAT_MODEL || 'gpt-4.1', temporary, expiresAt: temporary ? new Date(Date.now() + retentionHours * 3_600_000) : null } })
+    return this.prisma.conversation.create({
+      data: { userId: user.id, projectId: body.projectId, title: body.title?.trim() || '新对话', model: body.model?.trim() || process.env.AI_CHAT_MODEL || 'gpt-4.1', temporary, expiresAt: temporary ? new Date(Date.now() + retentionHours * 3_600_000) : null },
+      select: { id: true, title: true, model: true, projectId: true, temporary: true, pinnedAt: true, sharedAt: true, archivedAt: true, createdAt: true, updatedAt: true },
+    })
   }
   @Get(':id') async get(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const conversation = await this.prisma.conversation.findFirst({ where: this.readableConversationWhere(user.id, id), include: { project: { select: { userId: true } }, messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, displayName: true, email: true } }, attachments: { include: { asset: true } } } }, jobs: { where: { kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } }, orderBy: { createdAt: 'desc' }, take: 100, include: { outputs: { orderBy: { position: 'asc' }, include: { asset: true } } } } } })
+    const conversation = await this.prisma.conversation.findFirst({ where: this.readableConversationWhere(user.id, id), include: { project: { select: { userId: true } }, messages: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, displayName: true } }, attachments: { include: { asset: { select: publicAssetSelect } } } } }, jobs: { where: { kind: { in: ['IMAGE', 'VIDEO', 'COMMERCE'] } }, orderBy: { createdAt: 'desc' }, take: 100, select: publicGenerationListSelect } } })
     if (!conversation) throw new NotFoundException('对话不存在')
     const auditReadOnly = conversation.userId !== user.id
-    const { jobs, project: _project, ...detail } = conversation
+    const { jobs } = conversation
     const visibleMessages = conversation.activeLeafId
       ? (() => {
           const byId = new Map(conversation.messages.map((message) => [message.id, message]))
@@ -70,22 +75,19 @@ export class ConversationsController {
     }
     for (const group of branchGroups.values()) group.sort((left, right) => left.branchIndex - right.branchIndex)
     return {
-      ...detail,
+      id: conversation.id,
+      projectId: conversation.projectId,
+      title: conversation.title,
+      model: conversation.model,
+      temporary: conversation.temporary,
+      pinnedAt: conversation.pinnedAt,
+      sharedAt: conversation.sharedAt,
+      archivedAt: conversation.archivedAt,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
       auditReadOnly,
-      messages: visibleMessages.map((message) => ({
-        ...message,
-        branchCount: branchGroups.get(message.parentId || '__root__')?.length || 1,
-        branches: branchGroups.get(message.parentId || '__root__') || [{ id: message.id, branchIndex: message.branchIndex }],
-        attachments: message.attachments.map((attachment) => ({
-          ...attachment,
-          asset: { ...attachment.asset, size: Number(attachment.asset.size), contentUrl: `/v1/assets/${attachment.asset.id}/content` },
-        })),
-      })),
-      generationJobs: jobs.map((job) => ({
-        ...job,
-        errorMessage: publicGenerationError(job.kind, job.status, job.errorMessage),
-        outputs: job.outputs.map((output) => ({ ...output, asset: { ...output.asset, size: Number(output.asset.size), contentUrl: `/v1/assets/${output.asset.id}/content` } })),
-      })),
+      messages: visibleMessages.map((message) => toPublicMessage(message, { branches: branchGroups.get(message.parentId || '__root__') })),
+      generationJobs: jobs.map((job) => toPublicGeneration(job)),
     }
   }
   @Post(':id/messages') async message(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: AddMessageDto) {
@@ -105,7 +107,7 @@ export class ConversationsController {
       const branchIndex = parentId ? await tx.message.count({ where: { conversationId: id, parentId, deletedAt: null } }) : await tx.message.count({ where: { conversationId: id, parentId: null, deletedAt: null } })
       const message = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content: body.content, parentId, branchIndex, attachments: body.assetIds?.length ? { create: body.assetIds.map((assetId) => ({ assetId })) } : undefined }, include: { attachments: true } })
       await tx.conversation.update({ where: { id }, data: { activeLeafId: message.id, updatedAt: new Date() } })
-      return message
+      return toPublicMessage(message)
     })
   }
   @Post(':id/messages/:messageId/branch')
@@ -122,7 +124,7 @@ export class ConversationsController {
       const branchIndex = await tx.message.count({ where: { conversationId: id, parentId: target.parentId, deletedAt: null } })
       const updated = await tx.message.create({ data: { conversationId: id, authorId: user.id, role: 'USER', content, parentId: target.parentId, branchIndex, attachments: target.attachments.length ? { create: target.attachments.map((attachment) => ({ assetId: attachment.assetId })) } : undefined } })
       await tx.conversation.update({ where: { id }, data: { activeLeafId: updated.id, updatedAt: new Date() } })
-      return { ...updated, branchCount: branchIndex + 1 }
+      return toPublicMessage(updated, { branchCount: branchIndex + 1 })
     })
   }
   @Post(':id/messages/:messageId/activate')

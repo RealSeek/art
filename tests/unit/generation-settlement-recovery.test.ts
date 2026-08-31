@@ -160,6 +160,7 @@ function processorHarness(initialSettlementStatus: SettlementStatus, options: Ha
     tokenQuota as never,
     settlement as never,
     {} as never,
+    {} as never,
   )
 
   return { processor, state, counters }
@@ -325,11 +326,13 @@ test('rejected RECONCILING cancellation does not refund credits or release quota
     {} as never,
     tokenQuota as never,
     {} as never,
+    {} as never,
     queue as never,
   )
 
   const result = await service.cancel('user-1', 'job-recovery')
 
-  assert.equal(result.settlementStatus, 'RECONCILING')
+  assert.equal(result.status, 'QUEUED')
+  assert.equal('settlementStatus' in result, false)
   assert.deepEqual(calls, { creditRefund: 0, billingRefund: 0, quotaRelease: 0, queueRemove: 0 })
 })

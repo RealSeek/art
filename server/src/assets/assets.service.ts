@@ -130,6 +130,19 @@ export class AssetsService {
     return this.readAsset(asset)
   }
 
+  async readPublicChatHomeImage(id: string) {
+    const asset = await this.prisma.asset.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        kind: AssetKind.IMAGE,
+        metadata: { path: ['purpose'], equals: 'chat-home-banner' },
+      },
+    })
+    if (!asset) throw new NotFoundException('首页图片不存在')
+    return this.readAsset(asset)
+  }
+
   private async readAsset(asset: { objectKey: string; storageDriver: string; storageBucket: string; mimeType: string; name: string; kind?: AssetKind }) {
     const file = await this.storage.read(this.assetLocation(asset), asset.objectKey)
     return { file, mimeType: asset.mimeType, name: asset.name, kind: asset.kind }
@@ -149,7 +162,7 @@ export class AssetsService {
     const updated = await this.prisma.asset.update({ where: { id }, data: { teamId } })
     if (asset.teamId && asset.teamId !== teamId) await this.access.auditTeamResource(asset.teamId, userId, 'asset.unassigned', 'asset', id)
     if (teamId && teamId !== asset.teamId) await this.access.auditTeamResource(teamId, userId, 'asset.assigned', 'asset', id, { previousTeamId: asset.teamId })
-    return { ...updated, size: Number(updated.size), contentUrl: `/v1/assets/${updated.id}/content` }
+    return updated
   }
 
   async removeAsAdmin(id: string) {
