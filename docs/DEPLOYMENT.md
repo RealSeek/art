@@ -8,7 +8,7 @@
 
 | 服务 | 作用 | 默认暴露 |
 | --- | --- | --- |
-| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 默认仅绑定 `127.0.0.1:8080`（可通过 `XINYUE_HTTP_BIND`/`XINYUE_HTTP_PORT` 修改） |
+| `frontend` | Nginx、用户端和管理端静态文件、API 反向代理 | 默认绑定 `0.0.0.0:8080`，是唯一宿主机 Web 入口（可通过 `XINYUE_HTTP_BIND`/`XINYUE_HTTP_PORT` 修改） |
 | `backend` | NestJS API、BullMQ Worker、迁移和幂等初始化 | 容器 `3100` |
 | `postgres` | 主业务数据库 | 仅 Compose 内网 |
 | `redis` | 队列、缓存和任务状态 | 仅 Compose 内网 |
@@ -22,7 +22,7 @@ Nginx 路由：用户端位于 `/`，管理端位于 `/admin/`，API 位于 `/v1
 - 2 核 CPU、4 GB 内存起步；生成任务多时建议 4 核 8 GB
 - 40 GB 以上可用磁盘
 - Docker Engine 24+ 和 Docker Compose v2+
-- 已解析到服务器的域名和可用的 HTTPS 反向代理
+- Docker Engine 允许宿主机暴露一个 Web 端口；域名、HTTPS 和额外反向代理均为可选的后续配置
 
 ### 2.2 创建生产配置
 
@@ -32,7 +32,9 @@ Copy-Item .env.production.example .env.production
 
 必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`INSTALL_TOKEN` 和 `LOCAL_WORKER_TOKEN`，所有系统令牌均不得少于 32 位且不能使用占位值。`INSTALL_TOKEN` 只用于授权首次管理员创建，不能放入 URL、日志或工单。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
 
-Web 默认使用宿主机回环地址 `127.0.0.1:8080`。一键安装脚本发现端口被占用时会自动选择后续可用端口并写回 `XINYUE_HTTP_PORT`；手工部署可以直接修改 `XINYUE_HTTP_BIND` 和该变量。生产环境不要把 8080 直接暴露到公网。
+一键安装默认把唯一的 Frontend/Nginx Web 入口绑定到 `0.0.0.0`，安装完成后可直接访问终端输出的 `http://服务器IP:实际端口/`，并通过 `/install` 创建首次管理员。安装脚本在首次生成配置时从 `8080` 开始检测；若端口已占用，会递增选择可用端口并写回 `XINYUE_HTTP_PORT`。已有 `.env.production` 或显式设置的 `XINYUE_HTTP_PORT` 不会被静默替换，冲突时安装会退出并提示用户选择端口。
+
+Backend `3100`、PostgreSQL `5432` 和 Redis `6379` 只在 Compose 网络内开放，绝不映射到宿主机。手工部署可以设置 `XINYUE_HTTP_BIND=127.0.0.1`，仅供本机访问或由外部反向代理转发。
 
 重要：Compose 的 `--env-file` 用于解析 `${POSTGRES_PASSWORD}`，而 `backend.env_file` 仍读取根目录的 `.env.production`。两者都需要，因此后续命令始终保留 `--env-file .env.production`。
 
@@ -68,11 +70,14 @@ EXTERNAL_SKILL_MARKET_ENABLED=true
 
 从旧版本升级时，历史上已标记为启用、但没有审核时间戳的外部 Prompt 渠道会保持停用。管理员完成核验后，可在来源管理中逐个重新启用；内部公开作品来源不受影响。
 
-### 2.5 HTTPS 和域名
+### 2.5 可选 HTTPS、域名和反向代理
 
-推荐在宿主机使用 Caddy、Nginx Proxy Manager 或云负载均衡终止 TLS，再转发到 `127.0.0.1:8080`（或你配置的 `XINYUE_HTTP_PORT`）。启用 HTTPS 后修改：
+一键部署不要求域名、HTTPS、Cloudflare 或额外 Nginx；用户可直接通过服务器 IP 和安装器输出的端口使用服务。面向公网的长期运行建议在宿主机使用 Caddy、Nginx Proxy Manager 或云负载均衡终止 TLS。
+
+使用反向代理时，将 Web 入口改为回环绑定，再把代理转发到 `127.0.0.1:实际端口`：
 
 ```dotenv
+XINYUE_HTTP_BIND=127.0.0.1
 WEB_ORIGIN=https://xinyue.example.com
 PUBLIC_BASE_URL=https://xinyue.example.com
 COOKIE_SECURE=true
@@ -85,7 +90,7 @@ TRUST_PROXY=1
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build backend
 ```
 
-`WEB_ORIGIN` 必须与浏览器实际访问的 Origin 完全一致，否则登录 Cookie 和跨域请求会失败。`PUBLIC_BASE_URL` 是支付 Webhook 对外地址；前后端同域时与首个 `WEB_ORIGIN` 保持一致。内置 Docker 拓扑只有一层 Nginx，因此 `TRUST_PROXY=1`；手工部署时必须按真实代理跳数或代理 IP/CIDR 配置，不能使用 `true` 信任任意转发头。外层 TLS 代理必须覆盖 `X-Forwarded-Proto`，且 8080 只能绑定回环或受控内网。
+`WEB_ORIGIN` 必须与浏览器实际访问的 Origin 完全一致，否则登录 Cookie 和跨域请求会失败。`PUBLIC_BASE_URL` 是支付 Webhook 对外地址；前后端同域时与首个 `WEB_ORIGIN` 保持一致。内置 Docker 拓扑只有一层 Nginx，因此 `TRUST_PROXY=1`；手工部署时必须按真实代理跳数或代理 IP/CIDR 配置，不能使用 `true` 信任任意转发头。外层 TLS 代理必须覆盖 `X-Forwarded-Proto`。
 
 ### 2.6 出口网络与 SSRF 边界
 

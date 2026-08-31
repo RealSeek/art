@@ -55,7 +55,9 @@ Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片
 curl -fsSL https://raw.githubusercontent.com/qiantingwl/xinyueai/main/install.sh | bash
 ```
 
-安装脚本会检查 Docker、生成运行密钥和一次性安装令牌，并启动 PostgreSQL、Redis、Backend 和 Frontend，默认监听主机 `8080` 端口；如果该端口已被占用，会从 `8081` 起自动选择可用端口并在终端输出实际地址。首次访问 `http://服务器IP:实际端口/install`，使用服务器本机 `.env.production` 中的安装令牌创建管理员；令牌不会打印到终端，初始化完成后入口会自动关闭。也可以在 `.env.production` 设置 `XINYUE_HTTP_PORT`。
+安装脚本会检查 Docker、生成运行密钥和一次性安装令牌，并启动 PostgreSQL、Redis、Backend 和 Frontend。Frontend/Nginx 是唯一对外 Web 入口，默认监听所有主机地址；安装完成后直接打开终端输出的 `http://服务器IP:实际端口/`。如果 `8080` 已被占用，首次安装会从 `8081` 起自动选择可用端口并持久化到 `.env.production`。首次访问 `http://服务器IP:实际端口/install`，使用服务器本机 `.env.production` 中的安装令牌创建管理员；令牌不会打印到终端，初始化完成后入口会自动关闭。
+
+一键部署不需要手工配置 Nginx、Cloudflare、数据库或 Redis。高级部署者可在 `.env.production` 设置 `XINYUE_HTTP_BIND=127.0.0.1` 和 `XINYUE_HTTP_PORT`，再用自己的域名反向代理到该本机端口。
 
 已克隆仓库时可以直接运行：
 

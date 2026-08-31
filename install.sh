@@ -23,6 +23,9 @@ fi
 [[ -f .env.production.example ]] || die '缺少 .env.production.example。'
 if [[ ! -f .env.production ]]; then
   cp .env.production.example .env.production
+  env_created=true
+else
+  env_created=false
 fi
 
 random_secret() {
@@ -61,24 +64,33 @@ set_env_if_missing CREDENTIAL_ENCRYPTION_KEY "$(random_secret)"
 set_env_if_missing INSTALL_TOKEN "${XINYUE_INSTALL_TOKEN:-$(random_secret)}"
 set_env_if_missing LOCAL_WORKER_TOKEN "$(random_secret)"
 set_env_if_missing NODE_ENV production
-set_env_if_missing XINYUE_HTTP_BIND 127.0.0.1
+set_env_if_missing XINYUE_HTTP_BIND 0.0.0.0
 if [[ -n "${XINYUE_HTTP_PORT:-}" ]]; then
   # An explicit shell override must also be persisted so Compose and the
   # address printed below use the same host port.
   set_env XINYUE_HTTP_PORT "$XINYUE_HTTP_PORT"
+  http_port_explicit=true
 else
   set_env_if_missing XINYUE_HTTP_PORT 8080
+  http_port_explicit=false
 fi
 
 port_in_use() {
   port="$1"
-  if command -v ss >/dev/null 2>&1; then
-    ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .
-  elif command -v netstat >/dev/null 2>&1; then
-    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
-  else
-    docker ps --format '{{.Ports}}' | grep -Eq "(0\.0\.0\.0|127\.0\.0\.1|:::|\[::\]):${port}->"
+  # Check Docker first because it is available by installer precondition and
+  # works consistently on Linux, macOS and Git Bash on Windows.
+  if docker ps --format '{{.Ports}}' | grep -Eq "(0\.0\.0\.0|127\.0\.0\.1|:::|\[::\]):${port}->"; then
+    return 0
   fi
+  if command -v ss >/dev/null 2>&1 \
+    && ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+    return 0
+  fi
+  if command -v netstat >/dev/null 2>&1 \
+    && netstat -an 2>/dev/null | grep -Ei '(LISTEN|LISTENING)' | grep -Eq "[:.]${port}([[:space:]]|$)"; then
+    return 0
+  fi
+  return 1
 }
 
 http_port=$(grep -E '^XINYUE_HTTP_PORT=' .env.production | head -n 1 | cut -d= -f2- || true)
@@ -93,6 +105,9 @@ for secret_key in POSTGRES_PASSWORD SESSION_SECRET CREDENTIAL_ENCRYPTION_KEY INS
 done
 frontend_running=$(docker compose --env-file .env.production -f docker-compose.prod.yml ps --status running --services 2>/dev/null | grep -x 'frontend' || true)
 if [[ -z "$frontend_running" ]] && port_in_use "$http_port"; then
+  if [[ "$http_port_explicit" == true || "$env_created" == false ]]; then
+    die "Web 端口 ${http_port} 已被占用；请显式设置一个可用的 XINYUE_HTTP_PORT 后重试。"
+  fi
   original_port="$http_port"
   while port_in_use "$http_port"; do
     ((http_port += 1))
@@ -101,6 +116,32 @@ if [[ -z "$frontend_running" ]] && port_in_use "$http_port"; then
   set_env XINYUE_HTTP_PORT "$http_port"
   printf '端口 %s 已被占用，已自动改用 %s。\n' "$original_port" "$http_port"
 fi
+
+detect_access_host() {
+  # A wildcard bind is an address to listen on, not an address users can open.
+  # Prefer the host's non-loopback IPv4 address without depending on Internet DNS.
+  if [[ "$http_bind" != '0.0.0.0' && "$http_bind" != '::' ]]; then
+    printf '%s' "$http_bind"
+    return
+  fi
+  if command -v ip >/dev/null 2>&1; then
+    access_host=$(ip -o -4 addr show scope global 2>/dev/null | awk '{split($4, address, "/"); print address[1]; exit}')
+    if [[ -n "$access_host" ]]; then
+      printf '%s' "$access_host"
+      return
+    fi
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    access_host=$(hostname -I 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i !~ /^127\./) { print $i; exit }}')
+    if [[ -n "$access_host" ]]; then
+      printf '%s' "$access_host"
+      return
+    fi
+  fi
+  printf '%s' 'SERVER_IP'
+}
+
+access_host=$(detect_access_host)
 chmod 600 .env.production 2>/dev/null || true
 rm -f .env.production.bak
 
@@ -109,8 +150,15 @@ rm -f .env.production.bak
 # visible to the operator instead of leaving a partially started stack.
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-printf '\nXinyue AI 已安装，内部地址：http://%s:%s/\n' "$http_bind" "$http_port"
-printf '首次启动请打开：http://%s:%s/install（通过 HTTPS 反代访问时使用外部域名）\n' "$http_bind" "$http_port"
+printf '\nXinyue AI 已启动。\n'
+printf '访问地址：http://%s:%s/\n' "$access_host" "$http_port"
+printf '首次初始化：http://%s:%s/install\n' "$access_host" "$http_port"
+if [[ "$access_host" == 'SERVER_IP' ]]; then
+  printf '请将 SERVER_IP 替换为此服务器实际可访问的 IP 地址。\n'
+fi
+if [[ "$http_bind" == '127.0.0.1' || "$http_bind" == '::1' ]]; then
+  printf '当前 Web 入口仅绑定回环地址，适用于本机访问或反向代理；外部直连请设置 XINYUE_HTTP_BIND=0.0.0.0。\n'
+fi
 printf '一次性安装令牌已保存到当前目录的 .env.production，不会输出到终端或日志。\n'
 printf '请仅在服务器本机按最小权限读取，并在初始化页面中输入；不要通过 URL、聊天工具或工单传输。\n'
 printf '启用 HTTPS 后请将 WEB_ORIGIN 改为 https://域名，并设置 COOKIE_SECURE=true。\n'

@@ -58,7 +58,7 @@ for (const key of ['POSTGRES_PASSWORD', 'SESSION_SECRET', 'CREDENTIAL_ENCRYPTION
   if (placeholder(values[key])) setValue(key, randomSecret())
 }
 if (values.NODE_ENV !== 'production') setValue('NODE_ENV', 'production')
-if (placeholder(values.XINYUE_HTTP_BIND)) setValue('XINYUE_HTTP_BIND', '127.0.0.1')
+if (placeholder(values.XINYUE_HTTP_BIND)) setValue('XINYUE_HTTP_BIND', '0.0.0.0')
 
 values = parse(text)
 const required = ['POSTGRES_PASSWORD', 'SESSION_SECRET', 'CREDENTIAL_ENCRYPTION_KEY', 'INSTALL_TOKEN', 'LOCAL_WORKER_TOKEN']
