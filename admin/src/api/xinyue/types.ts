@@ -708,6 +708,7 @@ export type SystemSettings = {
   passwordLoginEnabled: boolean
   passwordRegistrationEnabled: boolean
   linuxDoLoginEnabled: boolean
+  newApiLoginReady: boolean
   linuxDoClientId: string
   linuxDoRedirectUrl: string
   linuxDoScopes: string

@@ -97,7 +97,7 @@ export class AuthService {
     return this.createSession(user, meta, 'password')
   }
 
-  async loginExternal(provider: string, subject: string, input: { email?: string; displayName?: string; avatarUrl?: string; profile?: Record<string, unknown> | null; meta: LoginMeta; requireEmailBind?: boolean; inviteCode?: string }): Promise<ExternalLoginResult> {
+  async loginExternal(provider: string, subject: string, input: { email?: string; username?: string; displayName?: string; avatarUrl?: string; profile?: Record<string, unknown> | null; meta: LoginMeta; requireEmailBind?: boolean; inviteCode?: string; allowRegistrationWhenClosed?: boolean }): Promise<ExternalLoginResult> {
     const cleanSubject = subject.trim()
     if (!cleanSubject) throw new UnauthorizedException('第三方用户标识无效')
     const existingIdentity = await this.prisma.externalIdentity.findUnique({ where: { provider_subject: { provider, subject: cleanSubject } }, include: { user: true } })
@@ -114,14 +114,17 @@ export class AuthService {
       return { bindingRequired: true, provider, ticket, displayName: input.displayName, email: input.email }
     }
     const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
-    if (!settings.registrationEnabled) throw new BadRequestException('新用户注册当前未开放')
+    if (!settings.registrationEnabled && !input.allowRegistrationWhenClosed) throw new BadRequestException('新用户注册当前未开放')
     const email = input.email?.trim().toLowerCase() || null
     const usableEmail = email && !await this.prisma.user.findUnique({ where: { email }, select: { id: true } }) ? email : null
+    const username = input.username?.trim().toLowerCase() || null
+    const usableUsername = username && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$/.test(username) && !await this.prisma.user.findUnique({ where: { username }, select: { id: true } }) ? username : null
     const defaultGroup = await this.ensureDefaultGroup(settings.defaultUserGroupId)
     const displayName = input.displayName?.trim() || `${provider} 用户`
     const user = await this.prisma.user.create({
       data: {
         email: usableEmail,
+        username: usableUsername,
         displayName,
         avatarUrl: input.avatarUrl?.trim() || undefined,
         emailVerifiedAt: usableEmail ? new Date() : undefined,
@@ -134,6 +137,46 @@ export class AuthService {
     })
     await this.referrals.attributeRegistration(user.id, input.inviteCode, input.meta)
     return this.createSession(user, input.meta, provider)
+  }
+
+  newApiSSOReady() {
+    return Boolean(this.config.get<string>('NEW_API_BASE_URL') && this.config.get<string>('NEW_API_SSO_CLIENT_ID') && this.config.get<string>('NEW_API_SSO_CLIENT_SECRET'))
+  }
+
+  getNewApiAuthorization(state: string, redirectUri: string) {
+    if (!this.newApiSSOReady()) throw new BadRequestException('New API 登录尚未完成配置')
+    const base = this.config.get<string>('NEW_API_PUBLIC_URL') || this.config.getOrThrow<string>('NEW_API_BASE_URL')
+    const url = new URL('/api/user/auth/sso/art/authorize', base)
+    url.searchParams.set('client_id', this.config.getOrThrow<string>('NEW_API_SSO_CLIENT_ID'))
+    url.searchParams.set('redirect_uri', redirectUri)
+    url.searchParams.set('state', state)
+    return url.toString()
+  }
+
+  async loginWithNewApi(code: string, redirectUri: string, meta: LoginMeta) {
+    if (!this.newApiSSOReady()) throw new BadRequestException('New API 登录尚未完成配置')
+    const url = new URL('/api/sso/art/token', this.config.getOrThrow<string>('NEW_API_BASE_URL'))
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ client_id: this.config.getOrThrow<string>('NEW_API_SSO_CLIENT_ID'), client_secret: this.config.getOrThrow<string>('NEW_API_SSO_CLIENT_SECRET'), code, redirect_uri: redirectUri }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null)
+    if (!response?.ok) throw new UnauthorizedException('New API 授权交换失败')
+    const payload = await response.json().catch(() => null) as { success?: boolean; data?: { subject?: unknown; username?: unknown; email?: unknown; display_name?: unknown; avatar_url?: unknown; role?: unknown } } | null
+    const profile = payload?.data
+    const subject = typeof profile?.subject === 'string' ? profile.subject.trim() : ''
+    if (!payload?.success || !subject) throw new UnauthorizedException('New API 返回的用户身份无效')
+    return this.loginExternal('new-api', subject, {
+      username: typeof profile?.username === 'string' ? profile.username : undefined,
+      email: typeof profile?.email === 'string' ? profile.email : undefined,
+      displayName: typeof profile?.display_name === 'string' ? profile.display_name : typeof profile?.username === 'string' ? profile.username : 'New API 用户',
+      avatarUrl: typeof profile?.avatar_url === 'string' ? profile.avatar_url : undefined,
+      profile: profile as Record<string, unknown>,
+      meta,
+      allowRegistrationWhenClosed: true,
+    })
   }
 
   async getLinuxDoAuthorization(state: string, codeChallenge: string) {

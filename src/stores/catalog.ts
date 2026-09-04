@@ -20,6 +20,7 @@ export interface PublicCatalogSettings {
   passwordRegistrationEnabled: boolean
   linuxDoLoginEnabled: boolean
   linuxDoLoginReady: boolean
+  newApiLoginReady: boolean
   smtpReady: boolean
   otpResendSeconds: number
   userByokEnabled: boolean
@@ -201,6 +202,7 @@ const emptySettings: PublicCatalogSettings = {
   passwordRegistrationEnabled: false,
   linuxDoLoginEnabled: false,
   linuxDoLoginReady: false,
+  newApiLoginReady: false,
   smtpReady: false,
   otpResendSeconds: 60,
   userByokEnabled: false,
@@ -231,8 +233,9 @@ export const useCatalogStore = defineStore('catalog', {
     passwordRegistrationEnabled: (state) => state.loaded && state.settings.passwordRegistrationEnabled,
     linuxDoLoginEnabled: (state) => state.loaded && state.settings.linuxDoLoginEnabled,
     linuxDoLoginReady: (state) => state.loaded && state.settings.linuxDoLoginReady,
-    loginEnabled: (state) => state.loaded && (state.settings.passwordLoginEnabled || state.settings.emailLoginEnabled || state.settings.emailVerifyEnabled || state.settings.linuxDoLoginReady),
-    registrationAvailable: (state) => state.loaded && state.settings.registrationEnabled && (state.settings.passwordRegistrationEnabled || state.settings.emailVerifyEnabled || state.settings.linuxDoLoginReady),
+    newApiLoginReady: (state) => state.loaded && state.settings.newApiLoginReady,
+    loginEnabled: (state) => state.loaded && state.settings.newApiLoginReady,
+    registrationAvailable: () => false,
   },
   actions: {
     async load(force = false) {

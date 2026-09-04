@@ -6,7 +6,7 @@ export interface AuthSession {
   email: string
   displayName?: string
   username?: string
-  provider: 'password' | 'email' | 'linuxdo' | 'community'
+  provider: 'password' | 'email' | 'linuxdo' | 'new-api' | 'community'
   signedInAt: number
 }
 
@@ -23,7 +23,7 @@ function readSession(): AuthSession | null {
       id: typeof parsed.id === 'string' ? parsed.id : undefined,
       displayName: typeof parsed.displayName === 'string' ? parsed.displayName : undefined,
       username: typeof parsed.username === 'string' ? parsed.username : undefined,
-      provider: ['password', 'email', 'linuxdo', 'community'].includes(parsed.provider) ? parsed.provider as AuthSession['provider'] : 'password',
+      provider: ['password', 'email', 'linuxdo', 'new-api', 'community'].includes(parsed.provider) ? parsed.provider as AuthSession['provider'] : 'community',
       signedInAt: parsed.signedInAt,
     }
   } catch {
@@ -100,7 +100,7 @@ export const useAuthStore = defineStore('auth', {
           window.localStorage.removeItem(STORAGE_KEY)
           return
         }
-        const method = ['password', 'email', 'linuxdo'].includes(user.authMethod || '') ? user.authMethod as AuthSession['provider'] : 'community'
+        const method = ['password', 'email', 'linuxdo', 'new-api'].includes(user.authMethod || '') ? user.authMethod as AuthSession['provider'] : 'community'
         this.session = { id: user.id, email: user.email || '', username: user.username, displayName: user.displayName, provider: method, signedInAt: this.session?.signedInAt || Date.now() }
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session))
       } catch (error) {

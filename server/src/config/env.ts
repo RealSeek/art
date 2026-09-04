@@ -19,6 +19,9 @@ const optionalUrl = z.preprocess((value) => {
   return value
 }, z.string().url().optional())
 
+const optionalText = z.preprocess((value) => typeof value === 'string' && !value.trim() ? undefined : value, z.string().min(1).optional())
+const optionalSecret = z.preprocess((value) => typeof value === 'string' && !value.trim() ? undefined : value, z.string().min(32).optional())
+
 const optInBoolean = z.preprocess((value) => isOptInEnabled(value), z.boolean())
 
 const schema = z.object({
@@ -33,6 +36,11 @@ const schema = z.object({
   REDIS_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   INSTALL_TOKEN: z.string().min(32).optional(),
+  NEW_API_BASE_URL: optionalUrl,
+  NEW_API_PUBLIC_URL: optionalUrl,
+  NEW_API_SSO_CLIENT_ID: optionalText,
+  NEW_API_SSO_CLIENT_SECRET: optionalSecret,
+  NEW_API_SSO_REDIRECT_URI: optionalUrl,
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   GLOBAL_RATE_LIMIT: z.coerce.number().int().positive().default(600),

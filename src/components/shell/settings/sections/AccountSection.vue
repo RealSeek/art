@@ -21,7 +21,7 @@ const deletionReason = defineModel<string>('deletionReason', { required: true })
 
 const auth = useAuthStore()
 
-const loginMethodLabels = { password: '邮箱 / 密码', email: '邮箱验证码', linuxdo: 'Linux.do', community: '第三方账号' } as const
+const loginMethodLabels = { password: '邮箱 / 密码', email: '邮箱验证码', linuxdo: 'Linux.do', 'new-api': 'New API', community: '第三方账号' } as const
 const loginMethodLabel = computed(() => loginMethodLabels[(auth.session?.provider || 'community') as keyof typeof loginMethodLabels] ?? loginMethodLabels.community)
 const hasPublicEmail = computed(() => Boolean(auth.session?.email && !auth.session.email.endsWith('@auth.xinyue.local')))
 const accountIdentityLabel = computed(() => hasPublicEmail.value ? '电子邮件' : '用户名')

@@ -195,102 +195,21 @@
         <AdminAccountCard />
       </ElTabPane>
 
-      <ElTabPane :label="xt('登录与注册')" name="auth"
-        ><ElCard v-if="settings" shadow="never"
-          ><template #header
-            ><strong>{{ xt('站内账户') }}</strong></template
-          ><div class="toggle-grid"
-            ><ToggleRow
-              v-model="settings.registrationEnabled"
-              :title="xt('开放新用户注册')"
-              :note="xt('关闭后只允许已有账户登录')" /><ToggleRow
-              v-model="settings.passwordLoginEnabled"
-              :title="xt('用户名 / 邮箱密码登录')"
-              :note="xt('用户使用注册后的账户与密码登录')" /><ToggleRow
-              v-model="settings.emailLoginEnabled"
-              :title="xt('邮箱验证码登录')"
-              :note="xt('通过邮箱一次性验证码登录')" /><ToggleRow
-              v-model="settings.emailVerifyEnabled"
-              :title="xt('注册时验证邮箱')"
-              :note="xt('新账户完成邮箱验证后注册')" /><ToggleRow
-              v-model="settings.passwordRegistrationEnabled"
-              :title="xt('允许用户名密码注册')"
-              :note="xt('可不填写邮箱，仅使用用户名和密码注册')" /></div
-          ><ElForm label-position="top" class="form-block"
-            ><ElFormItem :label="xt('允许注册的邮箱域名')"
-              ><ElInput
-                v-model="domainsText"
-                type="textarea"
-                :rows="3"
-                :placeholder="xt('留空不限制；多个域名用逗号或换行分隔')" /></ElFormItem
-            ><ElRow :gutter="16"
-              ><ElCol :span="12"
-                ><ElFormItem :label="xt('验证码有效时间（分钟）')"
-                  ><ElInputNumber
-                    v-model="settings.otpTtlMinutes"
-                    :min="1"
-                    :max="60"
-                    class="wide" /></ElFormItem></ElCol
-              ><ElCol :span="12"
-                ><ElFormItem :label="xt('重新发送间隔（秒）')"
-                  ><ElInputNumber
-                    v-model="settings.otpResendSeconds"
-                    :min="10"
-                    :max="3600"
-                    class="wide" /></ElFormItem></ElCol></ElRow></ElForm></ElCard
-        ><ElCard v-if="settings" shadow="never"
-          ><template #header
-            ><div class="card-title"
-              ><strong>Linux.do Connect</strong
-              ><ElTag :type="linuxReady ? 'success' : 'info'">{{
-                linuxReady ? xt('配置完整') : xt('待配置')
-              }}</ElTag></div
-            ></template
-          ><ToggleRow
-            v-model="settings.linuxDoLoginEnabled"
-            :title="xt('启用 Linux.do 登录')"
-            :note="xt('登录按钮展示在站内账户登录方式下方')" /><ElForm
-            label-position="top"
-            class="form-block"
-            ><ElRow :gutter="16"
-              ><ElCol :span="12"
-                ><ElFormItem label="Client ID"
-                  ><ElInput v-model.trim="settings.linuxDoClientId" /></ElFormItem></ElCol
-              ><ElCol :span="12"
-                ><ElFormItem label="Client Secret"
-                  ><ElInput
-                    v-model="linuxSecret"
-                    type="password"
-                    show-password
-                    :placeholder="
-                      settings.hasLinuxDoClientSecret
-                        ? `${xt('已保存')} ${settings.linuxDoClientSecretHint || ''}，${xt('留空保留')}`
-                        : xt('请输入 Client Secret')
-                    " /></ElFormItem></ElCol></ElRow
-            ><ElFormItem :label="xt('回调地址')"
-              ><ElInput v-model.trim="settings.linuxDoRedirectUrl"
-                ><template #append
-                  ><ElButton @click="fillCallback">{{ xt('本地地址') }}</ElButton></template
-                ></ElInput
-              ></ElFormItem
-            ><ElRow :gutter="16"
-              ><ElCol :span="12"
-                ><ElFormItem label="Scope"
-                  ><ElInput v-model.trim="settings.linuxDoScopes" /></ElFormItem></ElCol
-              ><ElCol :span="12"
-                ><ElFormItem :label="xt('UserInfo 端点')"
-                  ><ElInput
-                    v-model.trim="settings.linuxDoUserInfoUrl" /></ElFormItem></ElCol></ElRow
-            ><ElCollapse
-              ><ElCollapseItem :title="xt('高级 OAuth 端点')" name="oauth"
-                ><ElFormItem :label="xt('Authorize 端点')"
-                  ><ElInput v-model.trim="settings.linuxDoAuthorizeUrl" /></ElFormItem
-                ><ElFormItem :label="xt('Token 端点')"
-                  ><ElInput
-                    v-model.trim="
-                      settings.linuxDoTokenUrl
-                    " /></ElFormItem></ElCollapseItem></ElCollapse></ElForm></ElCard
-      ></ElTabPane>
+      <ElTabPane :label="xt('登录与注册')" name="auth">
+        <ElCard v-if="settings" shadow="never">
+          <template #header>
+            <div class="card-title">
+              <strong>New API SSO</strong>
+              <ElTag :type="settings.newApiLoginReady ? 'success' : 'danger'">{{ settings.newApiLoginReady ? xt('配置完整') : xt('待配置') }}</ElTag>
+            </div>
+          </template>
+          <ElAlert
+            :title="xt('普通用户仅可使用 New API 账号登录；客户端地址和密钥通过服务端环境变量配置。')"
+            type="info"
+            :closable="false"
+            show-icon />
+        </ElCard>
+      </ElTabPane>
 
       <ElTabPane :label="xt('邮件服务')" name="email"
         ><ElCard v-if="settings" shadow="never"
@@ -1157,10 +1076,6 @@
   }
   async function save() {
     if (!settings.value) return
-    if (settings.value.linuxDoLoginEnabled && !linuxReady.value) {
-      tab.value = 'auth'
-      return ElMessage.warning(xt('启用 Linux.do 前请完整填写 Client ID、Secret 和回调地址'))
-    }
     saving.value = true
     try {
       settings.value = await xinyueApi.saveSystemSettings(

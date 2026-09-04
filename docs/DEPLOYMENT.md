@@ -32,6 +32,23 @@ Copy-Item .env.production.example .env.production
 
 必须修改 `.env.production` 中的 `POSTGRES_PASSWORD`、`SESSION_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`、`INSTALL_TOKEN` 和 `LOCAL_WORKER_TOKEN`，所有系统令牌均不得少于 32 位且不能使用占位值。`INSTALL_TOKEN` 只用于授权首次管理员创建，不能放入 URL、日志或工单。管理员账号通过首次访问 `/install` 页面创建，生产启动不会回退到固定管理员密码。
 
+普通用户仅使用 New API 账号登录。OnlyArt 与 new-api 必须配置相同的客户端标识、至少 32 位独立密钥和精确回调地址：
+
+```dotenv
+# OnlyArt .env.production
+NEW_API_BASE_URL=https://new-api.example.com
+NEW_API_SSO_CLIENT_ID=onlyart
+NEW_API_SSO_CLIENT_SECRET=替换为独立随机密钥
+NEW_API_SSO_REDIRECT_URI=https://art.example.com/v1/auth/new-api/callback
+
+# new-api 环境变量
+ART_SSO_CLIENT_ID=onlyart
+ART_SSO_CLIENT_SECRET=替换为同一个独立随机密钥
+ART_SSO_REDIRECT_URIS=https://art.example.com/v1/auth/new-api/callback
+```
+
+`NEW_API_PUBLIC_URL` 仅在 OnlyArt 后端通过 Docker 内网地址访问 new-api 时填写为 new-api 的公网浏览器地址。回调地址必须完全一致，包括协议、域名、端口和路径。普通用户首次登录会自动创建 OnlyArt 本地影子账户；OnlyArt 不接收或保存 new-api 密码和访问令牌。为避免同邮箱接管，既有 OnlyArt 用户不会自动按邮箱合并；已有用户数据的部署必须在切换登录入口前按确认过的账号映射迁移 `ExternalIdentity`。管理员仍通过 `/install` 与 `/admin/` 使用独立本地凭据。
+
 一键安装默认把唯一的 Frontend/Nginx Web 入口绑定到 `0.0.0.0`，安装完成后可直接访问终端输出的 `http://服务器IP:实际端口/`，并通过 `/install` 创建首次管理员。安装脚本在首次生成配置时从 `8080` 开始检测；若端口已占用，会递增选择可用端口并写回 `XINYUE_HTTP_PORT`。已有 `.env.production` 或显式设置的 `XINYUE_HTTP_PORT` 不会被静默替换，冲突时安装会退出并提示用户选择端口。
 
 Backend `3100`、PostgreSQL `5432` 和 Redis `6379` 只在 Compose 网络内开放，绝不映射到宿主机。手工部署可以设置 `XINYUE_HTTP_BIND=127.0.0.1`，仅供本机访问或由外部反向代理转发。
