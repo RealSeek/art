@@ -9,15 +9,14 @@
       :active-mode="activeMode"
       :settings="settings"
       :public-settings="publicSettings"
+      :only-code-balance="onlyCodeBalance"
       :external-links="externalLinks"
       :workspace-data-loaded="workspaceDataLoaded"
-      :current-subscription="currentSubscription"
       :conversation-menu-position="conversationMenuPosition"
       :renaming-conversation-id="renamingConversationId"
       :conversation-rename-busy="conversationRenameBusy"
       :open-settings="openSettings"
       :show-settings="() => { settingsOpen = true }"
-      :open-upgrade="openUpgrade"
       :logout="logout"
       :close-conversation-menu="closeConversationMenu"
       :start-conversation-rename="startConversationRename"
@@ -31,9 +30,7 @@
         v-model:chat-actions-open="chatActionsOpen"
         :active-mode="activeMode"
         :workspace-data-loaded="workspaceDataLoaded"
-        :show-upgrade-entry="showUpgradeEntry"
         :conversation-action-busy="conversationActionBusy"
-        :open-upgrade="openUpgrade"
         :share-conversation="shareConversation"
         :toggle-conversation-pinned="toggleConversationPinned"
         :archive-conversation="archiveConversation"
@@ -97,44 +94,11 @@
           :submit-moderation-appeal="submitModerationAppeal"
           :cancel-moderation-appeal="cancelModerationAppeal"
         />
-        <PlanSection
-          v-else-if="settingsSection === 'plan'"
-          v-model:selected-renewal-channel-id="selectedRenewalChannelId"
-          v-model:selected-invoice-transaction-id="selectedInvoiceTransactionId"
-          :current-subscription="currentSubscription"
-          :subscription-plans="subscriptionPlans"
-          :plan-busy="planBusy"
-          :plan-message="planMessage"
-          :plan-error="planError"
-          :public-settings="publicSettings"
-          :coupon-wallet="couponWallet"
-          :coupon-busy-id="couponBusyId"
-          :subscription-orders="subscriptionOrders"
-          :token-quota="tokenQuota"
-          :token-quota-loading="tokenQuotaLoading"
-          :renewal-options="renewalOptions"
-          :renewal-attempts="renewalAttempts"
-          :billing-profile="billingProfile"
-          :billing-busy="billingBusy"
-          :billing-message="billingMessage"
-          :invoice-transactions="invoiceTransactions"
-          :invoice-requests="invoiceRequests"
-          :format-money="formatMoney"
-          :cancel-subscription="cancelSubscription"
-          :start-trial="startTrial"
-          :purchase-plan="purchasePlan"
-          :claim-coupon="claimCoupon"
-          :continue-subscription-payment="continueSubscriptionPayment"
-          :cancel-pending-subscription-order="cancelPendingSubscriptionOrder"
-          :toggle-renewal="toggleRenewal"
-          :save-renewal-channel="saveRenewalChannel"
-          :save-billing-profile="saveBillingProfile"
-          :request-invoice="requestInvoice"
-          :cancel-invoice-request="cancelInvoiceRequest"
-        />
         <ApiSection
           v-else-if="settingsSection === 'api'"
-          :public-settings="publicSettings"
+          :new-api-console-url="publicSettings.newApiConsoleUrl"
+          :provisioning-groups="publicSettings.newApiProvisioningGroups"
+          :provisioning-busy-group="onlyCodeProvisioningBusyGroup"
           :available-models="availableModels"
           :api-credentials="apiCredentials"
           :credential-checking-id="credentialCheckingId"
@@ -144,31 +108,7 @@
           :delete-credential="deleteCredential"
           :open-private-model-editor="openPrivateModelEditor"
           :delete-private-model="deletePrivateModel"
-        />
-        <CreditsSection
-          v-else-if="settingsSection === 'credits'"
-          :public-settings="publicSettings"
-          :recharge-packages="rechargePackages"
-          :creating-order="creatingOrder"
-          :recharge-message="rechargeMessage"
-          :recharge-orders="rechargeOrders"
-          :credit-ledger="creditLedger"
-          :create-recharge-order="createRechargeOrder"
-          :format-money="formatMoney"
-        />
-        <RedeemSection
-          v-else-if="settingsSection === 'redeem'"
-          :settings="settings"
-          :redeeming="redeeming"
-          :redeem-message="redeemMessage"
-          :redeem-error="redeemError"
-          :redeem-credits="redeemCredits"
-        />
-        <InviteSection
-          v-else-if="settingsSection === 'invite'"
-          :invite-info="inviteInfo"
-          :invite-copied="inviteCopied"
-          :copy-invite="copyInvite"
+          :provision-only-code="provisionOnlyCodeCredential"
         />
         <WorkspaceSection
           v-else-if="settingsSection === 'workspace'"
@@ -205,19 +145,13 @@
           :team-error="teamError"
           :team-draft="teamDraft"
           :expanded-team-id="expandedTeamId"
-          :team-ledger-open-id="teamLedgerOpenId"
           :team-resources="teamResources"
-          :team-credit-ledgers="teamCreditLedgers"
-          :team-quota-drafts="teamQuotaDrafts"
           :accept-team-invitation="acceptTeamInvitation"
           :create-team="createTeam"
           :edit-team="editTeam"
           :leave-team="leaveTeam"
           :delete-team="deleteTeam"
           :toggle-team-resources="toggleTeamResources"
-          :toggle-team-billing="toggleTeamBilling"
-          :toggle-team-ledger="toggleTeamLedger"
-          :save-team-member-quota="saveTeamMemberQuota"
           :transfer-team-ownership="transferTeamOwnership"
           :update-team-member-role="updateTeamMemberRole"
           :remove-team-member="removeTeamMember"
@@ -237,43 +171,6 @@
           :close-settings="() => { settingsOpen = false }"
         />
       </SettingsDialog>
-      <UpgradeDialog
-        v-if="upgradeOpen"
-        v-model:pricing-mode="pricingMode"
-        :current-subscription="currentSubscription"
-        :subscription-plans="subscriptionPlans"
-        :plan-busy="planBusy"
-        :plan-message="planMessage"
-        :plan-error="planError"
-        :public-settings="publicSettings"
-        :teams="teams"
-        :format-money="formatMoney"
-        :purchase-upgrade-plan="purchaseUpgradePlan"
-        :open-team-settings="openTeamSettings"
-        @close="upgradeOpen = false"
-      />
-      <CheckoutDialog
-        v-if="paymentIntent"
-        v-model:selected-coupon-id="selectedCouponId"
-        v-model:selected-payment-method="selectedPaymentMethod"
-        :payment-intent="paymentIntent"
-        :payment-transaction="paymentTransaction"
-        :payment-quote="paymentQuote"
-        :available-payment-coupons="availablePaymentCoupons"
-        :eligible-payment-channels="eligiblePaymentChannels"
-        :selected-payment-channel-id="selectedPaymentChannelId"
-        :selected-payment-channel="selectedPaymentChannel"
-        :payment-busy="paymentBusy"
-        :payment-error="paymentError"
-        :payment-status-title="paymentStatusTitle"
-        :payment-instructions="paymentInstructions"
-        :format-money="formatMoney"
-        :select-payment-channel="selectPaymentChannel"
-        :refresh-payment-quote="refreshPaymentQuote"
-        :confirm-checkout="confirmCheckout"
-        :close-payment="closePayment"
-        :refresh-payment-status="refreshPaymentStatus"
-      />
       <ApiKeyDialog
         v-if="credentialEditor"
         :editor="credentialEditor"
@@ -302,15 +199,11 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, type 
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
-import type { PaymentMethodKey } from '../constants/payment'
 import {
   Archive,
   ArchiveRestore,
   Bell,
   BookOpen,
-  CircleGauge,
-  CirclePlus,
-  Gift,
   KeyRound,
   LifeBuoy,
   Pencil,
@@ -323,7 +216,6 @@ import {
   Trash2,
   Users,
   UserRound,
-  WalletCards,
 } from 'lucide-vue-next'
 import SupportCenter from './SupportCenter.vue'
 import ShellSidebar from './shell/ShellSidebar.vue'
@@ -333,16 +225,10 @@ import GeneralSection from './shell/settings/sections/GeneralSection.vue'
 import PersonalizationSection from './shell/settings/sections/PersonalizationSection.vue'
 import NotificationsSection from './shell/settings/sections/NotificationsSection.vue'
 import DataSection from './shell/settings/sections/DataSection.vue'
-import PlanSection from './shell/settings/sections/PlanSection.vue'
 import ApiSection from './shell/settings/sections/ApiSection.vue'
-import CreditsSection from './shell/settings/sections/CreditsSection.vue'
-import RedeemSection from './shell/settings/sections/RedeemSection.vue'
-import InviteSection from './shell/settings/sections/InviteSection.vue'
 import WorkspaceSection from './shell/settings/sections/WorkspaceSection.vue'
 import TeamsSection from './shell/settings/sections/TeamsSection.vue'
 import AccountSection from './shell/settings/sections/AccountSection.vue'
-import UpgradeDialog from './shell/billing/UpgradeDialog.vue'
-import CheckoutDialog from './shell/billing/CheckoutDialog.vue'
 import ApiKeyDialog from './shell/ApiKeyDialog.vue'
 import PrivateModelDialog from './shell/PrivateModelDialog.vue'
 import type { StudioMode } from '../types'
@@ -350,7 +236,6 @@ import { useAuthStore } from '../stores/auth'
 import { useCatalogStore } from '../stores/catalog'
 import { useStudioStore } from '../stores/studio'
 import { api, apiUrl } from '../services/api'
-import { safeHttpNavigationUrl } from '../utils/safe-url'
 import { readStoredSettings, updateStoredSettings, writeStoredSettings } from '../utils/settings-storage'
 import { useTeamManagement } from '../composables/shell/useTeamManagement'
 import { useKnowledgeBases } from '../composables/shell/useKnowledgeBases'
@@ -359,38 +244,20 @@ import type {
   ApiCredential,
   AssistantToolBinding,
   AvailableModel,
-  BillingProfile,
-  CommerceQuote,
-  CouponTemplate,
-  CouponWallet,
   CredentialEditor,
-  CreditEntry,
   DeletionRequest,
   ExternalNavLinkItem,
-  InviteInfo,
-  InvoiceRequest,
-  InvoiceTransaction,
   KnowledgeBase,
   ModerationCase,
   NotificationItem,
-  PaymentChannel,
-  PaymentIntent,
-  PaymentTransaction,
+  OnlyCodeBalance,
   PendingTeamInvitation,
   PrivateModel,
   PrivateModelEditor,
   ProviderTemplate,
   PublicSettings,
-  RechargeOrder,
-  RechargePackage,
-  RenewalAttempt,
-  RenewalOptions,
   SettingsSection,
-  Subscription,
-  SubscriptionOrder,
-  SubscriptionPlan,
   Team,
-  TokenQuotaSummary,
   ToolApproval,
   UserResponse,
   UserSettingsResponse,
@@ -414,12 +281,11 @@ const mobileOpen = ref(false)
 const conversationMenuElement = ref<HTMLElement | null>(null)
 const conversationMenuPosition = reactive({ left: 0, top: 0 })
 const settingsOpen = ref(false)
-const upgradeOpen = ref(false)
-const pricingMode = ref<'personal' | 'team'>('personal')
 const chatActionsOpen = ref(false)
 const settingsSection = ref<SettingsSection>('general')
 const settingsNavElement = ref<HTMLElement | null>(null)
 const accountOpen = ref(false)
+const onlyCodeBalance = ref<OnlyCodeBalance | null>(null)
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const studio = useStudioStore()
@@ -450,22 +316,15 @@ const appealDrafts = reactive<Record<string, string>>({})
 const appealBusyId = ref('')
 const appealMessage = ref('')
 const appealError = ref(false)
-const creditLedger = ref<CreditEntry[]>([])
-const inviteInfo = reactive<InviteInfo>({ code: '', url: '', invited: 0, reward: 0, pending: 0, reviewRequired: 0 })
 const settingsHydrated = ref(false)
 const workspaceDataLoaded = ref(false)
 const settingsMessage = ref('')
-const redeemMessage = ref('')
-const redeemError = ref(false)
-const redeeming = ref(false)
-const inviteCopied = ref(false)
 const {
   teams, pendingTeamInvitations, teamDraft, teamInviteId, teamInviteEmail, teamInviteRole,
-  teamBusy, teamMessage, teamError, expandedTeamId, teamResources, teamLedgerOpenId,
-  teamCreditLedgers, teamQuotaDrafts, createTeam, inviteToTeam, acceptTeamInvitation,
+  teamBusy, teamMessage, teamError, expandedTeamId, teamResources,
+  createTeam, inviteToTeam, acceptTeamInvitation,
   cancelTeamInvitation, transferTeamOwnership, removeTeamMember, updateTeamMemberRole,
-  editTeam, leaveTeam, deleteTeam, toggleTeamResources, toggleTeamBilling,
-  saveTeamMemberQuota, toggleTeamLedger
+  editTeam, leaveTeam, deleteTeam, toggleTeamResources
 } = useTeamManagement()
 const workspaceAssets = ref<WorkspaceAsset[]>([])
 const toolApprovals = ref<ToolApproval[]>([])
@@ -486,16 +345,15 @@ const credentialEditor = ref<CredentialEditor | null>(null)
 const credentialSaving = ref(false)
 const credentialError = ref('')
 const credentialCheckingId = ref('')
+const onlyCodeProvisioningBusyGroup = ref('')
 const discoveredCredentialModels = ref<string[]>([])
 const privateModelEditor = ref<PrivateModelEditor | null>(null)
 const privateModelSaving = ref(false)
 const privateModelError = ref('')
 const publicSettings = reactive<PublicSettings>({
   userByokEnabled: true,
-  rechargeEnabled: false,
-  subscriptionsEnabled: true,
-  trialEnabled: false,
-  currency: 'CNY',
+  newApiConsoleUrl: '#',
+  newApiProvisioningGroups: [],
   sidebarCreationEnabled: true,
   sidebarCommerceEnabled: true,
   sidebarOfficeEnabled: true,
@@ -504,59 +362,16 @@ const publicSettings = reactive<PublicSettings>({
   sidebarProjectsEnabled: true,
   sidebarAssetsEnabled: true,
 })
-const rechargePackages = ref<RechargePackage[]>([])
-const rechargeOrders = ref<RechargeOrder[]>([])
-const rechargeMessage = ref('')
-const creatingOrder = ref(false)
-const subscriptionPlans = ref<SubscriptionPlan[]>([])
-const currentSubscription = ref<Subscription | null>(null)
-const subscriptionOrders = ref<SubscriptionOrder[]>([])
-const tokenQuota = ref<TokenQuotaSummary[]>([])
-const tokenQuotaLoading = ref(false)
-const couponWallet = reactive<CouponWallet>({ coupons: [], templates: [] })
-const selectedCouponId = ref('')
-const paymentQuote = ref<CommerceQuote | null>(null)
-const couponBusyId = ref('')
 const externalLinks = ref<ExternalNavLinkItem[]>([])
 const availableModels = ref<AvailableModel[]>([])
-const planBusy = ref(false)
-const planMessage = ref('')
-const planError = ref(false)
-const renewalOptions = ref<RenewalOptions | null>(null)
-const renewalAttempts = ref<RenewalAttempt[]>([])
-const selectedRenewalChannelId = ref('')
-const billingProfile = reactive<BillingProfile>({ profileType: 'COMPANY', title: '', taxId: '', invoiceEmail: '', phone: '', address: '', bankName: '', bankAccount: '' })
-const invoiceTransactions = ref<InvoiceTransaction[]>([])
-const invoiceRequests = ref<InvoiceRequest[]>([])
-const selectedInvoiceTransactionId = ref('')
-const billingBusy = ref(false)
-const billingMessage = ref('')
 const accountDeletion = ref<DeletionRequest | null>(null)
 const deletionReason = ref('')
 const deletionBusy = ref(false)
 const deletionMessage = ref('')
-const paymentChannels = ref<PaymentChannel[]>([])
-const paymentIntent = ref<PaymentIntent | null>(null)
-const selectedPaymentChannelId = ref('')
-const selectedPaymentMethod = ref<PaymentMethodKey | ''>('')
-const paymentTransaction = ref<PaymentTransaction | null>(null)
-const paymentBusy = ref(false)
-const paymentError = ref('')
-let paymentPollTimer = 0
 const dataActionBusy = ref(false)
 const dataActionMessage = ref('')
 const dataActionError = ref(false)
 const unreadCount = computed(() => notifications.value.filter((item) => !item.readAt).length)
-const showUpgradeEntry = computed(() => publicSettings.subscriptionsEnabled || publicSettings.trialEnabled || subscriptionPlans.value.length > 0)
-watch(teams, (rows) => rows.forEach((team) => team.members.forEach((member) => { teamQuotaDrafts[`${team.id}:${member.userId}`] = member.monthlyCreditLimit === null ? '' : String(member.monthlyCreditLimit) })), { deep: true, immediate: true })
-const eligiblePaymentChannels = computed(() => paymentIntent.value ? paymentChannels.value.filter((item) => item.minAmountCents <= paymentIntent.value!.amountCents && (!item.maxAmountCents || item.maxAmountCents >= paymentIntent.value!.amountCents)) : [])
-const availablePaymentCoupons = computed(() => {
-  const planId = paymentIntent.value?.orderType === 'SUBSCRIPTION' ? paymentIntent.value.productId : ''
-  return couponWallet.coupons.filter((coupon) => coupon.status === 'AVAILABLE' && (!coupon.expiresAt || new Date(coupon.expiresAt) > new Date()) && (!coupon.template.products.length || coupon.template.products.some((item) => item.planId === planId)))
-})
-const selectedPaymentChannel = computed(() => eligiblePaymentChannels.value.find((item) => item.id === selectedPaymentChannelId.value) || null)
-const paymentInstructions = computed(() => String(paymentTransaction.value?.metadata?.instructions || ''))
-const paymentStatusTitle = computed(() => ({ PENDING: '等待完成付款', PAID: '付款已确认，正在发放权益', COMPLETED: '支付完成，权益已到账', FAILED: '支付或权益入账失败', CANCELLED: '交易已取消', EXPIRED: '交易已过期', REFUNDED: '交易已退款' }[paymentTransaction.value?.status || ''] || '正在确认交易'))
 const storedSettings = readStoredSettings()
 const storedLanguage = storedSettings.language === 'English' ? 'en' : storedSettings.language === '中文' ? 'zh-CN' : storedSettings.language
 const storedAppearance = storedSettings.appearance === 'light' ? '浅色' : storedSettings.appearance === 'dark' ? '深色' : storedSettings.appearance === 'system' ? '跟随系统' : storedSettings.appearance
@@ -579,18 +394,13 @@ const settings = reactive<WorkspaceSettings>({
   temporaryChatDefault: storedSettings.temporaryChatDefault ?? false,
   dataRetentionDays: storedSettings.dataRetentionDays ?? 0,
   shareUsageAnalytics: storedSettings.shareUsageAnalytics ?? false,
-  redeemCode: '',
 })
 const settingsNav = computed(() => [
   { id: 'general' as const, label: t('settings.general'), icon: Sun },
   { id: 'personalization' as const, label: t('settings.personalization'), icon: Sparkles },
   { id: 'notifications' as const, label: t('settings.notifications'), icon: Bell },
   { id: 'data' as const, label: t('settings.data'), icon: SlidersHorizontal },
-  { id: 'plan' as const, label: '套餐与账单', icon: WalletCards },
   { id: 'api' as const, label: t('settings.api'), icon: KeyRound },
-  { id: 'credits' as const, label: t('settings.credits'), icon: CircleGauge },
-  { id: 'redeem' as const, label: t('settings.redeem'), icon: CirclePlus },
-  { id: 'invite' as const, label: t('settings.invite'), icon: Gift },
   { id: 'workspace' as const, label: '知识与工具', icon: BookOpen },
   { id: 'teams' as const, label: '团队空间', icon: Users },
   { id: 'support' as const, label: '帮助与客服', icon: LifeBuoy },
@@ -606,7 +416,7 @@ function applyTheme() {
 watch(() => [settings.appearance, settings.language], applyTheme, { immediate: true })
 let settingsTimer = 0
 watch(settings, () => {
-  writeStoredSettings({ ...settings, redeemCode: '' })
+  writeStoredSettings(settings)
   if (!settingsHydrated.value) return
   window.clearTimeout(settingsTimer)
   settingsTimer = window.setTimeout(() => { void saveSettings(false) }, 450)
@@ -657,7 +467,6 @@ onUnmounted(() => {
   document.removeEventListener('pointerdown', handleConversationMenuOutside)
   document.removeEventListener('keydown', handleConversationMenuKeydown)
   window.removeEventListener('resize', closeConversationMenu)
-  window.clearTimeout(paymentPollTimer)
 })
 
 function openSettings(section: SettingsSection) {
@@ -667,20 +476,6 @@ function openSettings(section: SettingsSection) {
   accountOpen.value = false
   mobileOpen.value = false
   scrollActiveSetting('auto')
-}
-
-function openUpgrade() {
-  document.dispatchEvent(new Event('xinyue:close-popovers'))
-  upgradeOpen.value = true
-  pricingMode.value = 'personal'
-  settingsOpen.value = false
-  accountOpen.value = false
-  chatActionsOpen.value = false
-}
-
-function openTeamSettings() {
-  upgradeOpen.value = false
-  openSettings('teams')
 }
 
 function selectSettingsSection(section: SettingsSection) {
@@ -709,12 +504,20 @@ function settingsPayload() {
 }
 
 async function saveSettings(showFeedback = false) {
-  writeStoredSettings({ ...settings, redeemCode: '' })
+  writeStoredSettings(settings)
   if (auth.session?.id) {
     try { await api('/users/me/settings', { method: 'PATCH', body: JSON.stringify(settingsPayload()) }); if (showFeedback) settingsMessage.value = '已保存' }
     catch { if (showFeedback) settingsMessage.value = '保存失败，请稍后重试' }
   } else if (showFeedback) settingsMessage.value = '已保存到此设备'
 }
+
+async function refreshOnlyCodeBalance() {
+  onlyCodeBalance.value = await api<OnlyCodeBalance>('/users/me/only-code-balance', { cache: 'no-store', timeoutMs: 10_000 }).catch(() => null)
+}
+
+watch(accountOpen, (open) => {
+  if (open && auth.session?.id) void refreshOnlyCodeBalance()
+})
 
 async function loadWorkspaceData() {
   const [catalogSettings, links] = await Promise.all([
@@ -724,12 +527,12 @@ async function loadWorkspaceData() {
   Object.assign(publicSettings, catalogSettings)
   externalLinks.value = links
   if (!auth.session?.id) return
-  const [, user, notices, cases, models, subscription] = await Promise.all([
+  const [, user, notices, cases, models, balance] = await Promise.all([
     studio.hydrateWorkspace().catch(() => undefined),
     api<UserResponse>('/users/me').catch(() => null), api<NotificationItem[]>('/notifications').catch(() => []),
     api<ModerationCase[]>('/moderation/cases').catch(() => []),
-    api<AvailableModel[]>('/catalog/models').catch(() => []),
-    api<Subscription | null>('/subscriptions/me').catch(() => null),
+    api<AvailableModel[]>('/users/me/models').catch(() => []),
+    api<OnlyCodeBalance>('/users/me/only-code-balance', { cache: 'no-store', timeoutMs: 10_000 }).catch(() => null),
   ])
   if (user?.settings) {
     hydrateSettings(user.settings)
@@ -747,7 +550,7 @@ async function loadWorkspaceData() {
   notifications.value = notices
   moderationCases.value = cases
   availableModels.value = models
-  currentSubscription.value = subscription
+  onlyCodeBalance.value = balance
   workspaceAssets.value = studio.assets.map((asset) => ({ id: asset.id, name: asset.title }))
   window.setTimeout(() => { void loadDeferredWorkspaceData() }, 200)
 }
@@ -757,44 +560,22 @@ let deferredWorkspaceLoaded = false
 function loadDeferredWorkspaceData() {
   if (deferredWorkspaceLoaded) return Promise.resolve()
   if (deferredWorkspacePromise) return deferredWorkspacePromise
-  tokenQuotaLoading.value = true
   deferredWorkspacePromise = (async () => {
-    const [ledger, invite, credentials, templates, userModels, packages, orders, modelPolicy, plans, planOrders, methods, teamRows, pendingInvites, knowledgeRows, tools, assistantRows, approvalRows, renewal, renewalHistory, profile, eligibleInvoices, invoices, deletion, wallet, quotaRows] = await Promise.all([
-      api<CreditEntry[]>('/credits/ledger?take=30').catch(() => []),
-      api<InviteInfo>('/invites/me').catch(() => null),
+    const [credentials, templates, userModels, modelPolicy, teamRows, pendingInvites, knowledgeRows, tools, assistantRows, approvalRows, deletion] = await Promise.all([
       api<ApiCredential[]>('/users/me/api-credentials').catch(() => []),
       api<ProviderTemplate[]>('/catalog/provider-templates').catch(() => []),
       api<PrivateModel[]>('/users/me/private-models').catch(() => []),
-      api<RechargePackage[]>('/catalog/recharge-packages').catch(() => []),
-      api<RechargeOrder[]>('/recharge/orders').catch(() => []),
       api<{ allowUserByok: boolean }>('/users/me/model-policy').catch(() => null),
-      api<SubscriptionPlan[]>('/subscriptions/plans').catch(() => []),
-      api<SubscriptionOrder[]>('/subscriptions/orders').catch(() => []),
-      api<PaymentChannel[]>('/payments/methods').catch(() => []), api<Team[]>('/teams').catch(() => []),
+      api<Team[]>('/teams').catch(() => []),
       api<PendingTeamInvitation[]>('/team-invitations').catch(() => []),
       api<KnowledgeBase[]>('/knowledge-bases').catch(() => []),
       api<AssistantToolBinding['tool'][]>('/assistants/tools').catch(() => []), api<{ id: string; name: string; tools: { toolId: string }[] }[]>('/assistants').catch(() => []),
       api<typeof toolApprovals.value>('/tool-approvals').catch(() => []),
-      api<RenewalOptions>('/subscriptions/renewal').catch(() => null),
-      api<RenewalAttempt[]>('/subscriptions/renewal-attempts').catch(() => []),
-      api<BillingProfile | null>('/billing/profile').catch(() => null),
-      api<InvoiceTransaction[]>('/billing/invoice-transactions').catch(() => []),
-      api<InvoiceRequest[]>('/billing/invoices').catch(() => []),
       api<DeletionRequest | null>('/users/me/deletion').catch(() => null),
-      api<CouponWallet>('/commerce/coupons').catch(() => ({ coupons: [], templates: [] })),
-      api<TokenQuotaSummary[]>('/billing/token-quota').catch(() => []),
     ])
-  creditLedger.value = ledger
-  if (invite) Object.assign(inviteInfo, invite)
   apiCredentials.value = credentials
   providerTemplates.value = templates
   privateModels.value = userModels
-  rechargePackages.value = packages
-  rechargeOrders.value = orders
-  subscriptionPlans.value = plans
-  subscriptionOrders.value = planOrders
-  Object.assign(couponWallet, wallet)
-  paymentChannels.value = methods
   teams.value = teamRows
   pendingTeamInvitations.value = pendingInvites
   knowledgeBases.value = knowledgeRows
@@ -803,24 +584,12 @@ function loadDeferredWorkspaceData() {
   workspaceTools.value = tools
   workspaceAssistants.value = assistantRows
   toolApprovals.value = approvalRows
-  renewalOptions.value = renewal
-  renewalAttempts.value = renewalHistory
-  if (renewal?.subscription) currentSubscription.value = renewal.subscription
-  selectedRenewalChannelId.value = renewal?.subscription?.renewalChannelId || renewal?.channels[0]?.id || ''
-  if (profile) Object.assign(billingProfile, profile)
-  else if (auth.session?.email) billingProfile.invoiceEmail = auth.session.email
-  invoiceTransactions.value = eligibleInvoices
-  invoiceRequests.value = invoices
   accountDeletion.value = deletion
-  tokenQuota.value = quotaRows
-  tokenQuotaLoading.value = false
   if (modelPolicy) publicSettings.userByokEnabled = modelPolicy.allowUserByok
     deferredWorkspaceLoaded = true
   })().finally(() => { deferredWorkspacePromise = null })
   return deferredWorkspacePromise
 }
-
-function formatMoney(cents: number) { return new Intl.NumberFormat(settings.language, { style: 'currency', currency: publicSettings.currency }).format(cents / 100) }
 
 async function requestToolApproval(binding: AssistantToolBinding) {
   const reason = window.prompt(`申请“${binding.tool.name}”权限的用途说明`, '')?.trim()
@@ -837,84 +606,6 @@ async function cancelToolApproval(binding: AssistantToolBinding) {
   catch (error) { workspaceError.value = true; workspaceMessage.value = error instanceof Error ? error.message : '审批申请撤回失败' }
   finally { workspaceBusy.value = false }
 }
-async function startTrial(planId?: string) {
-  planBusy.value = true; planMessage.value = ''; planError.value = false
-  try { currentSubscription.value = await api<Subscription>('/subscriptions/trial', { method: 'POST', body: JSON.stringify(planId ? { planId } : {}) }); planMessage.value = '免费试用已生效'; await studio.refreshCredits() }
-  catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '试用领取失败' }
-  finally { planBusy.value = false }
-}
-async function purchasePlan(plan: SubscriptionPlan) {
-  if (!plan.priceCents) { if (plan.trialDays) await startTrial(plan.id); return }
-  await openPayment({ orderType: 'SUBSCRIPTION', productId: plan.id, productName: `${plan.name}套餐`, amountCents: plan.effectivePriceCents ?? plan.priceCents })
-}
-async function continueSubscriptionPayment(order: SubscriptionOrder) {
-  await openPayment({ orderType: 'SUBSCRIPTION', productId: order.plan.id, productName: `${order.plan.name}套餐续费`, amountCents: order.amountCents, existingOrderId: order.id })
-  const channel = eligiblePaymentChannels.value.find((item) => item.supportedMethods.includes(order.paymentMethod))
-  if (channel) { selectedPaymentChannelId.value = channel.id; selectedPaymentMethod.value = order.paymentMethod }
-}
-async function cancelPendingSubscriptionOrder(order: SubscriptionOrder) {
-  if (!window.confirm('取消这笔待支付套餐订单？')) return
-  planBusy.value = true
-  try { await api(`/subscriptions/orders/${order.id}`, { method: 'DELETE' }); subscriptionOrders.value = await api<SubscriptionOrder[]>('/subscriptions/orders'); renewalAttempts.value = await api<RenewalAttempt[]>('/subscriptions/renewal-attempts'); planMessage.value = '待支付订单已取消' }
-  catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '订单取消失败' }
-  finally { planBusy.value = false }
-}
-async function purchaseUpgradePlan(plan: SubscriptionPlan) {
-  if (!plan.priceCents && plan.trialDays) {
-    await startTrial(plan.id)
-    if (!planError.value) upgradeOpen.value = false
-    return
-  }
-  upgradeOpen.value = false
-  await purchasePlan(plan)
-}
-async function cancelSubscription() {
-  if (!currentSubscription.value || !window.confirm('确认取消当前套餐？')) return
-  planBusy.value = true; planMessage.value = ''; planError.value = false
-  try { const updated = await api<Subscription & { status: string }>('/subscriptions/cancel', { method: 'POST', body: '{}' }); currentSubscription.value = ['ACTIVE', 'TRIALING'].includes(updated.status) ? updated : null; planMessage.value = updated.cancelAtPeriodEnd ? '已关闭自动续订' : '套餐已取消' }
-  catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '取消失败' }
-  finally { planBusy.value = false }
-}
-async function toggleRenewal() {
-  if (!currentSubscription.value) return
-  planBusy.value = true; planMessage.value = ''; planError.value = false
-  try {
-    currentSubscription.value = await api<Subscription>('/subscriptions/renewal', { method: 'PATCH', body: JSON.stringify({ enabled: !currentSubscription.value.autoRenewEnabled, channelId: selectedRenewalChannelId.value || undefined }) })
-    renewalOptions.value = await api<RenewalOptions>('/subscriptions/renewal')
-    planMessage.value = currentSubscription.value.autoRenewEnabled ? '到期续费提醒已启用' : '到期续费提醒已关闭'
-  } catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '续费设置保存失败' }
-  finally { planBusy.value = false }
-}
-async function saveRenewalChannel() {
-  if (!currentSubscription.value?.autoRenewEnabled || !selectedRenewalChannelId.value) return
-  planBusy.value = true
-  try { currentSubscription.value = await api<Subscription>('/subscriptions/renewal', { method: 'PATCH', body: JSON.stringify({ enabled: true, channelId: selectedRenewalChannelId.value }) }); planMessage.value = '续费渠道已更新' }
-  catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '续费渠道保存失败' }
-  finally { planBusy.value = false }
-}
-async function saveBillingProfile() {
-  billingBusy.value = true; billingMessage.value = ''
-  try { Object.assign(billingProfile, await api<BillingProfile>('/billing/profile', { method: 'PATCH', body: JSON.stringify(billingProfile) })); billingMessage.value = '开票资料已保存' }
-  catch (reason) { billingMessage.value = reason instanceof Error ? reason.message : '开票资料保存失败' }
-  finally { billingBusy.value = false }
-}
-async function requestInvoice() {
-  if (!selectedInvoiceTransactionId.value) return
-  billingBusy.value = true; billingMessage.value = ''
-  try {
-    await api('/billing/invoices', { method: 'POST', body: JSON.stringify({ transactionId: selectedInvoiceTransactionId.value, invoiceType: 'ELECTRONIC_NORMAL' }) })
-    ;[invoiceTransactions.value, invoiceRequests.value] = await Promise.all([api<InvoiceTransaction[]>('/billing/invoice-transactions'), api<InvoiceRequest[]>('/billing/invoices')])
-    selectedInvoiceTransactionId.value = ''; billingMessage.value = '发票申请已提交'
-  } catch (reason) { billingMessage.value = reason instanceof Error ? reason.message : '发票申请失败' }
-  finally { billingBusy.value = false }
-}
-async function cancelInvoiceRequest(item: InvoiceRequest) {
-  if (!window.confirm('撤销这条发票申请？')) return
-  billingBusy.value = true
-  try { await api(`/billing/invoices/${item.id}`, { method: 'DELETE' }); invoiceRequests.value = await api<InvoiceRequest[]>('/billing/invoices'); billingMessage.value = '发票申请已撤销' }
-  catch (reason) { billingMessage.value = reason instanceof Error ? reason.message : '撤销失败' }
-  finally { billingBusy.value = false }
-}
 async function requestAccountDeletion() {
   if (!window.confirm('提交账户注销申请？7 天冷静期结束后，个人数据将被永久清除。')) return
   deletionBusy.value = true; deletionMessage.value = ''
@@ -928,86 +619,10 @@ async function cancelAccountDeletion() {
   catch (reason) { deletionMessage.value = reason instanceof Error ? reason.message : '撤销失败' }
   finally { deletionBusy.value = false }
 }
-async function createRechargeOrder(item: RechargePackage) {
-  await openPayment({ orderType: 'RECHARGE', productId: item.id, productName: item.name, amountCents: item.priceCents })
-}
-
-async function openPayment(intent: PaymentIntent) {
-  paymentIntent.value = intent; paymentTransaction.value = null; paymentError.value = ''; paymentQuote.value = null; selectedCouponId.value = ''
-  if (intent.orderType === 'SUBSCRIPTION' && !intent.existingOrderId) await refreshPaymentQuote()
-  if (!paymentChannels.value.length) paymentChannels.value = await api<PaymentChannel[]>('/payments/methods').catch(() => [])
-  const preferred = paymentChannels.value.find((item) => item.isDefault && item.minAmountCents <= intent.amountCents && (!item.maxAmountCents || item.maxAmountCents >= intent.amountCents)) || paymentChannels.value.find((item) => item.minAmountCents <= intent.amountCents && (!item.maxAmountCents || item.maxAmountCents >= intent.amountCents))
-  selectedPaymentChannelId.value = preferred?.id || ''
-  selectedPaymentMethod.value = preferred?.supportedMethods[0] || ''
-}
-
-function selectPaymentChannel(channel: PaymentChannel) { selectedPaymentChannelId.value = channel.id; if (!selectedPaymentMethod.value || !channel.supportedMethods.includes(selectedPaymentMethod.value)) selectedPaymentMethod.value = channel.supportedMethods[0] || '' }
-function closePayment() { window.clearTimeout(paymentPollTimer); paymentIntent.value = null; paymentTransaction.value = null; paymentQuote.value = null; selectedCouponId.value = ''; paymentError.value = '' }
-
-async function refreshPaymentQuote() {
-  const intent = paymentIntent.value
-  if (!intent || intent.orderType !== 'SUBSCRIPTION' || intent.existingOrderId) return
-  paymentBusy.value = true; paymentError.value = ''
-  try {
-    paymentQuote.value = await api<CommerceQuote>('/commerce/quote', { method: 'POST', body: JSON.stringify({ planId: intent.productId, userCouponId: selectedCouponId.value || undefined }) })
-    intent.amountCents = paymentQuote.value.amountCents
-    if (!paymentQuote.value.coupon && selectedCouponId.value && paymentQuote.value.couponMessage) selectedCouponId.value = ''
-  } catch (reason) { paymentError.value = reason instanceof Error ? reason.message : '优惠价格计算失败' }
-  finally { paymentBusy.value = false }
-}
-
-async function claimCoupon(template: CouponTemplate) {
-  couponBusyId.value = template.id
-  try { await api('/commerce/coupons/claim', { method: 'POST', body: JSON.stringify({ templateId: template.id }) }); Object.assign(couponWallet, await api<CouponWallet>('/commerce/coupons')); planMessage.value = '优惠券已领取' }
-  catch (reason) { planError.value = true; planMessage.value = reason instanceof Error ? reason.message : '优惠券领取失败' }
-  finally { couponBusyId.value = '' }
-}
-
-async function confirmCheckout() {
-  const intent = paymentIntent.value, channel = selectedPaymentChannel.value
-  if (!intent || !channel || !selectedPaymentMethod.value) return
-  paymentBusy.value = true; paymentError.value = ''
-  const paymentWindow = channel.providerKey === 'MANUAL' ? null : window.open('', '_blank')
-  if (paymentWindow) paymentWindow.opener = null
-  try {
-    const order = intent.existingOrderId ? { id: intent.existingOrderId } : intent.orderType === 'SUBSCRIPTION'
-      ? await api<{ id: string }>('/subscriptions/orders', { method: 'POST', body: JSON.stringify({ planId: intent.productId, paymentMethod: selectedPaymentMethod.value, userCouponId: selectedCouponId.value || undefined }) })
-      : await api<{ id: string }>('/recharge/orders', { method: 'POST', body: JSON.stringify({ packageId: intent.productId, paymentMethod: selectedPaymentMethod.value }) })
-    paymentTransaction.value = await api<PaymentTransaction>('/payments/checkout', { method: 'POST', body: JSON.stringify({ orderType: intent.orderType, orderId: order.id, channelId: channel.id, paymentMethod: selectedPaymentMethod.value }) })
-    const checkoutUrl = safeHttpNavigationUrl(paymentTransaction.value.checkoutUrl, window.location.origin)
-    if (checkoutUrl && paymentWindow) paymentWindow.location.replace(checkoutUrl)
-    else paymentWindow?.close()
-    await refreshOrderHistory(intent.orderType)
-    schedulePaymentPoll()
-  } catch (reason) { paymentWindow?.close(); paymentError.value = reason instanceof Error ? reason.message : '支付订单创建失败' }
-  finally { paymentBusy.value = false }
-}
-
-async function refreshPaymentStatus() {
-  if (!paymentTransaction.value) return
-  paymentBusy.value = true
-  try {
-    paymentTransaction.value = await api<PaymentTransaction>(`/payments/transactions/${paymentTransaction.value.id}`)
-    if (paymentTransaction.value.status === 'COMPLETED' && paymentIntent.value) { await refreshOrderHistory(paymentIntent.value.orderType); await studio.refreshCredits(); currentSubscription.value = await api<Subscription | null>('/subscriptions/me').catch(() => currentSubscription.value); Object.assign(couponWallet, await api<CouponWallet>('/commerce/coupons').catch(() => couponWallet)) }
-    if (paymentTransaction.value.status === 'FAILED') paymentError.value = paymentTransaction.value.failureReason || '交易处理失败，请联系管理员'
-  } catch (reason) { paymentError.value = reason instanceof Error ? reason.message : '交易状态查询失败' }
-  finally { paymentBusy.value = false }
-}
-
-function schedulePaymentPoll() {
-  window.clearTimeout(paymentPollTimer)
-  if (!paymentTransaction.value || ['COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'].includes(paymentTransaction.value.status)) return
-  paymentPollTimer = window.setTimeout(async () => { await refreshPaymentStatus(); schedulePaymentPoll() }, 3000)
-}
-
-async function refreshOrderHistory(orderType: PaymentIntent['orderType']) {
-  if (orderType === 'SUBSCRIPTION') subscriptionOrders.value = await api<SubscriptionOrder[]>('/subscriptions/orders').catch(() => subscriptionOrders.value)
-  else rechargeOrders.value = await api<RechargeOrder[]>('/recharge/orders').catch(() => rechargeOrders.value)
-}
-
 function openCredentialEditor(item?: ApiCredential) {
   credentialError.value = ''
-  credentialEditor.value = item ? { ...item, templateId: item.templateId || '', apiKey: '', expiresAt: item.expiresAt?.slice(0, 10) || '', autoImport: false } : { name: '', templateId: '', providerType: 'NEW_API', baseUrl: '', apiKey: '', apiKeyHint: '', authType: 'BEARER', enabled: true, isDefault: apiCredentials.value.length === 0, priority: 0, weight: 100, expiresAt: '', autoImport: true }
+  const onlyCodeBaseUrl = publicSettings.newApiConsoleUrl === '#' ? '' : publicSettings.newApiConsoleUrl.replace(/\/keys\/?$/, '/v1')
+  credentialEditor.value = item ? { ...item, templateId: item.templateId || '', apiKey: '', expiresAt: item.expiresAt?.slice(0, 10) || '', autoImport: false } : { name: 'OnlyCode', templateId: '', providerType: 'NEW_API', baseUrl: onlyCodeBaseUrl, apiKey: '', apiKeyHint: '', authType: 'BEARER', enabled: true, isDefault: apiCredentials.value.length === 0, priority: 0, weight: 100, expiresAt: '', autoImport: true }
 }
 
 async function saveCredential() {
@@ -1033,6 +648,23 @@ async function saveCredential() {
     document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
   } catch (reason) { credentialError.value = reason instanceof Error ? reason.message : 'API 密钥保存失败' }
   finally { credentialSaving.value = false }
+}
+
+async function provisionOnlyCodeCredential(group: string, name: string) {
+  onlyCodeProvisioningBusyGroup.value = group
+  try {
+    const result = await api<{ imported: number; modelSyncError?: string }>('/users/me/api-credentials/only-code', { method: 'POST', body: JSON.stringify({ group, name: name.trim() || undefined }) })
+    const [credentials, models] = await Promise.all([api<ApiCredential[]>('/users/me/api-credentials'), api<PrivateModel[]>('/users/me/private-models')])
+    apiCredentials.value = credentials
+    privateModels.value = models
+    if (result.modelSyncError) message.warning(`已接入 ${group}，模型同步失败：${result.modelSyncError}`)
+    else message.success(`已接入 ${group}，同步 ${result.imported} 个模型`)
+    document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
+  } catch (reason) {
+    message.error(reason instanceof Error ? reason.message : 'OnlyCode 分组接入失败')
+  } finally {
+    onlyCodeProvisioningBusyGroup.value = ''
+  }
 }
 
 async function deleteCredential(item: ApiCredential) {
@@ -1158,25 +790,6 @@ async function cancelModerationAppeal(item: ModerationCase) {
   } catch (error) {
     appealError.value = true; appealMessage.value = error instanceof Error ? error.message : '撤回申诉失败'
   } finally { appealBusyId.value = '' }
-}
-
-async function redeemCredits() {
-  if (!settings.redeemCode.trim()) return
-  redeeming.value = true; redeemMessage.value = ''; redeemError.value = false
-  try {
-    const result = await api<{ redeemed: boolean; credits?: number }>('/credits/redeem', { method: 'POST', body: JSON.stringify({ code: settings.redeemCode }) })
-    if (!result.redeemed) { redeemError.value = true; redeemMessage.value = '兑换码无效或已失效'; return }
-    studio.credits += result.credits || 0; redeemMessage.value = `兑换成功，已增加 ${result.credits || 0} 创作点`; settings.redeemCode = ''
-    await loadWorkspaceData()
-  } catch { redeemError.value = true; redeemMessage.value = '兑换失败，请稍后重试' }
-  finally { redeeming.value = false }
-}
-
-function copyInvite() {
-  if (!inviteInfo.url) return
-  navigator.clipboard?.writeText(inviteInfo.url).catch(() => undefined)
-  inviteCopied.value = true
-  window.setTimeout(() => { inviteCopied.value = false }, 1600)
 }
 
 function handleConversationMenuOutside(event: PointerEvent) {

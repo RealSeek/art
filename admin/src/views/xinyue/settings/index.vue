@@ -3,13 +3,13 @@
     <header class="page-title"
       ><div
         ><h1>{{ xt('业务系统配置') }}</h1
-        ><p>{{ xt('统一管理站点、登录注册、商业化、邮件服务和用户默认值') }}</p></div
+        ><p>{{ xt('统一管理站点、登录、邮件服务和用户默认值') }}</p></div
       ><ElButton type="primary" :loading="saving" :disabled="!settings" @click="save"
         ><ArtSvgIcon icon="ri:save-line" />{{ xt('保存配置') }}</ElButton
       ></header
     >
     <ElTabs v-model="tab" class="settings-tabs">
-      <ElTabPane :label="xt('站点与商业能力')" name="site"
+      <ElTabPane :label="xt('站点与功能')" name="site"
         ><ElCard v-if="settings" shadow="never"
           ><template #header
             ><strong>{{ xt('站点信息') }}</strong></template
@@ -57,36 +57,13 @@
               :note="xt('统一管理项目、工作流、版本与文件资产')" /></div></ElCard
         ><ElCard v-if="settings" shadow="never"
           ><template #header
-            ><strong>{{ xt('商业能力开关') }}</strong></template
-          ><div class="toggle-grid"
-            ><ToggleRow
-              v-model="settings.subscriptionsEnabled"
-              :title="xt('开放订阅套餐')"
-              :note="xt('用户端展示套餐购买与订阅权益')" /><ToggleRow
-              v-model="settings.trialEnabled"
-              :title="xt('开放免费试用')"
-              :note="xt('允许符合条件的新用户领取试用')" /><ToggleRow
-              v-model="settings.rechargeEnabled"
-              :title="xt('开放余额充值')"
-              :note="xt('用户端展示充值商品和支付入口')" /><ToggleRow
-              v-model="settings.userByokEnabled"
-              :title="xt('允许用户 API 密钥')"
-              :note="xt('最终权限仍受用户分组和模型配置约束')" /></div
-          ><ElDivider content-position="left">{{ xt('图片提示词反推') }}</ElDivider
+            ><strong>{{ xt('图片提示词反推') }}</strong></template
           ><div class="toggle-grid"
             ><ToggleRow
               v-model="settings.imagePromptEnabled"
               :title="xt('开放图片反推')"
               :note="xt('在工作空间画布后展示图片反推入口')" /></div
           ><ElRow :gutter="16" class="number-row"
-            ><ElCol :xs="24" :sm="12"
-              ><ElFormItem :label="xt('费用承担方')"
-                ><ElSelect v-model="settings.imagePromptBillingMode" class="wide"
-                  ><ElOption :label="xt('平台承担')" value="PLATFORM" />
-                  <ElOption :label="xt('用户创作点')" value="USER_CREDITS" />
-                  <ElOption
-                    :label="xt('用户 BYOK')"
-                    value="USER_BYOK" /></ElSelect></ElFormItem></ElCol
             ><ElCol :xs="24" :sm="12"
               ><ElFormItem :label="xt('视觉模型')"
                 ><ElSelect
@@ -99,96 +76,7 @@
                     v-for="item in chatModels"
                     :key="item.id"
                     :label="item.displayName"
-                    :value="item.key" /></ElSelect></ElFormItem></ElCol></ElRow
-          ><ElAlert
-            v-if="settings.imagePromptBillingMode === 'USER_BYOK' && !settings.userByokEnabled"
-            :title="xt('当前未开放用户 API 密钥，用户 BYOK 模式将无法执行。')"
-            type="warning"
-            :closable="false"
-            show-icon />
-          <ElRow :gutter="16" class="number-row"
-            ><ElCol :xs="24" :sm="12"
-              ><ElFormItem :label="xt('最低充值金额（分）')"
-                ><ElInputNumber
-                  v-model="settings.minRechargeCents"
-                  :min="1"
-                  class="wide" /></ElFormItem></ElCol></ElRow
-          ><ElDivider content-position="left">{{ xt('模型自动定价') }}</ElDivider
-          ><div class="pricing-preset-section">
-            <div class="pricing-preset-heading">
-              <div><strong>{{ xt('计价基准预设') }}</strong><small>{{ xt('选择后只填充配置，保存后生效；不会自动覆盖模型价格。') }}</small></div>
-              <ElTag type="info">{{ pricingFormulaPreview }}</ElTag>
-            </div>
-            <div class="pricing-preset-grid">
-              <button
-                v-for="preset in pricingBasePresets"
-                :key="preset.key"
-                type="button"
-                :class="{ active: activePricingPreset === preset.key }"
-                @click="applyPricingBasePreset(preset)"
-              ><strong>{{ preset.label }}</strong><small>{{ preset.note }}</small></button>
-            </div>
-          </div>
-          <ElRow :gutter="16" class="number-row"
-            ><ElCol :xs="24" :sm="12" :lg="6"
-              ><ElFormItem :label="xt('结算币种')"
-                ><ElSelect v-model="settings.currency" class="wide"
-                  ><ElOption :label="xt('人民币 CNY')" value="CNY" /><ElOption
-                    :label="xt('美元 USD')"
-                    value="USD" /></ElSelect></ElFormItem></ElCol
-            ><ElCol :xs="24" :sm="12" :lg="6"
-              ><ElFormItem :label="xt('1 USD 兑换结算币种')"
-                ><ElInputNumber
-                  v-model="pricingUsdExchangeRate"
-                  :min="0.000001"
-                  :max="100"
-                  :precision="6"
-                  :step="0.1"
-                  class="wide" /></ElFormItem></ElCol
-            ><ElCol :xs="24" :sm="12" :lg="6"
-              ><ElFormItem :label="xt('每计费额度价值')"
-                ><ElInputNumber
-                  v-model="creditUnitValue"
-                  :min="0.000001"
-                  :max="100"
-                  :precision="6"
-                  :step="0.001"
-                  class="wide" /></ElFormItem></ElCol
-            ><ElCol :xs="24" :sm="12" :lg="6"
-              ><ElFormItem :label="xt('默认售价加价率（%）')"
-                ><ElInputNumber
-                  v-model="settings.modelImportMarkupPercent"
-                  :min="100"
-                  :max="1000"
-                  class="wide" /></ElFormItem></ElCol
-            ><ElCol :xs="24" :sm="12"
-              ><ElFormItem :label="xt('价格目录刷新（小时）')"
-                ><ElInputNumber
-                  v-model="settings.modelPriceCatalogRefreshHours"
-                  :min="1"
-                  :max="168"
-                  class="wide" /></ElFormItem></ElCol
-            ><ElCol :xs="24" :sm="12"
-              ><ElFormItem :label="xt('价格目录')"
-                ><ElInput
-                  v-model.trim="settings.modelPriceCatalogUrl"
-                  class="wide" /></ElFormItem></ElCol></ElRow
-          ><div class="pricing-markup-presets">
-            <span>{{ xt('加价率快捷值') }}</span>
-            <ElButton
-              v-for="preset in pricingMarkupPresets"
-              :key="preset.value"
-              size="small"
-              :type="settings.modelImportMarkupPercent === preset.value ? 'primary' : 'default'"
-              plain
-              @click="settings.modelImportMarkupPercent = preset.value"
-            >{{ preset.label }}</ElButton>
-          </div>
-          <ElAlert
-            :title="xt('同步公式：目录 USD 参考成本 × 汇率 × 加价率 ÷ 每额度价值。保存基准后，到“模型与定价”预览并选择是否应用。')"
-            type="info"
-            :closable="false"
-            show-icon /></ElCard
+                    :value="item.key" /></ElSelect></ElFormItem></ElCol></ElRow></ElCard
       ></ElTabPane>
 
       <ElTabPane :label="xt('后台安全')" name="security">
@@ -208,6 +96,21 @@
             type="info"
             :closable="false"
             show-icon />
+          <ElForm label-position="top" class="form-block">
+            <ElFormItem :label="xt('允许用户创建的 New API 分组')">
+              <ElSelect
+                v-model="settings.newApiProvisioningGroups"
+                multiple
+                filterable
+                collapse-tags
+                collapse-tags-tooltip
+                class="wide"
+                :placeholder="xt('选择开放分组')"
+              >
+                <ElOption v-for="group in newApiGroups" :key="group" :label="group" :value="group" />
+              </ElSelect>
+            </ElFormItem>
+          </ElForm>
         </ElCard>
       </ElTabPane>
 
@@ -270,27 +173,8 @@
       <ElTabPane :label="xt('新用户默认值')" name="defaults"
         ><ElCard v-if="settings" shadow="never"
           ><template #header
-            ><strong>{{ xt('账户与权益') }}</strong></template
+            ><strong>{{ xt('账户默认值') }}</strong></template
           ><ElForm label-position="top"
-            ><ElRow :gutter="16"
-              ><ElCol :span="8"
-                ><ElFormItem :label="xt('注册赠送创作点')"
-                  ><ElInputNumber
-                    v-model="settings.defaultUserCredits"
-                    :min="0"
-                    class="wide" /></ElFormItem></ElCol
-              ><ElCol :span="8"
-                ><ElFormItem :label="xt('邀请奖励')"
-                  ><ElInputNumber
-                    v-model="settings.inviteRewardCredits"
-                    :min="0"
-                    class="wide" /></ElFormItem></ElCol
-              ><ElCol :span="8"
-                ><ElFormItem :label="xt('试用赠送创作点')"
-                  ><ElInputNumber
-                    v-model="settings.trialCredits"
-                    :min="0"
-                    class="wide" /></ElFormItem></ElCol></ElRow
             ><ElRow :gutter="16"
               ><ElCol :span="12"
                 ><ElFormItem :label="xt('默认用户分组')"
@@ -299,53 +183,7 @@
                       v-for="group in groups"
                       :key="group.id"
                       :label="group.name"
-                      :value="group.id" /></ElSelect></ElFormItem></ElCol
-              ><ElCol :span="12"
-                ><ElFormItem :label="xt('默认试用套餐')"
-                  ><ElSelect v-model="settings.defaultTrialPlanId" clearable class="wide"
-                    ><ElOption
-                      v-for="plan in trialPlans"
-                      :key="plan.id"
-                      :label="`${plan.name} · ${plan.trialDays} ${xt('天')}`"
-                      :value="plan.id" /></ElSelect></ElFormItem></ElCol></ElRow></ElForm></ElCard
-        ><ElCard v-if="settings" shadow="never"
-          ><template #header
-            ><strong>{{ xt('邀请奖励规则') }}</strong></template
-          ><div class="toggle-grid"
-            ><ToggleRow
-              v-model="settings.referralEnabled"
-              :title="xt('启用邀请奖励')"
-              :note="xt('邀请关系在注册时绑定，首笔有效支付后进入奖励流程')" />
-            <ToggleRow
-              v-model="settings.referralAutoApprove"
-              :title="xt('低风险自动审核')"
-              :note="xt('同 IP、同设备等风险记录仍进入人工审核')" /></div
-          ><ElForm label-position="top" class="form-block"
-            ><ElRow :gutter="16" class="number-row"
-              ><ElCol :xs="24" :sm="8"
-                ><ElFormItem :label="xt('首笔支付门槛（分）')"
-                  ><ElInputNumber
-                    v-model="settings.referralMinimumPaidCents"
-                    :min="0"
-                    class="wide" /></ElFormItem></ElCol
-              ><ElCol :xs="24" :sm="8"
-                ><ElFormItem :label="xt('奖励冷静期（天）')"
-                  ><ElInputNumber
-                    v-model="settings.referralCoolingDays"
-                    :min="0"
-                    :max="365"
-                    class="wide" /></ElFormItem></ElCol
-              ><ElCol :xs="24" :sm="8"
-                ><ElFormItem :label="xt('每人每月自动奖励上限（笔）')"
-                  ><ElInputNumber
-                    v-model="settings.referralMonthlyRewardLimit"
-                    :min="0"
-                    class="wide" /></ElFormItem></ElCol></ElRow></ElForm
-          ><ElAlert
-            :title="xt('支付退款后低于门槛时会自动冲正奖励；余额不足将转入人工审核。')"
-            type="info"
-            :closable="false"
-            show-icon /></ElCard
+                      :value="group.id" /></ElSelect></ElFormItem></ElCol></ElRow></ElForm></ElCard
         ><ElCard v-if="settings" shadow="never"
           ><template #header
             ><strong>{{ xt('体验与隐私默认值') }}</strong></template
@@ -796,7 +634,6 @@
   } from '@/api/xinyue/settings'
   import { customerApi, type UserGroup } from '@/api/xinyue/customers'
   import { modelApi, type ModelPreset } from '@/api/xinyue/models'
-  import { subscriptionApi, type SubscriptionPlan } from '@/api/xinyue/subscriptions'
   import { xinyueText as xt } from '@/locales/xinyue'
   import AdminAccountCard from './admin-account-card.vue'
   import ToggleRow from './toggle-row.vue'
@@ -811,57 +648,13 @@
   const tab = ref(typeof route.query.tab === 'string' ? route.query.tab : 'site')
   const settings = ref<SystemSettings | null>(null)
   const groups = ref<UserGroup[]>([])
-  const plans = ref<SubscriptionPlan[]>([])
   const models = ref<ModelPreset[]>([])
+  const newApiGroups = ref<string[]>([])
   const saving = ref(false)
   const domainsText = ref('')
   const smtpPassword = ref('')
   const linuxSecret = ref('')
   const bannerUploadingIndex = ref<number | null>(null)
-  const pricingBasePresets = [
-    { key: 'cny-parity', label: xt('人民币 1:1'), note: xt('1 USD 按 ¥1；适合对标数值'), currency: 'CNY', exchangeRate: 1, creditValue: 0.01 },
-    { key: 'cny-market', label: xt('人民币市场参考'), note: xt('1 USD 按 ¥7.2；部署后可手动调整'), currency: 'CNY', exchangeRate: 7.2, creditValue: 0.01 },
-    { key: 'usd-parity', label: xt('美元 1:1'), note: xt('1 USD 按 $1；适合美元结算'), currency: 'USD', exchangeRate: 1, creditValue: 0.01 }
-  ] as const
-  const pricingMarkupPresets = [
-    { label: xt('成本价 1.0x'), value: 100 },
-    { label: xt('轻量 1.1x'), value: 110 },
-    { label: xt('标准 1.3x'), value: 130 },
-    { label: xt('运营 1.5x'), value: 150 },
-    { label: xt('高保障 2.0x'), value: 200 }
-  ] as const
-  const pricingUsdExchangeRate = computed({
-    get: () => (settings.value?.pricingUsdExchangeRateMicros || 1_000_000) / 1_000_000,
-    set: (value: number) => {
-      if (settings.value) settings.value.pricingUsdExchangeRateMicros = Math.max(1, Math.round(value * 1_000_000))
-    }
-  })
-  const creditUnitValue = computed({
-    get: () => (settings.value?.creditValueMicros || 10_000) / 1_000_000,
-    set: (value: number) => {
-      if (settings.value) settings.value.creditValueMicros = Math.max(1, Math.round(value * 1_000_000))
-    }
-  })
-  const activePricingPreset = computed(() => pricingBasePresets.find((preset) =>
-    preset.currency === settings.value?.currency &&
-    Math.abs(preset.exchangeRate - pricingUsdExchangeRate.value) < 0.000001 &&
-    Math.abs(preset.creditValue - creditUnitValue.value) < 0.000001
-  )?.key || '')
-  const pricingFormulaPreview = computed(() => {
-    const creditValueMicros = settings.value?.creditValueMicros || 10_000
-    const exchangeRateMicros = settings.value?.pricingUsdExchangeRateMicros || 1_000_000
-    const markupPercent = settings.value?.modelImportMarkupPercent || 130
-    const units = creditValueMicros > 0
-      ? Math.ceil(exchangeRateMicros * markupPercent / (creditValueMicros * 100))
-      : 0
-    return `$1 × ${pricingUsdExchangeRate.value} × ${(markupPercent / 100).toFixed(1)} = ${units} ${xt('额度')}`
-  })
-  function applyPricingBasePreset(preset: typeof pricingBasePresets[number]) {
-    if (!settings.value) return
-    settings.value.currency = preset.currency
-    pricingUsdExchangeRate.value = preset.exchangeRate
-    creditUnitValue.value = preset.creditValue
-  }
   const workspaceSidebarEnabled = computed({
     get: () =>
       Boolean(settings.value?.sidebarProjectsEnabled || settings.value?.sidebarAssetsEnabled),
@@ -879,9 +672,6 @@
   ] as const
   const activePresetLabel = computed(
     () => chatUiPresets.find((item) => item.value === settings.value?.chatUiPreset)?.label || 'GPT'
-  )
-  const trialPlans = computed(() =>
-    plans.value.filter((item) => item.enabled && item.trialDays > 0)
   )
   const chatModels = computed(() =>
     models.value.filter((item) => item.enabled && item.capability === 'CHAT')
@@ -962,18 +752,18 @@
     )
   )
   async function load() {
-    const [loadedSettings, loadedGroups, loadedPlans, loadedModels] = await Promise.all([
+    const [loadedSettings, loadedGroups, loadedModels, loadedNewApiGroups] = await Promise.all([
       xinyueApi.systemSettings(),
       customerApi.groups(),
-      subscriptionApi.plans(),
-      modelApi.models()
+      modelApi.models(),
+      xinyueApi.newApiGroups().catch(() => [])
     ])
     loadedSettings.chatHomeContent = normalizeChatHomeContent(loadedSettings.chatHomeContent)
     loadedSettings.siteContent = normalizeSiteContent(loadedSettings.siteContent)
     settings.value = loadedSettings
     groups.value = loadedGroups
-    plans.value = loadedPlans
     models.value = loadedModels
+    newApiGroups.value = [...new Set([...loadedNewApiGroups, ...loadedSettings.newApiProvisioningGroups])].sort()
     domainsText.value = settings.value.allowedEmailDomains.join('\n')
     smtpPassword.value = ''
     linuxSecret.value = ''

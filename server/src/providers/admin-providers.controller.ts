@@ -208,6 +208,7 @@ class UpdateSystemDto {
   @IsOptional() @IsString() @MaxLength(100) imagePromptModelKey?: string
   @IsOptional() @IsIn(['PLATFORM', 'USER_CREDITS', 'USER_BYOK']) imagePromptBillingMode?: string
   @IsOptional() @IsBoolean() userByokEnabled?: boolean
+  @IsOptional() @IsArray() @IsString({ each: true }) newApiProvisioningGroups?: string[]
   @IsOptional() @IsInt() @Min(0) @Max(1000000) inviteRewardCredits?: number
   @IsOptional() @IsBoolean() referralEnabled?: boolean
   @IsOptional() @IsInt() @Min(0) @Max(365) referralCoolingDays?: number
@@ -318,6 +319,7 @@ export class AdminProvidersController {
   @Post('model-pricing/apply') modelPricingApply(@Body() body: ApplyModelPricingDto) { return this.providers.applyModelPricing(body) }
 
   @Get('system-settings') settings() { return this.providers.getSystemSettings(true) }
+  @Get('new-api/groups') newApiGroups() { return this.providers.onlyCodeProvisioningGroups() }
   @Get('capability-registry') capabilityRegistry() { return this.capabilities.snapshot() }
   @Patch('system-settings') settingsUpdate(@Body() body: UpdateSystemDto) { return this.providers.updateSystemSettings(body) }
 

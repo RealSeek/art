@@ -4,7 +4,6 @@ import { api } from '../../services/api'
 import type {
   PendingTeamInvitation,
   Team,
-  TeamCreditEntry,
   TeamDraft,
   TeamMember,
   TeamResources
@@ -23,9 +22,6 @@ export function useTeamManagement() {
   const teamError = ref(false)
   const expandedTeamId = ref('')
   const teamResources = reactive<Record<string, TeamResources | undefined>>({})
-  const teamLedgerOpenId = ref('')
-  const teamCreditLedgers = reactive<Record<string, TeamCreditEntry[] | undefined>>({})
-  const teamQuotaDrafts = reactive<Record<string, string>>({})
 
   async function reloadTeams() {
     teams.value = await api<Team[]>('/teams')
@@ -232,75 +228,11 @@ export function useTeamManagement() {
     }
   }
 
-  async function toggleTeamBilling(team: Team) {
-    teamBusy.value = true
-    teamMessage.value = ''
-    teamError.value = false
-    try {
-      await api(`/teams/${team.id}/billing`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled: !team.billingEnabled })
-      })
-      await reloadTeams()
-      teamMessage.value = team.billingEnabled ? '团队共享支付已停用' : '团队共享支付已启用'
-    } catch (reason) {
-      teamError.value = true
-      teamMessage.value = reason instanceof Error ? reason.message : '共享支付设置失败'
-    } finally {
-      teamBusy.value = false
-    }
-  }
-
-  async function saveTeamMemberQuota(team: Team, member: TeamMember) {
-    const raw = teamQuotaDrafts[`${team.id}:${member.userId}`]?.trim() || ''
-    const monthlyCreditLimit = raw === '' ? null : Number(raw)
-    if (monthlyCreditLimit !== null && (!Number.isInteger(monthlyCreditLimit) || monthlyCreditLimit < 0)) {
-      message.warning('月限额必须是大于等于 0 的整数，留空表示不限额')
-      return
-    }
-    teamBusy.value = true
-    teamMessage.value = ''
-    teamError.value = false
-    try {
-      await api(`/teams/${team.id}/members/${member.userId}/quota`, {
-        method: 'PATCH',
-        body: JSON.stringify({ monthlyCreditLimit })
-      })
-      await reloadTeams()
-      teamMessage.value = '成员月度限额已更新'
-    } catch (reason) {
-      teamError.value = true
-      teamMessage.value = reason instanceof Error ? reason.message : '成员限额更新失败'
-    } finally {
-      teamBusy.value = false
-    }
-  }
-
-  async function toggleTeamLedger(teamId: string) {
-    if (teamLedgerOpenId.value === teamId) {
-      teamLedgerOpenId.value = ''
-      return
-    }
-    teamLedgerOpenId.value = teamId
-    if (teamCreditLedgers[teamId]) return
-    teamBusy.value = true
-    try {
-      teamCreditLedgers[teamId] = await api<TeamCreditEntry[]>(`/credits/teams/${teamId}/ledger?take=50`)
-    } catch (reason) {
-      teamError.value = true
-      teamMessage.value = reason instanceof Error ? reason.message : '团队额度流水加载失败'
-      teamLedgerOpenId.value = ''
-    } finally {
-      teamBusy.value = false
-    }
-  }
-
   return {
     teams, pendingTeamInvitations, teamDraft, teamInviteId, teamInviteEmail, teamInviteRole,
-    teamBusy, teamMessage, teamError, expandedTeamId, teamResources, teamLedgerOpenId,
-    teamCreditLedgers, teamQuotaDrafts, createTeam, inviteToTeam, acceptTeamInvitation,
+    teamBusy, teamMessage, teamError, expandedTeamId, teamResources,
+    createTeam, inviteToTeam, acceptTeamInvitation,
     cancelTeamInvitation, transferTeamOwnership, removeTeamMember, updateTeamMemberRole,
-    editTeam, leaveTeam, deleteTeam, toggleTeamResources, toggleTeamBilling,
-    saveTeamMemberQuota, toggleTeamLedger
+    editTeam, leaveTeam, deleteTeam, toggleTeamResources
   }
 }

@@ -273,20 +273,7 @@ export class CanvasesService {
   }
 
   private async planRules(userId: string): Promise<CanvasPlanRules> {
-    const [account, subscription, freePlan] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
-      this.prisma.userSubscription.findFirst({ where: { userId, status: { in: ['ACTIVE', 'TRIALING'] }, OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gt: new Date() } }] }, orderBy: { createdAt: 'desc' }, include: { plan: true } }),
-      this.prisma.subscriptionPlan.findFirst({ where: { enabled: true, priceCents: 0 }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
-    ])
-    if (account?.role === UserRole.ADMIN || account?.role === UserRole.SUPER_ADMIN) return { canvasAccess: true, shortDramaAccess: true, maxCanvases: 10_000, maxCanvasNodes: MAX_NODES }
-    const plan = subscription?.plan || freePlan
-    const capabilities = plan?.capabilities && typeof plan.capabilities === 'object' && !Array.isArray(plan.capabilities) ? plan.capabilities as Prisma.JsonObject : {}
-    const integer = (value: Prisma.JsonValue | undefined, fallback: number, min: number, max: number) => typeof value === 'number' && Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback
-    return {
-      canvasAccess: capabilities.canvasAccess !== false,
-      shortDramaAccess: capabilities.shortDramaAccess !== false,
-      maxCanvases: integer(capabilities.maxCanvases, 100, 1, 10_000),
-      maxCanvasNodes: integer(capabilities.maxCanvasNodes, MAX_NODES, 10, MAX_NODES),
-    }
+    void userId
+    return { canvasAccess: true, shortDramaAccess: true, maxCanvases: 10_000, maxCanvasNodes: MAX_NODES }
   }
 }

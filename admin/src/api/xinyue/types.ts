@@ -733,6 +733,7 @@ export type SystemSettings = {
   imagePromptModelKey: string
   imagePromptBillingMode: 'PLATFORM' | 'USER_CREDITS' | 'USER_BYOK'
   userByokEnabled: boolean
+  newApiProvisioningGroups: string[]
   inviteRewardCredits: number
   referralEnabled: boolean
   referralCoolingDays: number

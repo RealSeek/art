@@ -1529,6 +1529,8 @@ model UserApiCredential {
   lastUsedAt        DateTime?
   lastRotatedAt     DateTime?
   expiresAt         DateTime?
+  provisionKey      String?
+  externalTokenId   String?
   totalRequests     Int               @default(0)
   totalFailures     Int               @default(0)
   inputTokens       BigInt            @default(0)
@@ -1541,6 +1543,7 @@ model UserApiCredential {
   generationJobs    GenerationJob[]
 
   @@unique([userId, name])
+  @@unique([userId, provisionKey])
   @@index([userId, enabled])
   @@index([templateId])
 }
@@ -1644,6 +1647,7 @@ model SystemSetting {
   imagePromptModelKey           String   @default("")
   imagePromptBillingMode        String   @default("USER_CREDITS")
   userByokEnabled               Boolean  @default(true)
+  newApiProvisioningGroups      String[] @default([])
   inviteRewardCredits           Int      @default(0)
   referralEnabled               Boolean  @default(true)
   referralCoolingDays           Int      @default(7)

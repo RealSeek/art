@@ -18,7 +18,7 @@
           <aside v-if="guideOpen" id="image-prompt-guide" class="image-prompt-guide" @keydown.esc="guideOpen = false">
             <header><div><CircleHelp :size="17" /><strong>使用提示</strong></div><button type="button" aria-label="关闭使用提示" @click="guideOpen = false"><X :size="16" /></button></header>
             <ul><li>优先上传主体清晰、构图完整的原图。</li><li>不同提取方式会使用同一张图片重新分析。</li><li>生成后可复制结果，或直接带到图片生成页。</li></ul>
-            <footer><WalletCards :size="14" /><span>{{ billingLabel }}</span></footer>
+            <footer><span>使用个人 OnlyCode API 密钥</span></footer>
           </aside>
         </div>
       </header>
@@ -99,7 +99,7 @@
               </dl>
               <div v-if="result.tags.length" class="image-prompt-tags"><span v-for="tag in result.tags" :key="tag">{{ tag }}</span></div>
             </template>
-            <footer><span v-if="creditCost > 0">本次使用 {{ creditCost }} 创作点</span><span v-else>{{ billingLabel }}</span><button type="button" @click="useForGeneration"><WandSparkles :size="16" />用于图片生成<ArrowRight :size="15" /></button></footer>
+            <footer><span>使用个人 OnlyCode API 密钥</span><button type="button" @click="useForGeneration"><WandSparkles :size="16" />用于图片生成<ArrowRight :size="15" /></button></footer>
           </div>
         </section>
       </div>
@@ -112,7 +112,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Braces, Check, ChevronDown, CircleAlert, CircleHelp, Copy, FileJson, FolderOpen, History, ImagePlus, Layers3, LoaderCircle, MessageSquareText, Palette, RefreshCw, ScanLine, ScanText, Sparkles, Upload, WalletCards, WandSparkles, X, Zap } from 'lucide-vue-next'
+import { ArrowRight, Braces, Check, ChevronDown, CircleAlert, CircleHelp, Copy, FileJson, FolderOpen, History, ImagePlus, Layers3, LoaderCircle, MessageSquareText, Palette, RefreshCw, ScanLine, ScanText, Sparkles, Upload, WandSparkles, X, Zap } from 'lucide-vue-next'
 import CanvasMediaDialog, { type CanvasMediaAsset } from '../components/CanvasMediaDialog.vue'
 import WorkspaceSectionTabs from '../components/WorkspaceSectionTabs.vue'
 import { api, streamApiEvents } from '../services/api'
@@ -121,7 +121,7 @@ import { stageCreationPrompt } from '../utils/prompt-transfer'
 type ExtractionMode = 'GENERAL' | 'CONCISE' | 'STRUCTURED' | 'GRAPHIC_DESIGN' | 'JSON' | 'FLUX' | 'MIDJOURNEY' | 'STABLE_DIFFUSION'
 type ExtractionResult = { prompt: string; negativePrompt: string; summary: string; tags: string[]; structured: Record<string, unknown>; raw: string; mode: ExtractionMode; language: string }
 type ExtractionJob = { id: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; creditCost: number; errorMessage?: string | null; options: { imagePromptResult?: ExtractionResult } }
-type PublicSettings = { imagePromptEnabled?: boolean; imagePromptBillingMode?: 'PLATFORM' | 'USER_CREDITS' | 'USER_BYOK' }
+type PublicSettings = { imagePromptEnabled?: boolean }
 
 const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -134,14 +134,12 @@ const libraryOpen = ref(false)
 const guideOpen = ref(false)
 const settingsLoaded = ref(false)
 const featureEnabled = ref(true)
-const billingMode = ref<PublicSettings['imagePromptBillingMode']>('USER_CREDITS')
 const jobId = ref('')
 const status = ref<ExtractionJob['status'] | ''>('')
 const result = ref<ExtractionResult | null>(null)
 const error = ref('')
 const errorStage = ref<'upload' | 'extract'>('extract')
 const copied = ref(false)
-const creditCost = ref(0)
 
 const modes: Array<{ value: ExtractionMode; label: string; note: string; icon: Component }> = [
   { value: 'GENERAL', label: '通用', note: '适用于大多数图片', icon: MessageSquareText },
@@ -155,7 +153,6 @@ const modes: Array<{ value: ExtractionMode; label: string; note: string; icon: C
 ]
 const structuredLabels: Record<string, string> = { subject: '主体', environment: '环境', visualStyle: '视觉风格', lighting: '光影', composition: '构图', camera: '镜头', colorPalette: '色彩', materials: '材质', details: '细节' }
 const running = computed(() => status.value === 'QUEUED' || status.value === 'RUNNING')
-const billingLabel = computed(() => billingMode.value === 'PLATFORM' ? '平台承担费用' : billingMode.value === 'USER_BYOK' ? '使用个人 API 密钥' : '使用用户创作点')
 const structuredEntries = computed(() => Object.entries(result.value?.structured || {}).filter(([, value]) => value !== '' && (!Array.isArray(value) || value.length)))
 const jsonResult = computed(() => result.value ? JSON.stringify({ prompt: result.value.prompt, negativePrompt: result.value.negativePrompt, summary: result.value.summary, tags: result.value.tags, structured: result.value.structured }, null, 2) : '')
 
@@ -164,7 +161,6 @@ onMounted(async () => {
   try {
     const settings = await api<PublicSettings>('/catalog/settings')
     featureEnabled.value = settings.imagePromptEnabled !== false
-    billingMode.value = settings.imagePromptBillingMode || 'USER_CREDITS'
   } catch { /* The protected task endpoint remains the final authority. */ }
   finally { settingsLoaded.value = true }
 })
@@ -191,25 +187,25 @@ function chooseAsset(value: CanvasMediaAsset) { asset.value = value; libraryOpen
 async function extractPrompt() {
   if (!asset.value || running.value) return
   errorStage.value = 'extract'
-  error.value = ''; result.value = null; copied.value = false; creditCost.value = 0
+  error.value = ''; result.value = null; copied.value = false
   try {
     const created = await api<ExtractionJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: '分析图片并生成提示词', options: { taskType: 'IMAGE_PROMPT_EXTRACTION', assetId: asset.value.id, mode: mode.value, language: language.value }, idempotencyKey: `image-prompt:${asset.value.id}:${Date.now()}` }) })
     jobId.value = created.id; status.value = created.status
     let completed: ExtractionJob
-    try { completed = await streamApiEvents<ExtractionJob>(`/generations/${created.id}/events`, (job) => { status.value = job.status; creditCost.value = job.creditCost }) }
+    try { completed = await streamApiEvents<ExtractionJob>(`/generations/${created.id}/events`, (job) => { status.value = job.status }) }
     catch { completed = await pollJob(created.id) }
     applyJob(completed)
   } catch (reason) { status.value = 'FAILED'; error.value = reason instanceof Error ? reason.message : '图片反推失败' }
 }
 async function pollJob(id: string) {
   for (let attempt = 0; attempt < 180; attempt += 1) {
-    const job = await api<ExtractionJob>(`/generations/${id}`); status.value = job.status; creditCost.value = job.creditCost
+    const job = await api<ExtractionJob>(`/generations/${id}`); status.value = job.status
     if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.status)) return job
     await new Promise((resolve) => window.setTimeout(resolve, 1000))
   }
   throw new Error('任务等待超时，请稍后重试')
 }
-function applyJob(job: ExtractionJob) { status.value = job.status; creditCost.value = job.creditCost; if (job.status === 'SUCCEEDED' && job.options.imagePromptResult) result.value = job.options.imagePromptResult; else error.value = job.errorMessage || (job.status === 'CANCELLED' ? '任务已取消' : '视觉模型没有返回可用结果') }
+function applyJob(job: ExtractionJob) { status.value = job.status; if (job.status === 'SUCCEEDED' && job.options.imagePromptResult) result.value = job.options.imagePromptResult; else error.value = job.errorMessage || (job.status === 'CANCELLED' ? '任务已取消' : '视觉模型没有返回可用结果') }
 async function cancelTask() { if (!jobId.value) return; try { applyJob(await api<ExtractionJob>(`/generations/${jobId.value}/cancel`, { method: 'POST', body: '{}' })) } catch (reason) { error.value = reason instanceof Error ? reason.message : '取消任务失败' } }
 function retryAfterError() { if (errorStage.value === 'upload') fileInput.value?.click(); else void extractPrompt() }
 async function copyResult() { if (!result.value) return; await navigator.clipboard.writeText(result.value.mode === 'JSON' ? jsonResult.value : result.value.prompt); copied.value = true; window.setTimeout(() => { copied.value = false }, 1800) }

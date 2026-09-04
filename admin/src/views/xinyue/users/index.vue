@@ -4,7 +4,7 @@
       ><div
         ><span class="page-eyebrow">{{ xt('客户目录') }}</span
         ><h1>{{ xt('用户管理') }}</h1
-        ><p>{{ xt('客户账户、权益、分组和访问状态') }}</p></div
+        ><p>{{ xt('客户账户、分组和访问状态') }}</p></div
       ><ElTag effect="plain" class="user-count">{{ users.length }} {{ xt('位用户') }}</ElTag></div
     >
     <ElCard shadow="never" class="filter-card">
@@ -52,7 +52,7 @@
         ><template #left
           ><div class="table-heading"
             ><strong>{{ xt('客户列表') }}</strong
-            ><span>{{ xt('账户与权益总览') }}</span></div
+            ><span>{{ xt('账户与访问状态总览') }}</span></div
           ></template
         ></ArtTableHeader
       >
@@ -93,17 +93,10 @@
               ></template
             ></ElTableColumn
           >
-          <ElTableColumn :label="xt('套餐')" :min-width="isCompact ? 88 : 115"
+          <ElTableColumn :label="xt('用量')" :min-width="isCompact ? 105 : 135"
             ><template #default="{ row }"
-              ><strong>{{ row.subscriptions[0]?.plan.name || xt('免费用户') }}</strong></template
-            ></ElTableColumn
-          >
-          <ElTableColumn :label="xt('余额 / 用量')" :min-width="isCompact ? 105 : 135"
-            ><template #default="{ row }"
-              ><strong>{{ row.creditAccount?.balance || 0 }} {{ xt('点') }}</strong
-              ><small class="block-note"
-                >{{ row._count.jobs }} {{ xt('次任务') }} · {{ row._count.assets }}
-                {{ xt('项资产') }}</small
+              ><strong>{{ row._count.jobs }} {{ xt('次任务') }}</strong
+              ><small class="block-note">{{ row._count.assets }} {{ xt('项资产') }}</small
               ></template
             ></ElTableColumn
           >
@@ -117,10 +110,9 @@
               }}</ElTag></template
             ></ElTableColumn
           >
-          <ElTableColumn :label="xt('操作')" :width="isCompact ? 145 : 200" fixed="right"
+          <ElTableColumn :label="xt('操作')" :width="isCompact ? 120 : 160" fixed="right"
             ><template #default="{ row }"
               ><ElButton link type="primary" @click="openUserEditor(row)">{{ xt('编辑') }}</ElButton
-              ><ElButton link type="primary" @click="openCredits(row)">{{ xt('调余额') }}</ElButton
               ><ElDropdown @command="(command: string) => handleCommand(command, row)"
                 ><ElButton link :aria-label="xt('更多用户操作')"
                   ><ArtSvgIcon icon="ri:more-2-fill" /></ElButton
@@ -142,33 +134,6 @@
         </ElTable>
       </div>
     </ElCard>
-
-    <ElDialog v-model="creditDialog" :title="xt('调整用户余额')" width="460px">
-      <ElForm label-position="top"
-        ><ElFormItem :label="xt('用户')"
-          ><ElInput
-            :model-value="creditTarget?.displayName || creditTarget?.email || ''"
-            disabled /></ElFormItem
-        ><ElFormItem :label="xt('调整点数')"
-          ><ElInputNumber
-            v-model="creditForm.amount"
-            :min="-100000"
-            :max="100000"
-            controls-position="right" /></ElFormItem
-        ><ElFormItem :label="xt('调整原因')"
-          ><ElInput
-            v-model.trim="creditForm.reason"
-            maxlength="200"
-            show-word-limit
-            :placeholder="xt('例如：套餐补偿、活动赠送')" /></ElFormItem
-      ></ElForm>
-      <template #footer
-        ><ElButton @click="creditDialog = false">{{ xt('取消') }}</ElButton
-        ><ElButton type="primary" :loading="saving" @click="saveCredits">{{
-          xt('确认调整')
-        }}</ElButton></template
-      >
-    </ElDialog>
 
     <ElDrawer v-model="editDrawer" :title="xt('编辑用户')" size="580px" destroy-on-close>
       <div v-loading="editLoading">
@@ -265,9 +230,6 @@
   const loading = ref(false)
   const saving = ref(false)
   const filters = reactive({ q: '', status: '', groupId: '' })
-  const creditDialog = ref(false)
-  const creditTarget = ref<AdminUser | null>(null)
-  const creditForm = reactive({ amount: 0, reason: '' })
   const editDrawer = ref(false)
   const editLoading = ref(false)
   const editTarget = ref<AdminUser | null>(null)
@@ -304,11 +266,6 @@
   function reset() {
     Object.assign(filters, { q: '', status: '', groupId: '' })
     void loadUsers()
-  }
-  function openCredits(user: AdminUser) {
-    creditTarget.value = user
-    Object.assign(creditForm, { amount: 0, reason: '' })
-    creditDialog.value = true
   }
   async function openUserEditor(user: AdminUser) {
     editTarget.value = user
@@ -359,18 +316,6 @@
       { type: 'warning' }
     )
     await xinyueApi.revokeUserSessions(editTarget.value.id)
-  }
-  async function saveCredits() {
-    if (!creditTarget.value || !creditForm.amount || creditForm.reason.length < 2)
-      return ElMessage.warning(xt('请填写调整点数和原因'))
-    saving.value = true
-    try {
-      await xinyueApi.adjustCredits(creditTarget.value.id, creditForm.amount, creditForm.reason)
-      creditDialog.value = false
-      await loadUsers()
-    } finally {
-      saving.value = false
-    }
   }
   async function handleCommand(status: string, user: AdminUser) {
     if (status === 'sessions') {

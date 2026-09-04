@@ -67,7 +67,6 @@
     </div>
 
     <div class="workspace-sidebar__bottom">
-      <button v-if="workspaceDataLoaded && auth.isAuthenticated && publicSettings.trialEnabled && !currentSubscription && activeMode !== 'chat'" class="workspace-trial-button" type="button" @click="openSettings('plan')"><Gift :size="17" /><span>免费试用</span></button>
       <button v-if="!auth.isAuthenticated" class="workspace-settings" type="button" title="设置" @click="showSettings">
         <Settings :size="19" />
         <span>{{ t('workspace.settings') }}</span>
@@ -83,14 +82,12 @@
           <span class="workspace-avatar">{{ auth.initials }}</span>
           <span class="workspace-account-copy">
             <strong>{{ auth.displayName }}</strong>
-            <small>{{ currentPlanName }}</small>
           </span>
           <ChevronUp :size="16" :class="{ 'is-down': !accountOpen }" />
         </button>
         <div v-if="accountOpen" class="workspace-account-menu">
-          <div class="account-menu-heading"><span class="workspace-avatar">{{ auth.initials }}</span><span><strong>{{ auth.displayName }}</strong><small>{{ currentPlanName }}</small></span></div>
-          <div class="account-credit"><span>创作点余额</span><strong><Sparkles :size="13" />{{ studio.credits }}</strong></div>
-          <button type="button" @click="openUpgrade"><Sparkles :size="16" />{{ currentSubscription ? '查看升级方案' : '升级套餐' }}</button>
+          <div class="account-menu-heading"><span class="workspace-avatar">{{ auth.initials }}</span><span><strong>{{ auth.displayName }}</strong></span></div>
+          <div class="account-balance"><span>余额</span><strong><WalletCards :size="15" />{{ formattedOnlyCodeBalance }}</strong></div>
           <button type="button" @click="openSettings('teams')"><Users :size="16" />团队空间</button>
           <button type="button" @click="openSettings('support')"><LifeBuoy :size="16" />帮助与客服</button>
           <button type="button" @click="openSettings('personalization')">{{ t('workspace.personalization') }}</button>
@@ -117,7 +114,6 @@ import {
   Code2,
   ExternalLink,
   FolderKanban,
-  Gift,
   History,
   KeyRound,
   LibraryBig,
@@ -131,9 +127,9 @@ import {
   Search,
   Settings,
   ShoppingBag,
-  Sparkles,
   SquarePen,
   Users,
+  WalletCards,
   Webhook,
   X,
   Image as ImageIcon,
@@ -145,9 +141,9 @@ import { useCatalogStore } from '../../stores/catalog'
 import { useStudioStore } from '../../stores/studio'
 import type {
   ExternalNavLinkItem,
+  OnlyCodeBalance,
   PublicSettings,
   SettingsSection,
-  Subscription,
   WorkspaceNavItem,
   WorkspaceSettings,
 } from './types'
@@ -156,15 +152,14 @@ const props = defineProps<{
   activeMode: StudioMode
   settings: WorkspaceSettings
   publicSettings: PublicSettings
+  onlyCodeBalance: OnlyCodeBalance | null
   externalLinks: ExternalNavLinkItem[]
   workspaceDataLoaded: boolean
-  currentSubscription: Subscription | null
   conversationMenuPosition: { left: number; top: number }
   renamingConversationId: string
   conversationRenameBusy: boolean
   openSettings: (section: SettingsSection) => void
   showSettings: () => void
-  openUpgrade: () => void
   logout: () => Promise<void>
   closeConversationMenu: () => void
   startConversationRename: (conversation: { id: string; title: string }) => void
@@ -182,7 +177,14 @@ const auth = useAuthStore()
 const catalog = useCatalogStore()
 const studio = useStudioStore()
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+const formattedOnlyCodeBalance = computed(() => {
+  if (!props.onlyCodeBalance) return '--'
+  const value = props.onlyCodeBalance.balance
+  const fractionDigits = props.onlyCodeBalance.displayType === 'TOKENS' ? 0 : Math.abs(value) < 1 ? 4 : 2
+  return `${props.onlyCodeBalance.symbol}${new Intl.NumberFormat(locale.value, { maximumFractionDigits: fractionDigits }).format(value)}`
+})
 
 const recentOpen = ref(true)
 const recentSearchOpen = ref(false)
@@ -218,8 +220,6 @@ function groupLabel(conversation: ConversationSummary) {
   return days === 0 ? '今天' : days === 1 ? '昨天' : '三天前'
 }
 watch(conversationSearch, () => { recentVisibleCount.value = recentConversationPageSize })
-
-const currentPlanName = computed(() => props.currentSubscription?.plan.name || '免费版')
 
 const externalIconMap: Record<string, Component> = { code: Code2, 'book-open': BookOpen, webhook: Webhook, 'key-round': KeyRound, 'life-buoy': LifeBuoy, 'external-link': ExternalLink }
 const navItems = computed<WorkspaceNavItem[]>(() => [

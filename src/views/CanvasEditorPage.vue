@@ -25,7 +25,6 @@
         <button type="button" class="canvas-icon-button canvas-header-import" aria-label="导入画布" title="导入画布" @click="importInput?.click()"><Upload :size="18" /></button>
         <button type="button" class="canvas-icon-button canvas-header-export" aria-label="导出画布" title="导出画布" @click="exportCanvas"><Download :size="18" /></button>
         <span class="canvas-header-divider" aria-hidden="true" />
-        <button type="button" class="canvas-header-stat" aria-label="查看创作点余额" title="查看创作点余额" @click="openWorkspaceSettings('credits')"><Sparkles :size="15" /><strong>{{ studio.credits }}</strong></button>
         <button type="button" class="canvas-icon-button canvas-header-badge-button" aria-label="通知中心" title="通知中心" @click="openWorkspaceSettings('notifications')"><Bell :size="17" /><span v-if="unreadNotifications" class="canvas-header-badge">{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span></button>
         <button type="button" class="canvas-icon-button" :aria-label="canvasDark ? '切换到浅色主题' : '切换到深色主题'" :title="canvasDark ? '切换到浅色主题' : '切换到深色主题'" @click="toggleCanvasTheme"><Sun v-if="canvasDark" :size="17" /><Moon v-else :size="17" /></button>
         <button type="button" class="canvas-account-button" aria-label="账户菜单" title="账户设置" @click="openWorkspaceSettings('account')"><span>{{ auth.initials }}</span></button>
@@ -251,7 +250,6 @@
 
         <div v-if="isGenerationNode(selectedNode)" class="canvas-generation-context">
           <span><Link2 :size="14" />已读取 {{ generationContext(selectedNode).textCount }} 个文本、{{ generationContext(selectedNode).referenceAssetIds.length }} 张参考图</span>
-          <span><Sparkles :size="14" />预计 {{ generationCreditCost(selectedNode) }} 点</span>
         </div>
         <div v-if="isMediaNode(selectedNode)" class="canvas-generation-actions">
           <button type="button" @click="openMediaPicker(selectedNode.id)"><FolderOpen :size="16" />文件库</button>
@@ -388,7 +386,6 @@ import { isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
 import { splitShortDramaScript, type ShortDramaShotDraft } from '../utils/short-drama'
 import { isDedicatedImageTool, mergeImageTools, type ImageToolOptions, type ImageToolRecord } from '../utils/image-tools'
 import { useAuthStore } from '../stores/auth'
-import { useStudioStore } from '../stores/studio'
 import { updateStoredSettings } from '../utils/settings-storage'
 import { useCanvasHistory, type FlowEdge, type FlowNode } from '../composables/canvas/useCanvasHistory'
 import { useCanvasPersistence, type CanvasSaveState } from '../composables/canvas/useCanvasPersistence'
@@ -405,7 +402,6 @@ type CanvasPreset = { key: 'visual-story' | 'image-variation' | 'storyboard'; la
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const studio = useStudioStore()
 const flow = useVueFlow('xinyue-canvas')
 const { fitView, setViewport, screenToFlowCoordinate } = flow
 const nodes = ref<FlowNode[]>([])
@@ -631,7 +627,6 @@ onMounted(() => {
   window.addEventListener('paste', handleClipboardPaste)
   window.addEventListener('beforeunload', handleBeforeUnload)
   compactCanvasQuery.addEventListener('change', handleCompactCanvasChange)
-  void studio.refreshCredits().catch(() => undefined)
   void api<Array<{ readAt?: string | null }>>('/notifications').then((items) => { unreadNotifications.value = items.filter((item) => !item.readAt).length }).catch(() => undefined)
   void loadCanvas()
 })
@@ -779,7 +774,6 @@ const {
   imageCapabilities,
   videoCapabilities,
   generationOptions,
-  generationCreditCost,
   imageSizeLabel,
   qualityLabel
 } = useCanvasGenerationOptions({
@@ -1054,7 +1048,7 @@ async function selectCanvasNode(id: string) {
   await keepCanvasNodeVisible(id)
 }
 
-function openWorkspaceSettings(section: 'account' | 'api' | 'credits' | 'notifications') {
+function openWorkspaceSettings(section: 'account' | 'api' | 'notifications') {
   void router.push({ path: '/chat', query: { settings: section } })
 }
 

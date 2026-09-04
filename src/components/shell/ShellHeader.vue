@@ -7,7 +7,6 @@
   </header>
   <nav v-if="workspaceDataLoaded && auth.isAuthenticated" class="workspace-chat-actions" aria-label="工作区操作">
     <TaskCenter v-if="activeMode !== 'office'" />
-    <button v-if="activeMode === 'chat' && showUpgradeEntry" class="workspace-upgrade-button" type="button" @click="openUpgrade"><Sparkles :size="16" /><span>升级</span></button>
     <button v-if="activeMode === 'chat' && currentConversation" type="button" aria-label="分享对话" title="分享" :disabled="conversationActionBusy" @click="shareCurrentConversation"><Share2 :size="18" /><span>分享</span></button>
     <div v-if="activeMode === 'chat' && currentConversation" class="workspace-chat-more-wrap">
       <button type="button" aria-label="更多对话操作" title="更多" :aria-expanded="chatActionsOpen" @click="chatActionsOpen = !chatActionsOpen"><MoreHorizontal :size="20" /></button>
@@ -23,7 +22,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Archive, Menu, MoreHorizontal, Pin, PinOff, Share2, Sparkles, Trash2 } from 'lucide-vue-next'
+import { Archive, Menu, MoreHorizontal, Pin, PinOff, Share2, Trash2 } from 'lucide-vue-next'
 import type { ConversationSummary, StudioMode } from '../../types'
 import { useAuthStore } from '../../stores/auth'
 import { useStudioStore } from '../../stores/studio'
@@ -32,9 +31,7 @@ import TaskCenter from './TaskCenter.vue'
 const props = defineProps<{
   activeMode: StudioMode
   workspaceDataLoaded: boolean
-  showUpgradeEntry: boolean
   conversationActionBusy: boolean
-  openUpgrade: () => void
   shareConversation: (conversation: ConversationSummary) => Promise<void>
   toggleConversationPinned: (conversation: ConversationSummary) => Promise<void>
   archiveConversation: (conversationId: string) => Promise<void>

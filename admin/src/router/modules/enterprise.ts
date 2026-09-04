@@ -4,7 +4,6 @@ const resourceSearchKeywords: Record<string, string[]> = {
   users: ['用户管理', '账号', '账户', '会员', 'customer', 'account'],
   groups: ['权限', '用户策略', '模型白名单', '计费倍率', 'BYOK 策略'],
   teams: ['企业', '组织', '成员', '席位', '团队额度'],
-  credits: ['创作点', '点数', '余额', '消费记录', '扣费记录', '充值流水'],
   providers: ['渠道', 'API 接口', '中转接口', 'NewAPI', 'Sub2API', 'upstream'],
   models: ['模型目录', 'Token 定价', '计费费率', '上下文', 'model pricing'],
   jobs: ['生成记录', '任务记录', '图片生成', '视频生成', '队列', 'generation records'],
@@ -25,12 +24,6 @@ const resourceSearchKeywords: Record<string, string[]> = {
   assets: ['文件', '素材', '资源', '媒体', '图片', '视频'],
   projects: ['项目', '工作流', '画布', 'Project'],
   externalLinks: ['外链', '导航', '外部地址'],
-  subscriptions: ['会员', '会员系统', '套餐', '订阅', '权益', 'VIP', 'plan'],
-  payments: ['充值', '支付', '订单', '交易', '商品', '兑换码'],
-  financeMargins: ['成本', '毛利', '收入', '利润', '模型用量'],
-  billingReconciliation: ['异常账单', '对账', 'Token 用量', '退款异常', '账本差异'],
-  byokOperations: ['BYOK', 'API Key', '密钥', '用户密钥', '个人密钥'],
-  commercialGovernance: ['商业治理', '账户生命周期', '配额治理', '商业风控'],
   announcements: ['公告', '站内消息', '运营通知'],
   notificationTemplates: ['通知', '邮件模板', '消息模板'],
   notificationDeliveries: ['通知记录', '投递记录', '发送记录', '失败重试'],
@@ -89,12 +82,6 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         name: 'CustomerTeams',
         component: '/xinyue/teams',
         meta: resource('团队与成员', 'ri:team-line', 'teams')
-      },
-      {
-        path: 'credits',
-        name: 'CreditLedger',
-        component: '/xinyue/operations',
-        meta: resource('额度流水', 'ri:coins-line', 'credits')
       }
     ]
   },
@@ -279,61 +266,6 @@ export const enterpriseRoutes: AppRouteRecord[] = [
         name: 'ExternalLinks',
         component: '/xinyue/operations',
         meta: resource('外部入口', 'ri:external-link-line', 'externalLinks')
-      }
-    ]
-  },
-  {
-    path: '/enterprise/commerce',
-    name: 'EnterpriseCommerce',
-    component: '/index/index',
-    meta: {
-      title: 'xinyue.nav.commerce',
-      icon: 'ri:bank-card-line',
-      roles: ['R_SUPER', 'R_ADMIN'],
-      searchKeywords: ['会员', '订阅', '充值', '支付', '计费', 'BYOK', '成本']
-    },
-    children: [
-      {
-        path: 'subscriptions',
-        name: 'SubscriptionManagement',
-        component: '/xinyue/subscriptions',
-        meta: section('商品与交易', resource('订阅与套餐', 'ri:vip-crown-2-line', 'subscriptions'))
-      },
-      {
-        path: 'payments',
-        name: 'PaymentManagement',
-        component: '/xinyue/commerce',
-        meta: section('商品与交易', resource('充值与支付', 'ri:secure-payment-line', 'payments'))
-      },
-      {
-        path: 'margins',
-        name: 'FinanceMargins',
-        component: '/xinyue/operations',
-        meta: section('成本与对账', resource('成本与毛利', 'ri:line-chart-line', 'financeMargins'))
-      },
-      {
-        path: 'reconciliation',
-        name: 'BillingReconciliation',
-        component: '/xinyue/operations',
-        meta: section(
-          '成本与对账',
-          resource('异常账单', 'ri:exchange-funds-line', 'billingReconciliation')
-        )
-      },
-      {
-        path: 'byok',
-        name: 'ByokOperations',
-        component: '/xinyue/operations',
-        meta: section('成本与对账', resource('用户密钥运营', 'ri:key-2-line', 'byokOperations'))
-      },
-      {
-        path: 'governance',
-        name: 'CommercialGovernance',
-        component: '/xinyue/commercial-governance',
-        meta: section(
-          '账户治理',
-          resource('商业治理', 'ri:shield-user-line', 'commercialGovernance')
-        )
       }
     ]
   },

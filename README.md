@@ -107,7 +107,7 @@ npm run admin:dev
 
 初始化脚本只准备数据库和安全配置，不会创建固定管理员。首次打开 `/install`，使用 `server/.env` 中自动生成的 `INSTALL_TOKEN` 创建管理员。
 
-普通用户仅通过 New API SSO 登录，不需要在 OnlyArt 单独注册密码。两端所需的 `NEW_API_*` / `ART_SSO_*` 环境变量及精确回调地址配置见[部署指南](docs/DEPLOYMENT.md)。管理后台继续使用独立管理员凭据。
+普通用户仅通过 New API SSO 登录，不需要在 OnlyArt 单独注册密码。管理员可选择允许接入的 New API 现有分组，用户在 OnlyArt 内一键创建对应分组 Key 并自动导入模型，无需复制粘贴。两端所需的 `NEW_API_*` / `ART_SSO_*` 环境变量及精确回调地址配置见[部署指南](docs/DEPLOYMENT.md)。管理后台继续使用独立管理员凭据。
 
 ## ⚙️ 配置与文档
 

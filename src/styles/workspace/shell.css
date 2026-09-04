@@ -317,8 +317,8 @@
 .account-menu-heading small { display: block; }
 .account-menu-heading strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-menu-heading small { color: #aaa; font-size: 12px; margin-top: 2px; }
-.account-credit { align-items: center; border-bottom: 1px solid #3a3a3a; color: #a9a9a9; display: flex; font-size: 12px; justify-content: space-between; margin-bottom: 8px; padding: 11px 2px 14px; }
-.account-credit strong { align-items: center; color: #d9d9d9; display: inline-flex; gap: 6px; }
+.account-balance { align-items: center; border-bottom: 1px solid #3a3a3a; color: #a9a9a9; display: flex; font-size: 12px; justify-content: space-between; margin-bottom: 8px; padding: 11px 2px 14px; }
+.account-balance strong { align-items: center; color: #d9d9d9; display: inline-flex; gap: 6px; }
 .workspace-account-menu button { font-size: 13px; height: 40px; }
 .workspace-account-menu .account-logout { border-top: 1px solid #3a3a3a; border-radius: 0; margin-top: 7px; padding-top: 7px; height: 48px; }
 
@@ -630,6 +630,8 @@ html[data-studio-theme="light"] .workspace-recent__search-field input { color: #
 html[data-studio-theme="light"] .workspace-sidebar__scroll { scrollbar-color: #bdbdbd transparent; }
 html[data-studio-theme="light"] .workspace-sidebar__scroll::-webkit-scrollbar-thumb { background-color: #bdbdbd; }
 html[data-studio-theme="light"] .workspace-account-button { color: #161616; }
+html[data-studio-theme="light"] .account-balance { border-color: #e4e4e7; color: #71717a; }
+html[data-studio-theme="light"] .account-balance strong { color: #27272a; }
 html[data-studio-theme="light"] .workspace-account-menu,
 html[data-studio-theme="light"] .composer-popover,
 html[data-studio-theme="light"] .composer-attachment-panel,
@@ -714,29 +716,21 @@ html[data-studio-theme="light"] .settings-action-row small { color: #686868; }
 html[data-studio-theme="light"] .settings-option-row select { background: #fff; border-color: #c8c8c8; color: #191919; }
 html[data-studio-theme="light"] .settings-textarea textarea,
 html[data-studio-theme="light"] .settings-about input,
-html[data-studio-theme="light"] .settings-about textarea,
-html[data-studio-theme="light"] .redeem-field input,
-html[data-studio-theme="light"] .invite-link input { background: #fff; border-color: #d1d1d1; color: #171717; }
+html[data-studio-theme="light"] .settings-about textarea { background: #fff; border-color: #d1d1d1; color: #171717; }
 html[data-studio-theme="light"] .settings-textarea textarea::placeholder,
 html[data-studio-theme="light"] .settings-about input::placeholder,
-html[data-studio-theme="light"] .settings-about textarea::placeholder,
-html[data-studio-theme="light"] .redeem-field input::placeholder,
-html[data-studio-theme="light"] .invite-link input::placeholder { color: #747474; }
+html[data-studio-theme="light"] .settings-about textarea::placeholder { color: #747474; }
 html[data-studio-theme="light"] .settings-about,
 html[data-studio-theme="light"] .settings-memory,
 html[data-studio-theme="light"] .settings-simple-card,
 html[data-studio-theme="light"] .settings-empty-section,
 html[data-studio-theme="light"] .settings-action-row,
 html[data-studio-theme="light"] .account-detail-row,
-html[data-studio-theme="light"] .settings-data-section,
-html[data-studio-theme="light"] .settings-credit-card,
-html[data-studio-theme="light"] .settings-history > div { border-color: #dedede; }
+html[data-studio-theme="light"] .settings-data-section { border-color: #dedede; }
 html[data-studio-theme="light"] .settings-about,
 html[data-studio-theme="light"] .settings-memory,
 html[data-studio-theme="light"] .settings-simple-card,
 html[data-studio-theme="light"] .settings-empty-section,
-html[data-studio-theme="light"] .settings-history h3,
-html[data-studio-theme="light"] .settings-credit-card p,
 html[data-studio-theme="light"] .settings-about label,
 html[data-studio-theme="light"] .settings-memory span strong,
 html[data-studio-theme="light"] .settings-action-row span strong,
@@ -747,9 +741,7 @@ html[data-studio-theme="light"] .settings-simple-card p,
 html[data-studio-theme="light"] .settings-empty-section > strong,
 html[data-studio-theme="light"] .settings-memory span small,
 html[data-studio-theme="light"] .settings-action-row span small,
-html[data-studio-theme="light"] .account-detail-row span small,
-html[data-studio-theme="light"] .settings-credit-card small,
-html[data-studio-theme="light"] .settings-history span small { color: #666; }
+html[data-studio-theme="light"] .account-detail-row span small { color: #666; }
 html[data-studio-theme="light"] .settings-action-row > button,
 html[data-studio-theme="light"] .settings-api-list article footer button { background: #fff; border-color: #cfcfcf; color: #252525; }
 html[data-studio-theme="light"] .settings-action-row > button:hover,

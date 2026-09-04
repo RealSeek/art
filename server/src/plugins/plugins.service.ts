@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { PluginCapability, PluginStatus, PluginVisibility, Prisma, UserRole } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import AdmZip = require('adm-zip')
@@ -178,14 +178,7 @@ export class PluginsService {
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.pluginInstallation.findUnique({ where: { userId_pluginId: { userId, pluginId } } })
       if (existing?.enabled) return
-      if (!existing && plugin.priceCredits > 0) {
-        const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId } })
-        if (account.balance < plugin.priceCredits) throw new HttpException('创作点不足', HttpStatus.PAYMENT_REQUIRED)
-        const updated = await tx.creditAccount.updateMany({ where: { id: account.id, version: account.version }, data: { balance: { decrement: plugin.priceCredits }, version: { increment: 1 } } })
-        if (!updated.count) throw new ConflictException('创作点账户发生并发更新，请重试')
-        await tx.creditLedger.create({ data: { accountId: account.id, type: 'SPEND', amount: -plugin.priceCredits, balanceAfter: account.balance - plugin.priceCredits, description: `安装插件：${plugin.name}`, idempotencyKey: `plugin:${pluginId}:user:${userId}:purchase`, referenceType: 'plugin', referenceId: pluginId } })
-      }
-      await tx.pluginInstallation.upsert({ where: { userId_pluginId: { userId, pluginId } }, create: { userId, pluginId, paidCredits: plugin.priceCredits }, update: { enabled: true } })
+      await tx.pluginInstallation.upsert({ where: { userId_pluginId: { userId, pluginId } }, create: { userId, pluginId, paidCredits: 0 }, update: { enabled: true } })
       const installCount = await tx.pluginInstallation.count({ where: { pluginId } })
       await tx.plugin.update({ where: { id: pluginId }, data: { installCount } })
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -255,12 +248,12 @@ export class PluginsService {
 
   async createOfficial(body: AdminPluginDto) {
     await this.validateCategory(body.categoryId, false)
-    return this.prisma.plugin.create({ data: { ...this.pluginData(body), ownerId: null, slug: body.slug, visibility: PluginVisibility.OFFICIAL, status: body.status || PluginStatus.DRAFT, featured: body.featured ?? false, priceCredits: body.priceCredits ?? 0, sortOrder: body.sortOrder ?? 0 } })
+    return this.prisma.plugin.create({ data: { ...this.pluginData(body), ownerId: null, slug: body.slug, visibility: PluginVisibility.OFFICIAL, status: body.status || PluginStatus.DRAFT, featured: body.featured ?? false, priceCredits: 0, sortOrder: body.sortOrder ?? 0 } })
   }
 
   async updateOfficial(id: string, body: AdminPluginDto) {
     await this.validateCategory(body.categoryId, false)
-    const result = await this.prisma.plugin.updateMany({ where: { id, visibility: PluginVisibility.OFFICIAL, ownerId: null }, data: { ...this.pluginData(body), slug: body.slug, status: body.status || PluginStatus.DRAFT, featured: body.featured ?? false, priceCredits: body.priceCredits ?? 0, sortOrder: body.sortOrder ?? 0 } })
+    const result = await this.prisma.plugin.updateMany({ where: { id, visibility: PluginVisibility.OFFICIAL, ownerId: null }, data: { ...this.pluginData(body), slug: body.slug, status: body.status || PluginStatus.DRAFT, featured: body.featured ?? false, priceCredits: 0, sortOrder: body.sortOrder ?? 0 } })
     if (!result.count) throw new NotFoundException('官方插件不存在')
     return this.prisma.plugin.findUniqueOrThrow({ where: { id } })
   }

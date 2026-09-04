@@ -83,12 +83,18 @@ class ImportCredentialModelsDto {
   @IsOptional() @IsBoolean() importAll?: boolean
 }
 
+class ProvisionOnlyCodeCredentialDto {
+  @IsString() @MinLength(1) @MaxLength(64) group!: string
+  @IsOptional() @IsString() @MaxLength(50) name?: string
+}
+
 @Controller('users/me/api-credentials')
 @UseGuards(AuthGuard)
 export class UserCredentialsController {
   constructor(private readonly providers: ProvidersService) {}
   @Get() list(@CurrentUser() user: AuthenticatedUser) { return this.providers.listCredentials(user.id) }
   @Post() create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateCredentialDto) { return this.providers.createCredential(user.id, body) }
+  @Post('only-code') provisionOnlyCode(@CurrentUser() user: AuthenticatedUser, @Body() body: ProvisionOnlyCodeCredentialDto) { return this.providers.provisionOnlyCodeCredential(user.id, body.group, body.name) }
   @Patch(':id') update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: UpdateCredentialDto) { return this.providers.updateCredential(user.id, id, body) }
   @Post(':id/discover-models') discover(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.providers.discoverCredentialModels(user.id, id) }
   @Post(':id/import-models') importModels(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: ImportCredentialModelsDto) { return this.providers.importCredentialModels(user.id, id, body) }
@@ -112,8 +118,8 @@ export class UserModelPolicyController {
 
   @Get('model-policy')
   async policy(@CurrentUser() user: AuthenticatedUser) {
-    const [policy, settings] = await Promise.all([this.providers.userPolicy(user.id), this.providers.getSystemSettings()])
-    return { allowUserByok: settings.userByokEnabled && policy.allowUserByok, creditRatePercent: policy.creditRatePercent, restrictModels: policy.restrictModels, groups: policy.groups }
+    const policy = await this.providers.userPolicy(user.id)
+    return { allowUserByok: true, creditRatePercent: policy.creditRatePercent, restrictModels: policy.restrictModels, groups: policy.groups }
   }
 
   @Get('private-models') privateModels(@CurrentUser() user: AuthenticatedUser) { return this.providers.listPrivateModels(user.id) }

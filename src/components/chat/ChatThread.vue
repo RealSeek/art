@@ -35,7 +35,7 @@
               <template v-else>
                 <div class="image-generation-failure">
                   <strong>{{ generationState(entry.generation).isCancelled ? `${entry.generation.mode === 'videos' ? '视频' : '图片'}生成已停止` : '生成失败，请调整内容后重试' }}</strong>
-                  <p>{{ entry.generation.error || '任务未能完成，创作点已按规则退回。' }}</p>
+                  <p>{{ entry.generation.error || '任务未能完成，请检查个人 API 密钥后重试。' }}</p>
                   <button type="button" :disabled="store.isGenerating" @click="retryGenerationEntry(entry.generation)"><RefreshCw :size="15" />重新生成</button>
                 </div>
               </template>

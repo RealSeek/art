@@ -21,12 +21,10 @@ export interface PublicCatalogSettings {
   linuxDoLoginEnabled: boolean
   linuxDoLoginReady: boolean
   newApiLoginReady: boolean
+  newApiConsoleUrl: string
   smtpReady: boolean
   otpResendSeconds: number
   userByokEnabled: boolean
-  rechargeEnabled: boolean
-  subscriptionsEnabled: boolean
-  trialEnabled: boolean
   currency: string
 }
 
@@ -203,12 +201,10 @@ const emptySettings: PublicCatalogSettings = {
   linuxDoLoginEnabled: false,
   linuxDoLoginReady: false,
   newApiLoginReady: false,
+  newApiConsoleUrl: '',
   smtpReady: false,
   otpResendSeconds: 60,
   userByokEnabled: false,
-  rechargeEnabled: false,
-  subscriptionsEnabled: false,
-  trialEnabled: false,
   currency: 'CNY',
 }
 

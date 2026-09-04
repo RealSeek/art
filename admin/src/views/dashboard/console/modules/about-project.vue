@@ -2,7 +2,7 @@
   <div class="art-card p-5 flex-b mb-5 max-sm:mb-4">
     <div>
       <h2 class="text-2xl font-medium">{{ xt('OnlyArt 企业控制台') }}</h2>
-      <p class="text-g-700 mt-1">{{ xt('统一管理客户、AI 渠道、模型定价、支付订阅与运营安全') }}</p>
+      <p class="text-g-700 mt-1">{{ xt('统一管理客户、AI 渠道、模型配置与运营安全') }}</p>
       <p class="text-g-700 mt-1">{{
         xt('当前控制台基于 Art Design Pro，业务数据由 OnlyArt API 实时提供')
       }}</p>
@@ -32,7 +32,6 @@
   const linkList = [
     { label: xt('客户与用户分组'), route: '/enterprise/customers/users' },
     { label: xt('AI 渠道与模型'), route: '/enterprise/ai/providers' },
-    { label: xt('订阅、充值与支付'), route: '/enterprise/commerce/subscriptions' },
     { label: xt('内容审核与告警'), route: '/enterprise/operations/moderation' }
   ]
 

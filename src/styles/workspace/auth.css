@@ -174,8 +174,6 @@
 }
 
 @media (max-width: 980px) {
-  .workspace-trial-button--top { display: none; }
-  .workspace-main:has(> .workspace-trial-button--top) .chat-page__header-actions { margin-right: 0; }
   .workspace-shell,
   .workspace-shell.is-collapsed {
     display: block;

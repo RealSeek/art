@@ -152,7 +152,6 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
 export const useStudioStore = defineStore('studio', {
   state: () => ({
     activeMode: 'chat' as StudioMode,
-    credits: 0,
     currentConversationId: '',
     openingConversationId: '',
     temporaryChat: false,
@@ -191,9 +190,9 @@ export const useStudioStore = defineStore('studio', {
         try {
           const results = await Promise.allSettled([
             api<ServerConversation[]>('/conversations'), api<ServerConversation[]>('/conversations?archived=true'), api<ServerProject[]>('/projects'), api<ServerProject[]>('/projects?archived=true'),
-            api<ServerAsset[]>('/assets'), api<{ balance: number }>('/credits'), api<ServerJob[]>('/generations?kind=COMMERCE'), api<ServerJob[]>('/generations?kind=VIDEO'),
+            api<ServerAsset[]>('/assets'), api<ServerJob[]>('/generations?kind=COMMERCE'), api<ServerJob[]>('/generations?kind=VIDEO'),
           ])
-          const [conversations, archivedConversations, activeProjects, archivedProjects, assets, credit, commerceJobs, videoJobs] = results
+          const [conversations, archivedConversations, activeProjects, archivedProjects, assets, commerceJobs, videoJobs] = results
 
           if (conversations.status === 'fulfilled') this.conversations = conversations.value.map(mapConversation)
           if (archivedConversations.status === 'fulfilled') this.archivedConversations = archivedConversations.value.map(mapConversation)
@@ -203,7 +202,6 @@ export const useStudioStore = defineStore('studio', {
             this.projects = [...active, ...archived]
           }
           if (assets.status === 'fulfilled') this.assets = assets.value.map(mapAsset)
-          if (credit.status === 'fulfilled') this.credits = credit.value.balance
           if (commerceJobs.status === 'fulfilled') {
             this.commerceRuns = commerceJobs.value.map((job) => mapGeneration(job))
             for (const job of commerceJobs.value.filter((item) => isGenerationActive(item.status))) void this.monitorGeneration(job.id)
@@ -235,7 +233,6 @@ export const useStudioStore = defineStore('studio', {
       this.projects = []
       this.commerceRuns = []
       this.videoRuns = []
-      this.credits = 0
       this.workspaceHydrated = false
       this.workspaceHydrating = false
     },
@@ -390,7 +387,6 @@ export const useStudioStore = defineStore('studio', {
         await Promise.all([
           this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
           this.refreshConversations(),
-          this.refreshCredits(),
         ])
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : '消息发送失败'
@@ -426,7 +422,6 @@ export const useStudioStore = defineStore('studio', {
         await Promise.all([
           this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId) ? this.openConversation(conversationId) : Promise.resolve(),
           this.refreshConversations(),
-          this.refreshCredits(),
         ])
       } catch (reason) {
         this.lastError = reason instanceof Error ? reason.message : '消息重新生成失败'
@@ -586,7 +581,7 @@ export const useStudioStore = defineStore('studio', {
         this.commerceRuns = this.commerceRuns.map((generation) => generation.id === jobId ? updated : generation)
         this.videoRuns = this.videoRuns.map((generation) => generation.id === jobId ? updated : generation)
         if (this.activeGeneration?.id === jobId) this.activeGeneration = updated
-        await Promise.all([this.refreshAssets(), this.refreshCredits(), this.refreshConversations(), updated.mode === 'commerce' ? this.refreshCommerceJobs() : updated.mode === 'videos' ? this.refreshVideoJobs() : Promise.resolve()])
+        await Promise.all([this.refreshAssets(), this.refreshConversations(), updated.mode === 'commerce' ? this.refreshCommerceJobs() : updated.mode === 'videos' ? this.refreshVideoJobs() : Promise.resolve()])
       } catch (reason) {
         const error = reason instanceof Error ? reason.message : '任务状态读取失败'
         this.generations = this.generations.map((generation) => generation.id === jobId ? { ...generation, status: 'FAILED', error } : generation)
@@ -693,7 +688,7 @@ export const useStudioStore = defineStore('studio', {
         this.activeJobId = active.id
         await this.monitorChatJob(active.id, conversationId, active.model)
         if (this.currentConversationId === conversationId && (!this.openingConversationId || this.openingConversationId === conversationId)) await this.openConversation(conversationId)
-        await Promise.all([this.refreshConversations(), this.refreshCredits()])
+        await this.refreshConversations()
       } catch (reason) {
         this.lastError = reason instanceof Error ? reason.message : '回复状态恢复失败'
       } finally {
@@ -727,7 +722,6 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async cancelActiveJob() { if (this.activeJobId) await this.cancelGeneration(this.activeJobId) },
-    async refreshCredits() { const result = await api<{ balance: number }>('/credits'); this.credits = result.balance },
     createApiKey(name = '默认密钥') {
       const random = Array.from(crypto.getRandomValues(new Uint8Array(18))).map((value) => value.toString(16).padStart(2, '0')).join('')
       const key = { id: createClientId(), name, value: `flux_${random}`, createdAt: Date.now() }; this.apiKeys.unshift(key); return key

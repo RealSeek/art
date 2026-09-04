@@ -21,12 +21,12 @@
             </RouterLink>
           </div>
         </div>
-        <a href="#plans">定价</a>
+        <RouterLink to="/chat?settings=api">配置密钥</RouterLink>
       </nav>
 
       <div class="landing-header__actions">
         <RouterLink class="landing-header__login" to="/login?redirect=/chat">登录</RouterLink>
-        <RouterLink class="landing-header__start" to="/chat">免费开始</RouterLink>
+        <RouterLink class="landing-header__start" to="/chat">开始使用</RouterLink>
       </div>
 
       <button class="landing-mobile-toggle" type="button" :aria-label="mobileMenuOpen ? '关闭导航' : '打开导航'" @click="mobileMenuOpen = !mobileMenuOpen">
@@ -45,7 +45,7 @@
           </RouterLink>
         </div>
       </details>
-      <a href="#plans" @click="mobileMenuOpen = false">定价</a>
+      <RouterLink to="/chat?settings=api" @click="mobileMenuOpen = false">配置密钥</RouterLink>
       <RouterLink class="landing-mobile-menu__login" to="/login?redirect=/chat" @click="mobileMenuOpen = false">登录</RouterLink>
     </div>
 
@@ -61,7 +61,7 @@
           </h1>
 
           <div class="landing-hero-actions">
-            <RouterLink class="landing-button landing-button--primary" to="/chat">免费开始 <ArrowRight :size="17" /></RouterLink>
+            <RouterLink class="landing-button landing-button--primary" to="/chat">开始使用 <ArrowRight :size="17" /></RouterLink>
             <a class="landing-button landing-button--text" href="#capabilities">查看平台能力 <ArrowRight :size="17" /></a>
           </div>
         </div>
@@ -156,10 +156,10 @@
         </div>
       </section>
 
-      <section id="plans" class="landing-final landing-reveal">
+      <section id="start" class="landing-final landing-reveal">
         <h2>{{ landing.finalTitle }}</h2>
         <p>{{ landing.finalDescription }}</p>
-        <RouterLink class="landing-button landing-button--primary" to="/chat">免费开始 <ArrowRight :size="17" /></RouterLink>
+        <RouterLink class="landing-button landing-button--primary" to="/chat">开始使用 <ArrowRight :size="17" /></RouterLink>
       </section>
     </main>
 
@@ -235,16 +235,16 @@ const defaultCapabilityLinks = [
   { title: '图片生成', description: '了解普通图片生成、参考图编辑与多张候选。', to: '/image' },
   { title: '商品素材包', description: '围绕同一商品生成一组各有用途的商品图片。', to: '/commerce' },
   { title: '商品详情页', description: '生成需要按顺序阅读的连续商品介绍。', to: '/commerce' },
-  { title: '定价', description: '查看会员方案、适用场景和包含的创作点。', to: '#plans' },
+  { title: 'OnlyCode 密钥', description: '配置自己的 API 密钥后使用模型能力。', to: '/chat?settings=api' },
 ]
 const defaultFaqs = [
   { question: '一定要先从 AI 对话开始吗？', answer: '不需要。需求明确时可以直接进入图片创作或商品中心；需要梳理背景、资料和交付标准时，再从对话开始。' },
   { question: '图片生成、商品素材包和商品详情页有什么区别？', answer: '图片生成处理单次视觉任务；商品素材包围绕同一商品规划多张独立用途图片；商品详情页则是按顺序阅读的连续页面。' },
-  { question: '商品素材包和商品详情页必须一起生成吗？', answer: '不必。它们是独立任务，可以分别创建、计费、修改和下载。' },
+  { question: '商品素材包和商品详情页必须一起生成吗？', answer: '不必。它们是独立任务，可以分别创建、修改和下载。' },
   { question: '只有一张商品图，也可以制作素材包或详情页吗？', answer: '可以。系统会以你提供的商品图和事实信息为基础规划内容，并明确标识还需要补充的资料。' },
   { question: '项目和普通对话有什么区别？', answer: '项目会长期保存对话、文件、生成记录与版本，适合持续性的品牌或商品工作。' },
   { question: '生成的作品保存在哪里？', answer: '所有生成结果都会进入文件库，并可关联到当前项目继续编辑和下载。' },
-  { question: '哪些功能可以免费体验？', answer: '注册后可使用基础对话和体验额度；具体模型与生成成本会在提交任务前显示。' },
+  { question: '使用前需要准备什么？', answer: '使用 OnlyCode 账号登录，并在设置中配置自己创建的 API 密钥即可。' },
 ]
 
 const catalog = useCatalogStore()

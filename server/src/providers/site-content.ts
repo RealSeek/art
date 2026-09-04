@@ -41,7 +41,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     linksDescription: '根据现在要完成的内容，继续了解相关能力和使用方式。',
     capabilityLinks: [{ title: '图片生成', description: '普通图片生成、参考图编辑与多张候选。', to: '/image' }, { title: '商品视觉', description: '围绕同一商品生成成套商业素材。', to: '/commerce' }, { title: '办公中心', description: '执行 Agent 任务并交付真实办公文件。', to: '/office' }, { title: '能力中心', description: '使用助手、技能、工具和知识库。', to: '/capabilities' }],
     faqTitle: '开始前，你可能还想确认这些。',
-    faqs: [{ question: '一定要先从 AI 对话开始吗？', answer: '不需要。需求明确时可以直接进入创作或办公中心。' }, { question: '生成的作品保存在哪里？', answer: '生成结果会进入文件库，并可关联到当前项目继续处理和下载。' }, { question: '哪些功能可以免费体验？', answer: '具体试用额度、模型和生成成本以当前套餐页面为准。' }],
+    faqs: [{ question: '一定要先从 AI 对话开始吗？', answer: '不需要。需求明确时可以直接进入创作或办公中心。' }, { question: '生成的作品保存在哪里？', answer: '生成结果会进入文件库，并可关联到当前项目继续处理和下载。' }, { question: '使用前需要准备什么？', answer: '使用 OnlyCode 账号登录，并在设置中配置自己创建的 API 密钥即可。' }],
     finalTitle: '从今天要完成的事开始。',
     finalDescription: '提出一个问题、生成素材或发起办公任务，选择当前任务就可以开始。',
     footerDescription: '在同一个平台完成 AI 对话、视觉创作、办公任务和团队协作。',

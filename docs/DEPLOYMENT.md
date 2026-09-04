@@ -47,7 +47,7 @@ ART_SSO_CLIENT_SECRET=替换为同一个独立随机密钥
 ART_SSO_REDIRECT_URIS=https://art.example.com/v1/auth/new-api/callback
 ```
 
-`NEW_API_PUBLIC_URL` 仅在 OnlyArt 后端通过 Docker 内网地址访问 new-api 时填写为 new-api 的公网浏览器地址。回调地址必须完全一致，包括协议、域名、端口和路径。普通用户首次登录会自动创建 OnlyArt 本地影子账户；OnlyArt 不接收或保存 new-api 密码和访问令牌。为避免同邮箱接管，既有 OnlyArt 用户不会自动按邮箱合并；已有用户数据的部署必须在切换登录入口前按确认过的账号映射迁移 `ExternalIdentity`。管理员仍通过 `/install` 与 `/admin/` 使用独立本地凭据。
+`NEW_API_PUBLIC_URL` 仅在 OnlyArt 后端通过 Docker 内网地址访问 new-api 时填写为 new-api 的公网浏览器地址。回调地址必须完全一致，包括协议、域名、端口和路径。普通用户首次登录会自动创建 OnlyArt 本地影子账户；OnlyArt 不接收或保存 new-api 密码。管理员可在 `/admin/` 的登录与注册设置中选择允许签发的现有 New API 分组，用户随后可在 OnlyArt 中一键创建对应分组的 Key。Key 只在两端服务间传递，并使用 `CREDENTIAL_ENCRYPTION_KEY` 加密保存，不经过浏览器明文复制。为避免同邮箱接管，既有 OnlyArt 用户不会自动按邮箱合并；已有用户数据的部署必须在切换登录入口前按确认过的账号映射迁移 `ExternalIdentity`。管理员仍通过 `/install` 与 `/admin/` 使用独立本地凭据。
 
 一键安装默认把唯一的 Frontend/Nginx Web 入口绑定到 `0.0.0.0`，安装完成后可直接访问终端输出的 `http://服务器IP:实际端口/`，并通过 `/install` 创建首次管理员。安装脚本在首次生成配置时从 `8080` 开始检测；若端口已占用，会递增选择可用端口并写回 `XINYUE_HTTP_PORT`。已有 `.env.production` 或显式设置的 `XINYUE_HTTP_PORT` 不会被静默替换，冲突时安装会退出并提示用户选择端口。
 
@@ -72,7 +72,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 2. 仅在服务器本机从权限受控的 `.env.production` 读取 `INSTALL_TOKEN`；安装脚本不会把它输出到终端或日志，也不要通过 URL、聊天工具或工单传递。
 3. 打开 `/install`，填写安装令牌、管理员邮箱和至少 8 位密码并提交。
 4. 创建成功后进入 `/admin/`，确认管理员信息、会话安全和权限边界。
-5. 在管理端完成站点、邮件、支付、模型渠道、搜索和内容配置。
+5. 在管理端完成站点、允许签发的 New API 分组、模型渠道、搜索和内容配置。
 
 数据库密码包含 `@`、`:`、`/`、`#` 等字符时，需要先在 `DATABASE_URL` 中进行 URL 编码。安装页面不会返回或修改服务器配置；缺少正确安装令牌时，创建管理员请求会被拒绝。
 

@@ -46,7 +46,7 @@
       <section v-if="task" class="canvas-agent-runtime" :data-status="task.status" aria-live="polite">
         <div class="canvas-agent-runtime-heading">
           <div class="canvas-agent-runtime-status"><LoaderCircle v-if="running" class="canvas-spin" :size="16" /><CheckCircle2 v-else-if="task.status === 'SUCCEEDED'" :size="16" /><CircleAlert v-else-if="terminalFailure" :size="16" /><Bot v-else :size="16" /><strong>{{ statusLabel }}</strong></div>
-          <span v-if="task.agentRun" class="canvas-agent-runtime-meta">第 {{ task.agentRun.iteration + 1 }} 轮 · {{ task.agentRun.creditCost }} 点</span>
+          <span v-if="task.agentRun" class="canvas-agent-runtime-meta">第 {{ task.agentRun.iteration + 1 }} 轮</span>
         </div>
         <p v-if="activeStep" class="canvas-agent-runtime-detail"><LoaderCircle class="canvas-spin" :size="13" />{{ activeStep.detail || activeStep.title }}</p>
         <div v-if="task.agentRun?.finalAnswer && !result" class="canvas-agent-draft"><div class="canvas-agent-draft-title"><Sparkles :size="13" />当前交付草稿</div><pre>{{ task.agentRun.finalAnswer }}</pre></div>

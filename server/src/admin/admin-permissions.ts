@@ -52,6 +52,7 @@ const ADMIN_ROUTE_RESOURCES: Readonly<Record<string, string>> = {
   models: 'models',
   moderation: 'operations',
   notifications: 'operations',
+  'new-api': 'settings',
   overview: 'dashboard',
   payments: 'billing',
   'plugin-categories': 'agent',

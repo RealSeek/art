@@ -70,7 +70,6 @@
             <span><Bot :size="14" /><strong>{{ activeAgentTask.model || selectedModelLabel }}</strong></span>
             <span><Activity :size="14" />{{ agentNodeLabel }}</span>
             <span v-if="activeAgentTask.agentRun"><RotateCcw :size="13" />第 {{ activeAgentTask.agentRun.iteration + 1 }} / {{ activeAgentTask.agentRun.maxIterations }} 轮</span>
-            <span v-if="activeAgentTask.agentRun"><Coins :size="14" />{{ activeAgentTask.agentRun.creditCost }} 点</span>
           </div>
           <ol v-if="taskMode === 'agent' && activeAgentTask?.steps.length" class="office-agent-steps">
             <li v-for="step in activeAgentTask.steps" :key="step.id" :data-status="step.status">
@@ -173,7 +172,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Activity, ArrowUp, AudioLines, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Coins, Copy, Download,
+  Activity, ArrowUp, AudioLines, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
   LayoutGrid, Mic, PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
   Archive, ArchiveRestore, CalendarClock, CalendarPlus, ExternalLink, Globe2, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
@@ -300,7 +299,7 @@ function selectTaskMode(nextMode: TaskMode) {
   modeMenuOpen.value = false
   const candidates = nextMode === 'agent' ? chatModels.value.filter(isAgentModelEligible) : chatModels.value
   if (!candidates.some((item) => item.key === model.value)) model.value = (candidates.find((item) => item.isDefault) || candidates[0])?.key || ''
-  if (nextMode === 'agent' && !candidates.length) error.value = '当前没有已开放的 Agent 模型，请联系管理员在模型与定价中启用'
+  if (nextMode === 'agent' && !candidates.length) error.value = '当前没有可用的 Agent 模型，请先配置 OnlyCode API 密钥'
   else if (error.value.includes('Agent 模型')) error.value = ''
 }
 const exportFormats = [
@@ -491,7 +490,7 @@ async function submitTask() {
       if (!['SUCCEEDED', 'PARTIAL'].includes(completed.status)) throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : 'Agent 任务执行失败'))
       if (completed.status === 'PARTIAL') error.value = `任务部分完成：${completed.errorMessage || '部分目标未通过最终校验'}`
       void createDeliverable()
-      await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
+      await Promise.all([loadAgentTasks(), studio.refreshConversations()])
       return
     }
     const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: model.value, title: `${selectedSkill.value.name} · ${raw.slice(0, 32)}` }) })
@@ -506,7 +505,7 @@ async function submitTask() {
     if (completed.stream) answer.value = completed.stream.content
     if (completed.status !== 'SUCCEEDED') throw new Error(completed.errorMessage || (completed.status === 'CANCELLED' ? '任务已停止' : '办公任务生成失败'))
     void createDeliverable()
-    await Promise.all([studio.refreshConversations(), studio.refreshCredits()])
+    await studio.refreshConversations()
   } catch (reason) {
     if (!accepted) prompt.value = raw
     error.value = reason instanceof Error ? reason.message : '办公任务提交失败'
@@ -671,7 +670,7 @@ async function resumeAgentTask(id: string) {
     const completed = await watchAgentTask(id)
     if (completed.status === 'SUCCEEDED' || completed.status === 'PARTIAL') {
       if (!deliverable.value) void createDeliverable()
-      await Promise.all([loadAgentTasks(), studio.refreshConversations(), studio.refreshCredits()])
+      await Promise.all([loadAgentTasks(), studio.refreshConversations()])
       if (completed.status === 'PARTIAL') error.value = `任务部分完成：${completed.errorMessage || '部分目标未通过最终校验'}`
     } else if (completed.status === 'FAILED') error.value = completed.errorMessage || 'Agent 任务执行失败'
   } catch (reason) {

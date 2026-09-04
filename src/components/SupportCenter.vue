@@ -33,7 +33,7 @@
       <div v-else class="support-empty">
         <LifeBuoy :size="24" />
         <h3>暂无工单</h3>
-        <p>遇到账号、支付或创作问题时，可以在这里联系人工客服。</p>
+        <p>遇到账号、API 密钥或创作问题时，可以在这里联系人工客服。</p>
         <button type="button" @click="startCreate">创建第一个工单</button>
       </div>
     </template>
@@ -91,7 +91,7 @@ const SupportAttachments = defineComponent({
   },
 })
 
-const categories = ['账号与登录', '充值与账单', '套餐与额度', '图片生成', '对话与文件', '意见反馈', '其他']
+const categories = ['账号与登录', 'API 密钥', '图片生成', '对话与文件', '意见反馈', '其他']
 const statusText: Record<TicketStatus, string> = { OPEN: '待处理', IN_PROGRESS: '处理中', WAITING_USER: '待你回复', RESOLVED: '已解决', CLOSED: '已关闭' }
 const tickets = ref<Ticket[]>([])
 const ticket = ref<Ticket | null>(null)

@@ -125,7 +125,7 @@ export const operationResources: Record<string, ResourceConfig> = {
   },
   plugins: {
     title: '插件管理',
-    description: '管理官方插件的发布、能力、定价和使用情况',
+    description: '管理官方插件的发布、能力和使用情况',
     icon: 'ri:apps-2-line',
     endpoint: '/v1/admin/plugins',
     columns: [
@@ -134,7 +134,6 @@ export const operationResources: Record<string, ResourceConfig> = {
       { key: 'capabilities', label: '支持能力', minWidth: 180 },
       { key: 'status', label: '发布状态', width: 105, type: 'status' },
       { key: 'featured', label: '精选', width: 85, type: 'status' },
-      { key: 'priceCredits', label: '安装价格', width: 105, type: 'number' },
       { key: 'installCount', label: '安装', width: 85, type: 'number' },
       { key: 'usageCount', label: '调用', width: 85, type: 'number' },
       { key: 'errorCount', label: '失败', width: 85, type: 'number' },

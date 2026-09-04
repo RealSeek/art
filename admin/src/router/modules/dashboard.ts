@@ -26,12 +26,6 @@ export const dashboardRoutes: AppRouteRecord = {
       name: 'Analysis',
       component: '/dashboard/analysis',
       meta: { title: 'menus.dashboard.analysis', icon: 'ri:bar-chart-box-line', keepAlive: true }
-    },
-    {
-      path: 'ecommerce',
-      name: 'Ecommerce',
-      component: '/dashboard/ecommerce',
-      meta: { title: 'menus.dashboard.ecommerce', icon: 'ri:shopping-bag-3-line', keepAlive: true }
     }
   ]
 }

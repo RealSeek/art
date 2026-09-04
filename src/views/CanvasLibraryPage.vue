@@ -64,7 +64,7 @@
           <label :class="{ 'is-active': createKind === 'SHORT_DRAMA', 'is-disabled': !capabilities.shortDramaAccess }">
             <input v-model="createKind" type="radio" value="SHORT_DRAMA" :disabled="!capabilities.shortDramaAccess" />
             <Clapperboard :size="19" />
-            <span><strong>短剧创作</strong><small>{{ capabilities.shortDramaAccess ? '按剧本、资产、分镜和成片组织镜头' : '当前套餐未开放短剧工作流' }}</small></span>
+            <span><strong>短剧创作</strong><small>按剧本、资产、分镜和成片组织镜头</small></span>
           </label>
         </fieldset>
         <label>所属项目<select v-model="createProjectId"><option value="">个人工作区</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
@@ -104,7 +104,7 @@ const filteredCanvases = computed(() => {
   return needle ? canvases.value.filter((item) => item.title.toLowerCase().includes(needle) || item.project?.name.toLowerCase().includes(needle)) : canvases.value
 })
 const canCreateCanvas = computed(() => capabilities.value.canvasAccess && capabilities.value.usedCanvases < capabilities.value.maxCanvases)
-const createLimitMessage = computed(() => !capabilities.value.canvasAccess ? '当前套餐未开放无限画布' : capabilities.value.usedCanvases >= capabilities.value.maxCanvases ? `当前套餐最多创建 ${capabilities.value.maxCanvases} 个画布` : '新建画布')
+const createLimitMessage = computed(() => !capabilities.value.canvasAccess ? '当前无法创建画布' : capabilities.value.usedCanvases >= capabilities.value.maxCanvases ? `最多创建 ${capabilities.value.maxCanvases} 个画布` : '新建画布')
 
 watch(query, () => {
   window.clearTimeout(searchTimer)
@@ -119,7 +119,7 @@ async function loadCapabilities() {
   try {
     capabilities.value = await api<CanvasCapabilities>('/canvases/capabilities')
     if (!capabilities.value.shortDramaAccess && createKind.value === 'SHORT_DRAMA') createKind.value = 'FREEFORM'
-  } catch { /* 服务端仍会在创建时执行套餐校验 */ }
+  } catch { /* 服务端仍会在创建时执行权限校验 */ }
 }
 
 async function load() {

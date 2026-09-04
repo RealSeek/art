@@ -408,7 +408,6 @@ export const operationEditorConfigs: Record<string, ResourceEditorConfig> = {
       categoryId: '',
       status: 'DRAFT',
       featured: false,
-      priceCredits: 0,
       sortOrder: 0
     },
     fields: [
@@ -470,14 +469,6 @@ export const operationEditorConfigs: Record<string, ResourceEditorConfig> = {
         maxlength: 4000
       },
       { key: 'version', label: '版本', required: true, span: 8, maxlength: 40 },
-      {
-        key: 'priceCredits',
-        label: '安装价格（创作点）',
-        type: 'number',
-        span: 8,
-        min: 0,
-        max: 10000000
-      },
       { key: 'sortOrder', label: '排序', type: 'number', span: 8, min: -10000, max: 10000 },
       {
         key: 'status',

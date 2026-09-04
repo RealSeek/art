@@ -38,7 +38,6 @@
             </span>
             <span class="model-catalog-picker__model-meta">
               <small v-if="availabilityLabel(item)" :class="`is-${item.availability?.toLowerCase()}`">{{ availabilityLabel(item) }}</small>
-              <b v-if="modelCost(item)"><Sparkles :size="11" />{{ modelCost(item) }}</b>
               <span class="model-catalog-picker__check" :class="{ 'is-visible': item.key === modelValue }" aria-hidden="true"><Check :size="15" /></span>
             </span>
           </button>
@@ -57,7 +56,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, Search, Sparkles } from 'lucide-vue-next'
+import { Check, Search } from 'lucide-vue-next'
 import { agentModelDescription, type CatalogModel } from '../utils/model-catalog'
 import { inferVendor } from '../utils/vendor'
 import ModelBadge from './common/ModelBadge.vue'
@@ -106,7 +105,6 @@ watch([matchingModels, () => props.modelValue], () => {
   activeVendor.value = (selected && inferredVendor(selected).key) || vendorGroups.value.find((item) => item.key === activeVendor.value)?.key || vendorGroups.value[0]?.key || ''
 }, { immediate: true })
 
-function modelCost(item: CatalogModel) { return item.effectiveCreditCost ?? item.flatCreditCost ?? 0 }
 function modelDescription(item: CatalogModel) { return props.descriptionMode === 'agent' ? agentModelDescription(item) : item.description || item.upstreamModel || `${inferredVendor(item).label} 模型` }
 function availabilityLabel(item: CatalogModel) {
   return item.availability === 'AVAILABLE' ? '可用' : item.availability === 'DEGRADED' ? '需检查' : '未配置'

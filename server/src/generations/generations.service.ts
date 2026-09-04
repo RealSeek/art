@@ -51,7 +51,7 @@ export class GenerationsService {
       if (!asset) throw new NotFoundException('图片不存在或你没有访问权限')
       if (asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/')) throw new BadRequestException('只能反推图片文件')
       if (asset.size > BigInt(20 * 1024 * 1024)) throw new BadRequestException('图片不能超过 20 MB')
-      const billingMode = ['PLATFORM', 'USER_BYOK'].includes(settings.imagePromptBillingMode) ? settings.imagePromptBillingMode : 'USER_CREDITS'
+      const billingMode = 'USER_BYOK'
       input.prompt = '分析图片并生成可复用的图像生成提示词'
       input.model = settings.imagePromptModelKey.trim() || undefined
       input.options = {
@@ -81,13 +81,9 @@ export class GenerationsService {
       this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
     ])
     const effectivePlan = subscription?.plan || freePlan
-    const concurrency = Math.max(1, effectivePlan?.concurrency || 1)
+    const concurrency = 3
     const running = await this.prisma.generationJob.count({ where: { userId, status: { in: ['QUEUED', 'RUNNING'] } } })
-    if (running >= concurrency) throw new HttpException(`当前套餐最多同时执行 ${concurrency} 个任务`, HttpStatus.TOO_MANY_REQUESTS)
-    const bypassPlanCapabilities = account?.role === UserRole.ADMIN || account?.role === UserRole.SUPER_ADMIN
-    if (!bypassPlanCapabilities && effectivePlan && input.kind === 'IMAGE' && !effectivePlan.imageAccess) throw new ForbiddenException('当前套餐未开放图片生成')
-    if (!bypassPlanCapabilities && effectivePlan && input.kind === 'VIDEO' && !effectivePlan.videoAccess) throw new ForbiddenException('当前套餐未开放视频生成')
-    if (!bypassPlanCapabilities && effectivePlan && input.kind === 'COMMERCE' && !effectivePlan.commerceAccess) throw new ForbiddenException('当前套餐未开放商品视觉')
+    if (running >= concurrency) throw new HttpException(`最多同时执行 ${concurrency} 个任务`, HttpStatus.TOO_MANY_REQUESTS)
     const capability = input.kind === 'CHAT' ? 'CHAT' : input.kind === 'VIDEO' ? 'VIDEO' : input.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE'
     const pluginCapability = input.kind === 'CHAT' && typeof input.options.officeSkill === 'string' ? PluginCapability.OFFICE : PluginCapability[capability]
     const pluginId = typeof input.options.pluginId === 'string' && input.options.pluginId.trim() ? input.options.pluginId.trim() : undefined
@@ -107,7 +103,7 @@ export class GenerationsService {
       if (creationToolUsesWorker && !creationTool.model?.trim()) throw new BadRequestException('图片工具尚未绑定专用 Worker 模型')
     }
     const requestedModel = creationToolUsesWorker ? creationTool?.model || input.model : input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
-    const resolved = await this.providers.resolve(userId, requestedModel, capability, input.options)
+    const resolved = await this.providers.resolve(userId, requestedModel, capability, creationToolUsesWorker ? input.options : { ...input.options, providerSource: 'user' })
     if (creationToolUsesWorker && resolved.type !== 'LOCAL_WORKER') throw new BadRequestException('图片工具必须绑定本地 Worker 渠道')
     const priceVersion = resolved.presetKey && !resolved.presetKey.startsWith('private:')
       ? await this.prisma.modelPriceVersion.findFirst({ where: { modelPreset: { key: resolved.presetKey } }, orderBy: { version: 'desc' } })
@@ -134,7 +130,7 @@ export class GenerationsService {
       unitCreditCost = configured === undefined ? raw : Math.ceil(raw * resolved.creditRatePercent / 100)
     }
     const billedToPlatform = imagePromptTask && input.options.billingMode === 'PLATFORM'
-    const byokFree = input.kind === 'CHAT' && resolved.source === 'user' && effectivePlan?.byokMode === 'FREE'
+    const byokFree = resolved.source === 'user'
     const userTokenFree = byokFree || billedToPlatform
     const effectiveInputRate = userTokenFree ? 0 : resolved.inputCreditsPerMillion
     const effectiveOutputRate = userTokenFree ? 0 : resolved.outputCreditsPerMillion
@@ -144,7 +140,7 @@ export class GenerationsService {
         ? '当前 BYOK 模型未匹配到 Token 价格；请在模型定价中配置同名模型，或将套餐 BYOK 计费设为免费'
         : '当前文字模型尚未配置 Token 价格，请先在管理端同步或设置模型价格')
     }
-    const baseCreditCost = input.kind === 'CHAT' ? 0 : Math.max(0, unitCreditCost * quantity)
+    const baseCreditCost = input.kind === 'CHAT' || byokFree ? 0 : Math.max(0, unitCreditCost * quantity)
     const maxOutputTokens = input.kind === 'CHAT' ? Math.max(1, Math.min(32768, Number(normalizedOptions.maxOutputTokens || 4096))) : 0
     const inputConversation = input.kind === 'CHAT' && input.conversationId
       ? await this.prisma.conversation.findFirst({
@@ -196,7 +192,7 @@ export class GenerationsService {
     const chargedBaseCreditCost = billedToPlatform ? 0 : baseCreditCost
     let chargedReservedTokenCredits = billedToPlatform ? 0 : directTokenCreditCost
     let billingSource = billedToPlatform ? 'PLATFORM' : byokFree ? 'BYOK_FREE' : tokenQuotaEnabled ? 'SUBSCRIPTION_QUOTA' : imagePromptTask ? 'CREATION_CREDITS' : 'OVERAGE_CREDITS'
-    const billingTeamId = project?.teamId && project.team?.status === 'ACTIVE' && project.team.billingEnabled ? project.teamId : null
+    const billingTeamId = !byokFree && project?.teamId && project.team?.status === 'ACTIVE' && project.team.billingEnabled ? project.teamId : null
     let job: GenerationJob
     try {
       job = await this.prisma.$transaction(async (tx) => {

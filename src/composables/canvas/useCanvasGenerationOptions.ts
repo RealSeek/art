@@ -134,23 +134,6 @@ export function useCanvasGenerationOptions(input: {
     return { ...current, size: capabilities.sizes.includes(String(current.size)) ? current.size : capabilities.defaultSize, quality: capabilities.qualities.includes(String(current.quality)) ? current.quality : capabilities.defaultQuality, count: Math.max(1, Math.min(capabilities.maxCount, Number(current.count || 1))), outputFormat: capabilities.outputFormats.includes(String(current.outputFormat)) ? current.outputFormat as CanvasGenerationOptions['outputFormat'] : capabilities.outputFormats[0] as CanvasGenerationOptions['outputFormat'], background: capabilities.backgrounds.includes(String(current.background)) ? current.background as CanvasGenerationOptions['background'] : capabilities.backgrounds[0] as CanvasGenerationOptions['background'] }
   }
 
-  function generationCreditCost(node: FlowNode) {
-    const kind = activeGenerationKind(node)
-    const model = findCatalogModel(input.catalogModels.value, generationModel(node), kind)
-    const base = model?.effectiveCreditCost ?? model?.flatCreditCost ?? 0
-    const options = generationOptions(node)
-    if (kind === 'VIDEO') {
-      const configured = videoCapabilities(node).pricing[`${options.resolution}:${options.duration}`]
-      if (configured !== undefined) return configured
-      const multiplier = options.resolution === '2160p' ? 4 : options.resolution === '1080p' ? 2 : 1
-      return base * multiplier * Math.max(1, Math.ceil(Number(options.duration || 5) / 5))
-    }
-    const edge = Math.max(...String(options.size).split('x').map(Number))
-    const tier = edge >= 4096 ? '4K' : edge >= 2048 ? '2K' : '1K'
-    const configured = imageCapabilities(node).resolutionPricing[tier]
-    return (configured ?? base * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1)) * Number(options.count || 1)
-  }
-
   function flowNodeGenerationSummary(id: string) {
     const node = input.nodes.value.find((item) => item.id === id)
     if (!node || !isGenerationNode(node)) return ''
@@ -167,5 +150,5 @@ export function useCanvasGenerationOptions(input: {
   }
   function qualityLabel(value: string) { return value === 'low' ? '低' : value === 'high' ? '高' : '标准' }
 
-  return { isGenerationNode, activeGenerationKind, modelsForNode, defaultModel, flowNodeModelOptions, flowNodeGenerationSummary, upstreamNodes, generationContext, generationModel, imageCapabilities, videoCapabilities, generationOptions, generationCreditCost, imageSizeLabel, qualityLabel }
+  return { isGenerationNode, activeGenerationKind, modelsForNode, defaultModel, flowNodeModelOptions, flowNodeGenerationSummary, upstreamNodes, generationContext, generationModel, imageCapabilities, videoCapabilities, generationOptions, imageSizeLabel, qualityLabel }
 }

@@ -56,7 +56,6 @@
                 </div>
                 </Teleport>
               </div>
-              <span class="creation-cost" :title="`本次预计扣除 ${currentGenerationCost} 创作点`"><Sparkles :size="13" />{{ currentGenerationCost }} 点</span>
             </div>
             <button class="creation-submit composer-send" :class="{ 'is-listening': voiceListening && voiceTarget === 'creation' }" :type="canSubmitCreation ? 'submit' : 'button'" :disabled="hasCreationInput && !activeCreationModelAvailable" :aria-label="canSubmitCreation ? '开始生成' : hasCreationInput ? '暂无可用模型' : voiceListening && voiceTarget === 'creation' ? '停止语音输入' : '语音输入'" :title="hasCreationInput && !activeCreationModelAvailable ? '暂无可用模型，请联系管理员或添加个人 API 密钥' : undefined" @click="!hasCreationInput && toggleVoice('creation')"><ArrowUp v-if="hasCreationInput" :size="20" /><AudioLines v-else :size="18" /></button>
           </div>
@@ -67,7 +66,7 @@
               <div v-if="creationMenu === 'size'" class="creation-ratio-grid">
                 <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span class="creation-ratio-shape" :class="ratioShapeClass(option)"><i /><i v-if="option === '自动'" /></span><span>{{ option }}</span></button>
               </div>
-              <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}<small v-if="creationOptionPrice(option)">{{ creationOptionPrice(option) }} 点</small></span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
+              <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>
           </Teleport>
         </form>
@@ -111,7 +110,7 @@
             <div v-if="pendingVideoRuns.length" class="video-runs video-runs--pending">
               <article v-for="run in pendingVideoRuns" :key="run.id" class="video-run-card" :class="`is-${run.status.toLowerCase()}`">
                 <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration || 5 }} 秒 · {{ run.request.aspectRatio || '16:9' }}</small></div>
-                <footer><span><strong>{{ run.model }}</strong><small>{{ run.request.creditCost ?? currentVideoCredit }} 点</small></span><nav><button type="button" title="停止生成" :disabled="store.cancelingJobId === run.id" @click="stopGeneration(run)"><Square :size="14" fill="currentColor" /></button></nav></footer>
+                <footer><span><strong>{{ run.model }}</strong></span><nav><button type="button" title="停止生成" :disabled="store.cancelingJobId === run.id" @click="stopGeneration(run)"><Square :size="14" fill="currentColor" /></button></nav></footer>
                 <p>{{ run.prompt }}</p>
               </article>
             </div>
@@ -168,7 +167,6 @@ const props = defineProps<{
   activeCreationModelAvailable: boolean
   activeImageCapabilities: { supportsMask: boolean }
   creationPluginCapability: PluginCapability
-  currentGenerationCost: number
   canSubmitCreation: boolean
   hasCreationInput: boolean
   creationPromptPlaceholder: string
@@ -201,7 +199,6 @@ const props = defineProps<{
   inspirationError: string
   selectedInspirationId: string
   pendingVideoRuns: GenerationRun[]
-  currentVideoCredit: number
   modeAssets: StudioAsset[]
   visibleModeAssets: StudioAsset[]
   commerceRuns: GenerationRun[]
@@ -229,7 +226,6 @@ const props = defineProps<{
   ratioShapeClass: (option: string) => string
   styleThumbnail: (option: string) => string
   creationOptionLabel: (option: string) => string
-  creationOptionPrice: (option: string) => number
   imageToolIcon: (tool: ImageTool) => Component
   refreshModelCatalog: () => void
 }>()

@@ -37,6 +37,7 @@ const editableSettingKeys = [
   'imagePromptModelKey',
   'imagePromptBillingMode',
   'userByokEnabled',
+  'newApiProvisioningGroups',
   'inviteRewardCredits',
   'referralEnabled',
   'referralCoolingDays',

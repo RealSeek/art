@@ -162,6 +162,7 @@ type SystemSettingsInput = Partial<{
   smtpPassword: string
   smtpFromName: string
   smtpFromEmail: string
+  newApiProvisioningGroups: string[]
 }>
 
 export type ResolvedProvider = {
@@ -974,7 +975,7 @@ export class ProvidersService implements OnModuleInit {
     const groups = memberships.map((item) => item.group)
     const restricted = groups.filter((group) => group.restrictModels)
     return {
-      allowUserByok: groups.every((group) => group.allowUserByok) && (subscription?.plan.allowByok ?? true),
+      allowUserByok: true,
       creditRatePercent: groups.length ? Math.min(...groups.map((group) => group.creditRatePercent)) : 100,
       restrictModels: restricted.length > 0,
       allowedModelIds: [...new Set(restricted.flatMap((group) => group.modelAccess.map((item) => item.modelPresetId)))],
@@ -1099,6 +1100,7 @@ export class ProvidersService implements OnModuleInit {
 
   async getSystemSettings(admin = false) {
     const row = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
+    const newApiPublicUrl = (process.env.NEW_API_PUBLIC_URL?.trim() || process.env.NEW_API_BASE_URL?.trim() || '').replace(/\/+$/, '')
     const {
       encryptedSmtpPassword,
       encryptedLinuxDoClientSecret,
@@ -1118,6 +1120,7 @@ export class ProvidersService implements OnModuleInit {
     if (admin) return {
       ...safe,
       newApiLoginReady: Boolean(process.env.NEW_API_BASE_URL?.trim() && process.env.NEW_API_SSO_CLIENT_ID?.trim() && process.env.NEW_API_SSO_CLIENT_SECRET?.trim()),
+      newApiConsoleUrl: newApiPublicUrl ? `${newApiPublicUrl}/keys` : '#',
       chatHomeContent,
       quickActionRegistry: await this.capabilities.snapshot(chatHomeContent.quickActions),
       siteContent: normalizeSiteContent(row.siteContent),
@@ -1143,6 +1146,7 @@ export class ProvidersService implements OnModuleInit {
       linuxDoLoginEnabled: false,
       linuxDoLoginReady: false,
       newApiLoginReady: Boolean(process.env.NEW_API_BASE_URL?.trim() && process.env.NEW_API_SSO_CLIENT_ID?.trim() && process.env.NEW_API_SSO_CLIENT_SECRET?.trim()),
+      newApiConsoleUrl: newApiPublicUrl ? `${newApiPublicUrl}/keys` : '#',
       otpResendSeconds: row.otpResendSeconds,
       defaultTheme: row.defaultTheme,
       defaultLanguage: row.defaultLanguage,
@@ -1157,11 +1161,12 @@ export class ProvidersService implements OnModuleInit {
       siteContent: normalizeSiteContent(row.siteContent),
       imagePromptEnabled: row.imagePromptEnabled,
       imagePromptBillingMode: row.imagePromptBillingMode,
-      userByokEnabled: row.userByokEnabled,
-      rechargeEnabled: row.rechargeEnabled,
+      userByokEnabled: true,
+      newApiProvisioningGroups: row.newApiProvisioningGroups,
+      rechargeEnabled: false,
       currency: row.currency,
-      subscriptionsEnabled: row.subscriptionsEnabled,
-      trialEnabled: row.trialEnabled,
+      subscriptionsEnabled: false,
+      trialEnabled: false,
       smtpReady: row.smtpEnabled && Boolean(row.smtpHost.trim() && row.smtpFromEmail.trim() && encryptedSmtpPassword.trim()),
       temporaryChatRetentionHours: row.temporaryChatRetentionHours,
     }
@@ -1169,7 +1174,7 @@ export class ProvidersService implements OnModuleInit {
 
   async updateSystemSettings(input: SystemSettingsInput) {
     const { smtpPassword, linuxDoClientSecret, chatHomeContent, siteContent, ...settings } = input
-    const data: Prisma.SystemSettingUpdateInput = { ...settings }
+    const data: Prisma.SystemSettingUpdateInput = { ...settings, ...(settings.newApiProvisioningGroups ? { newApiProvisioningGroups: [...new Set(settings.newApiProvisioningGroups.map((item) => item.trim()).filter((item) => item && item !== 'auto'))] } : {}) }
     if (chatHomeContent) data.chatHomeContent = normalizeChatHomeContent(chatHomeContent) as Prisma.InputJsonValue
     if (siteContent) data.siteContent = normalizeSiteContent(siteContent) as unknown as Prisma.InputJsonValue
     if (smtpPassword) {
@@ -1248,13 +1253,64 @@ export class ProvidersService implements OnModuleInit {
   async createCredential(userId: string, input: CredentialInput) {
     if (input.providerType === ProviderType.LOCAL_WORKER) throw new BadRequestException('本地 Worker 只能由管理员配置')
     if (!input.apiKey?.trim()) throw new BadRequestException('请输入 API 密钥')
-    const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' } })
-    if (!settings?.userByokEnabled) throw new BadRequestException('管理员未开放用户 API 密钥')
-    if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
     const baseUrl = await this.assertUserProviderUrl(input.baseUrl)
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId }, data: { isDefault: false } })
     const row = await this.prisma.userApiCredential.create({ data: { userId, name: input.name.trim(), templateId: input.templateId || null, providerType: input.providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: input.authType, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, customHeaders: input.customHeaders as Prisma.InputJsonValue, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
     return this.publicCredential(row)
+  }
+
+  async onlyCodeProvisioningGroups() {
+    const baseUrl = this.config.get<string>('NEW_API_BASE_URL')
+    const clientId = this.config.get<string>('NEW_API_SSO_CLIENT_ID')
+    const clientSecret = this.config.get<string>('NEW_API_SSO_CLIENT_SECRET')
+    if (!baseUrl || !clientId || !clientSecret) throw new ServiceUnavailableException('OnlyCode 接入尚未配置')
+    const response = await fetch(new URL('/api/sso/art/groups', baseUrl), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }), redirect: 'error', signal: AbortSignal.timeout(10_000) }).catch(() => null)
+    if (!response?.ok) throw new ServiceUnavailableException('无法读取 OnlyCode 分组')
+    const payload = await response.json().catch(() => null) as { success?: boolean; data?: unknown } | null
+    if (!payload?.success || !Array.isArray(payload.data)) throw new ServiceUnavailableException('OnlyCode 分组数据无效')
+    return payload.data.filter((item): item is string => typeof item === 'string')
+  }
+
+  async provisionOnlyCodeCredential(userId: string, provisionKey: string, requestedName?: string) {
+    if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前账号不允许使用个人 API 密钥')
+    const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
+    const group = provisionKey.trim()
+    if (!group || group === 'auto' || !settings.newApiProvisioningGroups.includes(group)) throw new ForbiddenException('该分组暂未开放')
+    const existing = await this.prisma.userApiCredential.findUnique({ where: { userId_provisionKey: { userId, provisionKey: group } } })
+    if (existing) {
+      try {
+        const imported = await this.importCredentialModels(userId, existing.id, { importAll: true })
+        return { credential: this.publicCredential(existing), ...imported }
+      } catch (error) {
+        return { credential: this.publicCredential(existing), imported: 0, availableModels: [], modelSyncError: error instanceof Error ? error.message : '模型同步失败' }
+      }
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, email: true } })
+    const username = user?.displayName || user?.email?.split('@')[0] || 'user'
+    const fallbackName = `onlyart-${username}-${group}`.replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    const candidateName = requestedName?.trim() || fallbackName
+    const name = [...candidateName].reduce((value, character) => Buffer.byteLength(value + character, 'utf8') <= 50 ? value + character : value, '')
+    if (await this.prisma.userApiCredential.count({ where: { userId, name } })) throw new BadRequestException('Key 名称已存在，请换一个名称')
+    const identity = await this.prisma.externalIdentity.findFirst({ where: { userId, provider: 'new-api' }, select: { subject: true } })
+    if (!identity) throw new NotFoundException('当前账号未绑定 OnlyCode')
+    const baseUrl = this.config.get<string>('NEW_API_BASE_URL')
+    const clientId = this.config.get<string>('NEW_API_SSO_CLIENT_ID')
+    const clientSecret = this.config.get<string>('NEW_API_SSO_CLIENT_SECRET')
+    if (!baseUrl || !clientId || !clientSecret) throw new ServiceUnavailableException('OnlyCode 接入尚未配置')
+    const response = await fetch(new URL('/api/sso/art/provision-token', baseUrl), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, subject: identity.subject, group, name }), redirect: 'error', signal: AbortSignal.timeout(10_000) }).catch(() => null)
+    if (!response?.ok) throw new ServiceUnavailableException('OnlyCode 分组 Key 创建失败')
+    const payload = await response.json().catch(() => null) as { success?: boolean; data?: { key?: unknown; token_id?: unknown; group?: unknown } } | null
+    const rawKey = typeof payload?.data?.key === 'string' ? payload.data.key.trim() : ''
+    if (!payload?.success || !rawKey) throw new ServiceUnavailableException('OnlyCode 未返回有效 Key')
+    const key = rawKey.startsWith('sk-') ? rawKey : `sk-${rawKey}`
+    const providerBaseUrl = `${(this.config.get<string>('NEW_API_PUBLIC_URL') || baseUrl).replace(/\/+$/, '')}/v1`
+    const row = await this.prisma.userApiCredential.upsert({ where: { userId_provisionKey: { userId, provisionKey: group } }, update: { name, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, lastRotatedAt: new Date(), lastHealthStatus: null, lastHealthMessage: '分组 Key 已更新，等待同步模型', externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null }, create: { userId, name, provisionKey: group, externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, isDefault: false, lastRotatedAt: new Date() } })
+    try {
+      const imported = await this.importCredentialModels(userId, row.id, { importAll: true })
+      return { credential: this.publicCredential(row), ...imported }
+    } catch (error) {
+      return { credential: this.publicCredential(row), imported: 0, availableModels: [], modelSyncError: error instanceof Error ? error.message : '模型同步失败' }
+    }
   }
 
   async updateCredential(userId: string, id: string, input: Partial<CredentialInput>) {
@@ -1477,7 +1533,7 @@ export class ProvidersService implements OnModuleInit {
 
   private async resolvePrivateCandidates(userId: string, requestedModel: string | undefined, capability: ModelCapability): Promise<ResolvedProvider[] | null> {
     const [settings, policy] = await Promise.all([this.prisma.systemSetting.findUnique({ where: { id: 'global' } }), this.userPolicy(userId)])
-    if (!settings?.userByokEnabled || !policy.allowUserByok) return null
+    if (!policy.allowUserByok) return null
     const requested = requestedModel?.trim()
     const model = await this.prisma.userModel.findFirst({
       where: { userId, capability, enabled: true, ...(requested ? { OR: [{ key: requested }, { displayName: requested }] } : { isDefault: true }) },
@@ -1514,7 +1570,7 @@ export class ProvidersService implements OnModuleInit {
     const apiProtocol: ResolvedProvider['apiProtocol'] = model.apiProtocol === 'anthropic' || model.apiProtocol === 'gemini' ? model.apiProtocol : 'openai'
     const modelOptions = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? model.options as Record<string, unknown> : {}
     return orderedRoutes.map((route) => ({
-      source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, settlementCurrency: settings.currency, creditValueMicros: settings.creditValueMicros, pricingUsdExchangeRateMicros: settings.pricingUsdExchangeRateMicros, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: Math.ceil((pricePreset?.inputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100), outputCreditsPerMillion: Math.ceil((pricePreset?.outputCreditsPerMillion ?? 0) * policy.creditRatePercent / 100), baseInputCreditsPerMillion: pricePreset?.inputCreditsPerMillion ?? 0, baseOutputCreditsPerMillion: pricePreset?.outputCreditsPerMillion ?? 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
+      source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, settlementCurrency: settings?.currency ?? 'CNY', creditValueMicros: settings?.creditValueMicros ?? 10_000, pricingUsdExchangeRateMicros: settings?.pricingUsdExchangeRateMicros ?? 1_000_000, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: 0, outputCreditsPerMillion: 0, baseInputCreditsPerMillion: pricePreset?.inputCreditsPerMillion ?? 0, baseOutputCreditsPerMillion: pricePreset?.outputCreditsPerMillion ?? 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
       options: modelOptions,
       imageCapabilities: modelOptions.imageCapabilities && typeof modelOptions.imageCapabilities === 'object' ? modelOptions.imageCapabilities as Record<string, unknown> : undefined,
       videoCapabilities: modelOptions.videoCapabilities && typeof modelOptions.videoCapabilities === 'object' ? modelOptions.videoCapabilities as Record<string, unknown> : undefined,
@@ -1548,7 +1604,7 @@ export class ProvidersService implements OnModuleInit {
       apiProtocol,
     }
 
-    if (requiredSource !== 'platform' && settings?.userByokEnabled && policy.allowUserByok && preset?.allowUserKey !== false && (preset?.provider?.allowUserKeys ?? true)) {
+    if (requiredSource !== 'platform' && policy.allowUserByok && preset?.allowUserKey !== false && (preset?.provider?.allowUserKeys ?? true)) {
       const credentials = await this.prisma.userApiCredential.findMany({ where: { userId, enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
       const compatibleTypes = new Set([preset?.provider?.type, ...(preset?.providerRoutes || []).map((route) => route.provider.type)].filter(Boolean))
       const ordered = [...credentials].sort((a, b) => Number(compatibleTypes.has(b.providerType)) - Number(compatibleTypes.has(a.providerType)))

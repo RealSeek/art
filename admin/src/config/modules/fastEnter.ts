@@ -22,21 +22,12 @@ const fastEnterConfig: FastEnterConfig = {
       routeName: 'Analysis'
     },
     {
-      name: '电子商务',
-      description: '订阅、充值和支付经营',
-      icon: 'ri:shopping-bag-3-line',
-      iconColor: '#d97706',
-      enabled: true,
-      order: 3,
-      routeName: 'Ecommerce'
-    },
-    {
       name: '客户管理',
-      description: '账户、状态与用户权益',
+      description: '账户、状态与用户分组',
       icon: 'ri:user-line',
       iconColor: '#2563eb',
       enabled: true,
-      order: 4,
+      order: 3,
       routeName: 'CustomerUsers'
     },
     {
@@ -45,26 +36,8 @@ const fastEnterConfig: FastEnterConfig = {
       icon: 'ri:robot-2-line',
       iconColor: '#7c3aed',
       enabled: true,
-      order: 5,
+      order: 4,
       routeName: 'ModelCatalog'
-    },
-    {
-      name: '订阅与套餐',
-      description: '套餐、订单和用户订阅',
-      icon: 'ri:vip-crown-2-line',
-      iconColor: '#d97706',
-      enabled: true,
-      order: 6,
-      routeName: 'SubscriptionManagement'
-    },
-    {
-      name: '充值与支付',
-      description: '支付渠道与交易处理',
-      icon: 'ri:secure-payment-line',
-      iconColor: '#0891b2',
-      enabled: true,
-      order: 7,
-      routeName: 'PaymentManagement'
     },
     {
       name: '关于我们',
@@ -72,7 +45,7 @@ const fastEnterConfig: FastEnterConfig = {
       icon: 'ri:file-text-line',
       iconColor: '#475569',
       enabled: true,
-      order: 8,
+      order: 5,
       routeName: 'ArticleList'
     }
   ],

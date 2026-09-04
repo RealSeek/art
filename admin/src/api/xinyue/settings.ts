@@ -13,6 +13,7 @@ export type {
 
 export const settingsApi = {
   systemSettings: () => request.get<SystemSettings>({ url: '/v1/admin/system-settings' }),
+  newApiGroups: () => request.get<string[]>({ url: '/v1/admin/new-api/groups' }),
   capabilityRegistry: () =>
     request.get<CapabilityRegistrySnapshot>({ url: '/v1/admin/capability-registry' }),
   updateAdminAccount: (data: { currentPassword: string; email?: string; newPassword?: string }) =>
