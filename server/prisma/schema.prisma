@@ -641,26 +641,30 @@ model AuthTicket {
 }
 
 model UserSettings {
-  id                   String  @id @default(cuid())
-  userId               String  @unique
-  appearance           String  @default("dark")
-  language             String  @default("zh-CN")
-  responseStyle        String  @default("default")
-  responseDetail       String  @default("auto")
-  replyLanguage        String  @default("follow")
-  customInstructions   String  @default("") @db.Text
-  nickname             String  @default("")
-  occupation           String  @default("")
-  bio                  String  @default("") @db.Text
-  useMemory            Boolean @default(true)
-  referenceChats       Boolean @default(true)
-  notifications        Boolean @default(true)
-  chatHistoryEnabled   Boolean @default(true)
-  trainingOptOut       Boolean @default(true)
-  temporaryChatDefault Boolean @default(false)
-  dataRetentionDays    Int     @default(0)
-  shareUsageAnalytics  Boolean @default(false)
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  appearance             String    @default("dark")
+  language               String    @default("zh-CN")
+  responseStyle          String    @default("default")
+  responseDetail         String    @default("auto")
+  replyLanguage          String    @default("follow")
+  customInstructions     String    @default("") @db.Text
+  nickname               String    @default("")
+  occupation             String    @default("")
+  bio                    String    @default("") @db.Text
+  useMemory              Boolean   @default(true)
+  referenceChats         Boolean   @default(true)
+  notifications          Boolean   @default(true)
+  chatHistoryEnabled     Boolean   @default(true)
+  trainingOptOut         Boolean   @default(true)
+  temporaryChatDefault   Boolean   @default(false)
+  dataRetentionDays      Int       @default(0)
+  shareUsageAnalytics    Boolean   @default(false)
+  onboardingRequired     Boolean   @default(false)
+  onboardingExperience   String    @default("")
+  onboardingCapabilities String[]  @default([])
+  onboardingCompletedAt  DateTime?
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CreditAccount {
@@ -1543,7 +1547,6 @@ model UserApiCredential {
   generationJobs    GenerationJob[]
 
   @@unique([userId, name])
-  @@unique([userId, provisionKey])
   @@index([userId, enabled])
   @@index([templateId])
 }

@@ -38,7 +38,7 @@ export interface PublicSettings {
 }
 
 export interface UserSettingsResponse { appearance?: string; language?: string; responseStyle?: string; responseDetail?: string; replyLanguage?: string; customInstructions?: string; nickname?: string; occupation?: string; bio?: string; useMemory?: boolean; referenceChats?: boolean; notifications?: boolean; chatHistoryEnabled?: boolean; trainingOptOut?: boolean; temporaryChatDefault?: boolean; dataRetentionDays?: number; shareUsageAnalytics?: boolean }
-export interface UserResponse { settings?: UserSettingsResponse | null }
+export interface UserResponse { role?: 'USER' | 'ADMIN' | 'SUPER_ADMIN'; settings?: UserSettingsResponse | null }
 export interface OnlyCodeBalance { balance: number; symbol: string; displayType: string }
 export interface NotificationItem { id: string; title?: string; body?: string; content?: string; readAt?: string | null; createdAt: string }
 export interface ModerationAppeal { id: string; status: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'CANCELLED'; reason: string; reviewNote: string; createdAt: string; reviewedAt?: string | null }
@@ -68,3 +68,26 @@ export interface ToolApproval { id: string; assistant?: { id: string; name: stri
 export interface WorkspaceAssistant { id: string; name: string; tools: { toolId: string }[] }
 export interface TeamDraft { name: string; description: string }
 export interface KnowledgeDraft { name: string; description: string; teamId: string }
+
+export type ExperienceLevel = 'BEGINNER' | 'EXPERIENCED' | ''
+export type CapabilityType = 'CHAT' | 'IMAGE' | 'VIDEO'
+
+export interface OnboardingStatus {
+  required: boolean
+  experience: ExperienceLevel
+  capabilities: CapabilityType[]
+  completedAt: string | null
+}
+
+export interface UpdateOnboardingDto {
+  experience?: ExperienceLevel
+  capabilities?: CapabilityType[]
+  complete?: boolean
+}
+
+export interface OnlyCodeGroupInfo {
+  name: string
+  ratio: number
+  models: string[]
+  capabilities: CapabilityType[]
+}

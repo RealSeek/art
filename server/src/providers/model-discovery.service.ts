@@ -98,6 +98,13 @@ const UNSUPPORTED_PATTERN = /embedding|embed-|rerank|moderation|guard|classifier
 const VIDEO_PATTERN = /video|sora|veo(?:-|$)|kling|hailuo|minimax.*video|wan(?:\d|[-_]).*video|seedance|vidu|luma.*ray/i
 const IMAGE_PATTERN = /image|dall-e|gpt-image|flux|recraft|ideogram|imagen|seedream|nano[-_ ]?banana|stable[-_ ]?diffusion|sdxl/i
 
+export function inferModelCapability(value: string): ModelCapability | null {
+  if (UNSUPPORTED_PATTERN.test(value)) return null
+  if (VIDEO_PATTERN.test(value)) return ModelCapability.VIDEO
+  if (IMAGE_PATTERN.test(value)) return ModelCapability.IMAGE
+  return ModelCapability.CHAT
+}
+
 @Injectable()
 export class ModelDiscoveryService {
   private catalog = new Map<string, CatalogEntry>()
@@ -172,12 +179,8 @@ export class ModelDiscoveryService {
     const pricing = pricingMatch?.entry
     const mode = String(pricing?.mode || raw.mode || raw.type || '').toLowerCase()
     const vendor = this.vendorFor(`${ownedBy}/${pricing?.litellm_provider || ''}/${id}`)
-    const unsupported = UNSUPPORTED_PATTERN.test(`${id} ${mode}`) || ['embedding', 'rerank', 'moderation', 'audio', 'speech', 'transcription'].includes(mode)
-    const capability = unsupported ? null : VIDEO_PATTERN.test(`${id} ${mode}`) || mode.includes('video')
-      ? ModelCapability.VIDEO
-      : IMAGE_PATTERN.test(`${id} ${mode}`) || ['image_generation', 'image'].includes(mode)
-        ? ModelCapability.IMAGE
-        : ModelCapability.CHAT
+    const capability = inferModelCapability(`${id} ${mode}`)
+    const unsupported = capability === null
     const inputCost = this.microsPerMillion(pricing?.input_cost_per_token)
     const outputCost = this.microsPerMillion(pricing?.output_cost_per_token)
     const imageCost = this.micros(pricing?.output_cost_per_image ?? pricing?.input_cost_per_image)

@@ -88,7 +88,12 @@
           <template #header>
             <div class="card-title">
               <strong>New API SSO</strong>
-              <ElTag :type="settings.newApiLoginReady ? 'success' : 'danger'">{{ settings.newApiLoginReady ? xt('配置完整') : xt('待配置') }}</ElTag>
+              <div class="card-title__actions">
+                <ElButton @click="previewOnboarding">
+                  <ArtSvgIcon icon="ri:eye-line" />预览新用户引导
+                </ElButton>
+                <ElTag :type="settings.newApiLoginReady ? 'success' : 'danger'">{{ settings.newApiLoginReady ? xt('配置完整') : xt('待配置') }}</ElTag>
+              </div>
             </div>
           </template>
           <ElAlert
@@ -771,6 +776,9 @@
   function fillCallback() {
     if (settings.value)
       settings.value.linuxDoRedirectUrl = `${window.location.origin}/v1/auth/oauth/linuxdo/callback`
+  }
+  function previewOnboarding() {
+    window.open(`${window.location.origin}/chat?onboarding=preview`, '_blank', 'noopener,noreferrer')
   }
   function addDoubaoRecommendation() {
     settings.value?.chatHomeContent.doubaoRecommendations.push({

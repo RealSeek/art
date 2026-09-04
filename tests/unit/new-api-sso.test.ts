@@ -77,3 +77,34 @@ test('New API SSO 换票仅在服务端发送密钥并创建外部身份会话',
   assert.equal(external.input?.allowRegistrationWhenClosed, true)
   assert.equal(external.input?.username, 'alice')
 })
+
+test('首次 New API 外部身份创建时开启引导，其他注册来源保持默认值', async () => {
+  const created: Array<Record<string, unknown>> = []
+  const prisma = {
+    externalIdentity: { findUnique: async () => null },
+    systemSetting: {
+      upsert: async () => ({ registrationEnabled: true, defaultUserGroupId: 'group-1', defaultTheme: 'dark', defaultLanguage: 'zh-CN', defaultChatHistoryEnabled: true, defaultTrainingOptOut: true, defaultShareUsageAnalytics: false, defaultUserCredits: 0 }),
+      update: async () => undefined,
+    },
+    userGroup: { findFirst: async () => ({ id: 'group-1' }), upsert: async () => ({ id: 'group-1' }) },
+    user: {
+      findUnique: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        created.push(data)
+        return { id: `user-${created.length}`, email: null, username: null, displayName: '测试用户', role: 'USER' }
+      },
+    },
+    session: { create: async () => undefined },
+  }
+  const config = { get: (_key: string, fallback?: unknown) => fallback, getOrThrow: () => 'session-secret' }
+  const referrals = { attributeRegistration: async () => undefined }
+  const auth = new AuthService(prisma as never, config as never, {} as never, {} as never, referrals as never, {} as never)
+
+  await auth.loginExternal('new-api', '42', { displayName: '测试用户', meta: {} })
+  await auth.loginExternal('community', '43', { displayName: '测试用户', meta: {} })
+
+  const newApiSettings = created[0]?.settings as { create?: { onboardingRequired?: boolean } }
+  const communitySettings = created[1]?.settings as { create?: { onboardingRequired?: boolean } }
+  assert.equal(newApiSettings.create?.onboardingRequired, true)
+  assert.equal(communitySettings.create?.onboardingRequired, undefined)
+})

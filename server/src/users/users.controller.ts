@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Logger, NotFoundException, Patch, ServiceUnavailableException, UseGuards } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, IsArray } from 'class-validator'
 import { AuthGuard } from '../auth/auth.guard'
 import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
+import { ProvidersService } from '../providers/providers.service'
 
 class UpdateSettingsDto {
   @IsOptional() @IsIn(['dark', 'light', 'system']) appearance?: string
@@ -25,12 +26,18 @@ class UpdateSettingsDto {
   @IsOptional() @IsBoolean() shareUsageAnalytics?: boolean
 }
 
+class UpdateOnboardingDto {
+  @IsOptional() @IsIn(['BEGINNER', 'EXPERIENCED']) experience?: 'BEGINNER' | 'EXPERIENCED'
+  @IsOptional() @IsArray() @IsIn(['CHAT', 'IMAGE', 'VIDEO'], { each: true }) capabilities?: Array<'CHAT' | 'IMAGE' | 'VIDEO'>
+  @IsOptional() @IsBoolean() complete?: boolean
+}
+
 @Controller('users')
 @UseGuards(AuthGuard)
 export class UsersController {
   private readonly logger = new Logger(UsersController.name)
 
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly providers: ProvidersService) {}
   @Get('me') async me(@CurrentUser() user: AuthenticatedUser) {
     return this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { id: true, email: true, displayName: true, avatarUrl: true, role: true, createdAt: true, settings: true, groupMemberships: { include: { group: { select: { id: true, name: true, color: true } } } } } })
   }
@@ -63,6 +70,18 @@ export class UsersController {
       symbol: typeof payload.data?.symbol === 'string' ? payload.data.symbol : '',
       displayType: typeof payload.data?.display_type === 'string' ? payload.data.display_type : 'USD',
     }
+  }
+  @Get('me/onboarding') async onboarding(@CurrentUser() user: AuthenticatedUser) {
+    const settings = await this.prisma.userSettings.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id } })
+    return { required: settings.onboardingRequired, experience: settings.onboardingExperience, capabilities: settings.onboardingCapabilities, completedAt: settings.onboardingCompletedAt }
+  }
+  @Get('me/only-code-groups') onlyCodeGroups() { return this.providers.onlyCodeProvisioningGroupDetails() }
+  @Patch('me/onboarding') async updateOnboarding(@CurrentUser() user: AuthenticatedUser, @Body() body: UpdateOnboardingDto) {
+    return this.prisma.userSettings.upsert({
+      where: { userId: user.id },
+      update: { ...(body.experience !== undefined ? { onboardingExperience: body.experience } : {}), ...(body.capabilities !== undefined ? { onboardingCapabilities: body.capabilities } : {}), ...(body.complete ? { onboardingRequired: false, onboardingCompletedAt: new Date() } : {}) },
+      create: { userId: user.id, onboardingExperience: body.experience || '', onboardingCapabilities: body.capabilities || [], onboardingRequired: !body.complete, onboardingCompletedAt: body.complete ? new Date() : null },
+    }).then((settings) => ({ required: settings.onboardingRequired, experience: settings.onboardingExperience, capabilities: settings.onboardingCapabilities, completedAt: settings.onboardingCompletedAt }))
   }
   @Patch('me/settings') async updateSettings(@CurrentUser() user: AuthenticatedUser, @Body() body: UpdateSettingsDto) {
     return this.prisma.userSettings.upsert({ where: { userId: user.id }, update: body, create: { userId: user.id, ...body } })

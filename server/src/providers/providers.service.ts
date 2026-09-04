@@ -6,7 +6,7 @@ import { localWorkerHttpUrl, PublicEndpointPolicyService } from '../common/publi
 import { CredentialCryptoService } from './credential-crypto.service'
 import { normalizeSiteContent } from './site-content'
 import { CapabilityRegistryService } from './capability-registry.service'
-import { DiscoveredModel } from './model-discovery.service'
+import { DiscoveredModel, inferModelCapability } from './model-discovery.service'
 import { normalizeChatHomeContent } from './chat-home-content'
 import { ProviderHealthService } from './provider-health.service'
 import { ProviderRoutingService } from './provider-routing.service'
@@ -33,6 +33,13 @@ type ProviderInput = {
   allowUserKeys?: boolean
   customHeaders?: Record<string, string>
   metadata?: Record<string, unknown>
+}
+
+type OnlyCodeProvisioningGroup = {
+  name: string
+  ratio: number
+  models: string[]
+  capabilities: ModelCapability[]
 }
 
 function routeOptionsRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
@@ -1260,15 +1267,31 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async onlyCodeProvisioningGroups() {
+    return (await this.onlyCodeProvisioningGroupDetails(false)).map((item) => item.name)
+  }
+
+  async onlyCodeProvisioningGroupDetails(filterAllowed = true) {
     const baseUrl = this.config.get<string>('NEW_API_BASE_URL')
     const clientId = this.config.get<string>('NEW_API_SSO_CLIENT_ID')
     const clientSecret = this.config.get<string>('NEW_API_SSO_CLIENT_SECRET')
     if (!baseUrl || !clientId || !clientSecret) throw new ServiceUnavailableException('OnlyCode 接入尚未配置')
-    const response = await fetch(new URL('/api/sso/art/groups', baseUrl), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }), redirect: 'error', signal: AbortSignal.timeout(10_000) }).catch(() => null)
+    const response = await fetch(new URL('/api/sso/art/groups', baseUrl), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, details: true }), redirect: 'error', signal: AbortSignal.timeout(10_000) }).catch(() => null)
     if (!response?.ok) throw new ServiceUnavailableException('无法读取 OnlyCode 分组')
     const payload = await response.json().catch(() => null) as { success?: boolean; data?: unknown } | null
     if (!payload?.success || !Array.isArray(payload.data)) throw new ServiceUnavailableException('OnlyCode 分组数据无效')
-    return payload.data.filter((item): item is string => typeof item === 'string')
+    const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
+    const allowed = filterAllowed ? new Set(settings.newApiProvisioningGroups) : null
+    const groups: Array<OnlyCodeProvisioningGroup | null> = payload.data.map((item) => {
+      if (typeof item === 'string') return !allowed || allowed.has(item) ? { name: item, ratio: 1, models: [], capabilities: [ModelCapability.CHAT] } : null
+      if (!item || typeof item !== 'object') return null
+      const value = item as Record<string, unknown>
+      const name = typeof value.name === 'string' ? value.name : ''
+      if (!name || (allowed && !allowed.has(name))) return null
+      const models = Array.isArray(value.models) ? [...new Set(value.models.filter((model): model is string => typeof model === 'string'))].sort() : []
+      const capabilities: ModelCapability[] = models.length ? [...new Set(models.map(inferModelCapability).filter((capability): capability is ModelCapability => capability !== null))] : [ModelCapability.CHAT]
+      return { name, ratio: typeof value.ratio === 'number' && Number.isFinite(value.ratio) ? value.ratio : 1, models, capabilities }
+    })
+    return groups.filter((item): item is OnlyCodeProvisioningGroup => item !== null).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   async provisionOnlyCodeCredential(userId: string, provisionKey: string, requestedName?: string) {
@@ -1276,7 +1299,12 @@ export class ProvidersService implements OnModuleInit {
     const settings = await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
     const group = provisionKey.trim()
     if (!group || group === 'auto' || !settings.newApiProvisioningGroups.includes(group)) throw new ForbiddenException('该分组暂未开放')
-    const existing = await this.prisma.userApiCredential.findUnique({ where: { userId_provisionKey: { userId, provisionKey: group } } })
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, email: true } })
+    const username = user?.displayName || user?.email?.split('@')[0] || 'user'
+    const fallbackName = `onlyart-${username}-${group}`.replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    const candidateName = requestedName?.trim() || fallbackName
+    const name = [...candidateName].reduce((value, character) => Buffer.byteLength(value + character, 'utf8') <= 50 ? value + character : value, '')
+    const existing = await this.prisma.userApiCredential.findFirst({ where: { userId, name, provisionKey: group } })
     if (existing) {
       try {
         const imported = await this.importCredentialModels(userId, existing.id, { importAll: true })
@@ -1285,11 +1313,6 @@ export class ProvidersService implements OnModuleInit {
         return { credential: this.publicCredential(existing), imported: 0, availableModels: [], modelSyncError: error instanceof Error ? error.message : '模型同步失败' }
       }
     }
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, email: true } })
-    const username = user?.displayName || user?.email?.split('@')[0] || 'user'
-    const fallbackName = `onlyart-${username}-${group}`.replace(/[^\p{L}\p{N}._-]+/gu, '-')
-    const candidateName = requestedName?.trim() || fallbackName
-    const name = [...candidateName].reduce((value, character) => Buffer.byteLength(value + character, 'utf8') <= 50 ? value + character : value, '')
     if (await this.prisma.userApiCredential.count({ where: { userId, name } })) throw new BadRequestException('Key 名称已存在，请换一个名称')
     const identity = await this.prisma.externalIdentity.findFirst({ where: { userId, provider: 'new-api' }, select: { subject: true } })
     if (!identity) throw new NotFoundException('当前账号未绑定 OnlyCode')
@@ -1304,7 +1327,7 @@ export class ProvidersService implements OnModuleInit {
     if (!payload?.success || !rawKey) throw new ServiceUnavailableException('OnlyCode 未返回有效 Key')
     const key = rawKey.startsWith('sk-') ? rawKey : `sk-${rawKey}`
     const providerBaseUrl = `${(this.config.get<string>('NEW_API_PUBLIC_URL') || baseUrl).replace(/\/+$/, '')}/v1`
-    const row = await this.prisma.userApiCredential.upsert({ where: { userId_provisionKey: { userId, provisionKey: group } }, update: { name, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, lastRotatedAt: new Date(), lastHealthStatus: null, lastHealthMessage: '分组 Key 已更新，等待同步模型', externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null }, create: { userId, name, provisionKey: group, externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, isDefault: false, lastRotatedAt: new Date() } })
+    const row = await this.prisma.userApiCredential.create({ data: { userId, name, provisionKey: group, externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, isDefault: false, lastRotatedAt: new Date() } })
     try {
       const imported = await this.importCredentialModels(userId, row.id, { importAll: true })
       return { credential: this.publicCredential(row), ...imported }

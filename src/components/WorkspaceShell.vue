@@ -190,6 +190,13 @@
         :save-private-model="savePrivateModel"
         @close="privateModelEditor = null"
       />
+      <OnboardingFlow
+        v-if="onboardingRequired"
+        :api-credentials="apiCredentials"
+        :preview-mode="onboardingPreviewMode"
+        @completed="handleOnboardingCompleted"
+        @refresh-credentials="handleRefreshCredentials"
+      />
     </Teleport>
   </div>
 </template>
@@ -217,6 +224,7 @@ import {
   Users,
   UserRound,
 } from 'lucide-vue-next'
+import OnboardingFlow from './onboarding/OnboardingFlow.vue'
 import SupportCenter from './SupportCenter.vue'
 import ShellSidebar from './shell/ShellSidebar.vue'
 import ShellHeader from './shell/ShellHeader.vue'
@@ -250,6 +258,7 @@ import type {
   KnowledgeBase,
   ModerationCase,
   NotificationItem,
+  OnboardingStatus,
   OnlyCodeBalance,
   PendingTeamInvitation,
   PrivateModel,
@@ -339,6 +348,8 @@ const {
   assignKnowledgeBaseTeam, attachKnowledgeAsset, detachKnowledgeAsset
 } = useKnowledgeBases({ busy: workspaceBusy, message: workspaceMessage, error: workspaceError })
 const apiCredentials = ref<ApiCredential[]>([])
+const onboardingRequired = ref(false)
+const onboardingPreviewMode = ref(false)
 const providerTemplates = ref<ProviderTemplate[]>([])
 const privateModels = ref<PrivateModel[]>([])
 const credentialEditor = ref<CredentialEditor | null>(null)
@@ -520,12 +531,14 @@ watch(accountOpen, (open) => {
 })
 
 async function loadWorkspaceData() {
-  const [catalogSettings, links] = await Promise.all([
+  const [catalogSettings, links, onboarding] = await Promise.all([
     catalog.load(),
     api<ExternalNavLinkItem[]>('/catalog/external-links').catch(() => []),
+    auth.session?.id ? api<OnboardingStatus>('/users/me/onboarding').catch(() => null) : Promise.resolve(null),
   ])
   Object.assign(publicSettings, catalogSettings)
   externalLinks.value = links
+  onboardingRequired.value = Boolean(onboarding?.required)
   if (!auth.session?.id) return
   const [, user, notices, cases, models, balance] = await Promise.all([
     studio.hydrateWorkspace().catch(() => undefined),
@@ -547,12 +560,35 @@ async function loadWorkspaceData() {
       }).catch(() => undefined)
     }
   }
+  onboardingPreviewMode.value = route.query.onboarding === 'preview' && ['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '')
+  if (onboardingPreviewMode.value) onboardingRequired.value = true
   notifications.value = notices
   moderationCases.value = cases
   availableModels.value = models
   onlyCodeBalance.value = balance
   workspaceAssets.value = studio.assets.map((asset) => ({ id: asset.id, name: asset.title }))
   window.setTimeout(() => { void loadDeferredWorkspaceData() }, 200)
+}
+
+async function handleOnboardingCompleted() {
+  onboardingRequired.value = false
+  onboardingPreviewMode.value = false
+  const [credentials, models] = await Promise.all([
+    api<ApiCredential[]>('/users/me/api-credentials').catch(() => []),
+    api<PrivateModel[]>('/users/me/private-models').catch(() => []),
+  ])
+  apiCredentials.value = credentials
+  privateModels.value = models
+  document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
+}
+
+async function handleRefreshCredentials() {
+  const [credentials, models] = await Promise.all([
+    api<ApiCredential[]>('/users/me/api-credentials').catch(() => []),
+    api<PrivateModel[]>('/users/me/private-models').catch(() => []),
+  ])
+  apiCredentials.value = credentials
+  privateModels.value = models
 }
 
 let deferredWorkspacePromise: Promise<void> | null = null
@@ -660,8 +696,10 @@ async function provisionOnlyCodeCredential(group: string, name: string) {
     if (result.modelSyncError) message.warning(`已接入 ${group}，模型同步失败：${result.modelSyncError}`)
     else message.success(`已接入 ${group}，同步 ${result.imported} 个模型`)
     document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
+    return true
   } catch (reason) {
     message.error(reason instanceof Error ? reason.message : 'OnlyCode 分组接入失败')
+    return false
   } finally {
     onlyCodeProvisioningBusyGroup.value = ''
   }

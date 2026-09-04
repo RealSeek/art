@@ -10,10 +10,14 @@
     </section>
     <section v-if="provisioningGroups.length" class="settings-provision-groups">
       <article v-for="group in provisioningGroups" :key="group">
-        <div><strong>{{ group }}</strong><small>{{ connectedGroup(group)?.name || '可创建' }}</small></div>
-        <input v-if="!connectedGroup(group)" v-model.trim="names[group]" type="text" maxlength="50" :placeholder="`onlyart-用户名-${group}`" />
-        <span v-else class="settings-provision-connected">{{ connectedGroup(group)?.apiKeyHint }}</span>
-        <button type="button" :disabled="Boolean(provisioningBusyGroup)" @click="provisionOnlyCode(group, names[group] || '')"><RefreshCw v-if="connectedGroup(group)" :size="15" /><CirclePlus v-else :size="15" />{{ provisioningBusyGroup === group ? '处理中' : connectedGroup(group) ? '同步模型' : '创建并接入' }}</button>
+        <div>
+          <strong>{{ group }}</strong>
+          <small>{{ groupCreatedCount(group) > 0 ? `已创建 ${groupCreatedCount(group)} 个密钥` : '可创建' }}</small>
+        </div>
+        <input v-model.trim="names[group]" type="text" maxlength="50" :placeholder="`onlyart-用户名-${group}`" />
+        <button type="button" :disabled="Boolean(provisioningBusyGroup)" @click="handleProvision(group)">
+          <CirclePlus :size="15" />{{ provisioningBusyGroup === group ? '处理中...' : '创建新密钥' }}
+        </button>
       </article>
     </section>
     <p v-else class="settings-provision-empty">管理员暂未开放可创建的 OnlyCode 分组。</p>
@@ -26,7 +30,7 @@
 
 <script setup lang="ts">
 import { reactive } from 'vue'
-import { CirclePlus, KeyRound, RefreshCw } from 'lucide-vue-next'
+import { CirclePlus, KeyRound } from 'lucide-vue-next'
 import { formatServerDate } from '../../format'
 import { modelCapabilityLabel, providerTypeLabel, routingStrategyLabel } from '../../labels'
 import type { ApiCredential, AvailableModel, PrivateModel } from '../../types'
@@ -44,11 +48,17 @@ const props = defineProps<{
   deleteCredential: (item: ApiCredential) => Promise<void>
   openPrivateModelEditor: (item?: PrivateModel, credentialId?: string, upstreamModel?: string) => void
   deletePrivateModel: (item: PrivateModel) => Promise<void>
-  provisionOnlyCode: (group: string, name: string) => Promise<void>
+  provisionOnlyCode: (group: string, name: string) => Promise<boolean>
 }>()
 
 const names = reactive<Record<string, string>>({})
-function connectedGroup(group: string) {
-  return props.apiCredentials.find((item) => item.provisionKey === group)
+function groupCreatedCount(group: string) {
+  return props.apiCredentials.filter((item) => item.provisionKey === group).length
 }
+
+async function handleProvision(group: string) {
+  const nameToUse = names[group] || ''
+  if (await props.provisionOnlyCode(group, nameToUse)) names[group] = ''
+}
+
 </script>

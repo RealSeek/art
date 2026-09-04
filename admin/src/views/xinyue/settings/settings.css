@@ -93,6 +93,7 @@
 
   .card-title > div { display: grid; gap: 3px; }
   .card-title > div small { color: var(--art-gray-500); font-size: 12px; font-weight: 400; }
+  .card-title > .card-title__actions { display: flex; align-items: center; gap: 8px; }
   .public-content-form { max-width: 1120px; }
   .site-content-list { display: grid; gap: 10px; margin-bottom: 16px; }
   .site-content-list > article,

@@ -129,7 +129,7 @@ export class AuthService {
         avatarUrl: input.avatarUrl?.trim() || undefined,
         emailVerifiedAt: usableEmail ? new Date() : undefined,
         lastLoginAt: new Date(),
-        settings: { create: this.defaultUserSettings(settings) },
+        settings: { create: { ...this.defaultUserSettings(settings), ...(provider === 'new-api' ? { onboardingRequired: true } : {}) } },
         creditAccount: { create: this.defaultCreditAccount(settings) },
         groupMemberships: defaultGroup ? { create: { group: { connect: { id: defaultGroup.id } } } } : undefined,
         externalIdentities: { create: { provider, subject: cleanSubject, email, displayName, avatarUrl: input.avatarUrl?.trim() || undefined, profile: jsonInput(input.profile), lastLoginAt: new Date() } },
