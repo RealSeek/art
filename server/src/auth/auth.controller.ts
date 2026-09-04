@@ -32,22 +32,22 @@ export class AuthController {
     const secure = this.cookieSecure()
     response.setCookie('onlyart_new_api_state', state, { httpOnly: true, secure, sameSite: 'lax', path: '/v1/auth/new-api', maxAge: 600 })
     response.setCookie('onlyart_new_api_redirect', this.safeRedirect(redirect), { httpOnly: true, secure, sameSite: 'lax', path: '/v1/auth/new-api', maxAge: 600 })
-    response.redirect(this.auth.getNewApiAuthorization(state, this.newApiRedirectUri()))
+    return response.redirect(this.auth.getNewApiAuthorization(state, this.newApiRedirectUri()), 302)
   }
   @Get('new-api/callback') async newApiCallback(@Query('code') code: string | undefined, @Query('state') state: string | undefined, @Req() request: FastifyRequest, @Res() response: FastifyReply) {
     const expected = String(request.cookies?.onlyart_new_api_state || '')
     const redirect = this.safeRedirect(request.cookies?.onlyart_new_api_redirect)
     response.clearCookie('onlyart_new_api_state', { path: '/v1/auth/new-api' })
     response.clearCookie('onlyart_new_api_redirect', { path: '/v1/auth/new-api' })
-    if (!code || !state || !expected || !this.safeEqual(state, expected)) return response.redirect(this.newApiFailureRedirect(redirect))
+    if (!code || !state || !expected || !this.safeEqual(state, expected)) return response.redirect(this.newApiFailureRedirect(redirect), 302)
     try {
       const result = await this.auth.loginWithNewApi(code, this.newApiRedirectUri(), { ip: request.ip, userAgent: request.headers['user-agent'] })
       if ('bindingRequired' in result) throw new BadRequestException('New API 身份不能完成自动登录')
       this.setSessionCookie(response, result)
-      response.redirect(`${this.frontendOrigin()}${redirect}`)
+      return response.redirect(`${this.frontendOrigin()}${redirect}`, 302)
     } catch (error) {
       this.logger.warn(`New API SSO 回调失败：${error instanceof Error ? error.message : '未知错误'}`)
-      response.redirect(this.newApiFailureRedirect(redirect))
+      return response.redirect(this.newApiFailureRedirect(redirect), 302)
     }
   }
   @Post('admin/login') @Throttle({ default: { limit: () => Number(process.env.ADMIN_LOGIN_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 8 : 30)), ttl: 60_000 } }) async adminLogin(@Body() body: AdminLoginDto, @Req() request: FastifyRequest, @Res({ passthrough: true }) response: FastifyReply) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { AuthController } from '../../server/src/auth/auth.controller'
 import { AuthService } from '../../server/src/auth/auth.service'
 
 const values: Record<string, string> = {
@@ -29,6 +30,24 @@ test('New API SSO 授权地址只使用公开地址并绑定客户端、回调�
   assert.equal(result.searchParams.get('client_id'), 'onlyart')
   assert.equal(result.searchParams.get('redirect_uri'), 'https://art.example.com/v1/auth/new-api/callback')
   assert.equal(result.searchParams.get('state'), 'state-value')
+})
+
+test('New API SSO 登录起点显式返回 302', async () => {
+  const auth = { getNewApiAuthorization: () => 'https://new-api.example.com/authorize' }
+  const config = { get: (key: string) => key === 'WEB_ORIGIN' ? 'https://art.example.com' : undefined }
+  let redirect: [string, number] | undefined
+  const reply = {
+    setCookie: () => reply,
+    redirect: (url: string, statusCode: number) => {
+      redirect = [url, statusCode]
+      return reply
+    },
+  }
+  const controller = new AuthController(auth as never, config as never)
+
+  await controller.newApiStart('/chat', reply as never)
+
+  assert.deepEqual(redirect, ['https://new-api.example.com/authorize', 302])
 })
 
 test('New API SSO 换票仅在服务端发送密钥并创建外部身份会话', async (t) => {
