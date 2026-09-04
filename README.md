@@ -1,10 +1,10 @@
-# Xinyue AI
+# OnlyArt
 
 开源 AI 创作与模型管理平台。
 
-Xinyue AI 将 AI 对话、模型接入、Provider 路由、无限画布、图片/视频生成和运营后台整合在一个工作空间中，支持本地部署与自托管。
+OnlyArt 将 AI 对话、模型接入、Provider 路由、无限画布、图片/视频生成和运营后台整合在一个工作空间中，支持本地部署与自托管。
 
-![Xinyue AI 对话工作区](docs/images/xinyue-chat.png)
+![OnlyArt 对话工作区](docs/images/xinyue-chat.png)
 
 ## ✨ 功能特性
 

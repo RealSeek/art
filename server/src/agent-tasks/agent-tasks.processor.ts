@@ -232,7 +232,7 @@ export class AgentTasksProcessor extends WorkerHost {
     await this.startStep(state.taskId, 2, `正在执行第 ${state.iteration + 1} 轮任务`)
     const task = await this.task(state.taskId)
     const context = JSON.stringify(state.toolResults).slice(0, 60_000)
-    const prompt = `你是 Xinyue AI 办公任务执行器。请完成用户最终目标并直接生成可交付成品。\n\n用户目标：\n${task.goal}\n\n额外要求：\n${this.taskInstructions(task) || '无'}\n\n执行计划：\n${JSON.stringify(state.plan)}\n\n工具和资料结果：\n${context || '本轮没有调用工具'}\n\n上一轮校验反馈：\n${state.verifierFeedback || '无'}\n\n要求：只使用工具返回的真实事实；信息不足时明确标注；联网资料涉及事实时在正文中使用 [1]、[2] 编号引用，并在文末输出“来源”列表，保留真实标题和 URL；输出完整正文，不要输出执行过程。`
+    const prompt = `你是 OnlyArt 办公任务执行器。请完成用户最终目标并直接生成可交付成品。\n\n用户目标：\n${task.goal}\n\n额外要求：\n${this.taskInstructions(task) || '无'}\n\n执行计划：\n${JSON.stringify(state.plan)}\n\n工具和资料结果：\n${context || '本轮没有调用工具'}\n\n上一轮校验反馈：\n${state.verifierFeedback || '无'}\n\n要求：只使用工具返回的真实事实；信息不足时明确标注；联网资料涉及事实时在正文中使用 [1]、[2] 编号引用，并在文末输出“来源”列表，保留真实标题和 URL；输出完整正文，不要输出执行过程。`
     const completion = await this.completeModel(state, task, `draft-${state.iteration}`, prompt, async (content) => {
       await this.prisma.agentRun.update({ where: { id: state.runId }, data: { finalAnswer: content, currentNode: 'draft' } })
       await this.touch(state.taskId, state.runId, '正在生成交付结果')

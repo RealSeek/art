@@ -5,7 +5,7 @@
       <AuthTopBar />
       <div class="auth-right-wrap">
         <div class="form">
-          <span class="login-kicker">XINYUE AI CONSOLE</span>
+          <span class="login-kicker">ONLYART CONSOLE</span>
           <h3 class="title">{{ xt('管理后台登录') }}</h3>
           <p class="sub-title">{{ xt('使用管理员账户进入运营控制台') }}</p>
           <ElForm
@@ -101,7 +101,7 @@
       userStore.setLoginStatus(true)
       ElNotification({
         title: xt('登录成功'),
-        message: xt('欢迎回到 Xinyue AI 管理后台'),
+        message: xt('欢迎回到 OnlyArt 管理后台'),
         type: 'success',
         duration: 2200
       })

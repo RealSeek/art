@@ -21,7 +21,7 @@ const AdminRedirect = { render: () => null }
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'landing', component: LandingPage, meta: { title: 'Xinyue AI' } },
+    { path: '/', name: 'landing', component: LandingPage, meta: { title: 'OnlyArt' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: '登录' } },
     { path: '/install', name: 'install', component: InstallPage, meta: { title: '初始化' } },
     {
@@ -81,5 +81,5 @@ router.beforeEach(async (to) => {
 
 router.afterEach((to) => {
   const title = String(to.meta.title || '').trim()
-  document.title = title && title !== 'Xinyue AI' ? `${title} | Xinyue AI` : 'Xinyue AI'
+  document.title = title && title !== 'OnlyArt' ? `${title} | OnlyArt` : 'OnlyArt'
 })

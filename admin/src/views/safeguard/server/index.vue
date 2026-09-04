@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">{{ xt('运维中心') }}</span>
         <h1>{{ xt('系统健康') }}</h1>
-        <p>{{ xt('实时查看 Xinyue AI API、数据库、队列、文件存储和模型渠道状态。') }}</p>
+        <p>{{ xt('实时查看 OnlyArt API、数据库、队列、文件存储和模型渠道状态。') }}</p>
       </div>
       <ElSpace>
         <ElButton :loading="checkingProviders" @click="checkProviders">
@@ -267,7 +267,7 @@
   const services = computed(() => [
     {
       key: 'api',
-      name: 'Xinyue AI API',
+      name: 'OnlyArt API',
       description: xt('管理服务与业务接口'),
       status: system.value?.api.status || ('unknown' as HealthStatus),
       detail: probeDetail(system.value?.api, xt('当前页面已连接'))
@@ -443,7 +443,7 @@
 
   const applyLifecycle = async () => {
     await ElMessageBox.confirm(
-      xt('将保留现有规则，并更新 Xinyue 管理的分片上传和历史版本清理规则。'),
+      xt('将保留现有规则，并更新 OnlyArt 管理的分片上传和历史版本清理规则。'),
       xt('应用生命周期'),
       { type: 'warning' }
     )

@@ -578,7 +578,7 @@ export class WebSearchService {
     let response: Response
     try {
       const request = this.isBuiltInDailyHotEndpoint(validated.toString()) ? fetchNoRedirect : fetchPublicNoRedirect
-      response = await request(url, { headers: { Accept: 'application/json', 'User-Agent': 'XinyueAI/1.0' }, signal: AbortSignal.timeout(Math.min(30_000, Math.max(1000, timeoutMs))) })
+      response = await request(url, { headers: { Accept: 'application/json', 'User-Agent': 'OnlyArt/1.0' }, signal: AbortSignal.timeout(Math.min(30_000, Math.max(1000, timeoutMs))) })
     } catch (reason) {
       throw new Error(`${DAILY_HOT_SOURCE_LABELS[sourceId]}：${this.networkError(reason)}`)
     }
@@ -663,7 +663,7 @@ export class WebSearchService {
     for (let redirect = 0; redirect <= 3; redirect += 1) {
       await this.endpointPolicy.assertPublicHttpUrl(url)
       response = await fetchPublicManualRedirect(url, {
-        headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'XinyueAI-Search/1.0' },
+        headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'OnlyArt-Search/1.0' },
         signal: this.combineSignal(signal, 6_000),
       })
       if (![301, 302, 303, 307, 308].includes(response.status)) break

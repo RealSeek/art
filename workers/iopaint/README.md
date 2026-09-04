@@ -1,4 +1,4 @@
-# Xinyue IOPaint Worker
+# OnlyArt IOPaint Worker
 
 Optional isolated Worker for `iopaint-inpaint` and `iopaint-outpaint`. It implements the same authenticated, idempotent and cancellable protocol as the background-removal Worker. Models are downloaded into `/models` at runtime and are not stored in Git.
 

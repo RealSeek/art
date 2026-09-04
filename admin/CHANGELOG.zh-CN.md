@@ -1,6 +1,6 @@
 # 更新日志
 
-所有重要的项目变更都将记录在此文件中。Xinyue 集成仓库的协作规范见 [CONTRIBUTING](../CONTRIBUTING.md)，英文更新日志见 [CHANGELOG](./CHANGELOG.md)。
+所有重要的项目变更都将记录在此文件中。OnlyArt 集成仓库的协作规范见 [CONTRIBUTING](../CONTRIBUTING.md)，英文更新日志见 [CHANGELOG](./CHANGELOG.md)。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 

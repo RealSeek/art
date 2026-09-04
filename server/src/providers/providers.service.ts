@@ -311,7 +311,7 @@ const DEFAULT_PROVIDER_TEMPLATES = [
   { key: 'openrouter', name: 'OpenRouter', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: 'https://openrouter.ai/api/v1', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 100 },
   { key: 'litellm', name: 'LiteLLM', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 110 },
   { key: 'ollama', name: 'Ollama / OpenAI Compatible', vendorKey: 'other', type: ProviderType.OPENAI_COMPATIBLE, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', sortOrder: 120 },
-  { key: 'local-worker', name: 'Xinyue Local Worker', vendorKey: 'other', type: ProviderType.LOCAL_WORKER, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', supportsDiscovery: true, sortOrder: 130 },
+  { key: 'local-worker', name: 'OnlyArt Local Worker', vendorKey: 'other', type: ProviderType.LOCAL_WORKER, baseUrl: '', authType: ProviderAuthType.BEARER, apiProtocol: 'openai', supportsDiscovery: true, sortOrder: 130 },
 ] as const
 
 @Injectable()
@@ -818,7 +818,7 @@ export class ProvidersService implements OnModuleInit {
     const contextWindow = Number(capabilities.contextWindow ?? discovery.contextWindow ?? 0) || null
     const explicitlyEnabled = options.agentEnabled
     const eligible = explicitlyEnabled !== false && (explicitlyEnabled === true || !contextWindow || contextWindow >= 8192) && capabilities.eligible !== false
-    const reason = String(capabilities.reason || (eligible ? '可用于 Xinyue Agent 服务端编排' : '模型已被管理员停用 Agent 能力'))
+    const reason = String(capabilities.reason || (eligible ? '可用于 OnlyArt Agent 服务端编排' : '模型已被管理员停用 Agent 能力'))
     if (!eligible) throw new BadRequestException(`模型“${model.displayName}”不适合 Agent 任务：${reason}`)
     return {
       key: model.key,

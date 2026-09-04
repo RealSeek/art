@@ -1,6 +1,6 @@
-# Xinyue Image Tools Worker
+# OnlyArt Image Tools Worker
 
-This container implements the Xinyue Local Worker protocol for `rembg`. It is intentionally separate from the NestJS API so model caches and native inference dependencies do not enter the main application image.
+This container implements the OnlyArt Local Worker protocol for `rembg`. It is intentionally separate from the NestJS API so model caches and native inference dependencies do not enter the main application image.
 
 Start it with:
 

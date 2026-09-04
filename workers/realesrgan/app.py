@@ -129,7 +129,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue Real-ESRGAN Worker", version="1.0.1", lifespan=lifespan)
+app = FastAPI(title="OnlyArt Real-ESRGAN Worker", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

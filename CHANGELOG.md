@@ -1,6 +1,6 @@
 # Changelog
 
-本文件记录 Xinyue AI 的重要发布变化。
+本文件记录 OnlyArt 的重要发布变化。
 
 ## 1.0.1
 

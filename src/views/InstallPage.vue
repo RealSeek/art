@@ -1,16 +1,16 @@
 <template>
   <main class="setup-page">
     <span class="setup-page__band" aria-hidden="true" />
-    <section class="setup-shell" aria-label="Xinyue AI 初始化">
+    <section class="setup-shell" aria-label="OnlyArt 初始化">
       <div class="setup-form-panel">
-        <div class="setup-brand" aria-label="Xinyue AI">
-          <span class="setup-brand__mark">X</span><strong>Xinyue AI</strong>
+        <div class="setup-brand" aria-label="OnlyArt">
+          <span class="setup-brand__mark">O</span><strong>OnlyArt</strong>
         </div>
 
         <div v-if="loading" class="setup-status" role="status">
           <LoaderCircle :size="28" class="setup-spin" />
           <strong>正在检查初始化状态</strong>
-          <span>请稍候，正在连接 Xinyue AI 服务。</span>
+          <span>请稍候，正在连接 OnlyArt 服务。</span>
         </div>
 
         <div v-else-if="checkError" class="setup-status setup-status--error" role="alert">
@@ -22,7 +22,7 @@
 
         <template v-else>
           <header class="setup-heading">
-            <h1 id="setup-title">欢迎使用 <span>Xinyue AI</span></h1>
+            <h1 id="setup-title">欢迎使用 <span>OnlyArt</span></h1>
             <p>创建管理员账号，开始构建你的 AI 工作空间</p>
           </header>
 
@@ -77,16 +77,16 @@
         </template>
       </div>
 
-      <aside class="setup-showcase" aria-label="Xinyue AI 平台能力">
+      <aside class="setup-showcase" aria-label="OnlyArt 平台能力">
         <div class="setup-stage" aria-hidden="true">
           <span class="setup-orbit setup-orbit--chat"><MessageSquareText :size="20" /></span>
           <span class="setup-orbit setup-orbit--bot"><Bot :size="20" /></span>
           <span class="setup-orbit setup-orbit--image"><ImageIcon :size="20" /></span>
           <span class="setup-orbit setup-orbit--spark"><Sparkles :size="20" /></span>
-          <div class="setup-symbol"><span>X</span></div>
+          <div class="setup-symbol"><span>O</span></div>
           <span class="setup-platform" />
         </div>
-        <h2>Xinyue AI</h2>
+        <h2>OnlyArt</h2>
         <p class="setup-tagline">让 AI 创作更简单</p>
         <ul class="setup-features">
           <li><CircleCheck :size="18" />多模型支持，灵活切换</li>
@@ -128,7 +128,7 @@ async function checkSetupStatus() {
       return
     }
   } catch (reason) {
-    checkError.value = reason instanceof ApiError ? reason.message : '无法连接 Xinyue AI 服务，请确认后端已经启动。'
+    checkError.value = reason instanceof ApiError ? reason.message : '无法连接 OnlyArt 服务，请确认后端已经启动。'
   } finally {
     loading.value = false
   }

@@ -209,7 +209,7 @@ export class ModelDiscoveryService {
       supportsVision,
       contextWindow,
       maxOutputTokens,
-      reason: !agentEligible ? '上下文窗口小于 8K，不适合多步骤任务' : supportsTools || supportsStructuredOutput ? '已识别结构化输出或工具调用能力' : '可用于文本规划，工具由 Xinyue 服务端编排',
+      reason: !agentEligible ? '上下文窗口小于 8K，不适合多步骤任务' : supportsTools || supportsStructuredOutput ? '已识别结构化输出或工具调用能力' : '可用于文本规划，工具由 OnlyArt 服务端编排',
     } : null
     const features = [
       supportsVision ? 'vision' : '',

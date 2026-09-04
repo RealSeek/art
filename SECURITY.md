@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 请不要在公开 Issue、讨论区或 Pull Request 中披露可利用的安全漏洞。请
-通过 [Xinyue AI GitHub 仓库](https://github.com/qiantingwl/xinyueai) 私下联系维护者，
+通过 [OnlyArt GitHub 仓库](https://github.com/qiantingwl/xinyueai) 私下联系维护者，
 并提供复现步骤、受影响版本、影响范围和必要的日志片段。请先删除或打码
 所有密钥、Cookie、用户数据和服务器地址。
 

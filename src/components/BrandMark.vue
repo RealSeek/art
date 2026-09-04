@@ -1,7 +1,7 @@
 <template>
   <RouterLink :to="to" class="brand-mark" :class="{ 'brand-mark--dark': dark, 'brand-mark--compact': compact }">
-    <span class="brand-mark__icon">X</span>
-    <span v-if="!compact" class="brand-mark__name">Xinyue AI</span>
+    <span class="brand-mark__icon">O</span>
+    <span v-if="!compact" class="brand-mark__name">OnlyArt</span>
   </RouterLink>
 </template>
 

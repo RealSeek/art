@@ -36,7 +36,7 @@ const files = ['database.dump', 'uploads.tar.gz', 'redis.tar.gz', 'environment.p
 const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
 const manifest = {
   format: 1,
-  application: 'Xinyue AI',
+  application: 'OnlyArt',
   createdAt: new Date().toISOString(),
   gitCommit: git.status === 0 ? git.stdout.trim() : '',
   files: Object.fromEntries(files.map((file) => [file, { sha256: checksum(file), bytes: readFileSync(resolve(target, file)).byteLength }])),

@@ -10,7 +10,7 @@ const source = resolve(sourceArg)
 const manifestPath = resolve(source, 'manifest.json')
 if (!existsSync(manifestPath)) throw new Error('备份目录缺少 manifest.json')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-if (manifest.format !== 1 || manifest.application !== 'Xinyue AI') throw new Error('备份格式不受支持')
+if (manifest.format !== 1 || (manifest.application !== 'OnlyArt' && manifest.application !== 'Xinyue AI')) throw new Error('备份格式不受支持')
 for (const [file, expected] of Object.entries(manifest.files || {})) {
   const path = resolve(source, file)
   if (!existsSync(path)) throw new Error(`备份文件缺失：${file}`)

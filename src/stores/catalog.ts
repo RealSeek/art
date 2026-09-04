@@ -132,7 +132,7 @@ const defaultChatHomeContent: ChatHomeContent = {
   // headlines here: the home page must never present old data as current hot news.
   doubaoRecommendations: [],
   qianwenBanners: [
-    { title: 'Xinyue 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
+    { title: 'OnlyArt 办公助理上线', description: '解锁本地任务能力，多格式交付', buttonText: '立即体验', imageUrl: '', targetUrl: '/office' },
     { title: '多格式办公文件交付', description: '生成可继续编辑的 PPTX、DOCX 与 XLSX 文件', buttonText: '开始办公任务', imageUrl: '', targetUrl: '/office' },
     { title: '会议材料整理', description: '根据会议文字或文档提炼议题、结论与待办', buttonText: '整理会议材料', imageUrl: '', targetUrl: '/office?tool=meeting' },
   ],
@@ -183,7 +183,7 @@ const defaultChatHomeContent: ChatHomeContent = {
 }
 
 const emptySettings: PublicCatalogSettings = {
-  siteName: 'Xinyue AI',
+  siteName: 'OnlyArt',
   sidebarCreationEnabled: true,
   sidebarCommerceEnabled: true,
   sidebarOfficeEnabled: true,
@@ -268,7 +268,7 @@ export const useCatalogStore = defineStore('catalog', {
       } catch {
         if (!hadUsableSettings) {
           this.settings = { ...emptySettings }
-          this.loadError = '暂时无法连接 Xinyue AI 服务，请确认服务已启动后重试。'
+          this.loadError = '暂时无法连接 OnlyArt 服务，请确认服务已启动后重试。'
         }
       } finally {
         pendingLoad = null

@@ -54,7 +54,7 @@
       </header>
       <div class="support-messages">
         <article v-for="message in ticket.messages" :key="message.id" :class="{ mine: message.authorType === 'USER' }">
-          <header><strong>{{ message.authorType === 'USER' ? '我' : 'Xinyue AI 客服' }}</strong><time>{{ formatDateTime(message.createdAt) }}</time></header>
+          <header><strong>{{ message.authorType === 'USER' ? '我' : 'OnlyArt 客服' }}</strong><time>{{ formatDateTime(message.createdAt) }}</time></header>
           <p>{{ message.body }}</p>
           <div v-if="message.attachments?.length" class="support-message-files"><a v-for="file in message.attachments" :key="file.id" :href="apiUrl(file.contentUrl)" target="_blank" rel="noopener noreferrer"><Paperclip :size="13" />{{ file.name }}</a></div>
         </article>

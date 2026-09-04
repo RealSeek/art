@@ -1,6 +1,6 @@
-# Xinyue Controlled ComfyUI Gateway
+# OnlyArt Controlled ComfyUI Gateway
 
-This optional gateway exposes only administrator-mounted ComfyUI workflows through the Xinyue Local Worker protocol. Users cannot submit workflow JSON, node IDs or arbitrary parameters.
+This optional gateway exposes only administrator-mounted ComfyUI workflows through the OnlyArt Local Worker protocol. Users cannot submit workflow JSON, node IDs or arbitrary parameters.
 
 Each `/workflows/*.json` file must contain:
 

@@ -1,4 +1,4 @@
-# Xinyue AI 部署与运维指南
+# OnlyArt 部署与运维指南
 
 本文只维护可直接执行的部署和运维步骤；产品功能以当前版本代码和数据库迁移为准。
 
@@ -146,7 +146,7 @@ S3_SECRET_ACCESS_KEY=你的访问密钥
 S3_FORCE_PATH_STYLE=false
 ```
 
-AWS S3 可留空 `S3_ENDPOINT` 并填写真实 Region；部分自建兼容服务需要 `S3_FORCE_PATH_STYLE=true`。Bucket 应使用私有访问策略，文件必须通过 Xinyue API 的登录和资源权限检查下载，不能直接公开整个 Bucket。
+AWS S3 可留空 `S3_ENDPOINT` 并填写真实 Region；部分自建兼容服务需要 `S3_FORCE_PATH_STYLE=true`。Bucket 应使用私有访问策略，文件必须通过 OnlyArt API 的登录和资源权限检查下载，不能直接公开整个 Bucket。
 
 每条 `Asset` 都记录写入时的 `storageDriver`、`storageBucket` 和 SHA-256 校验和。迁移前已有记录会自动标记为 `local`，新上传文件使用当前活动驱动。
 
@@ -165,7 +165,7 @@ AWS S3 可留空 `S3_ENDPOINT` 并填写真实 Region；部分自建兼容服务
 - 不要绕过管理端迁移流程手工复制后直接删除源文件。
 - S3/R2 的版本控制、生命周期、跨区域复制和备份由对象存储侧配置，数据库备份不能代替对象备份。
 
-管理端可以应用 Xinyue 自带的安全生命周期规则：清理未完成的分片上传，并在 Bucket 已启用版本控制时清理历史版本。它不会删除仍在使用的资产对象。保留天数由 `S3_ABORT_INCOMPLETE_UPLOAD_DAYS` 和 `S3_NONCURRENT_EXPIRATION_DAYS` 控制；其他非 Xinyue 生命周期规则会原样保留。
+管理端可以应用 OnlyArt 自带的安全生命周期规则：清理未完成的分片上传，并在 Bucket 已启用版本控制时清理历史版本。它不会删除仍在使用的资产对象。保留天数由 `S3_ABORT_INCOMPLETE_UPLOAD_DAYS` 和 `S3_NONCURRENT_EXPIRATION_DAYS` 控制；其他非 OnlyArt 生命周期规则会原样保留。
 
 ### 3.2 可选热点服务
 

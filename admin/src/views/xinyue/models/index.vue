@@ -599,7 +599,7 @@
     const detail = [context ? `${Math.round(context / 1000)}K context` : '', ...features]
       .filter(Boolean)
       .join(' · ')
-    return `${editor.agentEnabled ? xt('已开放 Agent 任务') : xt('未开放 Agent 任务')}${detail ? ` · ${detail}` : ` · ${xt('工具由 Xinyue 服务端编排')}`}`
+    return `${editor.agentEnabled ? xt('已开放 Agent 任务') : xt('未开放 Agent 任务')}${detail ? ` · ${detail}` : ` · ${xt('工具由 OnlyArt 服务端编排')}`}`
   })
   const moneyMicros = (value: number) => value ? `$${(value / 1_000_000).toFixed(value < 10_000 ? 4 : 2)}` : '-'
   const settlementMoneyMicros = (value: number, currency: string) => {

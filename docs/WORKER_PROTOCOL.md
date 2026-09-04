@@ -1,11 +1,11 @@
-# Xinyue Local Worker 协议
+# OnlyArt Local Worker 协议
 
-本文定义独立图片工具 Worker 与 Xinyue AI 的最小稳定协议。计费和执行顺序以当前版本 API 契约为准。
+本文定义独立图片工具 Worker 与 OnlyArt 的最小稳定协议。计费和执行顺序以当前版本 API 契约为准。
 
 ## 1. 边界
 
 - Worker 只执行算法，不管理用户、套餐、创作点、项目、文件库或审计。
-- Xinyue NestJS 创建 `GenerationJob`、执行权限和额度预检，通过 BullMQ 调用 Worker，并把结果写入 `Asset`。
+- OnlyArt NestJS 创建 `GenerationJob`、执行权限和额度预检，通过 BullMQ 调用 Worker，并把结果写入 `Asset`。
 - Worker 只能由管理员配置，不能作为用户 BYOK 渠道。
 - 推荐仅暴露在 Docker 内网或受控私网；可选 Bearer Token 由管理员渠道保存。
 - 模型文件、缓存和 GPU 运行目录不进入主 Git 仓库或主应用镜像。
@@ -18,7 +18,7 @@
 http://image-worker:8080
 ```
 
-Xinyue 会规范化为 `http://image-worker:8080/v1`，随后调用以下接口。
+OnlyArt 会规范化为 `http://image-worker:8080/v1`，随后调用以下接口。
 
 ## 3. 健康检查
 
@@ -89,7 +89,7 @@ Worker 必须按 `task_id` 幂等：相同任务重试时返回同一结果或�
 }
 ```
 
-也允许返回 Xinyue 后端可访问的临时 `url`。临时 URL 不得公开长期有效，最终文件仍由 Xinyue 下载并写入自己的资产存储。
+也允许返回 OnlyArt 后端可访问的临时 `url`。临时 URL 不得公开长期有效，最终文件仍由 OnlyArt 下载并写入自己的资产存储。
 
 错误响应必须使用明确 HTTP 状态和简短信息：参数错误 `400`，模型未加载 `503`，队列过载 `429`，执行失败 `500`。不要用 `200` 包装失败。
 
@@ -100,7 +100,7 @@ POST /v1/tasks/:task_id/cancel
 Authorization: Bearer <optional-token>
 ```
 
-Worker 应立即记录取消标记并尽力终止尚未开始或支持中断的计算。底层推理无法立即中断时，完成后必须丢弃结果，不得把已取消任务写入幂等结果缓存。重复取消应保持幂等；任务已经结束或不存在时可返回 `404` 或 `409`，Xinyue 仍会保持站内任务为已取消并丢弃迟到结果。
+Worker 应立即记录取消标记并尽力终止尚未开始或支持中断的计算。底层推理无法立即中断时，完成后必须丢弃结果，不得把已取消任务写入幂等结果缓存。重复取消应保持幂等；任务已经结束或不存在时可返回 `404` 或 `409`，OnlyArt 仍会保持站内任务为已取消并丢弃迟到结果。
 
 ## 7. 首批适配
 

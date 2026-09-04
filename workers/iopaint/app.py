@@ -155,7 +155,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue IOPaint Worker", version="1.0.1", lifespan=lifespan)
+app = FastAPI(title="OnlyArt IOPaint Worker", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

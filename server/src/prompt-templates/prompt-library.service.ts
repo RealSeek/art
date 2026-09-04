@@ -251,7 +251,7 @@ const SOURCES: PromptLibrarySource[] = [
   {
     id: "published-works-image",
     promptType: "IMAGE",
-    upstreamName: "Xinyue AI 公开作品",
+    upstreamName: "OnlyArt 公开作品",
     defaultDisplayName: "社区图片作品",
     homepage: "/prompts",
     format: "works",
@@ -259,12 +259,12 @@ const SOURCES: PromptLibrarySource[] = [
     external: false,
     defaultEnabled: true,
     reviewStatus: "internal",
-    reviewNote: "Xinyue AI 内部公开作品",
+    reviewNote: "OnlyArt 内部公开作品",
   },
   {
     id: "published-works-video",
     promptType: "VIDEO",
-    upstreamName: "Xinyue AI 公开作品",
+    upstreamName: "OnlyArt 公开作品",
     defaultDisplayName: "社区视频作品",
     homepage: "/prompts",
     format: "works",
@@ -272,7 +272,7 @@ const SOURCES: PromptLibrarySource[] = [
     external: false,
     defaultEnabled: true,
     reviewStatus: "internal",
-    reviewNote: "Xinyue AI 内部公开作品",
+    reviewNote: "OnlyArt 内部公开作品",
   },
 ];
 
@@ -1008,7 +1008,7 @@ export class PromptLibraryService implements OnModuleInit {
               prompt: item.prompt,
               description: item.description,
               tags: item.tags,
-              author: item.author || "Xinyue AI",
+              author: item.author || "OnlyArt",
               imageModel: item.modelName || (source.promptType === "VIDEO" ? "通用视频模型" : "通用图片模型"),
               coverUrl: item.coverUrl,
               previewVideoUrl: item.previewVideoUrl || "",
@@ -1044,7 +1044,7 @@ export class PromptLibraryService implements OnModuleInit {
             accept: expectsJson
               ? "application/json"
               : "text/html,application/javascript;q=0.9,*/*;q=0.8",
-            "user-agent": "Xinyue-AI/1.0",
+            "user-agent": "OnlyArt/1.0",
           },
           signal: AbortSignal.timeout(8_000),
         });
@@ -1217,7 +1217,7 @@ export class PromptLibraryService implements OnModuleInit {
         prompt: item.prompt,
         description: item.description,
         tags: item.tags,
-        author: item.author || "Xinyue AI",
+        author: item.author || "OnlyArt",
         imageModel: item.modelName || (source.promptType === "VIDEO" ? "通用视频模型" : "通用图片模型"),
         coverUrl: item.coverUrl,
         previewVideoUrl: item.previewVideoUrl || "",

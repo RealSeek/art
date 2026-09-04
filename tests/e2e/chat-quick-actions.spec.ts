@@ -9,7 +9,7 @@ const quickActions = [
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/v1/catalog/settings', (route) => route.fulfill({ json: {
-    siteName: 'Xinyue AI',
+    siteName: 'OnlyArt',
     chatUiPreset: 'doubao',
     chatHomeContent: {
       doubaoRecommendations: [],

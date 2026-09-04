@@ -14,7 +14,7 @@ if [[ ! -f docker-compose.prod.yml ]]; then
   if [[ -f "$APP_DIR/docker-compose.prod.yml" ]]; then
     cd "$APP_DIR"
   else
-    [[ -e "$APP_DIR" ]] && die "目标目录已存在但不是 Xinyue AI 项目：$APP_DIR"
+    [[ -e "$APP_DIR" ]] && die "目标目录已存在但不是 OnlyArt 项目：$APP_DIR"
     git clone "$REPO_URL" "$APP_DIR"
     cd "$APP_DIR"
   fi
@@ -150,7 +150,7 @@ rm -f .env.production.bak
 # visible to the operator instead of leaving a partially started stack.
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-printf '\nXinyue AI 已启动。\n'
+printf '\nOnlyArt 已启动。\n'
 printf '访问地址：http://%s:%s/\n' "$access_host" "$http_port"
 printf '首次初始化：http://%s:%s/install\n' "$access_host" "$http_port"
 if [[ "$access_host" == 'SERVER_IP' ]]; then

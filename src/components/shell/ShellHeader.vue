@@ -48,7 +48,7 @@ const auth = useAuthStore()
 const studio = useStudioStore()
 const { t } = useI18n()
 
-const mobileTitle = computed(() => ({ chat: 'Xinyue AI', images: t('workspace.creation'), videos: t('workspace.creation'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), workspace: '工作空间' } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
+const mobileTitle = computed(() => ({ chat: 'OnlyArt', images: t('workspace.creation'), videos: t('workspace.creation'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), workspace: '工作空间' } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
 const currentConversation = computed(() => studio.conversations.find((item) => item.id === studio.currentConversationId) || null)
 
 async function shareCurrentConversation() {

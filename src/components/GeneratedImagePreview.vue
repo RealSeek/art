@@ -23,7 +23,7 @@
           <button type="button" :aria-label="isVideo ? '下载视频' : '下载图片'" :title="isVideo ? '下载视频' : '下载图片'" @click="emit('download')"><Download :size="18" /></button>
           <button class="danger" type="button" :aria-label="isVideo ? '删除视频' : '删除图片'" :title="isVideo ? '删除视频' : '删除图片'" @click="removeAsset"><Trash2 :size="18" /></button>
         </div>
-        <footer><p>{{ asset.prompt || (isVideo ? 'Xinyue AI 生成视频' : 'Xinyue AI 生成图片') }}</p></footer>
+        <footer><p>{{ asset.prompt || (isVideo ? 'OnlyArt 生成视频' : 'OnlyArt 生成图片') }}</p></footer>
       </section>
     </div>
   </Teleport>

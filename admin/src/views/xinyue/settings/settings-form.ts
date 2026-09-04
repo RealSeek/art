@@ -84,7 +84,7 @@ const defaultChatHomeContent: ChatHomeContent = {
   ],
   qianwenBanners: [
     {
-      title: 'Xinyue 办公助理上线',
+      title: 'OnlyArt 办公助理上线',
       description: '解锁本地任务能力，多格式交付',
       buttonText: '立即体验',
       imageUrl: '',

@@ -1,5 +1,5 @@
 /*
- * Xinyue AI 设计令牌（design tokens）——用户端唯一权威来源。
+ * OnlyArt 设计令牌（design tokens）——用户端唯一权威来源。
  * 暗色为默认（:root），浅色通过 html[data-studio-theme="light"] 覆盖。
  * 历史 --studio-* 变量名保持不变，全部在此统一定义。
  */

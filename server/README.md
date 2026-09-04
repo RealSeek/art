@@ -1,6 +1,6 @@
-# Xinyue AI Server
+# OnlyArt Server
 
-Xinyue AI 的统一 NestJS API、任务队列和商业业务服务。完整产品说明见仓库根目录 [README](../README.md)，生产部署见 [部署与运维指南](../docs/DEPLOYMENT.md)。
+OnlyArt 的统一 NestJS API、任务队列和商业业务服务。完整产品说明见仓库根目录 [README](../README.md)，生产部署见 [部署与运维指南](../docs/DEPLOYMENT.md)。
 
 ## 技术栈
 

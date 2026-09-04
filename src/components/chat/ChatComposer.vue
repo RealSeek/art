@@ -149,7 +149,7 @@ const capabilityOptions = [
 ]
 const chatUiPreset = computed<ChatUiPreset>(() => props.chatUiPreset)
 const chatUiLabel = computed(() => ({ gpt: 'GPT', doubao: '豆包', qianwen: '千问', kimi: 'Kimi' })[chatUiPreset.value])
-const chatComposerPlaceholder = computed(() => store.temporaryChat ? '临时聊天' : ({ gpt: '有问题，随便问', doubao: '发消息...', qianwen: '向 Xinyue AI 提问', kimi: '尽管问，或做个 Agent 任务...' })[chatUiPreset.value])
+const chatComposerPlaceholder = computed(() => store.temporaryChat ? '临时聊天' : ({ gpt: '有问题，随便问', doubao: '发消息...', qianwen: '向 OnlyArt 提问', kimi: '尽管问，或做个 Agent 任务...' })[chatUiPreset.value])
 const showChatVoiceEntry = computed(() => ['gpt', 'doubao'].includes(chatUiPreset.value) && !draft.value.trim() && !attachments.value.length)
 const kimiProject = computed(() => catalog.settings.chatHomeContent.kimiProject)
 const qianwenBanners = computed(() => catalog.settings.chatHomeContent.qianwenBanners)

@@ -1595,7 +1595,7 @@ model UserModelRoute {
 
 model SystemSetting {
   id                            String   @id @default("global")
-  siteName                      String   @default("Xinyue AI")
+  siteName                      String   @default("OnlyArt")
   siteLogoUrl                   String   @default("")
   supportUrl                    String   @default("")
   sidebarCreationEnabled        Boolean  @default(true)
@@ -1674,7 +1674,7 @@ model SystemSetting {
   smtpUsername                  String   @default("")
   encryptedSmtpPassword         String   @default("") @db.Text
   smtpPasswordHint              String   @default("")
-  smtpFromName                  String   @default("Xinyue AI")
+  smtpFromName                  String   @default("OnlyArt")
   smtpFromEmail                 String   @default("")
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt

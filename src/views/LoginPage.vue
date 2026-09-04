@@ -3,8 +3,8 @@
     <section class="login-panel">
       <header class="login-header">
         <RouterLink class="login-brand" to="/">
-          <span class="login-brand__mark">X</span>
-          <strong>XINYUE</strong>
+          <span class="login-brand__mark">O</span>
+          <strong>ONLYART</strong>
           <i></i>
           <span>AI</span>
         </RouterLink>
@@ -16,7 +16,7 @@
             <option value="ja">日本語</option>
             <option value="ko">한국어</option>
           </select>
-          <span class="login-account-pill">Xinyue AI 账户</span>
+          <span class="login-account-pill">OnlyArt 账户</span>
         </div>
       </header>
 
@@ -175,7 +175,7 @@
       </section>
 
       <p class="login-legal">
-        <span>继续即表示你同意 Xinyue AI 的用户协议和隐私政策。</span>
+        <span>继续即表示你同意 OnlyArt 的用户协议和隐私政策。</span>
         <span class="login-legal__links">
           <RouterLink to="/terms">用户协议</RouterLink><i>·</i><RouterLink to="/privacy">隐私政策</RouterLink>
         </span>
@@ -186,7 +186,7 @@
       <div class="login-particles">
         <i v-for="index in 18" :key="index" :style="particleStyle(index)"></i>
       </div>
-      <div class="login-visual__mark"><span>X</span></div>
+      <div class="login-visual__mark"><span>O</span></div>
     </aside>
   </main>
 </template>

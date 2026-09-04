@@ -914,7 +914,7 @@ const englishGlossary: Record<string, string> = {
   '仅支持小写字母、数字和连字符': 'Lowercase letters, numbers and hyphens only',
   任务队列: 'Job queue',
   使用管理员账户进入运营控制台: 'Use an administrator account to access the operations console',
-  '例如：关于 Xinyue AI': 'For example: About Xinyue AI',
+  '例如：关于 OnlyArt': 'For example: About OnlyArt',
   保存草稿: 'Save draft',
   保持登录状态: 'Keep me signed in',
   关于我们: 'About us',
@@ -935,8 +935,8 @@ const englishGlossary: Record<string, string> = {
   图片无法加载: 'Image could not be loaded',
   存在异常: 'Issues detected',
   安全会话: 'Secure session',
-  '实时查看 Xinyue AI API、数据库、队列、文件存储和模型渠道状态。':
-    'Monitor the Xinyue AI API, database, queue, file storage and model providers in real time.',
+  '实时查看 OnlyArt API、数据库、队列、文件存储和模型渠道状态。':
+    'Monitor the OnlyArt API, database, queue, file storage and model providers in real time.',
   密码: 'Password',
   '封面图片 URL': 'Cover image URL',
   小时: 'hours',
@@ -972,7 +972,7 @@ const englishGlossary: Record<string, string> = {
   检测渠道: 'Check providers',
   模型渠道: 'Model providers',
   模型渠道最近一次健康检查: 'Latest provider health check',
-  '欢迎回到 Xinyue AI 管理后台': 'Welcome back to the Xinyue AI admin console',
+  '欢迎回到 OnlyArt 管理后台': 'Welcome back to the OnlyArt admin console',
   正常服务数: 'Healthy services',
   正文内容: 'Body content',
   '此操作不可恢复。': 'This action cannot be undone.',
@@ -1014,15 +1014,15 @@ const englishGlossary: Record<string, string> = {
   邮箱格式不正确: 'Invalid email format',
   需要运营处理: 'Requires operator attention',
   需要重新登录: 'Sign-in required',
-  'Xinyue AI 企业控制台': 'Xinyue AI Enterprise Console',
+  'OnlyArt 企业控制台': 'OnlyArt Enterprise Console',
   两者同时: 'Both',
   服务条款: 'Terms of service',
   隐私说明: 'Privacy notice',
   使用帮助: 'Help',
   品牌资料: 'Brand resources',
   包含额度: 'Included credits',
-  '当前控制台基于 Art Design Pro，业务数据由 Xinyue API 实时提供':
-    'This console is built on Art Design Pro and powered by live Xinyue API data',
+  '当前控制台基于 Art Design Pro，业务数据由 OnlyArt API 实时提供':
+    'This console is built on Art Design Pro and powered by live OnlyArt API data',
   '统一管理客户、AI 渠道、模型定价、支付订阅与运营安全':
     'Manage customers, AI providers, model pricing, commerce and security',
   '近 14 天生成趋势': 'Generation trend for the last 14 days',

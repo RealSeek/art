@@ -166,7 +166,7 @@ test('多轮聊天可以从右侧导航跳回已发送消息', async ({ page }) 
 test('关闭邮箱验证码后隐藏游客登录入口并显示关闭状态', async ({ page }) => {
   await page.context().clearCookies()
   await page.addInitScript(() => localStorage.setItem('flux:settings', JSON.stringify({ appearance: '浅色', language: 'zh-CN' })))
-  await page.route('**/v1/catalog/settings', (route) => route.fulfill({ json: { siteName: 'Xinyue AI', emailLoginEnabled: false, registrationEnabled: true, otpResendSeconds: 60, smtpReady: false } }))
+  await page.route('**/v1/catalog/settings', (route) => route.fulfill({ json: { siteName: 'OnlyArt', emailLoginEnabled: false, registrationEnabled: true, otpResendSeconds: 60, smtpReady: false } }))
   await page.goto('/chat')
   await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible()
   await expect(page.locator('.workspace-signin')).toHaveCount(0)
@@ -188,7 +188,7 @@ test('关闭邮箱验证码后隐藏游客登录入口并显示关闭状态', as
 test('开启邮箱登录但关闭注册时仅显示已有用户登录', async ({ page }) => {
   await page.context().clearCookies()
   await page.addInitScript(() => localStorage.setItem('flux:settings', JSON.stringify({ appearance: '浅色', language: 'zh-CN' })))
-  await page.route('**/v1/catalog/settings', (route) => route.fulfill({ json: { siteName: 'Xinyue AI', emailLoginEnabled: true, registrationEnabled: false, otpResendSeconds: 60, smtpReady: true } }))
+  await page.route('**/v1/catalog/settings', (route) => route.fulfill({ json: { siteName: 'OnlyArt', emailLoginEnabled: true, registrationEnabled: false, otpResendSeconds: 60, smtpReady: true } }))
   await page.goto('/chat')
   await expect(page.getByRole('link', { name: '登录', exact: true }).first()).toBeVisible()
   await expect(page.getByRole('link', { name: '免费注册', exact: true })).toHaveCount(0)
@@ -518,7 +518,7 @@ test('聊天设置可切换浅色模式，模型菜单显示后台信息', async
     ;(window as unknown as { SpeechRecognition: typeof MockSpeechRecognition }).SpeechRecognition = MockSpeechRecognition
   })
   await page.goto('/chat')
-    await expect(page.getByRole('heading', { name: 'Xinyue AI' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'OnlyArt' })).toBeVisible()
   await page.locator('.workspace-account-button').click()
   await page.locator('.workspace-account-menu').getByRole('button', { name: '设置', exact: true }).click()
   await page.getByLabel('外观', { exact: true }).selectOption({ label: '浅色' })
@@ -810,7 +810,7 @@ test('知识库可以编辑并管理文件资料', async ({ page }) => {
         file: {
           name: assetName,
           mimeType: 'text/plain',
-          buffer: Buffer.from('Xinyue AI knowledge base browser regression content.'),
+          buffer: Buffer.from('OnlyArt knowledge base browser regression content.'),
         },
       },
     })

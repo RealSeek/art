@@ -210,7 +210,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Xinyue Controlled ComfyUI Gateway", version="1.0.1", lifespan=lifespan)
+app = FastAPI(title="OnlyArt Controlled ComfyUI Gateway", version="1.0.1", lifespan=lifespan)
 
 
 @app.get("/v1/health")

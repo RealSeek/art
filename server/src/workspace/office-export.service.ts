@@ -250,7 +250,7 @@ export class OfficeExportService {
     cover.back = 'F7F8FA'
     cover.addShape(pptx.shapes.RECT, { x: 0, y: 0, cx: 12, cy: 540, fill: '2563EB', line: '2563EB' })
     cover.addText(title, { x: 66, y: 176, cx: 806, cy: 70, font_face: 'Microsoft YaHei', font_size: 30, bold: true, color: '111827', bodyProp: { normAutofit: 90000 } })
-    cover.addText('Xinyue AI · 办公中心', { x: 68, y: 256, cx: 396, cy: 28, font_face: 'Microsoft YaHei', font_size: 11, color: '64748B' })
+    cover.addText('OnlyArt · 办公中心', { x: 68, y: 256, cx: 396, cy: 28, font_face: 'Microsoft YaHei', font_size: 11, color: '64748B' })
 
     const sections = parseSections(content, title)
     const contentSections = sections.length > 1 && sections[0].lines.length <= 1 ? sections.slice(1) : sections
@@ -291,7 +291,7 @@ export class OfficeExportService {
 
   private async renderWorkbook(title: string, content: string) {
     const workbook = new ExcelJS.Workbook()
-    workbook.creator = 'Xinyue AI'
+    workbook.creator = 'OnlyArt'
     workbook.created = new Date()
     const tables = parseMarkdownTables(content)
     if (tables.length) {
@@ -335,7 +335,7 @@ export class OfficeExportService {
         children.push(new Paragraph({ text: cleanMarkdown(line), spacing: { after: 140, line: 320 } }))
       }
     }
-    const document = new Document({ creator: 'Xinyue AI', title, description: '由 Xinyue AI 办公中心生成', sections: [{ children }] })
+    const document = new Document({ creator: 'OnlyArt', title, description: '由 OnlyArt 办公中心生成', sections: [{ children }] })
     return Packer.toBuffer(document)
   }
 }

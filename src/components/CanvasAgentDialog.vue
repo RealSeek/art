@@ -298,7 +298,7 @@ function agentInstructions() {
     edges: props.document.edges.slice(0, 200).map(({ source, target, label }) => ({ source, target, label })),
   }
   const references = mentionedNodeIds.value.length ? `\n用户明确引用的画布节点 ID：${mentionedNodeIds.value.join(', ')}` : ''
-  return `你正在为 Xinyue AI 无限画布制定变更计划。只在最终答案输出一个 JSON 对象，不要 Markdown、解释或代码围栏。\n格式：{"summary":"一句话摘要","operations":[{"type":"add_text|add_image|add_video|update_node|connect_nodes|move_node|delete_node|run_generation","tempId":"新增节点临时 ID","nodeId":"已有节点或临时 ID","source":"源节点 ID","target":"目标节点 ID","title":"标题","content":"文本内容","prompt":"生成提示词","x":0,"y":0}]}。\n规则：最多 20 项；不得引用不存在的已有节点；新增节点必须有唯一 tempId；生成媒体应先创建或更新提示词并正确连接；只有用户明确要求时才能 delete_node 或 run_generation；不要编造已生成的图片或视频。\n执行偏好：${props.smartPlanning ? '先分析画布关系，再给出最小可执行计划。' : '直接按用户目标生成可执行计划。'} 本轮生成数量偏好：${props.generationCount}。${references}\n当前画布：${JSON.stringify(compact).slice(0, 15000)}`
+  return `你正在为 OnlyArt 无限画布制定变更计划。只在最终答案输出一个 JSON 对象，不要 Markdown、解释或代码围栏。\n格式：{"summary":"一句话摘要","operations":[{"type":"add_text|add_image|add_video|update_node|connect_nodes|move_node|delete_node|run_generation","tempId":"新增节点临时 ID","nodeId":"已有节点或临时 ID","source":"源节点 ID","target":"目标节点 ID","title":"标题","content":"文本内容","prompt":"生成提示词","x":0,"y":0}]}。\n规则：最多 20 项；不得引用不存在的已有节点；新增节点必须有唯一 tempId；生成媒体应先创建或更新提示词并正确连接；只有用户明确要求时才能 delete_node 或 run_generation；不要编造已生成的图片或视频。\n执行偏好：${props.smartPlanning ? '先分析画布关系，再给出最小可执行计划。' : '直接按用户目标生成可执行计划。'} 本轮生成数量偏好：${props.generationCount}。${references}\n当前画布：${JSON.stringify(compact).slice(0, 15000)}`
 }
 
 function parseResult(answer: string): AgentResult {

@@ -41,7 +41,7 @@ export const useAuthStore = defineStore('auth', {
       if (!state.session) return ''
       if (state.session.displayName) return state.session.displayName
       if (state.session.username) return state.session.username
-      if (state.session.email && !state.session.email.endsWith('@auth.xinyue.local')) return state.session.email.split('@')[0] || 'Xinyue 用户'
+      if (state.session.email && !state.session.email.endsWith('@auth.xinyue.local')) return state.session.email.split('@')[0] || 'OnlyArt 用户'
       return '社区用户'
     },
     initials(): string {

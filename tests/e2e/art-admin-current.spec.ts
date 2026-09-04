@@ -113,7 +113,7 @@ test('当前 Art 企业后台页面、抽屉与响应式布局可用', async ({ 
   await expect(page.locator('.content-card').first()).toBeVisible()
   await assertNoPageOverflow(page)
   await page.locator('.content-card').first().click()
-  await expect(page.getByRole('heading', { name: '关于 Xinyue AI', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '关于 OnlyArt', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '编辑内容' })).toBeVisible()
   await assertNoPageOverflow(page)
 

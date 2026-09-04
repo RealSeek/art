@@ -22,7 +22,7 @@ const GENERATE_PROMPT_SERVER_FN =
 const REQUEST_HEADERS = {
   accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
   "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36 XinyueAI/1.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36 OnlyArt/1.0",
 };
 const REMOTE_PROMPT_HOSTS = new Set([
   "youmind.com",

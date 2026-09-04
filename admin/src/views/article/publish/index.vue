@@ -22,7 +22,7 @@
             v-model.trim="form.title"
             maxlength="160"
             show-word-limit
-            :placeholder="xt('例如：关于 Xinyue AI')"
+            :placeholder="xt('例如：关于 OnlyArt')"
           />
         </section>
         <section class="form-section editor-section">

@@ -315,11 +315,11 @@ export class PaymentsService {
     if (input.orderType === 'SUBSCRIPTION') {
       const row = await this.prisma.subscriptionOrder.findFirst({ where: { id: input.orderId, userId, status: 'PENDING' }, include: { plan: { select: { name: true } } } })
       if (!row) throw new NotFoundException('待支付订阅订单不存在')
-      return { amountCents: row.amountCents, currency: row.currency, productName: `Xinyue AI ${row.plan.name}` }
+      return { amountCents: row.amountCents, currency: row.currency, productName: `OnlyArt ${row.plan.name}` }
     }
     const row = await this.prisma.rechargeOrder.findFirst({ where: { id: input.orderId, userId, status: 'PENDING' }, include: { package: { select: { name: true } } } })
     if (!row) throw new NotFoundException('待支付充值订单不存在')
-    return { amountCents: row.amountCents, currency: row.currency, productName: row.package?.name || 'Xinyue AI 创作点充值' }
+    return { amountCents: row.amountCents, currency: row.currency, productName: row.package?.name || 'OnlyArt 创作点充值' }
   }
 
   private async pickChannel(channelId: string | undefined, method: PaymentMethod, amount: number) {
