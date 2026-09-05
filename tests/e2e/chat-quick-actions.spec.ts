@@ -106,3 +106,18 @@ test('没有健康模型时不展示伪造模型并禁用提交', async ({ page 
   await expect(page.getByRole('button', { name: '暂无可用模型', exact: true })).toBeDisabled()
   await expect(page.locator('.creation-option-buttons').getByRole('button').first()).toContainText('暂无可用模型')
 })
+
+test('模型列表为空时可以直接打开个人密钥配置', async ({ page }) => {
+  await page.unroute('**/v1/catalog/models')
+  await page.route('**/v1/catalog/models', (route) => route.fulfill({ json: [] }))
+  await page.route('**/v1/auth/session', (route) => route.fulfill({ json: { user: { id: 'user-1', role: 'USER' } } }))
+  await page.route('**/v1/users/me', (route) => route.fulfill({ json: { id: 'user-1', role: 'USER', settings: {} } }))
+  await page.route('**/v1/users/me/models', (route) => route.fulfill({ json: [] }))
+  await page.goto('/chat')
+
+  await page.getByRole('button', { name: /选择模型，当前为/ }).click()
+  const picker = page.getByRole('dialog', { name: '选择模型' })
+  await expect(picker.getByText('暂无配置密钥', { exact: true })).toBeVisible()
+  await picker.getByRole('button', { name: '点击进行配置', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'API 与模型' })).toBeVisible()
+})

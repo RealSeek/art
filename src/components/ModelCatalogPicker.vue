@@ -48,21 +48,24 @@
 
     <div v-else class="model-catalog-picker__empty">
       <Search :size="22" />
-      <strong>{{ models.length ? '没有找到匹配模型' : '暂无可用模型' }}</strong>
-      <small>{{ models.length ? '换一个名称、厂商或模型 ID 试试' : '请联系管理员配置健康渠道，或添加个人 API 密钥' }}</small>
+      <strong>{{ models.length ? '没有找到匹配模型' : '暂无配置密钥' }}</strong>
+      <small>{{ models.length ? '换一个名称、厂商或模型 ID 试试' : '配置个人 API 密钥后即可使用模型' }}</small>
+      <button v-if="!models.length" type="button" class="model-catalog-picker__configure" @click="emit('configure-api-key')">
+        <KeyRound :size="15" />点击进行配置
+      </button>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, Search } from 'lucide-vue-next'
+import { Check, KeyRound, Search } from 'lucide-vue-next'
 import { agentModelDescription, type CatalogModel } from '../utils/model-catalog'
 import { inferVendor } from '../utils/vendor'
 import ModelBadge from './common/ModelBadge.vue'
 
 const props = withDefaults(defineProps<{ models: CatalogModel[]; modelValue: string; title?: string; descriptionMode?: 'default' | 'agent'; capabilities?: Array<{ key: string; label: string }>; activeCapability?: string }>(), { title: '选择模型', descriptionMode: 'default', capabilities: () => [], activeCapability: '' })
-const emit = defineEmits<{ 'update:modelValue': [value: string]; select: [value: string]; 'capability-change': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; select: [value: string]; 'capability-change': [value: string]; 'configure-api-key': [] }>()
 const capabilities = computed(() => props.capabilities || [])
 
 const query = ref('')
@@ -177,6 +180,8 @@ function choose(value: string) {
 .model-catalog-picker__empty { align-items: center; display: flex; flex-direction: column; gap: 7px; height: calc(100% - 58px); justify-content: center; padding: 24px; text-align: center; }
 .model-catalog-picker__empty strong { color: var(--studio-text, #23262c); font-size: 14px; }
 .model-catalog-picker__empty small { font-size: 12px; }
+.model-catalog-picker__configure { align-items: center; background: var(--picker-accent); border: 0; border-radius: 7px; color: #fff; cursor: pointer; display: inline-flex; font-size: 12px; gap: 6px; margin-top: 6px; min-height: 34px; padding: 0 12px; }
+.model-catalog-picker__configure:hover { filter: brightness(1.08); }
 .model-catalog-picker button:focus-visible { outline: 2px solid color-mix(in srgb, var(--picker-accent) 68%, transparent); outline-offset: -2px; }
 @media (max-width: 680px) {
   .model-catalog-picker { height: min(calc(var(--picker-content-height) + 100px), calc(100dvh - 24px)); }

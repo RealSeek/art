@@ -445,6 +445,7 @@ onMounted(async () => {
   document.body.classList.add('has-workspace')
   document.addEventListener('pointerdown', handleConversationMenuOutside)
   document.addEventListener('keydown', handleConversationMenuKeydown)
+  document.addEventListener('xinyue:open-api-settings', openApiSettings)
   window.addEventListener('resize', closeConversationMenu)
   try {
     await auth.refresh()
@@ -477,6 +478,7 @@ onUnmounted(() => {
   document.body.classList.remove('has-workspace')
   document.removeEventListener('pointerdown', handleConversationMenuOutside)
   document.removeEventListener('keydown', handleConversationMenuKeydown)
+  document.removeEventListener('xinyue:open-api-settings', openApiSettings)
   window.removeEventListener('resize', closeConversationMenu)
 })
 
@@ -487,6 +489,10 @@ function openSettings(section: SettingsSection) {
   accountOpen.value = false
   mobileOpen.value = false
   scrollActiveSetting('auto')
+}
+
+function openApiSettings() {
+  openSettings('api')
 }
 
 function selectSettingsSection(section: SettingsSection) {

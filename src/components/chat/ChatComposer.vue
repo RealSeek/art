@@ -14,7 +14,7 @@
           <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="chatComposerPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
           <nav v-if="showChatComposerShortcutBar" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
             <button v-if="chatComposerControls.modeEnabled" class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><component :is="activeChatModeIcon" :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
-            <button v-if="chatUiPreset === 'doubao' && chatComposerControls.modelSelectorEnabled" ref="modelAnchor" class="chat-home-inline-model" :class="{ 'is-open': modelOpen }" type="button" :aria-expanded="modelOpen" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" :disabled="!capabilityModels.length" @click="toggleModelMenu"><ModelBadge v-if="activeCapabilityModelOption" :model="activeCapabilityModelOption" size="sm" /><span v-else aria-hidden="true">#</span><strong>{{ activeCapabilityModelLabel }}</strong><ChevronDown :size="12" /></button>
+            <button v-if="chatUiPreset === 'doubao' && chatComposerControls.modelSelectorEnabled" ref="modelAnchor" class="chat-home-inline-model" :class="{ 'is-open': modelOpen }" type="button" :aria-expanded="modelOpen" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" @click="toggleModelMenu"><ModelBadge v-if="activeCapabilityModelOption" :model="activeCapabilityModelOption" size="sm" /><span v-else aria-hidden="true">#</span><strong>{{ activeCapabilityModelLabel }}</strong><ChevronDown :size="12" /></button>
             <button v-if="chatComposerControls.webSearchEnabled" class="composer-web-search" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
             <button v-for="item in visibleChatShortcuts" :key="item.id" type="button" @click="executeChatQuickAction(item)">
               <component :is="quickActionIcon(item.icon)" :size="16" /><span>{{ item.label }}</span>
@@ -31,7 +31,7 @@
             </button>
             <Teleport to="body">
               <div v-if="modelOpen" ref="modelPopover" class="composer-popover model-popover model-popover--catalog model-popover--floating" :style="modelPopoverStyle">
-                <ModelCatalogPicker :models="capabilityModels" :model-value="activeCapabilityModel" title="选择模型" :capabilities="capabilityOptions.map(({ key, label }) => ({ key, label }))" :active-capability="activeCapability" @capability-change="selectCapabilityFromPicker" @select="handleSelectCapabilityModel" />
+                <ModelCatalogPicker :models="capabilityModels" :model-value="activeCapabilityModel" title="选择模型" :capabilities="capabilityOptions.map(({ key, label }) => ({ key, label }))" :active-capability="activeCapability" @capability-change="selectCapabilityFromPicker" @select="handleSelectCapabilityModel" @configure-api-key="openApiSettings" />
               </div>
             </Teleport>
           </div>
@@ -407,6 +407,11 @@ function closeChatComposerPopoversOnEscape(event: KeyboardEvent) {
   chatModeMenuOpen.value = false
   chatMoreMenuOpen.value = false
   modelOpen.value = false
+}
+
+function openApiSettings() {
+  closePopovers()
+  document.dispatchEvent(new Event('xinyue:open-api-settings'))
 }
 watch(draft, () => { void nextTick(resizeComposer) })
 // 预设切换（目录设置异步下发）与视口变化后，需要重算高度变量，避免面板/建议区跟随错位
