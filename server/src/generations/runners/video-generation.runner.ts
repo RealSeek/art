@@ -148,7 +148,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         await this.updateRunningTask(task, { updatedAt: new Date() }, true)
         if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status)) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
-        if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: this.videoPath(capabilities.contentPath, providerJobId) }
+        if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
       }
       throw new ProviderRequestError('视频生成等待超时', 504)
     })
@@ -247,11 +247,12 @@ export class VideoGenerationRunner implements GenerationRunner {
     const request = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
     const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
     if (!response.ok) throw new ProviderRequestError(`视频下载返回 ${response.status}`, response.status)
+    const contentType = (response.headers.get('content-type') || 'video/mp4').split(';')[0].toLowerCase()
+    if (contentType.startsWith('text/') || contentType.includes('json')) throw new ProviderRequestError(`视频下载返回了非视频内容：${contentType}`, 502)
     let bytes: Uint8Array
     try { bytes = await readResponseBytes(response, MAX_GENERATED_VIDEO_BYTES, 'Provider 视频') }
     catch { throw new ProviderRequestError('视频下载超过 500 MB', 502) }
     if (!bytes.length) throw new ProviderRequestError('视频上游返回了空文件', 502)
-    const contentType = (response.headers.get('content-type') || 'video/mp4').split(';')[0].toLowerCase()
     return { bytes, mimeType: contentType.startsWith('video/') ? contentType : 'video/mp4' }
   }
 
