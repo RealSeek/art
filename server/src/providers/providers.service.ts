@@ -1619,7 +1619,9 @@ export class ProvidersService implements OnModuleInit {
 
   async resolveCandidates(userId: string, requestedModel: string | undefined, capability: ModelCapability, requirements: Record<string, unknown> = {}): Promise<ResolvedProvider[]> {
     const requiredSource = this.routing.sourceRequirement(requirements.providerSource)
-    const privateCandidates = requiredSource === 'platform' ? null : await this.resolvePrivateCandidates(userId, requiredSource === 'user' ? undefined : requestedModel, capability)
+    // 指定个人模型时保留选择；平台模型使用 BYOK 时仍沿用个人默认模型。
+    const privateModel = requiredSource === 'user' && !requestedModel?.trim().startsWith('private:') ? undefined : requestedModel
+    const privateCandidates = requiredSource === 'platform' ? null : await this.resolvePrivateCandidates(userId, privateModel, capability)
     if (privateCandidates) return privateCandidates
     const { preset, model, creditCost, policy, settings } = await this.resolvePreset(userId, requestedModel, capability)
     const candidates: ResolvedProvider[] = []
