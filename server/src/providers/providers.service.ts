@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { randomUUID } from 'node:crypto'
 import { ModelCapability, Prisma, ProviderAuthType, ProviderType, SystemSetting } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { localWorkerHttpUrl, PublicEndpointPolicyService } from '../common/public-endpoint-policy.service'
@@ -72,17 +73,11 @@ type ProviderTemplateInput = {
 }
 
 type CredentialInput = {
-  name: string
-  templateId?: string
-  providerType: ProviderType
-  baseUrl: string
   apiKey?: string
-  authType?: ProviderAuthType
   enabled?: boolean
   isDefault?: boolean
   priority?: number
   weight?: number
-  customHeaders?: Record<string, string>
   expiresAt?: string | null
 }
 
@@ -1258,12 +1253,17 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async createCredential(userId: string, input: CredentialInput) {
-    if (input.providerType === ProviderType.LOCAL_WORKER) throw new BadRequestException('本地 Worker 只能由管理员配置')
     if (!input.apiKey?.trim()) throw new BadRequestException('请输入 API 密钥')
-    const baseUrl = await this.assertUserProviderUrl(input.baseUrl)
+    const baseUrl = await this.assertUserProviderUrl(this.onlyCodeProviderBaseUrl())
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId }, data: { isDefault: false } })
-    const row = await this.prisma.userApiCredential.create({ data: { userId, name: input.name.trim(), templateId: input.templateId || null, providerType: input.providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: input.authType, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, customHeaders: input.customHeaders as Prisma.InputJsonValue, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
+    const row = await this.prisma.userApiCredential.create({ data: { userId, name: `OnlyCode-${randomUUID()}`, providerType: ProviderType.NEW_API, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: ProviderAuthType.BEARER, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
     return this.publicCredential(row)
+  }
+
+  private onlyCodeProviderBaseUrl() {
+    const baseUrl = this.config.get<string>('NEW_API_PUBLIC_URL') || this.config.get<string>('NEW_API_BASE_URL')
+    if (!baseUrl) throw new ServiceUnavailableException('OnlyCode 接入尚未配置')
+    return `${baseUrl.replace(/\/+$/, '')}/v1`
   }
 
   async onlyCodeProvisioningGroups() {
@@ -1326,7 +1326,7 @@ export class ProvidersService implements OnModuleInit {
     const rawKey = typeof payload?.data?.key === 'string' ? payload.data.key.trim() : ''
     if (!payload?.success || !rawKey) throw new ServiceUnavailableException('OnlyCode 未返回有效 Key')
     const key = rawKey.startsWith('sk-') ? rawKey : `sk-${rawKey}`
-    const providerBaseUrl = `${(this.config.get<string>('NEW_API_PUBLIC_URL') || baseUrl).replace(/\/+$/, '')}/v1`
+    const providerBaseUrl = this.onlyCodeProviderBaseUrl()
     const row = await this.prisma.userApiCredential.create({ data: { userId, name, provisionKey: group, externalTokenId: typeof payload.data?.token_id === 'number' ? String(payload.data.token_id) : null, providerType: ProviderType.NEW_API, baseUrl: providerBaseUrl, encryptedApiKey: this.crypto.encrypt(key), apiKeyHint: this.crypto.hint(key), authType: ProviderAuthType.BEARER, enabled: true, isDefault: false, lastRotatedAt: new Date() } })
     try {
       const imported = await this.importCredentialModels(userId, row.id, { importAll: true })
@@ -1340,20 +1340,17 @@ export class ProvidersService implements OnModuleInit {
     const existing = await this.prisma.userApiCredential.findFirst({ where: { id, userId } })
     if (!existing) throw new NotFoundException('API 凭据不存在')
     if (!(await this.userPolicy(userId)).allowUserByok) throw new ForbiddenException('当前用户分组或套餐不允许使用个人 API 密钥')
-    if (input.providerType === ProviderType.LOCAL_WORKER || existing.providerType === ProviderType.LOCAL_WORKER) throw new BadRequestException('本地 Worker 只能由管理员配置')
+    const baseUrl = await this.assertUserProviderUrl(this.onlyCodeProviderBaseUrl())
+    // 旧渠道切换地址时必须重新输入密钥，避免把原渠道密钥发送给新地址。
+    if (this.normalizeBaseUrl(existing.baseUrl) !== baseUrl && !input.apiKey?.trim()) throw new BadRequestException('请重新输入 OnlyCode API 密钥')
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId, id: { not: id } }, data: { isDefault: false } })
     const row = await this.prisma.userApiCredential.update({ where: { id }, data: {
-      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-      ...(input.templateId !== undefined ? { templateId: input.templateId || null } : {}),
-      ...(input.providerType !== undefined ? { providerType: input.providerType } : {}),
-      ...(input.baseUrl !== undefined ? { baseUrl: await this.assertUserProviderUrl(input.baseUrl) } : {}),
+      templateId: null, providerType: ProviderType.NEW_API, baseUrl, authType: ProviderAuthType.BEARER, customHeaders: Prisma.DbNull,
       ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey) } : {}),
-      ...(input.authType !== undefined ? { authType: input.authType } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       ...(input.weight !== undefined ? { weight: input.weight } : {}),
-      ...(input.customHeaders !== undefined ? { customHeaders: input.customHeaders as Prisma.InputJsonValue } : {}),
       ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
     } })
     return this.publicCredential(row)

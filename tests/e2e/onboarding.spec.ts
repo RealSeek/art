@@ -152,3 +152,46 @@ test('普通用户不能通过预览参数打开引导', async ({ page }) => {
   await expect(page.locator('.onboarding-overlay')).toHaveCount(0)
   await expect(page.getByText('预览模式', { exact: true })).toHaveCount(0)
 })
+
+test('手动添加和编辑密钥仅提交 OnlyCode 可编辑字段', async ({ page }, testInfo) => {
+  await mockFirstLoginApi(page, { required: false })
+  const credentials: Array<Record<string, unknown>> = []
+  const bodies: Array<Record<string, unknown>> = []
+  await page.route('**/v1/users/me/api-credentials**', async (route) => {
+    const request = route.request()
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON()
+      bodies.push(body)
+      credentials.push({ ...body, id: 'manual-key', name: 'OnlyCode-test', providerType: 'NEW_API', baseUrl: 'https://code.example/v1', authType: 'BEARER', apiKeyHint: '1234' })
+      return route.fulfill({ json: credentials[0] })
+    }
+    if (request.method() === 'PATCH') {
+      bodies.push(request.postDataJSON())
+      return route.fulfill({ json: credentials[0] })
+    }
+    return route.fulfill({ json: credentials })
+  })
+  await page.goto('/chat?settings=api')
+  await page.getByRole('button', { name: '手动填写密钥' }).first().click()
+  const editor = page.locator('.settings-credential-editor')
+  await expect(editor.getByRole('heading', { name: '添加 API 密钥' })).toBeVisible()
+  await expect(editor.locator('select')).toHaveCount(0)
+  await expect(editor.locator('input')).toHaveCount(6)
+  await expect(editor).not.toContainText(/渠道模板|服务类型|API Base URL|认证方式|名称/)
+  await editor.getByLabel('API 密钥', { exact: true }).fill('sk-test-1234')
+  await editor.getByLabel('保存后自动识别并导入全部可用模型').uncheck()
+  await assertNoPageOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('onlycode-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await assertNoPageOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('onlycode-mobile.png') })
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(bodies[0]).toEqual({ apiKey: 'sk-test-1234', enabled: true, isDefault: true, priority: 0, weight: 100, expiresAt: null })
+  await page.getByRole('button', { name: '编辑', exact: true }).click()
+  await expect(editor.getByPlaceholder('留空保留 1234')).toBeVisible()
+  await editor.getByLabel('权重', { exact: true }).fill('80')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(bodies[1]).toEqual({ enabled: true, isDefault: true, priority: 0, weight: 80, expiresAt: null })
+})

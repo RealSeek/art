@@ -136,9 +136,9 @@
 .settings-private-routes > article { display: grid; gap: 7px; grid-template-columns: minmax(120px, .85fr) minmax(170px, 1.35fr) 74px 74px 30px; }
 .settings-private-routes > article > button { align-items: center; background: transparent; border: 0; color: var(--studio-muted); display: inline-flex; justify-content: center; padding: 0; }
 .settings-private-routes > article > button:hover { color: #ef4444; }
-.settings-credential-toggles { display: flex; gap: 20px; }
+.settings-credential-toggles { display: flex; flex-wrap: wrap; gap: 12px 20px; }
 .settings-credential-toggles label { display: flex; align-items: center; gap: 7px; color: var(--studio-text); font-size: 12px; }
-.settings-credential-toggles input { width: 16px; height: 16px; accent-color: #2563eb; }
+.settings-credential-toggles input { flex-shrink: 0; width: 16px; height: 16px; accent-color: #2563eb; }
 .settings-credential-editor > footer { display: flex; justify-content: flex-end; gap: 9px; }
 .settings-credential-editor > footer button { min-height: 34px; padding: 0 14px; border: 1px solid var(--studio-border); border-radius: 5px; background: transparent; color: var(--studio-text); }
 .settings-credential-editor > footer button:last-child { border-color: #2563eb; background: #2563eb; color: #fff; }

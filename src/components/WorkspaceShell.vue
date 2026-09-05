@@ -170,7 +170,6 @@
       <ApiKeyDialog
         v-if="credentialEditor"
         :editor="credentialEditor"
-        :provider-templates="providerTemplates"
         :credential-saving="credentialSaving"
         :credential-error="credentialError"
         :save-credential="saveCredential"
@@ -685,8 +684,9 @@ async function cancelAccountDeletion() {
 }
 function openCredentialEditor(item?: ApiCredential) {
   credentialError.value = ''
-  const onlyCodeBaseUrl = publicSettings.newApiConsoleUrl === '#' ? '' : publicSettings.newApiConsoleUrl.replace(/\/keys\/?$/, '/v1')
-  credentialEditor.value = item ? { ...item, templateId: item.templateId || '', apiKey: '', expiresAt: item.expiresAt?.slice(0, 10) || '', autoImport: false } : { name: 'OnlyCode', templateId: '', providerType: 'NEW_API', baseUrl: onlyCodeBaseUrl, apiKey: '', apiKeyHint: '', authType: 'BEARER', enabled: true, isDefault: apiCredentials.value.length === 0, priority: 0, weight: 100, expiresAt: '', autoImport: true }
+  credentialEditor.value = item
+    ? { id: item.id, apiKey: '', apiKeyHint: item.apiKeyHint, enabled: item.enabled, isDefault: item.isDefault, priority: item.priority, weight: item.weight, expiresAt: item.expiresAt?.slice(0, 10) || '', autoImport: false }
+    : { apiKey: '', apiKeyHint: '', enabled: true, isDefault: apiCredentials.value.length === 0, priority: 0, weight: 100, expiresAt: '', autoImport: true }
 }
 
 async function saveCredential() {

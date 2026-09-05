@@ -1,38 +1,26 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { Type } from 'class-transformer'
 import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsISO8601, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator'
-import { ModelCapability, ProviderAuthType, ProviderType } from '@prisma/client'
+import { ModelCapability } from '@prisma/client'
 import { AuthGuard } from '../auth/auth.guard'
 import { AuthenticatedUser, CurrentUser } from '../common/request-user'
 import { ProvidersService } from './providers.service'
 
 class CreateCredentialDto {
-  @IsString() @MinLength(1) @MaxLength(80) name!: string
-  @IsOptional() @IsString() templateId?: string
-  @IsEnum(ProviderType) providerType!: ProviderType
-  @IsString() @MinLength(8) @MaxLength(500) baseUrl!: string
   @IsString() @MinLength(4) @MaxLength(1000) apiKey!: string
-  @IsOptional() @IsEnum(ProviderAuthType) authType?: ProviderAuthType
   @IsOptional() @IsBoolean() enabled?: boolean
   @IsOptional() @IsBoolean() isDefault?: boolean
   @IsOptional() @IsInt() @Min(-10000) @Max(10000) priority?: number
   @IsOptional() @IsInt() @Min(1) @Max(10000) weight?: number
-  @IsOptional() @IsObject() customHeaders?: Record<string, string>
   @IsOptional() @ValidateIf((_, value) => value !== null) @IsISO8601() expiresAt?: string | null
 }
 
 class UpdateCredentialDto {
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string
-  @IsOptional() @IsString() templateId?: string
-  @IsOptional() @IsEnum(ProviderType) providerType?: ProviderType
-  @IsOptional() @IsString() @MinLength(8) @MaxLength(500) baseUrl?: string
   @IsOptional() @IsString() @MaxLength(1000) apiKey?: string
-  @IsOptional() @IsEnum(ProviderAuthType) authType?: ProviderAuthType
   @IsOptional() @IsBoolean() enabled?: boolean
   @IsOptional() @IsBoolean() isDefault?: boolean
   @IsOptional() @IsInt() @Min(-10000) @Max(10000) priority?: number
   @IsOptional() @IsInt() @Min(1) @Max(10000) weight?: number
-  @IsOptional() @IsObject() customHeaders?: Record<string, string>
   @IsOptional() @ValidateIf((_, value) => value !== null) @IsISO8601() expiresAt?: string | null
 }
 
