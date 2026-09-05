@@ -115,7 +115,7 @@ export class VideoGenerationRunner implements GenerationRunner {
           resolution: normalized.resolution,
           duration: normalized.duration,
           aspect_ratio: normalized.aspectRatio,
-          ...(resolved.type === ProviderType.SUB2API ? {} : {
+          ...(resolved.type === ProviderType.SUB2API || /minimax|hailuo/i.test(resolved.model) ? {} : {
             size: normalized.resolution,
             seconds: String(normalized.duration),
           }),
