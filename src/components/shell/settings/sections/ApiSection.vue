@@ -1,64 +1,114 @@
 <template>
   <h2 id="settings-api">API 与模型</h2>
-  <template>
-    <section class="settings-routing-overview">
-      <header><div><strong>OnlyCode 分组密钥</strong><small>选择管理员开放的分组并直接接入。</small></div></header>
-      <div class="settings-routing-grid">
-        <article><span><KeyRound :size="18" /></span><div><strong>个人 API 密钥</strong><small>{{ apiCredentials.length ? `${apiCredentials.filter((item) => item.enabled).length} 个已启用，任务会使用你的密钥` : '尚未接入分组' }}</small></div><em :class="{ inactive: !apiCredentials.some((item) => item.enabled) }">{{ apiCredentials.some((item) => item.enabled) ? '已接入' : '未接入' }}</em></article>
-      </div>
-      <div v-if="availableModels.length" class="settings-model-tags"><span v-for="item in availableModels.slice(0, 8)" :key="item.key">{{ item.displayName }}<small>{{ modelCapabilityLabel[item.capability] || item.capability }}</small></span><em v-if="availableModels.length > 8">+{{ availableModels.length - 8 }}</em></div>
-    </section>
-    <section v-if="provisioningGroups.length" class="settings-provision-groups">
-      <article v-for="group in provisioningGroups" :key="group">
+  <p class="settings-section-intro">按用途接入 OnlyCode 密钥，模型会在接入后自动同步。</p>
+
+  <section class="settings-capability-grid" aria-label="OnlyCode 接入分类">
+    <article v-for="item in capabilityItems" :key="item.capability" :class="`is-${item.capability.toLowerCase()}`">
+      <header>
+        <span class="settings-capability-icon"><component :is="item.icon" :size="19" /></span>
         <div>
-          <strong>{{ group }}</strong>
-          <small>{{ groupCreatedCount(group) > 0 ? `已创建 ${groupCreatedCount(group)} 个密钥` : '可创建' }}</small>
+          <strong>{{ item.label }}</strong>
+          <small>{{ item.description }}</small>
         </div>
-        <input v-model.trim="names[group]" type="text" maxlength="50" :placeholder="`onlyart-用户名-${group}`" />
-        <button type="button" :disabled="Boolean(provisioningBusyGroup)" @click="handleProvision(group)">
-          <CirclePlus :size="15" />{{ provisioningBusyGroup === group ? '处理中...' : '创建新密钥' }}
+        <em>{{ groupsLoading ? '加载中' : `${groupsFor(item.capability).length} 个分组` }}</em>
+      </header>
+
+      <label class="settings-capability-group">
+        <span>OnlyCode 分组</span>
+        <select v-model="selectedGroups[item.capability]" :disabled="groupsLoading || !groupsFor(item.capability).length">
+          <option v-if="groupsLoading" value="">正在加载开放分组...</option>
+          <option v-else-if="!groupsFor(item.capability).length" value="">管理员暂未开放此类分组</option>
+          <option v-for="group in groupsFor(item.capability)" :key="group.name" :value="group.name">
+            {{ group.name }} · {{ group.models.length }} 个模型 · x{{ group.ratio }}
+          </option>
+        </select>
+      </label>
+
+      <p v-if="selectedGroup(item.capability)" class="settings-capability-models">
+        创建后自动同步该分组的 {{ selectedGroup(item.capability)?.models.length }} 个模型，无需复制密钥。
+      </p>
+      <p v-else class="settings-capability-models">仍可使用已有 OnlyCode 密钥手动接入。</p>
+
+      <footer>
+        <button
+          type="button"
+          class="is-primary"
+          :disabled="!selectedGroups[item.capability] || Boolean(provisioningBusyGroup)"
+          @click="handleProvision(item.capability)"
+        >
+          <WandSparkles :size="15" />
+          {{ provisioningBusyGroup && provisioningBusyGroup === selectedGroups[item.capability] ? '正在接入...' : '一键创建并导入' }}
         </button>
-      </article>
-    </section>
-    <p v-else class="settings-provision-empty">管理员暂未开放可创建的 OnlyCode 分组。</p>
-    <div class="settings-action-row"><span><strong>我的上游密钥</strong><small>自动创建的密钥会加密保存。</small></span></div>
-    <section class="settings-api-list"><article v-for="item in apiCredentials" :key="item.id"><div><strong>{{ item.name }}<em v-if="item.isDefault">默认</em></strong><small>{{ providerTypeLabel[item.providerType] }}<template v-if="item.provisionKey"> · {{ item.provisionKey }}</template> · {{ item.apiKeyHint }} · {{ item.totalRequests || 0 }} 次调用<span v-if="item.expiresAt"> · {{ formatServerDate(item.expiresAt) }} 到期</span></small><p>{{ item.baseUrl }}</p></div><span class="settings-api-state" :class="{ disabled: !item.enabled || item.lastHealthStatus === 'unhealthy' }">{{ item.lastHealthStatus === 'healthy' ? '连接正常' : item.lastHealthStatus === 'unhealthy' ? '连接异常' : item.enabled ? '待检测' : '已停用' }}</span><footer><button type="button" :disabled="credentialCheckingId === item.id" @click="discoverCredential(item)">{{ credentialCheckingId === item.id ? '检测中' : '检测并导入模型' }}</button><button type="button" @click="openCredentialEditor(item)">编辑</button><button type="button" class="danger-button" @click="deleteCredential(item)">删除</button></footer></article><p v-if="!apiCredentials.length">尚未接入 OnlyCode 分组。</p></section>
-    <div class="settings-action-row"><span><strong>我的模型</strong><small>一个模型可以绑定多个密钥，并按优先级、权重或轮询策略切换。</small></span><button type="button" :disabled="!apiCredentials.length" @click="openPrivateModelEditor()"><CirclePlus :size="15" />添加模型</button></div>
-    <section class="settings-api-list settings-private-models"><article v-for="item in privateModels" :key="item.id"><div><strong>{{ item.displayName }}<em v-if="item.isDefault">默认</em></strong><small>{{ modelCapabilityLabel[item.capability] }} · {{ routingStrategyLabel[item.routingStrategy] || item.routingStrategy }}</small><p>{{ item.routes.length }} 条密钥路由 · {{ item.routes.filter((route) => route.enabled && route.credential.enabled).length }} 条已启用</p></div><span class="settings-api-state" :class="{ disabled: !item.enabled || !item.routes.some((route) => route.enabled && route.credential.enabled) }">{{ item.enabled ? '已启用' : '已停用' }}</span><footer><button type="button" @click="openPrivateModelEditor(item)">编辑路由</button><button type="button" class="danger-button" @click="deletePrivateModel(item)">删除</button></footer></article><p v-if="!privateModels.length">尚未配置私有模型。检测密钥后可直接导入上游模型。</p></section>
-  </template>
+        <button type="button" @click="openCredentialEditor()"><KeyRound :size="15" />手动填写密钥</button>
+      </footer>
+    </article>
+  </section>
+
+  <div class="settings-action-row settings-api-heading">
+    <span><strong>已接入密钥</strong><small>OnlyArt 只会显示密钥末尾四位。</small></span>
+  </div>
+  <section class="settings-api-list">
+    <article v-for="item in apiCredentials" :key="item.id">
+      <div>
+        <strong>{{ item.name }}<em v-if="item.isDefault">默认</em></strong>
+        <small>OnlyCode<template v-if="item.provisionKey"> · {{ item.provisionKey }}</template> · {{ item.apiKeyHint }} · {{ item.totalRequests || 0 }} 次调用<span v-if="item.expiresAt"> · {{ formatServerDate(item.expiresAt) }} 到期</span></small>
+        <p>{{ item.baseUrl }}</p>
+      </div>
+      <span class="settings-api-state" :class="{ disabled: !item.enabled || item.lastHealthStatus === 'unhealthy' }">{{ item.lastHealthStatus === 'healthy' ? '连接正常' : item.lastHealthStatus === 'unhealthy' ? '连接异常' : item.enabled ? '待检测' : '已停用' }}</span>
+      <footer>
+        <button type="button" :disabled="credentialCheckingId === item.id" @click="discoverCredential(item)">{{ credentialCheckingId === item.id ? '检测中' : '检测并导入模型' }}</button>
+        <button type="button" @click="openCredentialEditor(item)">编辑</button>
+        <button type="button" class="danger-button" @click="deleteCredential(item)">删除</button>
+      </footer>
+    </article>
+    <p v-if="!apiCredentials.length">还没有接入密钥，可从上方选择分类开始。</p>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
-import { CirclePlus, KeyRound } from 'lucide-vue-next'
+import { reactive, watch, type Component } from 'vue'
+import { Image, KeyRound, MessageCircle, Video, WandSparkles } from 'lucide-vue-next'
 import { formatServerDate } from '../../format'
-import { modelCapabilityLabel, providerTypeLabel, routingStrategyLabel } from '../../labels'
-import type { ApiCredential, AvailableModel, PrivateModel } from '../../types'
+import type { ApiCredential, CapabilityType, OnlyCodeGroupInfo } from '../../types'
 
 const props = defineProps<{
-  newApiConsoleUrl: string
-  provisioningGroups: string[]
+  provisioningGroupDetails: OnlyCodeGroupInfo[]
+  groupsLoading: boolean
   provisioningBusyGroup: string
-  availableModels: AvailableModel[]
   apiCredentials: ApiCredential[]
   credentialCheckingId: string
-  privateModels: PrivateModel[]
   openCredentialEditor: (item?: ApiCredential) => void
   discoverCredential: (item: ApiCredential) => Promise<void>
   deleteCredential: (item: ApiCredential) => Promise<void>
-  openPrivateModelEditor: (item?: PrivateModel, credentialId?: string, upstreamModel?: string) => void
-  deletePrivateModel: (item: PrivateModel) => Promise<void>
   provisionOnlyCode: (group: string, name: string) => Promise<boolean>
 }>()
 
-const names = reactive<Record<string, string>>({})
-function groupCreatedCount(group: string) {
-  return props.apiCredentials.filter((item) => item.provisionKey === group).length
+const capabilityItems: Array<{ capability: CapabilityType; label: string; description: string; icon: Component }> = [
+  { capability: 'CHAT', label: '对话', description: '问答、推理与代码模型', icon: MessageCircle },
+  { capability: 'IMAGE', label: '生图', description: '图片生成与编辑模型', icon: Image },
+  { capability: 'VIDEO', label: '视频', description: '视频生成与处理模型', icon: Video },
+]
+const selectedGroups = reactive<Record<CapabilityType, string>>({ CHAT: '', IMAGE: '', VIDEO: '' })
+
+function groupsFor(capability: CapabilityType) {
+  return props.provisioningGroupDetails.filter((group) => group.capabilities.includes(capability))
 }
 
-async function handleProvision(group: string) {
-  const nameToUse = names[group] || ''
-  if (await props.provisionOnlyCode(group, nameToUse)) names[group] = ''
+watch(() => props.provisioningGroupDetails, () => {
+  for (const item of capabilityItems) {
+    const groups = groupsFor(item.capability)
+    if (!groups.some((group) => group.name === selectedGroups[item.capability])) {
+      selectedGroups[item.capability] = groups[0]?.name || ''
+    }
+  }
+}, { immediate: true })
+
+function selectedGroup(capability: CapabilityType) {
+  return props.provisioningGroupDetails.find((group) => group.name === selectedGroups[capability])
 }
 
+async function handleProvision(capability: CapabilityType) {
+  const group = selectedGroups[capability]
+  if (group) await props.provisionOnlyCode(group, '')
+}
 </script>

@@ -113,6 +113,19 @@ test('模型列表为空时可以直接打开个人密钥配置', async ({ page 
   await page.route('**/v1/auth/session', (route) => route.fulfill({ json: { user: { id: 'user-1', role: 'USER' } } }))
   await page.route('**/v1/users/me', (route) => route.fulfill({ json: { id: 'user-1', role: 'USER', settings: {} } }))
   await page.route('**/v1/users/me/models', (route) => route.fulfill({ json: [] }))
+  await page.route('**/v1/users/me/only-code-groups', (route) => route.fulfill({ json: [
+    { name: 'gemini', ratio: 0.2, models: ['gemini-2.5-pro', 'imagen-4', 'veo-3'], capabilities: ['CHAT', 'IMAGE', 'VIDEO'] },
+    { name: 'codex-pro', ratio: 0.2, models: ['gpt-5.3-codex'], capabilities: ['CHAT'] },
+  ] }))
+  await page.route('**/v1/users/me/api-credentials/only-code', async (route) => {
+    const body = route.request().postDataJSON() as { group?: string }
+    expect(body.group).toBe('gemini')
+    await route.fulfill({ json: { imported: 3 } })
+  })
+  await page.route('**/v1/users/me/api-credentials', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/v1/users/me/private-models', (route) => route.fulfill({ json: [] }))
   await page.goto('/chat')
 
   await page.getByRole('button', { name: /选择模型，当前为/ }).click()
@@ -120,4 +133,13 @@ test('模型列表为空时可以直接打开个人密钥配置', async ({ page 
   await expect(picker.getByText('暂无配置密钥', { exact: true })).toBeVisible()
   await picker.getByRole('button', { name: '点击进行配置', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'API 与模型' })).toBeVisible()
+  const settings = page.getByRole('dialog', { name: 'API 与模型' })
+  await expect(settings.getByText('对话', { exact: true })).toBeVisible()
+  await expect(settings.getByText('生图', { exact: true })).toBeVisible()
+  await expect(settings.getByText('视频', { exact: true })).toBeVisible()
+  await expect(picker).toBeHidden()
+  await expect(settings.getByRole('combobox').first()).toHaveValue('gemini')
+  await settings.getByRole('button', { name: '一键创建并导入' }).first().click()
+  await settings.getByRole('button', { name: '手动填写密钥' }).first().click()
+  await expect(page.getByRole('heading', { name: '添加 API 密钥' })).toBeVisible()
 })

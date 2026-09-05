@@ -96,18 +96,14 @@
         />
         <ApiSection
           v-else-if="settingsSection === 'api'"
-          :new-api-console-url="publicSettings.newApiConsoleUrl"
-          :provisioning-groups="publicSettings.newApiProvisioningGroups"
+          :provisioning-group-details="onlyCodeGroups"
+          :groups-loading="onlyCodeGroupsLoading"
           :provisioning-busy-group="onlyCodeProvisioningBusyGroup"
-          :available-models="availableModels"
           :api-credentials="apiCredentials"
           :credential-checking-id="credentialCheckingId"
-          :private-models="privateModels"
           :open-credential-editor="openCredentialEditor"
           :discover-credential="discoverCredential"
           :delete-credential="deleteCredential"
-          :open-private-model-editor="openPrivateModelEditor"
-          :delete-private-model="deletePrivateModel"
           :provision-only-code="provisionOnlyCodeCredential"
         />
         <WorkspaceSection
@@ -260,6 +256,7 @@ import type {
   NotificationItem,
   OnboardingStatus,
   OnlyCodeBalance,
+  OnlyCodeGroupInfo,
   PendingTeamInvitation,
   PrivateModel,
   PrivateModelEditor,
@@ -348,6 +345,8 @@ const {
   assignKnowledgeBaseTeam, attachKnowledgeAsset, detachKnowledgeAsset
 } = useKnowledgeBases({ busy: workspaceBusy, message: workspaceMessage, error: workspaceError })
 const apiCredentials = ref<ApiCredential[]>([])
+const onlyCodeGroups = ref<OnlyCodeGroupInfo[]>([])
+const onlyCodeGroupsLoading = ref(false)
 const onboardingRequired = ref(false)
 const onboardingPreviewMode = ref(false)
 const providerTemplates = ref<ProviderTemplate[]>([])
@@ -488,6 +487,10 @@ function openSettings(section: SettingsSection) {
   settingsOpen.value = true
   accountOpen.value = false
   mobileOpen.value = false
+  if (section === 'api' && auth.session?.id) {
+    void loadDeferredWorkspaceData()
+    void loadOnlyCodeGroups()
+  }
   scrollActiveSetting('auto')
 }
 
@@ -497,6 +500,10 @@ function openApiSettings() {
 
 function selectSettingsSection(section: SettingsSection) {
   settingsSection.value = section
+  if (section === 'api' && auth.session?.id) {
+    void loadDeferredWorkspaceData()
+    void loadOnlyCodeGroups()
+  }
   scrollActiveSetting('smooth')
 }
 
@@ -599,9 +606,24 @@ async function handleRefreshCredentials() {
 
 let deferredWorkspacePromise: Promise<void> | null = null
 let deferredWorkspaceLoaded = false
+let onlyCodeGroupsPromise: Promise<void> | null = null
+function loadOnlyCodeGroups() {
+  if (onlyCodeGroupsPromise) return onlyCodeGroupsPromise
+  onlyCodeGroupsLoading.value = true
+  onlyCodeGroupsPromise = api<OnlyCodeGroupInfo[]>('/users/me/only-code-groups')
+    .then((details) => { onlyCodeGroups.value = Array.isArray(details) ? details : [] })
+    .catch(() => { onlyCodeGroups.value = [] })
+    .finally(() => {
+      onlyCodeGroupsLoading.value = false
+      onlyCodeGroupsPromise = null
+    })
+  return onlyCodeGroupsPromise
+}
+
 function loadDeferredWorkspaceData() {
   if (deferredWorkspaceLoaded) return Promise.resolve()
   if (deferredWorkspacePromise) return deferredWorkspacePromise
+  void loadOnlyCodeGroups()
   deferredWorkspacePromise = (async () => {
     const [credentials, templates, userModels, modelPolicy, teamRows, pendingInvites, knowledgeRows, tools, assistantRows, approvalRows, deletion] = await Promise.all([
       api<ApiCredential[]>('/users/me/api-credentials').catch(() => []),
@@ -771,15 +793,6 @@ async function savePrivateModel() {
     privateModelEditor.value = null
   } catch (reason) { privateModelError.value = reason instanceof Error ? reason.message : '私有模型保存失败' }
   finally { privateModelSaving.value = false }
-}
-
-async function deletePrivateModel(item: PrivateModel) {
-  if (!window.confirm(`确认删除私有模型“${item.displayName}”？`)) return
-  try {
-    await api(`/users/me/private-models/${item.id}`, { method: 'DELETE' })
-    privateModels.value = privateModels.value.filter((model) => model.id !== item.id)
-    document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
-  } catch (reason) { message.error(reason instanceof Error ? reason.message : '私有模型删除失败') }
 }
 
 function hydrateSettings(value: UserSettingsResponse) {
