@@ -19,6 +19,7 @@ import {
 } from './provider-routing'
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
+import { isGeminiImageModel } from '../generations/image-options'
 
 type ProviderInput = {
   name: string
@@ -793,7 +794,7 @@ export class ProvidersService implements OnModuleInit {
     if (candidate.capability === ModelCapability.IMAGE) return {
       apiProtocol,
       discovery,
-      imageCapabilities: { sizes: ['1024x1024'], qualities: ['medium'], outputFormats: ['png'], backgrounds: ['opaque'], maxCount: 1, defaultSize: '1024x1024', defaultQuality: 'medium', supportsReference: false, supportsMask: false, resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) } },
+      imageCapabilities: { sizes: ['1024x1024'], qualities: ['medium'], outputFormats: ['png'], backgrounds: ['opaque'], maxCount: 1, defaultSize: '1024x1024', defaultQuality: 'medium', supportsReference: apiProtocol === 'gemini', supportsMask: false, resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) } },
     }
     if (candidate.capability === ModelCapability.VIDEO) {
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
@@ -1449,6 +1450,7 @@ export class ProvidersService implements OnModuleInit {
     const models = []
     for (const candidate of candidates) {
       const capability = candidate.capability!
+      const apiProtocol = credential.providerType === ProviderType.NEW_API && capability === ModelCapability.IMAGE && isGeminiImageModel(candidate.id) ? 'gemini' : credential.template?.apiProtocol || 'openai'
       const vendor = await this.prisma.modelVendor.upsert({ where: { key: candidate.vendorKey }, update: {}, create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 } })
       let model = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
       if (!model) {
@@ -1460,11 +1462,11 @@ export class ProvidersService implements OnModuleInit {
           displayName: candidate.displayName,
           description: `${candidate.vendorName} · 由 ${credential.name} 自动识别`,
           capability,
-          apiProtocol: credential.template?.apiProtocol || 'openai',
+          apiProtocol,
           routingStrategy: 'PRIORITY',
           enabled: true,
           isDefault,
-          options: { ...this.discoveredModelOptions(candidate, credential.template?.apiProtocol || 'openai'), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
+          options: { ...this.discoveredModelOptions(candidate, apiProtocol), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
         } })
         defaultCapabilities.add(capability)
       }

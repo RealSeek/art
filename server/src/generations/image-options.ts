@@ -3,6 +3,10 @@ import { BadRequestException } from '@nestjs/common'
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp'
 export type ImageBackground = 'auto' | 'opaque' | 'transparent'
 
+export function isGeminiImageModel(model: string) {
+  return /^gemini-[\w.-]*image(?:-|$)/i.test(model)
+}
+
 export type NormalizedImageOptions = {
   size: string
   quality: string

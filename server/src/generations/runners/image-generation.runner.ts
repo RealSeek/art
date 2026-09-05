@@ -8,7 +8,7 @@ import { GenerationOutputService } from '../generation-output.service'
 import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
 import { readResponseBytes } from '../../common/response-bytes'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-http'
-import { detectImageFormat, identifyImageFormat, imageFormatMetadata, normalizeImageOptions } from '../image-options'
+import { detectImageFormat, identifyImageFormat, imageFormatMetadata, imageResolutionTier, isGeminiImageModel, normalizeImageOptions } from '../image-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 import { ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
@@ -84,6 +84,10 @@ export class ImageGenerationRunner implements GenerationRunner {
         return { resolved, payload: { data } }
       }
       const request = async (singlePrompt: string, n: number) => {
+        if (resolved.apiProtocol === 'gemini' || (resolved.type === ProviderType.NEW_API && isGeminiImageModel(resolved.model))) {
+          if (n !== 1) throw new ImageProviderError('Gemini 生图单次仅支持 1 张图片', 400)
+          return this.geminiImage(task, resolved, singlePrompt, imageOptions)
+        }
         const fields = { model: resolved.model, prompt: singlePrompt, n, size: imageOptions.size, quality: imageOptions.quality, output_format: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { output_compression: imageOptions.outputCompression }) }
         if (!imageOptions.referenceAssetIds.length) return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', fields, Math.max(resolved.timeoutMs, 300_000)))
         const form = new FormData()
@@ -210,10 +214,45 @@ export class ImageGenerationRunner implements GenerationRunner {
     return payload
   }
 
-  private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs) {
+  private async geminiImage(task: GenerationJob, resolved: ResolvedProvider, prompt: string, options: ReturnType<typeof normalizeImageOptions>): Promise<ProviderPayload> {
+    if (options.maskAssetId) throw new ImageProviderError('Gemini 生图不支持蒙版参数，请通过参考图和文字描述编辑要求', 400)
+    if (options.background === 'transparent' || options.outputFormat !== 'png' || options.outputCompression !== undefined) throw new ImageProviderError('Gemini 生图暂仅支持 PNG 输出，不支持透明背景或压缩参数', 400)
+    const [width, height] = options.size.split('x').map(Number)
+    const ratios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
+    const aspectRatio = ratios.find((ratio) => { const [w, h] = ratio.split(':').map(Number); return width * h === height * w })
+    if (!aspectRatio) throw new ImageProviderError('Gemini 生图不支持该宽高比', 400)
+    const parts: Array<Record<string, unknown>> = [{ text: prompt }]
+    for (const id of options.referenceAssetIds) {
+      const reference = await this.assets.readForUser(task.userId, id)
+      const format = identifyImageFormat(reference.file)
+      if (!format) throw new ImageProviderError('Gemini 参考图仅支持 PNG、JPEG 或 WebP', 400)
+      parts.push({ inlineData: { mimeType: imageFormatMetadata(format).mimeType, data: Buffer.from(reference.file).toString('base64') } })
+    }
+    // 保留代理路径前缀，仅将 OpenAI 的版本段转换为 Gemini 原生版本段。
+    const baseUrl = new URL(resolved.baseUrl)
+    baseUrl.pathname = baseUrl.pathname.replace(/\/+$/, '').replace(/\/v1$/, '/v1beta')
+    const payload = await this.provider({ ...resolved, baseUrl: baseUrl.toString().replace(/\/$/, '') }, `/models/${encodeURIComponent(resolved.model)}:generateContent`, {
+      contents: [{ role: 'user', parts }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio, ...(/^gemini-2\.5-/i.test(resolved.model) ? {} : { imageSize: imageResolutionTier(options.size) }) } },
+    }, Math.max(resolved.timeoutMs, 300_000), 'gemini')
+    const result = payload as { candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ thought?: boolean; inlineData?: { mimeType?: string; data?: string } }> } }>; promptFeedback?: { blockReason?: string } }
+    const data: Array<Record<string, unknown>> = []
+    for (const candidate of result.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.thought || !part.inlineData?.data || !part.inlineData.mimeType?.startsWith('image/')) continue
+        const bytes = Buffer.from(part.inlineData.data, 'base64')
+        this.assertValidImageBytes(bytes, 'Gemini')
+        data.push({ _generatedBytes: bytes })
+      }
+    }
+    if (!data.length) throw new ImageProviderError(`Gemini 未返回图片：${result.promptFeedback?.blockReason || result.candidates?.[0]?.finishReason || '响应中没有图片数据'}`, 502)
+    return { data }
+  }
+
+  private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs, protocol: 'openai' | 'gemini' = 'openai') {
     if (!resolved.apiKey) throw new ImageProviderError('AI provider is not configured')
     let response: Response
-    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, protocol), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }) }
     catch (error) { throw new ImageProviderError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ImageProviderError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
