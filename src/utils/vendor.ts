@@ -37,6 +37,7 @@ export function inferVendor(item: VendorLike): VendorInfo {
   if (/gemini|google/.test(value)) return { key: 'google', label: 'Google' }
   if (/qwen|通义|千问/.test(value)) return { key: 'qwen', label: '通义千问' }
   if (/doubao|豆包/.test(value)) return { key: 'doubao', label: '豆包' }
+  if (/minimax|hailuo/.test(value)) return { key: 'minimax', label: 'MiniMax' }
   if (/kimi|moonshot|月之暗面/.test(value)) return { key: 'kimi', label: 'Kimi' }
   const provider = item.provider?.name || item.provider?.type
   return { key: provider || 'other', label: provider || '其他模型' }

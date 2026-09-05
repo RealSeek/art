@@ -26,6 +26,7 @@ const LOGO_MAP: Array<[RegExp, string, boolean, string?]> = [
   [/kimi|moonshot/, 'kimi', true, '#0d0d0d'],
   [/qwen|通义|千问/, 'qwen', true],
   [/doubao|豆包/, 'doubao', true],
+  [/minimax|hailuo/, 'minimax', true],
   [/anthropic|claude/, 'claude', true],
   [/google|gemini/, 'gemini', true],
   [/xai|grok/, 'grok', false],
