@@ -117,7 +117,7 @@ export class VideoGenerationRunner implements GenerationRunner {
           aspect_ratio: normalized.aspectRatio,
           ...(resolved.type === ProviderType.SUB2API ? {} : {
             size: normalized.resolution,
-            seconds: normalized.duration,
+            seconds: String(normalized.duration),
           }),
         }
         const referenceAssetIds = Array.isArray(options.referenceAssetIds)
