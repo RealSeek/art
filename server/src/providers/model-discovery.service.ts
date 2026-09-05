@@ -88,6 +88,7 @@ const VENDORS = [
   { key: 'deepseek', name: 'DeepSeek', test: /deepseek/i },
   { key: 'qwen', name: 'Qwen', test: /qwen|qwq|tongyi/i },
   { key: 'doubao', name: 'Doubao', test: /doubao|seedream|seedance|ark-/i },
+  { key: 'minimax', name: 'MiniMax', test: /minimax|hailuo/i },
   { key: 'meta', name: 'Meta', test: /meta|llama/i },
   { key: 'mistral', name: 'Mistral AI', test: /mistral|mixtral|codestral|pixtral/i },
   { key: 'cohere', name: 'Cohere', test: /cohere|command-r/i },
@@ -95,7 +96,7 @@ const VENDORS = [
 ]
 
 const UNSUPPORTED_PATTERN = /embedding|embed-|rerank|moderation|guard|classifier|whisper|transcri|speech|tts|audio|realtime|search-query|reward|ocr/i
-const VIDEO_PATTERN = /video|sora|veo(?:-|$)|kling|hailuo|minimax.*video|wan(?:\d|[-_]).*video|seedance|vidu|luma.*ray/i
+const VIDEO_PATTERN = /video|sora|veo(?:-|$)|kling|hailuo|minimaxh3(?:[-_\s]|$)|minimax.*video|wan(?:\d|[-_]).*video|seedance|vidu|luma.*ray/i
 const IMAGE_PATTERN = /image|dall-e|gpt-image|flux|recraft|ideogram|imagen|seedream|nano[-_ ]?banana|stable[-_ ]?diffusion|sdxl/i
 
 export function inferModelCapability(value: string): ModelCapability | null {
