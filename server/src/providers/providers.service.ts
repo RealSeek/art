@@ -1388,8 +1388,23 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async deleteCredential(userId: string, id: string) {
-    const result = await this.prisma.userApiCredential.deleteMany({ where: { id, userId } })
-    if (!result.count) throw new NotFoundException('API 凭据不存在')
+    await this.prisma.$transaction(async (tx) => {
+      const affected = await tx.userModel.findMany({ where: { userId, routes: { some: { credentialId: id } } }, select: { id: true } })
+      const result = await tx.userApiCredential.deleteMany({ where: { id, userId } })
+      if (!result.count) throw new NotFoundException('API 凭据不存在')
+      // 只清理本次删除后失去全部路由的模型，保留仍绑定其他密钥的模型。
+      const orphaned = await tx.userModel.findMany({ where: { userId, id: { in: affected.map((model) => model.id) }, routes: { none: {} } }, select: { id: true, capability: true, isDefault: true } })
+      await tx.userModel.deleteMany({ where: { userId, id: { in: orphaned.map((model) => model.id) }, routes: { none: {} } } })
+      for (const capability of new Set(orphaned.filter((model) => model.isDefault).map((model) => model.capability))) {
+        if (await tx.userModel.findFirst({ where: { userId, capability, isDefault: true } })) continue
+        const replacement = await tx.userModel.findFirst({
+          where: { userId, capability, enabled: true, routes: { some: { enabled: true, credential: { enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } } } },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true },
+        })
+        if (replacement) await tx.userModel.update({ where: { id: replacement.id }, data: { isDefault: true } })
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return { success: true }
   }
 
@@ -1572,7 +1587,9 @@ export class ProvidersService implements OnModuleInit {
       orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
     })
     const now = Date.now()
+    if (!model.routes.length) throw new BadRequestException('私有模型未绑定可用的密钥路由，请刷新模型列表或重新接入密钥')
     const available = model.routes.filter((route) => route.credential.enabled && (!route.credential.expiresAt || route.credential.expiresAt.getTime() > now) && (!route.cooldownUntil || route.cooldownUntil.getTime() <= now) && (!route.credential.cooldownUntil || route.credential.cooldownUntil.getTime() <= now))
+    if (!available.length) throw new BadRequestException('私有模型的密钥已停用、过期或暂时冷却，请检查密钥状态或稍后重试')
     const publicRoutes = []
     for (const route of available) {
       try { await this.assertUserProviderUrl(route.credential.baseUrl); publicRoutes.push(route) } catch { /* Ignore unsafe legacy BYOK routes at execution time. */ }
