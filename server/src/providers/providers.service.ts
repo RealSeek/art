@@ -798,10 +798,11 @@ export class ProvidersService implements OnModuleInit {
     }
     if (candidate.capability === ModelCapability.VIDEO) {
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
+      const resolution = candidate.id.match(/minimaxh3-(\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
       return {
         apiProtocol,
         discovery,
-        videoCapabilities: { resolutions: ['720p'], durations: [5, 10], aspectRatios: ['16:9', '9:16', '1:1'], defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9', pricing: { '720p:5': perSecond * 5, '720p:10': perSecond * 10 }, createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content', pollIntervalMs: 3000, maxPollSeconds: 600 },
+        videoCapabilities: { resolutions: [resolution], durations: [5, 10], aspectRatios: ['16:9', '9:16', '1:1'], defaultResolution: resolution, defaultDuration: 5, defaultAspectRatio: '16:9', pricing: { [`${resolution}:5`]: perSecond * 5, [`${resolution}:10`]: perSecond * 10 }, createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content', pollIntervalMs: 3000, maxPollSeconds: 600 },
       }
     }
     return { apiProtocol, discovery, agentEnabled: candidate.agentCapabilities?.eligible !== false, agentCapabilities: candidate.agentCapabilities }

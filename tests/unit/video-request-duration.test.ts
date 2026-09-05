@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { VideoGenerationRunner } from '../../server/src/generations/runners/video-generation.runner'
+import { ProvidersService } from '../../server/src/providers/providers.service'
+
+test('MiniMax H3 导入配置使用模型指定的分辨率', () => {
+  for (const resolution of ['480p', '720p']) {
+    const options = (ProvidersService.prototype as any).discoveredModelOptions({ id: `[c]MiniMaxH3-${resolution}`, capability: 'VIDEO', flatCreditCost: 2 })
+    assert.deepEqual(options.videoCapabilities.resolutions, [resolution])
+    assert.equal(options.videoCapabilities.defaultResolution, resolution)
+    assert.equal(options.videoCapabilities.pricing[`${resolution}:10`], 20)
+  }
+})
 
 test('视频时长按模型协议发送，MiniMax 不附加 Sora 专用字段', async () => {
   for (const [type, model, expectedSeconds] of [['NEW_API', 'sora-2', '5'], ['SUB2API', 'video', undefined], ['NEW_API', '[c]MiniMaxH3-480p', undefined], ['NEW_API', 'MiniMax-Hailuo-02', undefined]]) {
