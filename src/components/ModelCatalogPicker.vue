@@ -180,8 +180,10 @@ function choose(value: string) {
 .model-catalog-picker__empty { align-items: center; display: flex; flex-direction: column; gap: 7px; height: calc(100% - 58px); justify-content: center; padding: 24px; text-align: center; }
 .model-catalog-picker__empty strong { color: var(--studio-text, #23262c); font-size: 14px; }
 .model-catalog-picker__empty small { font-size: 12px; }
-.model-catalog-picker__configure { align-items: center; background: var(--picker-accent); border: 0; border-radius: 7px; color: #fff; cursor: pointer; display: inline-flex; font-size: 12px; gap: 6px; margin-top: 6px; min-height: 34px; padding: 0 12px; }
-.model-catalog-picker__configure:hover { filter: brightness(1.08); }
+.model-catalog-picker__configure { align-items: center; align-self: center; background: linear-gradient(135deg, color-mix(in srgb, var(--picker-accent) 94%, #fff), color-mix(in srgb, var(--picker-accent) 72%, #18244d)); border: 1px solid color-mix(in srgb, var(--picker-accent) 72%, #fff); border-radius: 999px; box-shadow: 0 8px 20px color-mix(in srgb, var(--picker-accent) 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18); color: #fff; cursor: pointer; display: inline-flex; font-size: 12px; font-weight: 650; gap: 7px; justify-content: center; margin-top: 10px; min-height: 34px; padding: 0 16px; transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease; width: auto; }
+.model-catalog-picker__configure:hover { box-shadow: 0 10px 24px color-mix(in srgb, var(--picker-accent) 34%, transparent), inset 0 1px 0 rgba(255, 255, 255, .22); filter: brightness(1.06); transform: translateY(-1px); }
+.model-catalog-picker__configure:active { box-shadow: 0 5px 12px color-mix(in srgb, var(--picker-accent) 24%, transparent); transform: translateY(0); }
+.model-catalog-picker__configure svg { opacity: .9; }
 .model-catalog-picker button:focus-visible { outline: 2px solid color-mix(in srgb, var(--picker-accent) 68%, transparent); outline-offset: -2px; }
 @media (max-width: 680px) {
   .model-catalog-picker { height: min(calc(var(--picker-content-height) + 100px), calc(100dvh - 24px)); }
