@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoResolution" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
 
     <ProjectsPanel v-else-if="activeMode === 'projects'" :key="activeMode" v-model:project-notice="projectNotice" :open-project-details="openProjectDetails" />
 
@@ -86,6 +86,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from 'vue'
 import { catalogModelKey, catalogModelLabel, findCatalogModel, isAgentModelEligible, type CatalogModel, type ModelCapability } from '../utils/model-catalog'
+import { groupVideoModels, videoModelVariant, videoModelVariants } from '../utils/video-model-variants'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Brush, Check, ChevronDown, ChevronRight, Copy, Eraser, KeyRound, LayoutGrid, Lightbulb, List, ListFilter, Maximize2, MessageCircleDashed, Plus, ScanSearch, Search, Upload, WandSparkles, X } from 'lucide-vue-next'
@@ -233,6 +234,11 @@ const commerceModel = ref('')
 const videoResolution = ref('720p')
 const videoDuration = ref(5)
 const videoAspectRatio = ref('16:9')
+const activeVideoVariants = computed(() => videoModelVariants(catalogModels.value, videoModel.value))
+const videoQuality = computed(() => {
+  const selected = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
+  return selected && videoModelVariant(selected)?.quality || videoResolution.value
+})
 const autoMode = ref('自动')
 const quality = ref<string>('标准')
 const imageStyle = ref('')
@@ -260,9 +266,12 @@ function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (
 const selectedCommerceModel = computed(() => findCatalogModel(catalogModels.value, commerceModel.value, 'COMMERCE') || catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'COMMERCE'))
 const activeCreationCapability = computed<ModelCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
 const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : activeMode.value === 'commerce' ? commerceModel.value || selectedCommerceModel.value?.key || '' : imageModel.value)
-const activeCreationModels = computed(() => catalogModels.value.filter((item) => item.capability === activeCreationCapability.value))
+const activeCreationModels = computed(() => {
+  const models = catalogModels.value.filter((item) => item.capability === activeCreationCapability.value)
+  return activeMode.value === 'videos' ? groupVideoModels(models, videoModel.value) : models
+})
 const activeCreationModelAvailable = computed(() => Boolean(findCatalogModel(activeCreationModels.value, activeCreationModel.value, activeCreationCapability.value)))
-const activeCreationModelLabel = computed(() => catalogModelLabel(catalogModels.value, activeCreationModel.value, activeCreationCapability.value) || '暂无可用模型')
+const activeCreationModelLabel = computed(() => catalogModelLabel(activeCreationModels.value, activeCreationModel.value, activeCreationCapability.value) || '暂无可用模型')
 
 const { loadModelCatalog, refreshModelCatalogOnFocus, refreshModelCatalog } = useStudioModelCatalog({
   models: catalogModels,
@@ -461,7 +470,7 @@ const visibleLibraryAssets = computed(() => filteredAssets.value.slice(0, librar
 const imageRatios = ['自动', '9:16', '2:3', '3:4', '1:1', '4:3', '3:2', '16:9']
 const imageStyles = ['人像摄影', '电影写真', '中国风', '动漫', '3D渲染', '赛博朋克', 'CG 动画', '水墨画', '油画', '古典', '水彩画', '卡通', '儿童绘画', '抽象', '锐笔插画', '二次元', '油墨印刷', '版画', '莫奈', '毕加索', '伦勃朗', '马蒂斯', '巴洛克', '复古动漫', '绘本']
 const styleThumbnails = ['/assets/inspiration-1.jpg', '/assets/inspiration-2.jpg', '/assets/inspiration-3.jpg', '/assets/inspiration-4.jpg', '/assets/inspirations/video/fashion-stage.jpg', '/assets/inspirations/video/sci-fi-iris.jpg', '/assets/inspirations/video/urban-transit.jpg', '/assets/inspirations/video/artisan-pottery.jpg', '/assets/inspirations/video/culinary-detail.jpg', '/assets/inspirations/video/epic-coast.jpg', '/assets/inspirations/video/liminal-corridor.jpg', '/assets/inspirations/video/mountain-road.jpg', '/assets/inspirations/video/urban-geometry.jpg']
-const creationMenuTitle = computed(() => ({ model: activeMode.value === 'videos' ? '视频模型' : activeMode.value === 'commerce' ? '商品视觉模型' : '图片模型', type: '商品类型', size: '比例', style: '风格', resolution: '视频分辨率', duration: '视频时长', aspect: '画面比例', platform: '目标平台', quality: '图片质量', modules: '详情模块', count: '生成张数', format: '输出格式', background: '图片背景' }[creationMenu.value || 'model']))
+const creationMenuTitle = computed(() => ({ model: activeMode.value === 'videos' ? '视频模型' : activeMode.value === 'commerce' ? '商品视觉模型' : '图片模型', type: '商品类型', size: '比例', style: '风格', resolution: activeVideoVariants.value.length ? '视频画质' : '视频分辨率', duration: '视频时长', aspect: '画面比例', platform: '目标平台', quality: '图片质量', modules: '详情模块', count: '生成张数', format: '输出格式', background: '图片背景' }[creationMenu.value || 'model']))
 const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'model') {
     return activeCreationModels.value.map((item) => item.key)
@@ -469,7 +478,7 @@ const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'type') return ['详情页', '素材包']
   if (creationMenu.value === 'size') return imageRatios
   if (creationMenu.value === 'style') return imageStyles
-  if (creationMenu.value === 'resolution') return activeVideoCapabilities.value.resolutions
+  if (creationMenu.value === 'resolution') return activeVideoVariants.value.length ? [...new Set(activeVideoVariants.value.map(item => videoModelVariant(item)!.quality))] : activeVideoCapabilities.value.resolutions
   if (creationMenu.value === 'duration') return activeVideoCapabilities.value.durations.map((item) => `${item} 秒`)
   if (creationMenu.value === 'aspect') return activeVideoCapabilities.value.aspectRatios
   if (creationMenu.value === 'platform') return ['自动', '淘宝/天猫', '京东', '拼多多', '抖音电商', '小红书', 'Amazon', 'TikTok Shop', 'Shopee']
@@ -783,7 +792,7 @@ function isCreationOptionActive(option: string) {
   if (creationMenu.value === 'type') return creationType.value === option
   if (creationMenu.value === 'size') return autoMode.value === option
   if (creationMenu.value === 'platform') return commercePlatform.value === option
-  if (creationMenu.value === 'resolution') return videoResolution.value === option
+  if (creationMenu.value === 'resolution') return videoQuality.value === option
   if (creationMenu.value === 'duration') return `${videoDuration.value} 秒` === option
   if (creationMenu.value === 'aspect') return videoAspectRatio.value === option
   if (creationMenu.value === 'style') return imageStyle.value === option
@@ -799,7 +808,14 @@ function selectCreationOption(option: string) {
   else if (creationMenu.value === 'type') creationType.value = option
   else if (creationMenu.value === 'size') autoMode.value = option
   else if (creationMenu.value === 'platform') commercePlatform.value = option
-  else if (creationMenu.value === 'resolution') videoResolution.value = option
+  else if (creationMenu.value === 'resolution') {
+    const variant = activeVideoVariants.value.find(item => videoModelVariant(item)?.quality === option)
+    if (variant) {
+      videoModel.value = variant.key
+      videoResolution.value = activeVideoCapabilities.value.defaultResolution
+      syncVideoSelection()
+    } else if (!activeVideoVariants.value.length) videoResolution.value = option
+  }
   else if (creationMenu.value === 'duration') videoDuration.value = Number.parseInt(option, 10)
   else if (creationMenu.value === 'aspect') videoAspectRatio.value = option
   else if (creationMenu.value === 'style') imageStyle.value = imageStyle.value === option ? '' : option
