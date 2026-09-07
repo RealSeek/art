@@ -39,8 +39,7 @@
             <article v-for="item in items" :key="item.id" class="prompt-library-card" :class="`is-${item.promptType.toLowerCase()}`">
               <button class="prompt-library-card__open" type="button" :aria-label="`查看 ${item.title}`" @click="selected = item">
                 <span class="prompt-library-card__media">
-                  <video v-if="item.promptType === 'VIDEO' && item.previewVideoUrl && !brokenMedia.has(item.id)" :src="item.previewVideoUrl" :poster="item.coverUrl" muted loop playsinline preload="metadata" :aria-label="`${item.title} 视频预览`" @mouseenter="playPreview" @mouseleave="pausePreview" @error="markMediaBroken(item.id)" />
-                  <img v-else-if="item.coverUrl && !brokenMedia.has(item.id)" :src="item.coverUrl" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" @error="markMediaBroken(item.id)" />
+                  <img v-if="item.coverUrl && !brokenMedia.has(item.id)" :src="item.coverUrl" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" @error="markMediaBroken(item.id)" />
                   <Video v-else-if="item.promptType === 'VIDEO'" :size="28" />
                   <ImageIcon v-else :size="28" />
                   <i v-if="item.promptType === 'VIDEO'" class="prompt-library-card__play"><Play :size="17" fill="currentColor" /></i>
@@ -186,8 +185,6 @@ function selectSource(id: string) { sourceId.value = id; tag.value = '' }
 function clearFilters() { query.value = ''; sourceId.value = ''; tag.value = '' }
 function compactPrompt(prompt: string) { return prompt.replace(/\s+/g, ' ').slice(0, 210) }
 function markMediaBroken(id: string) { brokenMedia.value = new Set(brokenMedia.value).add(id) }
-function playPreview(event: MouseEvent) { void (event.currentTarget as HTMLVideoElement).play().catch(() => undefined) }
-function pausePreview(event: MouseEvent) { const video = event.currentTarget as HTMLVideoElement; video.pause(); video.currentTime = 0 }
 async function copyPrompt(item: PromptItem) { await navigator.clipboard.writeText(item.prompt); copiedId.value = item.id; window.setTimeout(() => { if (copiedId.value === item.id) copiedId.value = '' }, 1600) }
 async function usePrompt(item: PromptItem) {
   const transfer = { type: item.promptType, prompt: item.prompt, title: item.title, sourceName: item.sourceName }
