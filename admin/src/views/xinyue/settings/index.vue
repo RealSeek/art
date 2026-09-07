@@ -497,7 +497,7 @@
             ><header
               ><div
                 ><strong>{{ xt('快捷能力与执行') }}</strong
-                ><small>{{ xt('控制当前界面的入口、排序、模型和联网策略') }}</small></div
+                ><small>{{ xt('控制当前界面的入口、排序和模型策略') }}</small></div
               ><ElButton type="primary" plain @click="addQuickAction"
                 ><ArtSvgIcon icon="ri:add-line" />{{ xt('新增能力') }}</ElButton
               ></header
@@ -506,9 +506,6 @@
                 v-model="activeComposerControls.modeEnabled"
                 :title="xt('模式选择')"
                 :note="xt('展示快速、专家和任务模式')" /><ToggleRow
-                v-model="activeComposerControls.webSearchEnabled"
-                :title="xt('联网开关')"
-                :note="xt('允许用户手动开关联网搜索')" /><ToggleRow
                 v-model="activeComposerControls.modelSelectorEnabled"
                 :title="xt('模型选择')"
                 :note="xt('允许用户临时切换可用模型')" /><ToggleRow
@@ -612,8 +609,6 @@
                     v-model="action.sortOrder"
                     :min="-10000"
                     :max="10000" /></ElFormItem
-                ><ElFormItem class="quick-action-web-search" :label="xt('自动联网')"
-                  ><ElSwitch v-model="action.webSearch" /></ElFormItem
                 ><ElFormItem
                   v-if="action.actionType !== 'ROUTE'"
                   class="quick-action-prompt"
@@ -809,7 +804,6 @@
       prompt: '',
       target: '',
       modelKey: '',
-      webSearch: false,
       enabled: true,
       sortOrder: nextOrder
     })

@@ -6,14 +6,14 @@
 
       <div class="chat-center" :class="{ 'chat-center--thread': hasChatThread }">
         <ChatHome :has-chat-thread="isConversationView" :chat-ui-preset="homeChatUiPreset" />
-        <ChatThread ref="chatThread" :has-chat-thread="hasChatThread" :jump-highlight-id="jumpHighlightId" :model="model" :web-search-enabled="webSearchEnabled" :active-chat-response-mode="activeChatResponseMode" :sync-message-navigator="syncMessageNavigator" @open-artifact="openCodeArtifact" @preview-asset="previewAsset = $event" @use-reference="useGeneratedAssetAsReference" @retry-image="retryImageGeneration" @retry-video="retryVideoGeneration" @download-asset="downloadGeneratedAsset" @follow-up="useFollowUpSuggestion" />
+        <ChatThread ref="chatThread" :has-chat-thread="hasChatThread" :jump-highlight-id="jumpHighlightId" :model="model" :active-chat-response-mode="activeChatResponseMode" :sync-message-navigator="syncMessageNavigator" @open-artifact="openCodeArtifact" @preview-asset="previewAsset = $event" @use-reference="useGeneratedAssetAsReference" @retry-image="retryImageGeneration" @retry-video="retryVideoGeneration" @download-asset="downloadGeneratedAsset" @follow-up="useFollowUpSuggestion" />
 
         <section v-if="!isConversationView && chatUiPreset === 'doubao' && doubaoRecommendations.length" class="chat-home-suggestions" aria-label="当前热点">
           <span>当前热点</span>
           <button v-for="suggestion in doubaoRecommendations" :key="suggestion.title" type="button" @click="useChatSuggestion(suggestion)">{{ suggestion.title }}</button>
         </section>
 
-        <ChatComposer ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:web-search-enabled="webSearchEnabled" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="isConversationView" :chat-ui-preset="chatUiPreset" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
+        <ChatComposer ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="isConversationView" :chat-ui-preset="chatUiPreset" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
       </div>
 
       <button v-if="!isConversationView && chatUiPreset === 'kimi'" class="chat-home-explore" type="button" @click="router.push('/prompts')">
@@ -141,8 +141,6 @@ const qianwenBannerIndex = ref(0)
 let qianwenBannerTimer = 0
 const activeChatMode = ref('快速')
 const activeChatResponseMode = computed<'fast' | 'expert'>(() => ['专家', '进阶', '思考研究'].includes(activeChatMode.value) ? 'expert' : 'fast')
-const webSearchPreferenceKey = 'xinyue:chat:web-search'
-const webSearchEnabled = ref(window.localStorage.getItem(webSearchPreferenceKey) === 'true')
 const pendingRecommendationSource = ref<{ prompt: string; source: WebSearchSource } | null>(null)
 const draft = ref('')
 const chatThread = ref<InstanceType<typeof ChatThread> | null>(null)
@@ -170,7 +168,6 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer
 const voiceListening = ref(false)
 const voiceRecognizer = ref<SpeechRecognizer | null>(null)
 const voiceTarget = ref<'chat' | 'creation'>('chat')
-watch(webSearchEnabled, (enabled) => window.localStorage.setItem(webSearchPreferenceKey, String(enabled)))
 async function applyQuickActionModel(item: ChatQuickAction) {
   if (!item.modelKey) return true
   await loadModelCatalog()
@@ -188,7 +185,6 @@ function useChatSuggestion(suggestion: ChatRecommendation) {
   pendingRecommendationSource.value = suggestion.sourceUrl
     ? { prompt: draft.value.trim(), source: { title: suggestion.source ? `${suggestion.title} - ${suggestion.source}` : suggestion.title, url: suggestion.sourceUrl, publishedAt: suggestion.publishedAt } }
     : null
-  if (pendingRecommendationSource.value || /联网搜索/.test(draft.value)) webSearchEnabled.value = true
   void nextTick(() => { resizeComposer(); composerInput.value?.focus({ preventScroll: true }) })
 }
 function openConfiguredDestination(target: string) {
@@ -230,7 +226,6 @@ const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
 const imageModel = ref('')
 const videoModel = ref('')
-const commerceModel = ref('')
 const videoResolution = ref('720p')
 const videoDuration = ref(5)
 const videoAspectRatio = ref('16:9')
@@ -263,9 +258,8 @@ function qualityLabel(value: string): string { return value === 'low' ? '低' : 
 function backgroundLabel(value: string) { return value === 'transparent' ? '透明背景' : value === 'opaque' ? '不透明背景' : '自动背景' }
 function syncImageSelection() { const caps = activeImageCapabilities.value; if (!imageRatios.includes(autoMode.value)) autoMode.value = imageRatioForSize(autoMode.value); if (imageCount.value > caps.maxCount) imageCount.value = caps.maxCount; if (!caps.qualities.map(qualityLabel).includes(quality.value)) quality.value = qualityLabel(caps.defaultQuality); if (!caps.outputFormats.map((item) => item.toUpperCase()).includes(outputFormat.value)) outputFormat.value = caps.outputFormats[0].toUpperCase() as typeof outputFormat.value; if (!caps.backgrounds.map(backgroundLabel).includes(imageBackground.value)) imageBackground.value = backgroundLabel(caps.backgrounds[0]) }
 function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!caps.durations.includes(videoDuration.value)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
-const selectedCommerceModel = computed(() => findCatalogModel(catalogModels.value, commerceModel.value, 'COMMERCE') || catalogModels.value.find((item) => item.capability === 'COMMERCE' && item.isDefault) || catalogModels.value.find((item) => item.capability === 'COMMERCE'))
-const activeCreationCapability = computed<ModelCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
-const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : activeMode.value === 'commerce' ? commerceModel.value || selectedCommerceModel.value?.key || '' : imageModel.value)
+const activeCreationCapability = computed<ModelCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : 'IMAGE')
+const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : imageModel.value)
 const activeCreationModels = computed(() => {
   const models = catalogModels.value.filter((item) => item.capability === activeCreationCapability.value)
   return activeMode.value === 'videos' ? groupVideoModels(models, videoModel.value) : models
@@ -279,7 +273,6 @@ const { loadModelCatalog, refreshModelCatalogOnFocus, refreshModelCatalog } = us
   chatModel: model,
   imageModel,
   videoModel,
-  commerceModel,
   capabilitySelections: capabilityModelSelections,
 }, {
   requestModels: () => api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }),
@@ -297,7 +290,6 @@ const { submitMessage } = useChatSubmission({
   model,
   assistantId,
   pluginId: chatPluginId,
-  webSearchEnabled,
   responseMode: activeChatResponseMode,
   pendingRecommendationSource,
 }, {
@@ -804,7 +796,7 @@ function isCreationOptionActive(option: string) {
   return false
 }
 function selectCreationOption(option: string) {
-  if (creationMenu.value === 'model') { if (activeMode.value === 'videos') { videoModel.value = option; syncVideoSelection() } else if (activeMode.value === 'commerce') commerceModel.value = option; else { imageModel.value = option; syncImageSelection() } }
+  if (creationMenu.value === 'model') { if (activeMode.value === 'videos') { videoModel.value = option; syncVideoSelection() } else { imageModel.value = option; syncImageSelection() } }
   else if (creationMenu.value === 'type') creationType.value = option
   else if (creationMenu.value === 'size') autoMode.value = option
   else if (creationMenu.value === 'platform') commercePlatform.value = option

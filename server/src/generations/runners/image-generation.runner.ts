@@ -138,8 +138,7 @@ export class ImageGenerationRunner implements GenerationRunner {
 
   private async withProviderFailover<T>(task: GenerationJob, execute: (provider: ResolvedProvider) => Promise<T>) {
     const options = task.options as Record<string, unknown>
-    const capability = task.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE'
-    const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
+    const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), 'IMAGE', options)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
     let lastError: unknown
     for (const candidate of candidates) {

@@ -288,7 +288,6 @@ const DEFAULT_PRESETS = [
       },
     },
   },
-  { key: 'commerce-gpt-image-2', displayName: 'GPT Image 2', upstreamModel: 'gpt-image-2', capability: ModelCapability.COMMERCE, sortOrder: 10, isDefault: true },
 ]
 
 const DEFAULT_VENDORS = [
@@ -1546,7 +1545,7 @@ export class ProvidersService implements OnModuleInit {
   private async resolvePreset(userId: string, requestedModel: string | undefined, capability: ModelCapability): Promise<ResolvedPreset> {
     const settings = await this.prisma.systemSetting.findUnique({ where: { id: 'global' } })
     const policy = await this.userPolicy(userId)
-    const configuredDefault = capability === ModelCapability.CHAT ? settings?.defaultChatModelKey : capability === ModelCapability.IMAGE || capability === ModelCapability.COMMERCE ? settings?.defaultImageModelKey : undefined
+    const configuredDefault = capability === ModelCapability.CHAT ? settings?.defaultChatModelKey : capability === ModelCapability.IMAGE ? settings?.defaultImageModelKey : undefined
     const requested = requestedModel?.trim()
     const videoAliases: Record<string, string> = {
       'sora 2': 'sora-2',

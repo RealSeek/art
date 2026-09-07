@@ -151,7 +151,6 @@
 .office-composer .office-mode-button, .office-composer .office-model-button, .office-composer .office-skill-button { color: var(--studio-muted); font-size: 13px; max-width: 180px; }
 .office-composer .office-skill-button.active, .office-composer .office-quick-skill.active { background: var(--office-composer-control); color: var(--studio-text); }
 .office-composer .office-quick-skill { color: var(--studio-muted); font-size: 13px; }
-.office-composer .office-web-button { color: var(--studio-muted); font-size: 13px; } .office-composer .office-web-button.active { background: rgba(79, 140, 255, .14); color: #7eaeff; }
 .office-composer .office-submit { background: var(--studio-inverse-bg); border-radius: 50%; color: var(--studio-inverse-text); height: 36px; padding: 0; width: 36px; }
 .office-composer .office-submit:hover { background: #fff; }
 .office-composer .office-submit:disabled { opacity: .35; }

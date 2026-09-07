@@ -32,15 +32,6 @@ const testModels = [
       },
     },
   },
-  {
-    key: 'commerce-gpt-image-2',
-    displayName: 'GPT Image 2',
-    upstreamModel: 'gpt-image-2',
-    capability: 'COMMERCE',
-    enabled: true,
-    isDefault: true,
-    flatCreditCost: 1,
-  },
 ]
 
 test.beforeEach(async ({ page }) => {

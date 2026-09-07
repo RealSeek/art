@@ -1,4 +1,4 @@
-export type ModelCapability = 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'
+export type ModelCapability = 'CHAT' | 'IMAGE' | 'VIDEO'
 
 export type CatalogModel = {
   id?: string

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { AgentToolsService } from '../../server/src/agent-tasks/agent-tools.service'
 
-const task = { id: 'job-1', userId: 'user-1', assistantId: 'assistant-1', projectId: null, webSearchEnabled: false }
+const task = { id: 'job-1', userId: 'user-1', assistantId: 'assistant-1', projectId: null }
 const descriptor = {
   id: 'tool-1',
   key: 'external_workflow',
@@ -17,6 +17,18 @@ const descriptor = {
     additionalProperties: false,
   },
 }
+
+test('联网搜索可用时自动交给模型选择', async () => {
+  const service = new AgentToolsService(
+    {} as never,
+    {} as never,
+    { isAvailable: async () => true } as never,
+    {} as never,
+    {} as never,
+  )
+  const tools = await service.available({ ...task, assistantId: null })
+  assert.ok(tools.some((tool) => tool.key === 'web_search'))
+})
 
 test('外部工具执行会使用后台配置的方法、请求头、密钥和幂等键', async () => {
   const originalFetch = globalThis.fetch

@@ -421,7 +421,7 @@ html[data-studio-theme="light"] .settings-routing-overview > header { background
   .chat-composer {
     align-items: center;
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) auto auto auto 36px 36px;
+    grid-template-columns: 36px minmax(0, 1fr) auto auto 36px 36px;
     grid-template-rows: minmax(36px, auto) 36px;
     min-height: 92px;
     padding: 7px 7px 7px 8px;
@@ -447,22 +447,17 @@ html[data-studio-theme="light"] .settings-routing-overview > header { background
   .chat-composer:has(> .attachment-list) > button:first-of-type,
   .chat-composer:has(> .attachment-list) > .plugin-selector,
   .chat-composer:has(> .attachment-list) .composer-assistant,
-  .chat-composer:has(> .attachment-list) > .composer-web-search--standalone,
   .chat-composer:has(> .attachment-list) .composer-model,
   .chat-composer:has(> .attachment-list) > .composer-voice,
   .chat-composer:has(> .attachment-list) > .chat-composer-submit { grid-row: 3; }
   .chat-composer > button:first-child { grid-column: 1; grid-row: 2; }
   .chat-composer > .plugin-selector { grid-column: 2; grid-row: 2; justify-self: start; }
   .chat-composer .composer-assistant { grid-column: 3; grid-row: 2; }
-  .chat-composer > .composer-web-search--standalone { grid-column: 4; grid-row: 2; padding: 0; width: 36px; }
-  .chat-composer > .composer-web-search--standalone span { display: none; }
-  .chat-composer .composer-model { grid-column: 5; grid-row: 2; }
-  .chat-composer > .composer-voice { grid-column: 6; grid-row: 2; }
-  .chat-composer > .chat-composer-submit { grid-column: 7; grid-row: 2; margin-left: 0; }
+  .chat-composer .composer-model { grid-column: 4; grid-row: 2; }
+  .chat-composer > .composer-voice { grid-column: 5; grid-row: 2; }
+  .chat-composer > .chat-composer-submit { grid-column: 6; grid-row: 2; margin-left: 0; }
   .chat-ui--qianwen .chat-composer,
   .chat-ui--kimi .chat-composer { grid-template-columns: 42px minmax(0, 1fr) auto 42px; }
-  .chat-ui--qianwen .chat-composer > .composer-web-search--standalone,
-  .chat-ui--kimi .chat-composer > .composer-web-search--standalone { grid-column: 2; }
   .chat-ui--qianwen .chat-composer > .chat-composer-submit,
   .chat-ui--kimi .chat-composer > .chat-composer-submit { grid-column: 4; }
   .message-process__body { padding-left: 4px; }

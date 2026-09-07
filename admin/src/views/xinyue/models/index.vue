@@ -228,7 +228,7 @@
           :title="agentCapabilitySummary"
           class="protocol-note"
         />
-        <template v-if="editor.capability === 'IMAGE' || editor.capability === 'COMMERCE'"
+        <template v-if="editor.capability === 'IMAGE'"
           ><ElDivider content-position="left">{{ xt('图片模型能力') }}</ElDivider
           ><ElRow :gutter="14"
             ><ElCol :span="16"
@@ -497,8 +497,7 @@
   const capabilities = computed(() => [
     { label: xt('AI 对话'), value: 'CHAT' as Capability },
     { label: xt('图片生成'), value: 'IMAGE' as Capability },
-    { label: xt('视频生成'), value: 'VIDEO' as Capability },
-    { label: xt('商品视觉'), value: 'COMMERCE' as Capability }
+    { label: xt('视频生成'), value: 'VIDEO' as Capability }
   ])
   const emptyEditor = () => ({
     id: '',

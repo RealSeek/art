@@ -222,7 +222,6 @@ enum ModelCapability {
   CHAT
   IMAGE
   VIDEO
-  COMMERCE
 }
 
 enum RechargeOrderStatus {
@@ -2466,7 +2465,6 @@ model AgentTask {
   skillId          String          @default("daily")
   pluginId         String?
   attachmentIds    Json?
-  webSearchEnabled Boolean         @default(true)
   sourceTaskId     String?
   scheduleId       String?
   scheduledFor     DateTime?
@@ -2509,7 +2507,6 @@ model AgentSchedule {
   projectId           String?
   pluginId            String?
   attachmentIds       Json?
-  webSearchEnabled    Boolean     @default(true)
   cronExpression      String
   timezone            String      @default("Asia/Shanghai")
   enabled             Boolean     @default(true)

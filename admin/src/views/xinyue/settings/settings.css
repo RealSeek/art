@@ -452,10 +452,6 @@
     grid-column: span 2;
   }
 
-  .quick-action-web-search :deep(.el-form-item__content) {
-    min-height: 32px;
-  }
-
   .content-row {
     display: grid;
     grid-template-columns: 1.15fr 1.2fr 1fr 34px;

@@ -104,6 +104,22 @@ type AuxiliaryUsageTrace = {
 
 type BillingOptions = ChatBillingOptions
 
+export function parseWebSearchPlan(content: string) {
+  const fenced = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  const start = fenced.indexOf('{')
+  const end = fenced.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('Search planner returned invalid JSON')
+  const parsed = JSON.parse(fenced.slice(start, end + 1)) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Search planner returned a non-object value')
+  const plan = parsed as Record<string, unknown>
+  const queries = [...new Set((Array.isArray(plan.queries) ? plan.queries : [])
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.replace(/\s+/g, ' ').trim().slice(0, 180))
+    .filter(Boolean))].slice(0, 3)
+  const needsSearch = plan.needsSearch === true && queries.length > 0
+  return { needsSearch, queries: needsSearch ? queries : [] }
+}
+
 class JobCancelledError extends GenerationJobCancelledError {}
 
 @Injectable()
@@ -328,29 +344,25 @@ export class ChatGenerationRunner implements GenerationRunner {
     return /联网|上网|网页搜索|网络搜索|搜索一下|搜索并|检索|查找资料|查一下|查询最新|最新消息|最新资讯|热点|新闻|实时|今日|近期|资料来源|引用来源|可核验来源|网页来源|web\s*search|search\s+online|latest|current\s+(?:news|information)|citations?|sources?/i.test(prompt)
   }
 
-  private async modelWebSearchQueries(resolved: ResolvedProvider, prompt: string) {
+  private async modelWebSearchPlan(resolved: ResolvedProvider, prompt: string) {
     const messages: ChatProviderMessage[] = [
       {
         role: 'system',
         content: [
-          '你是网页搜索词规划器。根据用户当前问题生成 1 到 3 个精准、互补的搜索词。',
+          '你负责判断回答用户当前问题是否需要联网搜索。',
+          '只有当答案依赖最新或实时信息、用户明确要求检索或引用来源、或可靠回答必须核验外部事实时，才需要搜索。',
+          '闲聊、写作、翻译、总结、数学推理、解释稳定知识或仅基于用户提供内容的任务不需要搜索。',
+          '需要搜索时生成 1 到 3 个精准、互补的搜索词；不需要时返回空数组。',
           '搜索词必须忠于用户问题，不得引入用户没有询问的实体或结论。需要最新信息时加入必要的时间或版本限定。',
-          '简单问题只生成 1 个搜索词；需要对比、核验或多方面调研时最多生成 3 个。',
-          '保持用户使用的语言。只输出严格 JSON 字符串数组，例如：["搜索词一","搜索词二"]。',
+          '保持用户使用的语言。只输出严格 JSON 对象，例如：{"needsSearch":true,"queries":["搜索词一","搜索词二"]} 或 {"needsSearch":false,"queries":[]}。',
         ].join('\n'),
       },
       { role: 'user', content: prompt.slice(0, 4_000) },
     ]
     const result = await this.providerChatStream(resolved, messages, 220, async () => undefined)
-    const fenced = result.content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-    const start = fenced.indexOf('[')
-    const end = fenced.lastIndexOf(']')
-    if (start < 0 || end <= start) throw new Error('Search planner returned invalid JSON')
-    const parsed = JSON.parse(fenced.slice(start, end + 1)) as unknown
-    if (!Array.isArray(parsed)) throw new Error('Search planner returned a non-array value')
-    const queries = [...new Set(parsed.filter((item): item is string => typeof item === 'string').map((item) => item.replace(/\s+/g, ' ').trim().slice(0, 180)).filter(Boolean))].slice(0, 3)
+    const plan = parseWebSearchPlan(result.content)
     return {
-      queries: queries.length ? queries : this.localWebSearchQueries(prompt),
+      ...plan,
       ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}),
       ...this.completeUsage(
         result.usage,
@@ -366,8 +378,10 @@ export class ChatGenerationRunner implements GenerationRunner {
     prompt: string,
     fixedSources: WebSearchSource[] = [],
     onTrace?: (trace: AuxiliaryUsageTrace) => void,
+    forceSearch = false,
   ) {
-    let queries = this.localWebSearchQueries(prompt)
+    let needsSearch = forceSearch || fixedSources.length > 0
+    let queries = needsSearch ? this.localWebSearchQueries(prompt) : []
     let usage: ChatUsage | undefined
     try {
       const planned = await this.trackAuxiliaryProviderCall(
@@ -375,16 +389,20 @@ export class ChatGenerationRunner implements GenerationRunner {
         resolved,
         'web_search_planning',
         undefined,
-        () => this.modelWebSearchQueries(resolved, prompt),
+        () => this.modelWebSearchPlan(resolved, prompt),
         onTrace,
         { inputTokens: this.tokenizer.estimateText(prompt.slice(0, 4_000), resolved.model) + 256, outputTokens: 220 },
       )
-      queries = planned.queries
+      needsSearch = forceSearch || fixedSources.length > 0 || planned.needsSearch
+      queries = needsSearch ? (planned.queries.length ? planned.queries : this.localWebSearchQueries(prompt)) : []
       usage = planned.usage
     } catch (error) {
       if (error instanceof TerminalSettlementError) throw error
-      // The original user prompt remains a precise, non-invented fallback query.
+      // Preserve useful behavior if the planning response is malformed.
+      needsSearch = forceSearch || fixedSources.length > 0 || this.hasExplicitWebSearchIntent(prompt)
+      queries = needsSearch ? this.localWebSearchQueries(prompt) : []
     }
+    if (!needsSearch) return { metadata: undefined, usage }
     if (!queries.length) return { metadata: { enabled: true, status: 'failed', queries: [], sources: [], error: '没有可用于检索的关键词' } satisfies ChatWebSearch, usage }
 
     const sources: WebSearchSource[] = await this.webSearch.resolveSources(fixedSources)
@@ -1069,7 +1087,7 @@ export class ChatGenerationRunner implements GenerationRunner {
       try {
         if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('工具调用已取消')
         output = await this.agentTools.execute(
-          { id: task.id, userId: task.userId, assistantId, projectId: task.projectId, webSearchEnabled: false },
+          { id: task.id, userId: task.userId, assistantId, projectId: task.projectId },
           { ...tool, kind: 'external' },
           call.input,
           `${task.id}:${toolCallId}`,
@@ -1107,7 +1125,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     return [401, 403, 404, 408, 409, 425, 429].includes(error.status) || error.status >= 500
   }
 
-  private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE', execute: (provider: ResolvedProvider) => Promise<T>) {
+  private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO', execute: (provider: ResolvedProvider) => Promise<T>) {
     const options = task.options as Record<string, unknown>
     const billing = parseChatBillingOptions(task.options)
     const userBilled = billing.billingSource !== 'BYOK_FREE' && billing.billingSource !== 'PLATFORM'
@@ -1360,9 +1378,11 @@ export class ChatGenerationRunner implements GenerationRunner {
     const knowledgeContext = assistant?.knowledgeBases.flatMap((binding) => binding.knowledgeBase.assets.map((asset) => asset.extractedText)).filter(Boolean).join('\n\n').slice(0, 20_000) || ''
     const attachmentContext = await this.chatAttachmentContext(task.userId, messages.flatMap((message) => message.attachments.map((attachment) => attachment.asset)))
     const fixedWebSearchSources = this.fixedWebSearchSources(options.webSearchSources)
-    // An explicit request for current/searchable information should not require
-    // the user to discover a separate toggle. Ordinary chat remains untouched.
-    const webSearchEnabled = options.webSearchEnabled === true || fixedWebSearchSources.length > 0 || this.hasExplicitWebSearchIntent(task.prompt)
+    // User-facing chat lets the selected model decide whether current external
+    // information is required. Internal orchestration avoids this extra call.
+    const forcedWebSearch = fixedWebSearchSources.length > 0
+    const autoWebSearch = typeof options.internalPurpose !== 'string' && typeof options.agentTaskId !== 'string'
+    const shouldPlanWebSearch = forcedWebSearch || autoWebSearch
     const officeSkill = typeof options.officeSkill === 'string' ? options.officeSkill : ''
     const officeMode = options.officeMode === 'agent' ? 'agent' : options.officeMode === 'expert' ? 'expert' : options.officeMode === 'fast' ? 'fast' : ''
     const responseMode = options.responseMode === 'expert' ? 'expert' : options.responseMode === 'fast' ? 'fast' : ''
@@ -1380,7 +1400,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     const systemParts = [assistant?.systemPrompt?.trim(), projectInstructions ? `项目默认指令：\n${projectInstructions}` : '', projectSkillPrompt, pluginPrompt, officePrompt, executionDepth, knowledgeContext ? `以下是已授权知识库上下文，仅在相关时参考，不要臆造：\n${knowledgeContext}` : '', attachmentContext].filter(Boolean)
     const providerMessages = systemParts.length ? [{ role: 'system', content: systemParts.join('\n\n') }, ...messages.map((message) => ({ role: message.role.toLowerCase(), content: message.content }))] : messages.map((message) => ({ role: message.role.toLowerCase(), content: message.content }))
     const availableAgentTools = assistantId
-      ? await this.agentTools.available({ id: task.id, userId: task.userId, assistantId, projectId: task.projectId, webSearchEnabled: false })
+      ? await this.agentTools.available({ id: task.id, userId: task.userId, assistantId, projectId: task.projectId })
       : []
     const approvedToolIds = assistantId ? new Set((await this.prisma.toolApprovalRequest.findMany({ where: { userId: task.userId, assistantId, status: 'APPROVED', consumedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, select: { toolId: true } })).map((item) => item.toolId)) : new Set<string>()
     const agentTools = availableAgentTools.filter((tool) => !tool.requiresApproval || Boolean(tool.id && approvedToolIds.has(tool.id)))
@@ -1388,7 +1408,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     const quotaEnabled = billing.quotaEnabled === true && typeof billing.quotaId === 'string' && billing.quotaId.length > 0
     const reservedCreditCost = Math.max(0, Number(billing.baseCreditCost || 0) + (quotaEnabled ? 0 : Number(billing.reservedTokenCredits || 0)))
     const persistedResult = await this.prisma.message.findFirst({ where: { conversationId: conversation.id, deletedAt: null, metadata: { path: ['jobId'], equals: task.id } }, select: { id: true } })
-    const initialWebSearch: ChatWebSearch | undefined = webSearchEnabled ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined
+    const initialWebSearch: ChatWebSearch | undefined = forcedWebSearch ? { enabled: true, status: 'searching', queries: [], sources: [] } : undefined
     const parentMessage = [...messages].reverse().find((message) => message.role === 'USER')
     const streamParentId = parentMessage?.id
     const streamBranchIndex = streamParentId ? await this.prisma.message.count({ where: { conversationId: conversation.id, parentId: streamParentId, deletedAt: null } }) : 0
@@ -1438,12 +1458,17 @@ export class ChatGenerationRunner implements GenerationRunner {
       let candidateSearchUsage: ChatUsage | undefined
       let candidateToolPlanningUsage: ChatUsage | undefined
       let candidateAgentContext = ''
-      if (webSearchEnabled) {
-        const prepared = await this.prepareWebSearch(task, resolved, task.prompt, fixedWebSearchSources, collectAuxiliaryTrace)
+      const canUseWebSearch = forcedWebSearch
+        || Boolean(resolved.nativeSearchProvider)
+        || (shouldPlanWebSearch && await this.webSearch.isAvailable())
+      if (shouldPlanWebSearch && canUseWebSearch) {
+        const prepared = await this.prepareWebSearch(task, resolved, task.prompt, fixedWebSearchSources, collectAuxiliaryTrace, forcedWebSearch)
         candidateSearchMetadata = prepared.metadata
         candidateSearchUsage = prepared.usage
         searchMetadata = candidateSearchMetadata
-        await this.attemptAudit.withActiveLease(task.id, (tx) => tx.message.update({ where: { id: streamMessage.id }, data: { metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, webSearch: candidateSearchMetadata } } }))
+        if (candidateSearchMetadata) {
+          await this.attemptAudit.withActiveLease(task.id, (tx) => tx.message.update({ where: { id: streamMessage.id }, data: { metadata: { jobId: task.id, streaming: true, reasoning: streamedReasoning, webSearch: candidateSearchMetadata } } }))
+        }
       }
       if (assistantId && agentTools.length && options.disableAssistantTools !== true) {
         try {

@@ -35,7 +35,6 @@ const publicOptionKeys = [
   'pluginId',
   'creationToolId',
   'assistantId',
-  'webSearchEnabled',
   'webSearchSources',
   'responseMode',
   'officeMode',

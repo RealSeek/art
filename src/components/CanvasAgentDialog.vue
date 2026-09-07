@@ -28,7 +28,6 @@
               <Bot :size="15" /><span class="canvas-agent-model-trigger-copy"><strong>{{ selectedModel?.displayName || '选择可用模型' }}</strong><small v-if="selectedModel">{{ agentModelDescription(selectedModel) }}</small></span><ChevronDown :size="14" />
             </button>
           </div>
-          <label class="canvas-agent-web-toggle"><input v-model="webSearchEnabled" type="checkbox" /><span><Globe2 :size="16" /><strong>联网搜索</strong><small>需要外部资料时允许检索网页</small></span></label>
         </div>
         <div class="canvas-agent-context"><span><Network :size="15" />{{ document.nodes.length }} 个节点 · {{ document.edges.length }} 条连接</span><span><Paperclip :size="15" />{{ attachmentIds.length }} 个素材附件</span><span v-if="mentionedNodeIds.length">已引用 {{ mentionedNodeIds.length }} 个节点</span></div>
         <p v-if="error" class="canvas-agent-error" role="alert">{{ error }}</p>
@@ -79,7 +78,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, Globe2, LoaderCircle, Network, Paperclip, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
+import { Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Clock3, LoaderCircle, Network, Paperclip, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
 import { api, streamApiEvents } from '../services/api'
 import type { CanvasAgentOperation, CanvasAgentOperationType, CanvasDocumentPayload } from '../types/canvas'
 import { agentModelDescription, isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
@@ -102,7 +101,6 @@ const modelPickerOpen = ref(false)
 const modelTrigger = ref<HTMLButtonElement | null>(null)
 const modelPickerStyle = ref({ top: '12px', left: '12px' })
 const selectedModel = computed(() => agentModels.value.find((item) => item.key === model.value))
-const webSearchEnabled = ref(true)
 const running = ref(false)
 const error = ref('')
 const task = ref<AgentTask | null>(null)
@@ -249,7 +247,6 @@ async function runAgent() {
         model: model.value,
         projectId: props.projectId || undefined,
         attachmentIds: attachmentIds.value,
-        webSearchEnabled: webSearchEnabled.value,
         pluginId: props.initialPluginId || undefined,
         instructions: agentInstructions(),
       }),

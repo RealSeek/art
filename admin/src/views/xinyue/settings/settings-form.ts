@@ -96,25 +96,21 @@ const defaultChatHomeContent: ChatHomeContent = {
   composerControls: {
     gpt: {
       modeEnabled: false,
-      webSearchEnabled: true,
       modelSelectorEnabled: true,
       moreEnabled: false
     },
     doubao: {
       modeEnabled: true,
-      webSearchEnabled: true,
       modelSelectorEnabled: true,
       moreEnabled: true
     },
     qianwen: {
       modeEnabled: true,
-      webSearchEnabled: true,
       modelSelectorEnabled: true,
       moreEnabled: true
     },
     kimi: {
       modeEnabled: true,
-      webSearchEnabled: true,
       modelSelectorEnabled: true,
       moreEnabled: true
     }

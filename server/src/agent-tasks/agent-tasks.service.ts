@@ -19,7 +19,6 @@ export interface CreateAgentTaskInput {
   projectId?: string
   pluginId?: string
   attachmentIds?: string[]
-  webSearchEnabled?: boolean
   sourceTaskId?: string
   scheduleId?: string
   scheduledFor?: Date
@@ -75,7 +74,6 @@ export class AgentTasksService {
         projectId: input.projectId || null,
         pluginId: input.pluginId || null,
         attachmentIds: (input.attachmentIds || []) as Prisma.InputJsonValue,
-        webSearchEnabled: input.webSearchEnabled ?? true,
         sourceTaskId: input.sourceTaskId || null,
         scheduleId: input.scheduleId || null,
         scheduledFor: input.scheduledFor || null,
@@ -108,14 +106,12 @@ export class AgentTasksService {
       projectId: input.projectId === undefined ? task.projectId || undefined : input.projectId,
       pluginId: input.pluginId === undefined ? task.pluginId || undefined : input.pluginId,
       attachmentIds: input.attachmentIds ?? this.attachmentIds(task.attachmentIds),
-      webSearchEnabled: input.webSearchEnabled ?? task.webSearchEnabled,
     }
     await this.assertRelations(userId, merged)
     await this.prisma.agentTask.update({ where: { id }, data: {
       title: merged.title.trim(), goal: merged.goal.trim(), instructions: merged.instructions?.trim() || '', model: merged.model.trim(),
       skillId: merged.skillId?.trim() || 'daily', assistantId: merged.assistantId || null, projectId: merged.projectId || null,
       pluginId: merged.pluginId || null, attachmentIds: (merged.attachmentIds || []) as Prisma.InputJsonValue,
-      webSearchEnabled: merged.webSearchEnabled ?? true,
     } })
     return this.get(userId, id)
   }
@@ -127,7 +123,6 @@ export class AgentTasksService {
       title: `${task.title}（副本）`, goal: task.goal, instructions: task.instructions, model: task.model,
       skillId: task.skillId, assistantId: task.assistantId || undefined, projectId: task.projectId || undefined,
       pluginId: task.pluginId || undefined, attachmentIds: this.attachmentIds(task.attachmentIds), sourceTaskId: task.id,
-      webSearchEnabled: task.webSearchEnabled,
     })
   }
 

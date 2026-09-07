@@ -19,6 +19,7 @@ type RunnerHarness = {
   starts: string[]
   successes: string[]
   failures: string[]
+  capabilities: string[]
   failover<T>(execute: (provider: ResolvedProvider) => Promise<T>): Promise<{
     result: T
     provider: ResolvedProvider
@@ -80,8 +81,12 @@ function harness(name: 'image' | 'commerce' | 'video', behavior: AttemptBehavior
   const starts: string[] = []
   const successes: string[] = []
   const failures: string[] = []
+  const capabilities: string[] = []
   const providers = {
-    resolveCandidates: async () => candidates,
+    resolveCandidates: async (_userId: string, _model: string, capability: string) => {
+      capabilities.push(capability)
+      return candidates
+    },
     recordCandidateResult: async () => undefined,
     buildRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
   }
@@ -124,6 +129,7 @@ function harness(name: 'image' | 'commerce' | 'video', behavior: AttemptBehavior
       starts,
       successes,
       failures,
+      capabilities,
       failover: (execute) => internals.withProviderFailover(generationTask(name === 'commerce' ? 'COMMERCE' : 'IMAGE'), execute),
       request: (candidate) => internals.provider(candidate, '/images/generations', { prompt: 'test' }),
     }
@@ -144,10 +150,17 @@ function harness(name: 'image' | 'commerce' | 'video', behavior: AttemptBehavior
     starts,
     successes,
     failures,
+    capabilities,
     failover: (execute) => internals.withProviderFailover(generationTask('VIDEO'), 'VIDEO', execute),
     request: (candidate) => internals.provider(candidate, '/videos', { prompt: 'test' }),
   }
 }
+
+test('commerce jobs reuse the IMAGE provider catalog', async () => {
+  const runner = harness('commerce')
+  await runner.failover(async () => 'provider-result')
+  assert.deepEqual(runner.capabilities, ['IMAGE'])
+})
 
 for (const runnerName of ['image', 'commerce', 'video'] as const) {
   test(`${runnerName}: ProviderAttempt creation failure prevents the Provider call`, async () => {

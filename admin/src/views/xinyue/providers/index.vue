@@ -676,9 +676,7 @@
         ? xt('图片')
         : value === 'VIDEO'
           ? xt('视频')
-          : value === 'COMMERCE'
-            ? xt('电商')
-            : xt('不支持')
+          : xt('不支持')
   const moneyMicros = (value: number) =>
     value ? `$${(value / 1_000_000).toFixed(value < 10_000 ? 4 : 2)}` : '-'
 

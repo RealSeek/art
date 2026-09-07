@@ -84,8 +84,12 @@ export class GenerationsService {
     const concurrency = 3
     const running = await this.prisma.generationJob.count({ where: { userId, status: { in: ['QUEUED', 'RUNNING'] } } })
     if (running >= concurrency) throw new HttpException(`最多同时执行 ${concurrency} 个任务`, HttpStatus.TOO_MANY_REQUESTS)
-    const capability = input.kind === 'CHAT' ? 'CHAT' : input.kind === 'VIDEO' ? 'VIDEO' : input.kind === 'COMMERCE' ? 'COMMERCE' : 'IMAGE'
-    const pluginCapability = input.kind === 'CHAT' && typeof input.options.officeSkill === 'string' ? PluginCapability.OFFICE : PluginCapability[capability]
+    const modelCapability = input.kind === 'CHAT' ? 'CHAT' : input.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE'
+    const pluginCapability = input.kind === 'CHAT' && typeof input.options.officeSkill === 'string'
+      ? PluginCapability.OFFICE
+      : input.kind === 'COMMERCE'
+        ? PluginCapability.COMMERCE
+        : PluginCapability[modelCapability]
     const pluginId = typeof input.options.pluginId === 'string' && input.options.pluginId.trim() ? input.options.pluginId.trim() : undefined
     const plugin = pluginId ? await this.plugins.resolveForUse(userId, pluginId, pluginCapability, account?.role) : null
     const assistantId = input.kind === 'CHAT' && typeof input.options.assistantId === 'string' ? input.options.assistantId : undefined
@@ -103,7 +107,7 @@ export class GenerationsService {
       if (creationToolUsesWorker && !creationTool.model?.trim()) throw new BadRequestException('图片工具尚未绑定专用 Worker 模型')
     }
     const requestedModel = creationToolUsesWorker ? creationTool?.model || input.model : input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
-    const resolved = await this.providers.resolve(userId, requestedModel, capability, creationToolUsesWorker ? input.options : { ...input.options, providerSource: 'user' })
+    const resolved = await this.providers.resolve(userId, requestedModel, modelCapability, creationToolUsesWorker ? input.options : { ...input.options, providerSource: 'user' })
     if (creationToolUsesWorker && resolved.type !== 'LOCAL_WORKER') throw new BadRequestException('图片工具必须绑定本地 Worker 渠道')
     const priceVersion = resolved.presetKey && !resolved.presetKey.startsWith('private:')
       ? await this.prisma.modelPriceVersion.findFirst({ where: { modelPreset: { key: resolved.presetKey } }, orderBy: { version: 'desc' } })

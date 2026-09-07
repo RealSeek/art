@@ -17,7 +17,6 @@ interface ChatSubmissionState {
   model: Readonly<Ref<string>>
   assistantId: Readonly<Ref<string>>
   pluginId: Readonly<Ref<string>>
-  webSearchEnabled: Readonly<Ref<boolean>>
   responseMode: Readonly<Ref<'fast' | 'expert'>>
   pendingRecommendationSource: Ref<PendingRecommendationSource | null>
 }
@@ -27,7 +26,6 @@ interface ChatSendInput {
   assistantId?: string
   pluginId?: string
   assetIds: string[]
-  webSearchEnabled: boolean
   webSearchSources?: WebSearchSource[]
   responseMode: 'fast' | 'expert'
   officeMode?: 'agent'
@@ -114,7 +112,6 @@ export function useChatSubmission(state: ChatSubmissionState, actions: ChatSubmi
           assistantId: state.assistantId.value || undefined,
           pluginId: state.pluginId.value || undefined,
           assetIds: pendingAttachments.map((asset) => asset.id),
-          webSearchEnabled: state.webSearchEnabled.value,
           webSearchSources: recommendationSource ? [recommendationSource] : undefined,
           responseMode: state.responseMode.value,
           officeMode: state.activeCapability.value === 'AGENT' ? 'agent' : undefined,

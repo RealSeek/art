@@ -61,7 +61,6 @@ const props = defineProps<{
   hasChatThread: boolean
   jumpHighlightId: string
   model: string
-  webSearchEnabled: boolean
   activeChatResponseMode: 'fast' | 'expert'
   syncMessageNavigator: () => void
 }>()
@@ -99,14 +98,14 @@ function startMessageEdit(message: { id: string; content: string }) { editingMes
 function cancelMessageEdit() { editingMessageId.value = ''; editingMessageContent.value = '' }
 async function saveMessageEdit(messageId: string) {
   if (!editingMessageContent.value.trim()) return
-  try { await store.branchMessage(messageId, editingMessageContent.value, props.model, props.webSearchEnabled, props.activeChatResponseMode); cancelMessageEdit(); await scrollThreadToBottom() }
+  try { await store.branchMessage(messageId, editingMessageContent.value, props.model, props.activeChatResponseMode); cancelMessageEdit(); await scrollThreadToBottom() }
   catch { /* Store exposes the server error in-page. */ }
 }
 async function retryAssistantMessage(assistantMessageId: string) {
   const assistantIndex = store.messages.findIndex((message) => message.id === assistantMessageId)
   const source = store.messages.slice(0, assistantIndex).reverse().find((message) => message.role === 'user')
   if (!source) return
-  try { await store.branchMessage(source.id, source.content, props.model, props.webSearchEnabled, props.activeChatResponseMode); await scrollThreadToBottom() }
+  try { await store.branchMessage(source.id, source.content, props.model, props.activeChatResponseMode); await scrollThreadToBottom() }
   catch { /* Store exposes the server error in-page. */ }
 }
 function followUpsForMessage(message: Message) {

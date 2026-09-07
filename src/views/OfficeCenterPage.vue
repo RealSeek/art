@@ -155,7 +155,6 @@
               </div>
             </span>
             <button class="office-skill-button" :class="{ active: skillPanelOpen }" type="button" :aria-expanded="skillPanelOpen" @click="toggleSkillPanel"><LayoutGrid :size="16" />更多</button>
-            <button v-if="taskMode === 'agent'" class="office-web-button" :class="{ active: webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" title="联网搜索" @click="webSearchEnabled = !webSearchEnabled"><Globe2 :size="16" />联网</button>
           </div>
           <span class="office-composer-actions">
             <button class="office-submit composer-send" :class="{ 'is-voice-entry': showVoiceEntry }" :type="generating || showVoiceEntry ? 'button' : 'submit'" :disabled="canceling || (!generating && !showVoiceEntry && auth.isAuthenticated && !model)" :aria-label="generating ? '停止生成' : showVoiceEntry ? (voiceListening ? '停止语音输入' : '开始语音输入') : '提交任务'" :title="generating ? '停止生成' : showVoiceEntry ? '语音输入' : '提交任务'" @click="handleSubmitAction"><LoaderCircle v-if="canceling" class="office-spin" :size="16" /><Square v-else-if="generating" :size="13" fill="currentColor" /><AudioLines v-else-if="showVoiceEntry" :size="18" /><ArrowUp v-else :size="19" /></button>
@@ -202,7 +201,7 @@ type AgentToolCall = { id: string; key: string; name: string; input: Record<stri
 type AgentSource = { title: string; url: string }
 type AgentEvent = { id: string; type: string; title: string; detail: string; createdAt: string; payload?: { sources?: AgentSource[] } | null }
 type AgentRun = { id: string; status: AgentTaskStatus; iteration: number; maxIterations: number; currentNode: string; creditCost: number; finalAnswer: string; toolCalls: AgentToolCall[]; events: AgentEvent[] }
-type AgentTask = { id: string; title: string; goal: string; model: string; skillId: string; webSearchEnabled: boolean; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
+type AgentTask = { id: string; title: string; goal: string; model: string; skillId: string; status: AgentTaskStatus; conversationId?: string | null; updatedAt: string; errorMessage?: string | null; steps: AgentTaskStep[]; run?: ServerJob | null; agentRun?: AgentRun | null; conversation?: { id: string; messages: Array<{ content: string }> } | null; artifacts?: OfficeDeliverable[] }
 type AgentSchedule = { id: string; title: string; goal: string; cronExpression: string; timezone: string; enabled: boolean; nextRunAt?: string | null }
 
 const builtInSkills: OfficeSkill[] = [
@@ -254,7 +253,6 @@ const taskInput = ref<HTMLTextAreaElement | null>(null)
 const resultThread = ref<HTMLElement | null>(null)
 const taskMode = ref<TaskMode>('fast')
 const exportFormat = ref<OfficeExportFormat>('auto')
-const webSearchEnabled = ref(true)
 const selectedSkill = ref<OfficeSkill>(builtInSkills[0])
 const skillPanelOpen = ref(false)
 const modeMenuOpen = ref(false)
@@ -476,7 +474,6 @@ async function submitTask() {
           assistantId: selectedSkill.value.assistantId,
           pluginId: pluginId.value || undefined,
           attachmentIds: attachments.value.map((asset) => asset.id),
-          webSearchEnabled: webSearchEnabled.value,
         }),
       })
       activeAgentTaskId.value = created.id
@@ -567,7 +564,6 @@ async function duplicateTask(task: AgentTask) {
     selectTaskMode('agent')
     const copiedModel = chatModels.value.find((item) => item.key === copy.model || item.upstreamModel === copy.model || item.displayName === copy.model)
     if (copiedModel && isAgentModelEligible(copiedModel)) model.value = copiedModel.key
-    webSearchEnabled.value = copy.webSearchEnabled
     prompt.value = copy.goal
     const matchingSkill = allSkills.value.find((skill) => skill.id === copy.skillId)
     if (matchingSkill) selectedSkill.value = matchingSkill
@@ -599,7 +595,7 @@ function applySchedulePreset() { const values: Record<string, string> = { daily:
 async function saveSchedule() {
   if (!scheduleForm.title.trim() || !scheduleForm.goal.trim() || !model.value) return
   scheduleSaving.value = true; error.value = ''
-  try { await api('/agent-tasks/schedules/create', { method: 'POST', body: JSON.stringify({ title: scheduleForm.title, goal: scheduleForm.goal, model: model.value, skillId: selectedSkill.value.id, assistantId: selectedSkill.value.assistantId, pluginId: pluginId.value || undefined, attachmentIds: attachments.value.map((asset) => asset.id), webSearchEnabled: webSearchEnabled.value, cronExpression: scheduleForm.cronExpression, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', enabled: true }) }); scheduleForm.title = ''; scheduleForm.goal = ''; await loadSchedules() }
+  try { await api('/agent-tasks/schedules/create', { method: 'POST', body: JSON.stringify({ title: scheduleForm.title, goal: scheduleForm.goal, model: model.value, skillId: selectedSkill.value.id, assistantId: selectedSkill.value.assistantId, pluginId: pluginId.value || undefined, attachmentIds: attachments.value.map((asset) => asset.id), cronExpression: scheduleForm.cronExpression, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', enabled: true }) }); scheduleForm.title = ''; scheduleForm.goal = ''; await loadSchedules() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : '创建定时任务失败' }
   finally { scheduleSaving.value = false }
 }
@@ -613,7 +609,6 @@ async function openAgentTask(id: string) {
   selectTaskMode('agent')
   const taskModel = chatModels.value.find((item) => item.key === task.model || item.upstreamModel === task.model || item.displayName === task.model)
   if (taskModel && isAgentModelEligible(taskModel)) model.value = taskModel.key
-  webSearchEnabled.value = task.webSearchEnabled
   if (task.status === 'DRAFT') {
     conversationId.value = ''; submittedPrompt.value = ''; answer.value = ''; prompt.value = task.goal; deliverable.value = null; historyOpen.value = false
     const draftSkill = allSkills.value.find((skill) => skill.id === task.skillId); if (draftSkill) selectedSkill.value = draftSkill
@@ -759,8 +754,6 @@ function applyRouteIntent() {
   }
 
   if (typeof route.query.prompt === 'string') prompt.value = route.query.prompt.slice(0, 20000)
-  if (route.query.webSearch === 'true') webSearchEnabled.value = true
-  if (route.query.webSearch === 'false') webSearchEnabled.value = false
   const requestedMode = typeof route.query.mode === 'string' ? route.query.mode : ''
   if (['fast', 'expert', 'agent'].includes(requestedMode)) selectTaskMode(requestedMode as TaskMode)
   void nextTick(() => taskInput.value?.focus({ preventScroll: true }))

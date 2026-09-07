@@ -18,7 +18,7 @@ export type AgentToolDescriptor = {
   inputSchema?: Prisma.JsonValue | null
 }
 
-type ToolExecutionTask = { id: string; userId: string; assistantId: string | null; projectId: string | null; webSearchEnabled: boolean }
+type ToolExecutionTask = { id: string; userId: string; assistantId: string | null; projectId: string | null }
 
 @Injectable()
 export class AgentToolsService {
@@ -35,7 +35,7 @@ export class AgentToolsService {
       { key: 'data_summary', name: '数据汇总', description: '对输入的数字数组或表格行执行计数、合计、均值、最小值和最大值计算', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { values: { type: 'array', maxItems: 20000, items: { type: ['number', 'string'] } }, rows: { type: 'array', maxItems: 5000, items: { type: 'object' } } }, anyOf: [{ required: ['values'] }, { required: ['rows'] }], additionalProperties: false } },
       { key: 'current_time', name: '日期与时间', description: '获取当前服务器日期、时间和时区', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
     ]
-    if (task.webSearchEnabled && await this.web.isAvailable()) tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回可引用的标题、链接、摘要和来源，适合最新信息、事实核验与调研任务', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 500 }, q: { type: 'string', minLength: 1, maxLength: 500 }, maxResults: { type: 'integer', minimum: 1, maximum: 20 }, max_results: { type: 'integer', minimum: 1, maximum: 20 }, topic: { type: 'string', maxLength: 50 }, includeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } }, excludeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } } }, anyOf: [{ required: ['query'] }, { required: ['q'] }], additionalProperties: false } })
+    if (await this.web.isAvailable()) tools.push({ key: 'web_search', name: '网页搜索', description: '检索公开网页并返回可引用的标题、链接、摘要和来源，适合最新信息、事实核验与调研任务', requiresApproval: false, kind: 'builtin', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 500 }, q: { type: 'string', minLength: 1, maxLength: 500 }, maxResults: { type: 'integer', minimum: 1, maximum: 20 }, max_results: { type: 'integer', minimum: 1, maximum: 20 }, topic: { type: 'string', maxLength: 50 }, includeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } }, excludeDomains: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 253 } } }, anyOf: [{ required: ['query'] }, { required: ['q'] }], additionalProperties: false } })
     const bindings = task.assistantId
       ? await this.prisma.assistantTool.findMany({ where: { assistantId: task.assistantId, tool: { enabled: true, kind: 'BUILT_IN' } }, include: { tool: true } })
       : []

@@ -150,7 +150,6 @@
 
 .canvas-agent-form textarea,
 .canvas-agent-form select,
-.canvas-agent-web-toggle,
 .canvas-agent-dialog > footer button {
   border-radius: var(--studio-radius-sm);
 }

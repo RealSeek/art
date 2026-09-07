@@ -8,7 +8,6 @@ type QuickAction = {
   prompt: string
   target: string
   modelKey: string
-  webSearch: boolean
   enabled: boolean
 }
 
@@ -26,7 +25,7 @@ const INTERNAL_ROUTES = new Map<string, ModelCapability | null>([
   ['/chat', ModelCapability.CHAT],
   ['/image', ModelCapability.IMAGE],
   ['/video', ModelCapability.VIDEO],
-  ['/commerce', ModelCapability.COMMERCE],
+  ['/commerce', ModelCapability.IMAGE],
   ['/office', ModelCapability.CHAT],
   ['/workspace', null],
   ['/prompts', null],
@@ -93,7 +92,7 @@ export class CapabilityRegistryService {
     const webSearchAvailable = externalSearchAvailable || nativeSearchAvailable
 
     const statuses = Object.entries(actions).flatMap(([preset, rows]) =>
-      rows.map((action) => this.actionStatus(preset, action, modelKeys, modelCapabilities, webSearchAvailable)),
+      rows.map((action) => this.actionStatus(preset, action, modelKeys, modelCapabilities)),
     )
 
     return {
@@ -122,12 +121,11 @@ export class CapabilityRegistryService {
     ]))
   }
 
-  private actionStatus(preset: string, action: QuickAction, modelKeys: Set<string>, capabilities: Set<ModelCapability>, webSearchAvailable: boolean): QuickActionStatus {
+  private actionStatus(preset: string, action: QuickAction, modelKeys: Set<string>, capabilities: Set<ModelCapability>): QuickActionStatus {
     const unavailable = (handler: string, reason: string): QuickActionStatus => ({ id: action.id, preset, handler, available: false, published: false, reason })
     const handler = action.actionType === 'OFFICE' ? 'office.task' : action.actionType === 'ROUTE' ? 'route.open' : 'prompt.compose'
     if (!action.enabled) return unavailable(handler, '管理员已停用')
     if (action.modelKey && !modelKeys.has(action.modelKey)) return unavailable(handler, `绑定模型 ${action.modelKey} 当前没有可用渠道`)
-    if (action.webSearch && !webSearchAvailable) return unavailable(handler, '未配置可用的联网搜索渠道')
 
     if (action.actionType === 'PROMPT') {
       if (!action.prompt.trim()) return unavailable(handler, '提示词为空')

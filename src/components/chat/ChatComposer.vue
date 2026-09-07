@@ -15,7 +15,6 @@
           <nav v-if="showChatComposerShortcutBar" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
             <button v-if="chatComposerControls.modeEnabled" class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><component :is="activeChatModeIcon" :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
             <button v-if="chatUiPreset === 'doubao' && chatComposerControls.modelSelectorEnabled" ref="modelAnchor" class="chat-home-inline-model" :class="{ 'is-open': modelOpen }" type="button" :aria-expanded="modelOpen" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" @click="toggleModelMenu"><ModelBadge v-if="activeCapabilityModelOption" :model="activeCapabilityModelOption" size="sm" /><span v-else aria-hidden="true">#</span><strong>{{ activeCapabilityModelLabel }}</strong><ChevronDown :size="12" /></button>
-            <button v-if="chatComposerControls.webSearchEnabled" class="composer-web-search" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
             <button v-for="item in visibleChatShortcuts" :key="item.id" type="button" @click="executeChatQuickAction(item)">
               <component :is="quickActionIcon(item.icon)" :size="16" /><span>{{ item.label }}</span>
             </button>
@@ -24,7 +23,6 @@
           </nav>
           <div v-if="!hasChatThread && chatUiPreset === 'kimi' && chatComposerControls.modeEnabled" class="chat-kimi-modes" aria-label="回答模式"><button type="button" :class="{ 'is-active': activeChatMode === '快速' }" @click="activeChatMode = '快速'">快速</button><button type="button" :class="{ 'is-active': activeChatMode === '进阶' }" @click="activeChatMode = '进阶'">进阶</button><ChevronDown :size="14" /></div>
           <CapabilitySelector v-if="auth.isAuthenticated && (!['doubao', 'qianwen'].includes(chatUiPreset) || !showChatComposerShortcutBar)" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
-          <button v-if="chatComposerControls.webSearchEnabled && chatUiPreset !== 'doubao' && (hasChatThread || chatUiPreset !== 'qianwen')" class="composer-web-search composer-web-search--standalone" :class="{ 'is-active': webSearchEnabled }" type="button" :aria-pressed="webSearchEnabled" :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'" @click="toggleWebSearch"><Globe2 :size="16" /><span>联网</span></button>
           <div v-if="chatComposerControls.modelSelectorEnabled" class="composer-control composer-model">
             <button v-if="chatUiPreset !== 'doubao'" ref="modelAnchor" type="button" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" :title="`模型：${activeCapabilityModelLabel}`" @click="toggleModelMenu">
               <ModelBadge v-if="activeCapabilityModelOption" :model="activeCapabilityModelOption" size="sm" /><span>{{ activeCapabilityModelLabel }}</span><ChevronDown :size="15" />
@@ -130,7 +128,6 @@ const emit = defineEmits<{ (e: 'load-models'): void }>()
 const draft = defineModel<string>('draft', { required: true })
 const attachments = defineModel<StudioAsset[]>('attachments', { required: true })
 const activeChatMode = defineModel<string>('activeChatMode', { required: true })
-const webSearchEnabled = defineModel<boolean>('webSearchEnabled', { required: true })
 const assistantId = defineModel<string>('assistantId', { required: true })
 const chatPluginId = defineModel<string>('chatPluginId', { required: true })
 const qianwenBannerIndex = defineModel<number>('qianwenBannerIndex', { required: true })
@@ -184,7 +181,7 @@ const showChatComposerShortcutBar = computed(() => {
   if (!['doubao', 'qianwen'].includes(chatUiPreset.value)) return false
   if (chatUiPreset.value === 'qianwen' && props.hasChatThread) return false
   const controls = chatComposerControls.value
-  return Boolean(visibleChatShortcuts.value.length || controls.modeEnabled || controls.webSearchEnabled || (controls.moreEnabled && (chatMoreShortcuts.value.length || controls.modelSelectorEnabled)))
+  return Boolean(visibleChatShortcuts.value.length || controls.modeEnabled || (controls.moreEnabled && (chatMoreShortcuts.value.length || controls.modelSelectorEnabled)))
 })
 const chatModeOptions = computed<Array<{ label: string; icon: typeof Sparkles; note: string; badge?: string }>>(() => chatUiPreset.value === 'qianwen'
   ? [
@@ -216,11 +213,6 @@ const filteredPromptTemplates = computed(() => promptTemplates.value.filter((ite
   return (!promptTemplateCategory.value || item.category === promptTemplateCategory.value) && (!promptTemplateQuery.value || haystack.includes(promptTemplateQuery.value.toLowerCase()))
 }))
 
-function toggleWebSearch() {
-  webSearchEnabled.value = !webSearchEnabled.value
-  chatModeMenuOpen.value = false
-  chatMoreMenuOpen.value = false
-}
 function toggleChatModeMenu() {
   chatModeMenuOpen.value = !chatModeMenuOpen.value
   chatMoreMenuOpen.value = false
@@ -355,7 +347,6 @@ async function executeChatQuickAction(item: ChatQuickAction) {
   chatMoreMenuOpen.value = false
   store.clearError()
   if (!await props.applyQuickActionModel(item)) return
-  if (item.webSearch) webSearchEnabled.value = true
   if (item.actionType === 'OFFICE') {
     await router.push({
       path: '/office',
@@ -363,7 +354,6 @@ async function executeChatQuickAction(item: ChatQuickAction) {
         tool: item.target || 'daily',
         ...(item.modelKey ? { model: item.modelKey } : {}),
         ...(item.prompt ? { prompt: item.prompt } : {}),
-        ...(item.webSearch ? { webSearch: 'true' } : {}),
       },
     })
     return

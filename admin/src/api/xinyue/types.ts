@@ -284,7 +284,7 @@ export type DiscoveredModel = {
   displayName: string
   vendorKey: string
   vendorName: string
-  capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE' | null
+  capability: 'CHAT' | 'IMAGE' | 'VIDEO' | null
   importable: boolean
   confidence: 'exact' | 'inferred' | 'unknown'
   pricingSource: 'litellm' | 'fallback' | 'none'
@@ -310,7 +310,7 @@ export type ModelPreset = {
   vendorId?: string | null
   providerId?: string | null
   upstreamModel: string
-  capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'
+  capability: 'CHAT' | 'IMAGE' | 'VIDEO'
   enabled: boolean
   isDefault: boolean
   allowUserKey: boolean
@@ -818,7 +818,6 @@ export type ChatQuickAction = {
   prompt: string
   target: string
   modelKey: string
-  webSearch: boolean
   enabled: boolean
   sortOrder: number
 }
@@ -843,7 +842,6 @@ export type CapabilityRegistrySnapshot = {
 }
 export type ChatComposerControls = {
   modeEnabled: boolean
-  webSearchEnabled: boolean
   modelSelectorEnabled: boolean
   moreEnabled: boolean
 }

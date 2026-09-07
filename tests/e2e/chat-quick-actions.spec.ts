@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 
 const quickActions = [
-  { id: 'translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译：', target: '', modelKey: 'chat-test', webSearch: false, enabled: true, sortOrder: 10 },
-  { id: 'research', label: '深入研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究：', target: '', modelKey: 'chat-test', webSearch: true, enabled: true, sortOrder: 20 },
-  { id: 'ppt', label: 'PPT 生成', icon: 'ppt', placement: 'MORE', actionType: 'OFFICE', prompt: '制作产品发布演示文稿', target: 'ppt', modelKey: 'chat-test', webSearch: false, enabled: true, sortOrder: 30 },
-  { id: 'analysis', label: '数据分析', icon: 'table', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'analysis', modelKey: 'chat-test', webSearch: false, enabled: true, sortOrder: 40 },
+  { id: 'translate', label: '翻译', icon: 'translate', placement: 'MORE', actionType: 'PROMPT', prompt: '请准确翻译：', target: '', modelKey: 'chat-test', enabled: true, sortOrder: 10 },
+  { id: 'research', label: '深入研究', icon: 'research', placement: 'MORE', actionType: 'PROMPT', prompt: '请深入研究：', target: '', modelKey: 'chat-test', enabled: true, sortOrder: 20 },
+  { id: 'ppt', label: 'PPT 生成', icon: 'ppt', placement: 'MORE', actionType: 'OFFICE', prompt: '制作产品发布演示文稿', target: 'ppt', modelKey: 'chat-test', enabled: true, sortOrder: 30 },
+  { id: 'analysis', label: '数据分析', icon: 'table', placement: 'MORE', actionType: 'OFFICE', prompt: '', target: 'analysis', modelKey: 'chat-test', enabled: true, sortOrder: 40 },
 ]
 
 test.beforeEach(async ({ page }) => {
@@ -16,10 +16,10 @@ test.beforeEach(async ({ page }) => {
       qianwenBanners: [],
       kimiProject: { label: '选择项目', targetUrl: '/workspace?tab=projects' },
       composerControls: {
-        gpt: { modeEnabled: false, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: false },
-        doubao: { modeEnabled: false, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
-        qianwen: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
-        kimi: { modeEnabled: true, webSearchEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
+        gpt: { modeEnabled: false, modelSelectorEnabled: true, moreEnabled: false },
+        doubao: { modeEnabled: false, modelSelectorEnabled: true, moreEnabled: true },
+        qianwen: { modeEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
+        kimi: { modeEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
       },
       quickActions: { gpt: [], doubao: quickActions, qianwen: [], kimi: [] },
     },
@@ -41,7 +41,7 @@ test('提示词与研究快捷能力会执行后台配置', async ({ page }) => 
   await page.getByRole('button', { name: '更多' }).click()
   await page.getByRole('menuitem', { name: '深入研究' }).click()
   await expect(page.getByRole('textbox', { name: '消息' })).toHaveValue('请深入研究：')
-  await expect(page.getByRole('button', { name: '联网' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: '联网' })).toHaveCount(0)
 })
 
 test('办公快捷能力会选中工具、模型和真实交付格式', async ({ page }) => {

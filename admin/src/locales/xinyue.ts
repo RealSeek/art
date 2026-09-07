@@ -34,13 +34,11 @@ const englishGlossary: Record<string, string> = {
   能力入口布局: 'Capability shortcuts',
   品牌字标与任务入口: 'Brand wordmark and task shortcuts',
   快捷能力与执行: 'Quick actions and execution',
-  '控制当前界面的入口、排序、模型和联网策略':
-    'Control shortcuts, ordering, models, and web-search policy for this layout',
+  '控制当前界面的入口、排序和模型策略':
+    'Control shortcuts, ordering, and models for this layout',
   新增能力: 'Add action',
   模式选择: 'Mode selector',
   '展示快速、专家和任务模式': 'Show fast, expert, and task modes',
-  联网开关: 'Web-search toggle',
-  允许用户手动开关联网搜索: 'Let users toggle web search',
   模型选择: 'Model selector',
   允许用户临时切换可用模型: 'Let users switch available models',
   更多菜单: 'More menu',
@@ -64,7 +62,6 @@ const englishGlossary: Record<string, string> = {
   执行模型: 'Execution model',
   跟随当前或默认模型: 'Use current or default model',
   排序值: 'Sort order',
-  自动联网: 'Auto web search',
   预填任务提示: 'Prefilled task prompt',
   工作台: 'Console',
   客户与权益: 'Customers & Entitlements',

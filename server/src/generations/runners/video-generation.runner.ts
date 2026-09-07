@@ -67,7 +67,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     return [401, 403, 404, 408, 409, 425, 429].includes(error.status) || error.status >= 500
   }
 
-  private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE', execute: (provider: ResolvedProvider) => Promise<T>) {
+  private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO', execute: (provider: ResolvedProvider) => Promise<T>) {
     const options = task.options as Record<string, unknown>
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []

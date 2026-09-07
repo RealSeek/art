@@ -9,7 +9,6 @@ interface StudioModelCatalogState {
   chatModel: Ref<string>
   imageModel: Ref<string>
   videoModel: Ref<string>
-  commerceModel: Ref<string>
   capabilitySelections: CapabilitySelection
 }
 
@@ -40,11 +39,9 @@ export function useStudioModelCatalog(state: StudioModelCatalogState, actions: S
       const defaultChat = defaultCatalogModel(state.models.value, 'CHAT')
       const defaultImage = defaultCatalogModel(state.models.value, 'IMAGE')
       const defaultVideo = defaultCatalogModel(state.models.value, 'VIDEO')
-      const defaultCommerce = defaultCatalogModel(state.models.value, 'COMMERCE')
       const chatSelection = findCatalogModel(state.models.value, state.chatModel.value, 'CHAT')
       const imageSelection = findCatalogModel(state.models.value, state.imageModel.value, 'IMAGE')
       const videoSelection = findCatalogModel(state.models.value, state.videoModel.value, 'VIDEO')
-      const commerceSelection = findCatalogModel(state.models.value, state.commerceModel.value, 'COMMERCE')
 
       if (!actions.currentConversationId() && defaultChat && (options.applyDefaults || !chatSelection)) state.chatModel.value = defaultChat.key
       else if (chatSelection) state.chatModel.value = chatSelection.key
@@ -52,8 +49,6 @@ export function useStudioModelCatalog(state: StudioModelCatalogState, actions: S
       else if (imageSelection) state.imageModel.value = imageSelection.key
       if (defaultVideo && (options.applyDefaults || !videoSelection)) state.videoModel.value = defaultVideo.key
       else if (videoSelection) state.videoModel.value = videoSelection.key
-      if (defaultCommerce && (options.applyDefaults || !commerceSelection)) state.commerceModel.value = defaultCommerce.key
-      else if (commerceSelection) state.commerceModel.value = commerceSelection.key
 
       state.capabilitySelections.CHAT = state.chatModel.value || defaultChat?.key || ''
       state.capabilitySelections.IMAGE = state.imageModel.value || defaultImage?.key || ''

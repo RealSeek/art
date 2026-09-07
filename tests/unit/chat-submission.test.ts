@@ -35,7 +35,6 @@ test('图片意图提交为生成任务并清空草稿和附件', async () => {
     model: computed(() => 'chat-model'),
     assistantId: computed(() => ''),
     pluginId: computed(() => ''),
-    webSearchEnabled: computed(() => false),
     responseMode: computed(() => 'fast' as const),
     pendingRecommendationSource: ref(null),
   }, {
@@ -78,7 +77,6 @@ test('消息持久化前失败时恢复草稿、附件和推荐来源', async ()
     model: computed(() => 'chat-model'),
     assistantId: computed(() => ''),
     pluginId: computed(() => ''),
-    webSearchEnabled: computed(() => true),
     responseMode: computed(() => 'expert' as const),
     pendingRecommendationSource,
   }, {

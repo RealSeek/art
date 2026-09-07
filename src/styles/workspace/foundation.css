@@ -505,7 +505,6 @@ body.has-workspace { height: 100dvh; overflow: hidden; }
 .chat-ui--qianwen .chat-home-shortcuts--in-composer > .plugin-selector { flex: 0 0 auto; margin-left: 2px; }
 .chat-ui--qianwen .chat-home-shortcuts--in-composer > .plugin-selector > button { max-width: 112px; }
 .chat-ui--qianwen .chat-composer > .plugin-selector { bottom: 8px; left: 48px; position: absolute; z-index: 2; }
-.chat-ui--qianwen .chat-composer > .composer-web-search--standalone { grid-column: 2; grid-row: 2; justify-self: start; }
 .chat-ui--qianwen .chat-composer > .composer-voice { grid-column: 3; grid-row: 2; }
 .chat-ui--qianwen .chat-composer > .chat-composer-submit { grid-column: 4; grid-row: 2; margin-left: 0; }
 .chat-home-qianwen-carousel { margin: 56px auto 0; position: relative; width: min(660px, calc(100% - 48px)); }
@@ -542,7 +541,6 @@ body.has-workspace { height: 100dvh; overflow: hidden; }
 .chat-ui--kimi .chat-composer > .composer-voice { display: none; }
 .chat-ui--kimi .chat-home-shortcuts--in-composer > .plugin-selector { flex: 0 0 auto; margin-left: 2px; }
 .chat-ui--kimi .chat-home-shortcuts--in-composer > .plugin-selector > button { max-width: 112px; }
-.chat-ui--kimi .chat-composer > .composer-web-search--standalone { grid-column: 2; grid-row: 2; justify-self: start; }
 .chat-ui--kimi .chat-composer > .chat-composer-submit { grid-column: 4; grid-row: 2; margin-left: 0; }
 .chat-kimi-resource-bar { display: flex; gap: 8px; margin: 12px auto 0; }
 .chat-kimi-resource-bar button { align-items: center; background: transparent; border: 1px solid var(--studio-border); border-radius: 999px; color: var(--studio-muted); display: inline-flex; font-size: 13px; gap: 6px; height: 34px; padding: 0 12px; }
@@ -615,12 +613,6 @@ html[data-studio-theme="light"] .chat-ui--doubao .chat-home-mode-menu > button:h
   cursor: default;
   opacity: 1;
 }
-
-.chat-composer .composer-web-search { transition: background-color 140ms ease, color 140ms ease; }
-.chat-composer > .composer-web-search--standalone { border-radius: 999px; flex-basis: auto; gap: 6px; padding: 0 10px; width: auto; }
-.chat-composer .composer-web-search.is-active { background: var(--studio-brand-soft); color: var(--studio-focus); }
-.chat-composer .composer-web-search.is-active:hover { background: var(--studio-brand-soft-strong); }
-.chat-home-shortcuts--in-composer .composer-web-search.is-active { background: var(--studio-brand-soft); color: var(--studio-focus); }
 
 .chat-composer input {
   background: transparent;

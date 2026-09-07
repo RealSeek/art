@@ -268,7 +268,7 @@ export class WorkspaceController {
     }
     try {
       const output = await this.agentTools.execute(
-        { id: `manual:${assistantId}:${toolId}`, userId: user.id, assistantId, projectId: null, webSearchEnabled: false },
+        { id: `manual:${assistantId}:${toolId}`, userId: user.id, assistantId, projectId: null },
         { id: binding.tool.id, key: binding.tool.key, name: binding.tool.name, description: binding.tool.description, requiresApproval: binding.tool.requiresApproval, kind: 'external', inputSchema: binding.tool.inputSchema },
         body.input || {},
       )
