@@ -138,7 +138,7 @@ function externalSkill(overrides: Partial<ExternalSkill> = {}): ExternalSkill {
     source: 'skillsmp',
     sourceName: 'SkillsMP',
     name: 'Example',
-    description: '',
+    description: '示例技能',
     author: '',
     version: '1.0.0',
     sourceUrl: 'https://skillsmp.com/skills/example',
@@ -148,6 +148,17 @@ function externalSkill(overrides: Partial<ExternalSkill> = {}): ExternalSkill {
     ...overrides,
   }
 }
+
+test('external marketplace keeps only skills with Chinese names or descriptions', () => {
+  const service = externalMarketService()
+  const items = service.mergeItems([
+    externalSkill({ id: 'english-only', description: 'English description only' }),
+    externalSkill({ id: 'chinese-name', name: '写作助手', description: '' }),
+    externalSkill({ id: 'chinese-description', description: '用于整理会议记录' }),
+  ])
+
+  assert.deepEqual(items.map((item) => item.id), ['chinese-name', 'chinese-description'])
+})
 
 test('external marketplace source links fall back to their canonical homepage', () => {
   const service = externalMarketService()

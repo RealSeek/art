@@ -202,7 +202,7 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
     const result: ExternalSkill[] = []
     const seen = new Set<string>()
     for (const item of items) {
-      if (!this.validDirectoryItem(item)) continue
+      if (!this.validDirectoryItem(item) || !this.hasChineseText(item)) continue
       const key = `${item.source}:${item.id}`
       if (seen.has(key)) continue
       seen.add(key)
@@ -214,6 +214,10 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
       })
     }
     return result
+  }
+
+  private hasChineseText(item: Pick<ExternalSkill, 'name' | 'description'>) {
+    return /[\u3400-\u9fff]/u.test(`${item.name} ${item.description}`)
   }
 
   private matches(item: ExternalSkill, query: string) {
@@ -268,6 +272,7 @@ export class ExternalMarketService implements OnModuleInit, OnModuleDestroy {
         sourceUrl: this.canonicalSourceUrl(item.sourceUrl, item.source),
         ...this.licenseMetadata(item.source),
       }
+      if (!this.hasChineseText(item)) throw new BadRequestException('外部市场仅提供包含中文名称或简介的技能')
       if (!item.installable && !item.githubUrl && !item.downloadUrl) throw new BadRequestException('该技能没有可验证的 SKILL.md 或技能包地址，请先打开来源页确认')
       const { fileName, bytes } = await this.downloadSkill(item)
       const normalized = this.normalizeSkill(fileName, bytes, item)
