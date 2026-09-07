@@ -362,6 +362,9 @@ body.has-workspace { height: 100dvh; overflow: hidden; }
   line-height: 26px;
   padding: 7px 6px;
 }
+.chat-ui--gpt .chat-composer > .plugin-selector { min-width: max-content; }
+.chat-ui--gpt .chat-composer > .plugin-selector > button { max-width: none; width: max-content; }
+.chat-ui--gpt .chat-composer > .plugin-selector > button span { overflow: visible; text-overflow: clip; }
 .chat-ui--gpt .chat-composer > .chat-composer-submit.is-voice-entry { background: var(--studio-text); color: var(--studio-bg); }
 
 .chat-page:not(.has-messages).chat-ui--doubao .chat-center {
