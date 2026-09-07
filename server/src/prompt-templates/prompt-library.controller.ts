@@ -1,12 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common'
 import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
-import type { FastifyRequest } from 'fastify'
+import { Readable } from 'node:stream'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Prisma } from '@prisma/client'
 import { AdminGuard } from '../admin/admin.guard'
 import { AuthGuard } from '../auth/auth.guard'
 import { AuthenticatedUser, CurrentUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
-import { PromptLibraryService } from './prompt-library.service'
+import { PromptLibraryService, type PromptLibraryMediaKind } from './prompt-library.service'
 
 class PromptLibrarySourceUpdateDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) displayName?: string
@@ -36,6 +37,22 @@ export class PromptLibraryController {
 
   @Get('items/:itemId')
   item(@Param('itemId') itemId: string) { return this.library.publicItemById(itemId) }
+
+  @Get('items/:itemId/media/:kind')
+  async media(@Param('itemId') itemId: string, @Param('kind') rawKind: string, @Req() request: FastifyRequest, @Res() reply: FastifyReply) {
+    if (rawKind !== 'cover' && rawKind !== 'preview') return reply.status(404).send()
+    const rangeHeader = request.headers.range
+    const range = Array.isArray(rangeHeader) ? rangeHeader[0] : rangeHeader
+    const upstream = await this.library.publicItemMedia(itemId, rawKind as PromptLibraryMediaKind, range)
+    reply.status(upstream.status)
+    for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
+      const value = upstream.headers.get(name)
+      if (value) reply.header(name, value)
+    }
+    reply.header('Cache-Control', 'public, max-age=86400')
+    if (!upstream.body) return reply.send()
+    return reply.send(Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream))
+  }
 }
 
 @Controller('admin/prompt-library')

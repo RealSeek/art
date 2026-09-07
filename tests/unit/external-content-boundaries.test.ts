@@ -43,6 +43,9 @@ function createPromptLibraryService(initial: PromptSourceRow | null = null) {
         return stored
       },
     },
+    promptLibraryItemOverride: {
+      findUnique: async () => null,
+    },
   }
   return {
     service: new PromptLibraryService(prisma as never, {} as never),
@@ -217,6 +220,71 @@ test('external marketplace follows only revalidated redirects and caps the chain
     /重定向次数超过限制/,
   )
   assert.equal(calls, 4)
+})
+
+test('prompt library exposes YouMind media through its same-origin proxy only', () => {
+  const context = createPromptLibraryService()
+  const service = context.service as unknown as {
+    publicItem(item: Record<string, unknown>): Record<string, unknown>
+  }
+  const item = {
+    id: 'video-youmind:25',
+    sourceId: 'video-youmind',
+    sourceName: 'Video prompts',
+    promptType: 'VIDEO',
+    title: 'Example',
+    prompt: 'Example prompt',
+    description: '',
+    tags: [],
+    author: 'YouMind',
+    imageModel: 'Seedance',
+    coverUrl: 'https://cms-assets.youmind.com/media/example.jpg',
+    previewVideoUrl: 'https://cms-assets.youmind.com/media/example.mp4',
+  }
+  const publicItem = service.publicItem(item)
+  assert.equal(publicItem.coverUrl, '/v1/prompt-library/items/video-youmind%3A25/media/cover')
+  assert.equal(publicItem.previewVideoUrl, '/v1/prompt-library/items/video-youmind%3A25/media/preview')
+
+  const externalItem = service.publicItem({
+    ...item,
+    coverUrl: 'https://example.com/cover.jpg',
+    previewVideoUrl: '',
+  })
+  assert.equal(externalItem.coverUrl, 'https://example.com/cover.jpg')
+})
+
+test('prompt library media proxy forwards byte ranges for approved media', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch })
+  const context = createPromptLibraryService()
+  const service = context.service as unknown as {
+    configuredSources(): Promise<Array<{ id: string; enabled: boolean }>>
+    loadSource(source: unknown): Promise<{ items: Array<Record<string, unknown>> }>
+    publicItemMedia(itemId: string, kind: 'cover' | 'preview', range?: string): Promise<Response>
+  }
+  const item = {
+    id: 'video-youmind:25',
+    coverUrl: 'https://cms-assets.youmind.com/media/example.jpg',
+    previewVideoUrl: 'https://cms-assets.youmind.com/media/example.mp4',
+  }
+  service.configuredSources = async () => [{ id: 'video-youmind', enabled: true }]
+  service.loadSource = async () => ({ items: [item] })
+  let range = ''
+  globalThis.fetch = (async (_input, init) => {
+    range = new Headers(init?.headers).get('range') || ''
+    return new Response(new Uint8Array([1]), {
+      status: 206,
+      headers: { 'content-type': 'video/mp4', 'content-range': 'bytes 0-0/1' },
+    })
+  }) as typeof fetch
+
+  const response = await service.publicItemMedia(item.id, 'preview', 'bytes=0-0')
+  assert.equal(response.status, 206)
+  assert.equal(range, 'bytes=0-0')
+  await assert.rejects(
+    () => service.publicItemMedia(item.id, 'preview', 'items=0-0'),
+    /分段请求格式无效/,
+  )
 })
 
 test('prompt library source fetch revalidates every redirect', async (t) => {

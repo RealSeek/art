@@ -127,7 +127,7 @@ let requestSequence = 0
 let searchTimer = 0
 
 function typeMeta(type: PromptType) { return promptTypes.find((item) => item.value === type) || promptTypes[0] }
-function cacheKey(type: PromptType) { return `xinyue:prompt-library:${type.toLowerCase()}:v3` }
+function cacheKey(type: PromptType) { return `xinyue:prompt-library:${type.toLowerCase()}:v4` }
 function readCache(type: PromptType): PromptResponse | null {
   try {
     const entry = JSON.parse(sessionStorage.getItem(cacheKey(type)) || 'null') as { savedAt: number; data: PromptResponse } | null

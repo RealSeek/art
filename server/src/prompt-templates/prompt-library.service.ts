@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -50,6 +51,7 @@ export type PromptLibrarySource = {
 };
 
 export type PromptLibraryType = "IMAGE" | "VIDEO";
+export type PromptLibraryMediaKind = "cover" | "preview";
 export type PromptLibraryReviewStatus = "internal" | "unverified" | "restricted";
 
 const PROMPT_LIBRARY_EXTERNAL_SYNC_ENV =
@@ -110,6 +112,7 @@ const PROMPT_REMOTE_HOSTS = new Set([
   "www.higgsfield.ai",
 ]);
 const PROMPT_MAX_REDIRECTS = 3;
+const PROMPT_MEDIA_HOSTS = new Set(["cms-assets.youmind.com"]);
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const AUTO_REFRESH_MS = 6 * 60 * 60 * 1000;
 const CACHE_DIRECTORY = join(process.cwd(), "storage", "prompt-library-cache");
@@ -415,6 +418,68 @@ export class PromptLibraryService implements OnModuleInit {
     );
     if (!item) throw new NotFoundException("提示词不存在或已停用");
     return this.publicItem(item);
+  }
+
+  async publicItemMedia(
+    itemId: string,
+    kind: PromptLibraryMediaKind,
+    range?: string,
+  ) {
+    if (range && !/^bytes=(?:\d+-\d*|-\d+)$/.test(range)) {
+      throw new BadRequestException("视频分段请求格式无效");
+    }
+    const source = (await this.configuredSources()).find(
+      (candidate) => candidate.enabled && itemId.startsWith(`${candidate.id}:`),
+    );
+    const original = source
+      ? (await this.loadSource(source)).items.find((candidate) => candidate.id === itemId)
+      : undefined;
+    const override = original
+      ? await this.prisma.promptLibraryItemOverride.findUnique({ where: { itemId } })
+      : undefined;
+    const item = original && override?.enabled !== false
+      ? {
+          ...original,
+          coverUrl: override?.coverUrl ?? original.coverUrl,
+          previewVideoUrl: override?.previewVideoUrl ?? original.previewVideoUrl,
+        }
+      : undefined;
+    if (!item) throw new NotFoundException("提示词不存在或已停用");
+
+    const mediaUrl = kind === "preview" ? item.previewVideoUrl : item.coverUrl;
+    let current = this.allowedPromptMediaUrl(mediaUrl);
+    const signal = AbortSignal.timeout(5 * 60 * 1000);
+    for (let redirects = 0; ; redirects += 1) {
+      const response = await fetchPublicManualRedirect(current, {
+        headers: {
+          accept: kind === "preview" ? "video/*" : "image/*",
+          ...(range ? { range } : {}),
+          "user-agent": "OnlyArt/1.0",
+        },
+        signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel().catch(() => undefined);
+        if (redirects >= PROMPT_MAX_REDIRECTS) {
+          throw new BadGatewayException("提示词媒体重定向次数超过限制");
+        }
+        const location = response.headers.get("location");
+        if (!location) throw new BadGatewayException("提示词媒体重定向地址无效");
+        current = this.allowedPromptMediaUrl(new URL(location, current).toString());
+        continue;
+      }
+      if (![200, 206, 416].includes(response.status)) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new BadGatewayException(`提示词媒体加载失败 (HTTP ${response.status})`);
+      }
+      const contentType = response.headers.get("content-type") || "";
+      const expectedType = kind === "preview" ? "video/" : "image/";
+      if (response.status !== 416 && !contentType.toLowerCase().startsWith(expectedType)) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new BadGatewayException("提示词媒体类型无效");
+      }
+      return response;
+    }
   }
 
   async adminSources() {
@@ -797,9 +862,41 @@ export class PromptLibraryService implements OnModuleInit {
       tags: item.tags,
       author: item.author,
       imageModel: item.imageModel,
-      coverUrl: item.coverUrl,
-      previewVideoUrl: item.previewVideoUrl,
+      coverUrl: this.publicMediaUrl(item.id, "cover", item.coverUrl),
+      previewVideoUrl: this.publicMediaUrl(item.id, "preview", item.previewVideoUrl),
     };
+  }
+
+  private publicMediaUrl(
+    itemId: string,
+    kind: PromptLibraryMediaKind,
+    value: string,
+  ) {
+    try {
+      this.allowedPromptMediaUrl(value);
+      return `/v1/prompt-library/items/${encodeURIComponent(itemId)}/media/${kind}`;
+    } catch {
+      return value;
+    }
+  }
+
+  private allowedPromptMediaUrl(value: string) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new NotFoundException("提示词媒体不存在");
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== "443") ||
+      !PROMPT_MEDIA_HOSTS.has(url.hostname.toLowerCase())
+    ) {
+      throw new NotFoundException("提示词媒体不支持代理");
+    }
+    return url;
   }
 
   private async loadSource(
