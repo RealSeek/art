@@ -20,6 +20,7 @@ import {
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { isGeminiImageModel } from '../generations/image-options'
+import { AssetsService } from '../assets/assets.service'
 
 type ProviderInput = {
   name: string
@@ -154,6 +155,7 @@ type SystemSettingsInput = Partial<{
   trialCredits: number
   defaultUserGroupId: string
   temporaryChatRetentionHours: number
+  mediaRetentionDays: 7 | 30
   defaultChatHistoryEnabled: boolean
   defaultTrainingOptOut: boolean
   defaultShareUsageAnalytics: boolean
@@ -319,7 +321,7 @@ const DEFAULT_PROVIDER_TEMPLATES = [
 
 @Injectable()
 export class ProvidersService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly pricing: ProviderPricingService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService, private readonly endpointPolicy: PublicEndpointPolicyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly pricing: ProviderPricingService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService, private readonly endpointPolicy: PublicEndpointPolicyService, private readonly assets: AssetsService) {}
 
   async onModuleInit() {
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: {}, create: { id: 'global' } })
@@ -1177,6 +1179,9 @@ export class ProvidersService implements OnModuleInit {
 
   async updateSystemSettings(input: SystemSettingsInput) {
     const { smtpPassword, linuxDoClientSecret, chatHomeContent, siteContent, ...settings } = input
+    const previousRetention = settings.mediaRetentionDays
+      ? await this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { mediaRetentionDays: true } })
+      : null
     const data: Prisma.SystemSettingUpdateInput = { ...settings, ...(settings.newApiProvisioningGroups ? { newApiProvisioningGroups: [...new Set(settings.newApiProvisioningGroups.map((item) => item.trim()).filter((item) => item && item !== 'auto'))] } : {}) }
     if (chatHomeContent) data.chatHomeContent = normalizeChatHomeContent(chatHomeContent) as Prisma.InputJsonValue
     if (siteContent) data.siteContent = normalizeSiteContent(siteContent) as unknown as Prisma.InputJsonValue
@@ -1195,6 +1200,9 @@ export class ProvidersService implements OnModuleInit {
       data.linuxDoClientSecretHint = ''
     }
     await this.prisma.systemSetting.upsert({ where: { id: 'global' }, update: data, create: { id: 'global', ...data } as Prisma.SystemSettingCreateInput })
+    if (settings.mediaRetentionDays && previousRetention?.mediaRetentionDays !== settings.mediaRetentionDays) {
+      await this.assets.applyMediaRetention(settings.mediaRetentionDays)
+    }
     return this.getSystemSettings(true)
   }
 

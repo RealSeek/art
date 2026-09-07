@@ -28,6 +28,7 @@ test('public asset mapper excludes storage, ownership, deletion, and internal me
       providerId: 'provider-secret',
       credentialId: 'credential-secret',
     },
+    expiresAt: new Date('2026-09-30T00:00:00.000Z'),
     deletedAt: null,
     createdAt: now,
   }
@@ -49,6 +50,7 @@ test('public asset mapper excludes storage, ownership, deletion, and internal me
       jobId: 'job-public',
       options: { size: '1024x1024' },
     },
+    expiresAt: new Date('2026-09-30T00:00:00.000Z'),
     createdAt: now,
     contentUrl: '/v1/assets/asset-public/content',
   })

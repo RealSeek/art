@@ -58,6 +58,7 @@ const editableSettingKeys = [
   'trialCredits',
   'defaultUserGroupId',
   'temporaryChatRetentionHours',
+  'mediaRetentionDays',
   'defaultChatHistoryEnabled',
   'defaultTrainingOptOut',
   'defaultShareUsageAnalytics',

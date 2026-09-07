@@ -5,6 +5,9 @@ import { extname, join } from 'node:path'
 import { PrismaService } from '../prisma/prisma.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { ObjectStorageService, type StorageLocation } from './object-storage.service'
+import type sharpFactory from 'sharp'
+
+const sharp = require('sharp') as typeof sharpFactory
 
 type StoredFile = {
   stream: NodeJS.ReadableStream
@@ -31,6 +34,8 @@ inlineMimeTypes.add('video/quicktime')
 const rasterMimeTypes = new Set(Object.values(rasterMimeByExtension))
 const videoMimeByExtension: Record<string, string> = { '.mov': 'video/quicktime', '.mp4': 'video/mp4', '.webm': 'video/webm' }
 const videoMimeTypes = new Set(Object.values(videoMimeByExtension))
+const mediaKinds = new Set<AssetKind>([AssetKind.IMAGE, AssetKind.VIDEO, AssetKind.PRODUCT_PACK])
+const permanentPurposes = new Set(['chat-home-banner', 'tool-icon', 'inspiration-cover', 'inspiration-preview-video', 'inspiration-preview-image'])
 
 export function resolveRasterImageMime(name: string, suppliedMimeType: string) {
   return rasterMimeByExtension[extname(name).toLowerCase()] || (rasterMimeTypes.has(suppliedMimeType.toLowerCase()) ? suppliedMimeType.toLowerCase() : null)
@@ -80,7 +85,9 @@ export class AssetsService {
     const objectKey = this.makeObjectKey(userId, input.name)
     const location = this.storage.activeLocation()
     try {
-      const stored = await this.storage.putStream(objectKey, input.stream, input.mimeType)
+      const source = input.mimeType.startsWith('image/') ? await this.optimizeImage(await this.readUpload(input.stream), input.mimeType) : null
+      const stored = source ? await this.storage.putBytes(objectKey, source, input.mimeType) : await this.storage.putStream(objectKey, input.stream, input.mimeType)
+      const retention = await this.assetRetention(input.kind, input.metadata)
       return await this.prisma.asset.create({
         data: {
           userId,
@@ -94,6 +101,8 @@ export class AssetsService {
           kind: input.kind,
           size: BigInt(stored.size),
           checksum: stored.checksum,
+          expiresAt: retention.expiresAt,
+          retentionExempt: retention.retentionExempt,
           metadata: input.metadata as Prisma.InputJsonValue | undefined,
         },
       })
@@ -110,9 +119,11 @@ export class AssetsService {
     const fileName = input.name.toLowerCase().endsWith(extension) ? input.name : `${input.name}${extension}`
     const objectKey = this.makeObjectKey(userId, fileName, true)
     const location = this.storage.activeLocation()
-    const stored = await this.storage.putBytes(objectKey, data, input.mimeType)
+    const source = input.mimeType.startsWith('image/') ? await this.optimizeImage(data, input.mimeType) : data
     try {
-      return await this.prisma.asset.create({ data: { userId, projectId: input.projectId, teamId, objectKey, storageDriver: location.driver, storageBucket: location.bucket, name: input.name, mimeType: input.mimeType, kind: input.kind, size: BigInt(stored.size), checksum: stored.checksum, metadata: input.metadata as Prisma.InputJsonValue | undefined } })
+      const stored = await this.storage.putBytes(objectKey, source, input.mimeType)
+      const retention = await this.assetRetention(input.kind, input.metadata)
+      return await this.prisma.asset.create({ data: { userId, projectId: input.projectId, teamId, objectKey, storageDriver: location.driver, storageBucket: location.bucket, name: input.name, mimeType: input.mimeType, kind: input.kind, size: BigInt(stored.size), checksum: stored.checksum, expiresAt: retention.expiresAt, retentionExempt: retention.retentionExempt, metadata: input.metadata as Prisma.InputJsonValue | undefined } })
     } catch (error) {
       await this.storage.delete(location, objectKey).catch(() => undefined)
       throw error
@@ -150,9 +161,59 @@ export class AssetsService {
 
   async remove(userId: string, id: string) {
     const asset = await this.access.assertAssetManager(userId, id)
-    await this.prisma.asset.update({ where: { id }, data: { deletedAt: new Date() } })
-    await this.storage.delete(this.assetLocation(asset), asset.objectKey).catch(() => undefined)
+    await this.removeStoredAsset(asset)
     return { deleted: true }
+  }
+
+  private async readUpload(stream: NodeJS.ReadableStream) {
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+      size += chunk.byteLength
+      if (size > 50 * 1024 * 1024) throw new BadRequestException('鏂囦欢涓嶈兘瓒呰繃 50 MB')
+      chunks.push(Buffer.from(chunk))
+    }
+    if (!size) throw new BadRequestException('鏂囦欢鍐呭涓虹┖')
+    return Buffer.concat(chunks, size)
+  }
+
+  private async optimizeImage(data: Uint8Array, mimeType: string) {
+    if (!['image/png', 'image/webp', 'image/avif'].includes(mimeType)) return data
+    try {
+      const image = sharp(data, { animated: true, limitInputPixels: 100_000_000 })
+      const optimized = mimeType === 'image/png'
+        ? await image.png({ compressionLevel: 9, adaptiveFiltering: true, effort: 6 }).toBuffer()
+        : mimeType === 'image/webp'
+          ? await image.webp({ lossless: true, effort: 5, exact: true }).toBuffer()
+          : await image.avif({ lossless: true, effort: 4 }).toBuffer()
+      return optimized.byteLength < data.byteLength ? optimized : data
+    } catch {
+      throw new BadRequestException('鍥剧墖鍐呭鏃犳晥鎴栨牸寮忔棤娉曞鐞?')
+    }
+  }
+
+  private async assetRetention(kind: AssetKind, metadata?: Record<string, unknown>) {
+    if (!mediaKinds.has(kind)) return { expiresAt: null, retentionExempt: false }
+    const purpose = typeof metadata?.purpose === 'string' ? metadata.purpose : ''
+    if (permanentPurposes.has(purpose)) return { expiresAt: null, retentionExempt: true }
+    const setting = await this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { mediaRetentionDays: true } })
+    const days = setting?.mediaRetentionDays === 7 ? 7 : 30
+    return { expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000), retentionExempt: false }
+  }
+
+  async applyMediaRetention(days: 7 | 30) {
+    const result = await this.prisma.$executeRaw`UPDATE "Asset" SET "expiresAt" = "createdAt" + (${days} * INTERVAL '1 day') WHERE "retentionExempt" = false AND "deletedAt" IS NULL AND "kind" IN ('IMAGE', 'VIDEO', 'PRODUCT_PACK')`
+    return Number(result)
+  }
+
+  async cleanupExpired(limit = 500) {
+    const rows = await this.prisma.asset.findMany({ where: { expiresAt: { lte: new Date() }, deletedAt: null, retentionExempt: false, kind: { in: [AssetKind.IMAGE, AssetKind.VIDEO, AssetKind.PRODUCT_PACK] } }, orderBy: { expiresAt: 'asc' }, take: limit })
+    let removed = 0
+    const failures: Array<{ id: string; error: string }> = []
+    for (const row of rows) {
+      try { await this.removeStoredAsset(row); removed++ } catch (error) { failures.push({ id: row.id, error: error instanceof Error ? error.message : '文件清理失败' }) }
+    }
+    return { scanned: rows.length, removed, failures }
   }
 
   async assignTeam(userId: string, id: string, teamId: string | null) {
@@ -168,9 +229,19 @@ export class AssetsService {
   async removeAsAdmin(id: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id, deletedAt: null } })
     if (!asset) throw new NotFoundException('文件不存在')
-    await this.prisma.asset.update({ where: { id }, data: { deletedAt: new Date() } })
-    await this.storage.delete(this.assetLocation(asset), asset.objectKey).catch(() => undefined)
+    await this.removeStoredAsset(asset)
     return { deleted: true }
+  }
+
+  private async removeStoredAsset(asset: { id: string; objectKey: string; storageDriver: string; storageBucket: string }) {
+    const deletedAt = new Date()
+    await this.prisma.asset.update({ where: { id: asset.id }, data: { deletedAt } })
+    try {
+      await this.storage.delete(this.assetLocation(asset), asset.objectKey)
+    } catch (error) {
+      await this.prisma.asset.updateMany({ where: { id: asset.id, deletedAt }, data: { deletedAt: null } })
+      throw error
+    }
   }
 
   async purgePersonalAssets(userId: string) {

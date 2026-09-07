@@ -11,6 +11,7 @@ export const publicAssetSelect = {
   width: true,
   height: true,
   metadata: true,
+  expiresAt: true,
   createdAt: true,
 } as const satisfies Prisma.AssetSelect
 
@@ -62,6 +63,7 @@ export class PublicAssetDto {
   width!: number | null
   height!: number | null
   metadata!: Record<string, unknown> | null
+  expiresAt!: Date | null
   createdAt!: Date
   contentUrl!: string
   team?: { id: string; name: string } | null
@@ -106,6 +108,7 @@ export function toPublicAsset(
     width: asset.width,
     height: asset.height,
     metadata: publicAssetMetadata(asset.metadata),
+    expiresAt: asset.expiresAt,
     createdAt: asset.createdAt,
     contentUrl: options.contentUrl || `/v1/assets/${asset.id}/content`,
     ...(asset.team !== undefined ? { team: asset.team } : {}),

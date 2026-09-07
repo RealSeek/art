@@ -99,8 +99,14 @@ export class ObjectStorageService {
   }
 
   async delete(location: StorageLocation, objectKey: string) {
-    if (location.driver === 'local') return void await unlink(this.localPath(objectKey)).catch(() => undefined)
-    await this.s3Client().send(new DeleteObjectCommand({ Bucket: location.bucket || this.s3Bucket, Key: objectKey }))
+    if (location.driver === 'local') {
+      try { await unlink(this.localPath(objectKey)) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new ServiceUnavailableException('本地文件删除失败')
+      }
+      return
+    }
+    try { await this.s3Client().send(new DeleteObjectCommand({ Bucket: location.bucket || this.s3Bucket, Key: objectKey })) }
+    catch { throw new ServiceUnavailableException('对象存储文件删除失败') }
   }
 
   async health() {

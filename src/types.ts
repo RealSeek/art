@@ -71,6 +71,7 @@ export interface StudioAsset {
   preview: string
   status: 'queued' | 'running' | 'done'
   createdAt: number
+  expiresAt?: number | null
   tags: string[]
   source?: 'generated' | 'upload'
   purpose?: 'generated' | 'reference' | 'mask' | 'attachment' | 'library' | 'image-prompt'

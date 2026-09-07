@@ -61,6 +61,7 @@ export class WorksService {
         ...draft.data,
         assets: { create: draft.assetIds.map((assetId, index) => ({ assetId, role: index === 0 ? 'COVER' : 'CONTENT', sortOrder: index })) },
       } })
+      await tx.asset.updateMany({ where: { id: { in: draft.assetIds } }, data: { retentionExempt: true, expiresAt: null } })
       return tx.publishedWork.update({ where: { id: created.id }, data: { currentVersionId: version.id } })
     })
     return this.getMine(userId, work.id)
@@ -94,6 +95,7 @@ export class WorksService {
         await tx.publishedWork.update({ where: { id: work.id }, data: { currentVersionId: versionId } })
       }
       await tx.publishedWorkAsset.createMany({ data: draft.assetIds.map((assetId, index) => ({ versionId, assetId, role: index === 0 ? 'COVER' : 'CONTENT', sortOrder: index })) })
+      await tx.asset.updateMany({ where: { id: { in: draft.assetIds } }, data: { retentionExempt: true, expiresAt: null } })
     })
     return this.getMine(userId, id)
   }

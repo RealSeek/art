@@ -878,6 +878,8 @@ model Asset {
   height              Int?
   checksum            String?
   metadata            Json?
+  expiresAt           DateTime?
+  retentionExempt     Boolean              @default(false)
   deletedAt           DateTime?
   createdAt           DateTime             @default(now())
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -892,6 +894,7 @@ model Asset {
   @@index([userId, createdAt])
   @@index([teamId, createdAt])
   @@index([storageDriver, createdAt])
+  @@index([expiresAt, deletedAt])
 }
 
 model Inspiration {
@@ -1670,6 +1673,7 @@ model SystemSetting {
   trialCredits                  Int      @default(8)
   defaultUserGroupId            String   @default("")
   temporaryChatRetentionHours   Int      @default(24)
+  mediaRetentionDays            Int      @default(30)
   defaultChatHistoryEnabled     Boolean  @default(true)
   defaultTrainingOptOut         Boolean  @default(true)
   defaultShareUsageAnalytics    Boolean  @default(false)

@@ -229,6 +229,7 @@ class UpdateSystemDto {
   @IsOptional() @IsInt() @Min(0) @Max(1000000) trialCredits?: number
   @IsOptional() @IsString() defaultUserGroupId?: string
   @IsOptional() @IsInt() @Min(1) @Max(8760) temporaryChatRetentionHours?: number
+  @IsOptional() @IsInt() @IsIn([7, 30]) mediaRetentionDays?: 7 | 30
   @IsOptional() @IsBoolean() defaultChatHistoryEnabled?: boolean
   @IsOptional() @IsBoolean() defaultTrainingOptOut?: boolean
   @IsOptional() @IsBoolean() defaultShareUsageAnalytics?: boolean

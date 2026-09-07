@@ -78,7 +78,7 @@ export class AdminInspirationsController {
       part.file.resume()
       throw new BadRequestException('请选择 JPG、PNG、WebP、GIF 或 AVIF 图片')
     }
-    const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.IMAGE })
+    const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.IMAGE, metadata: { purpose: 'inspiration-cover', inspirationId: id } })
     const row = await this.prisma.inspiration.update({ where: { id }, data: { coverAssetId: asset.id, coverUrl: '' } })
     if (item.coverAssetId && item.coverAssetId !== asset.id) await this.assets.removeAsAdmin(item.coverAssetId).catch(() => undefined)
     await this.audit(admin.id, request, 'inspiration.cover', id, { assetId: asset.id })
@@ -102,7 +102,7 @@ export class AdminInspirationsController {
     if (!part) throw new BadRequestException('请选择演示视频')
     const mimeType = resolveVideoMime(part.filename, part.mimetype)
     if (!mimeType) { part.file.resume(); throw new BadRequestException('演示视频仅支持 MP4、WebM 或 MOV') }
-    const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.VIDEO })
+    const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.VIDEO, metadata: { purpose: 'inspiration-preview-video', inspirationId: id } })
     const options = this.record(item.options)
     const previousAssetId = this.previewVideoAssetId(options)
     await this.prisma.inspiration.update({ where: { id }, data: { options: { ...options, previewVideoAssetId: asset.id } as Prisma.InputJsonValue } })
@@ -133,7 +133,7 @@ export class AdminInspirationsController {
         if (existingAssetIds.length + uploaded.length >= 30) { part.file.resume(); throw new BadRequestException('每条灵感最多保存 30 张成组预览图片') }
         const mimeType = resolveRasterImageMime(part.filename, part.mimetype)
         if (!mimeType) { part.file.resume(); throw new BadRequestException('成组预览只支持 JPG、PNG、WebP、GIF 或 AVIF 图片') }
-        const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.IMAGE })
+        const asset = await this.assets.storeUpload(admin.id, { stream: part.file, name: part.filename, mimeType, kind: AssetKind.IMAGE, metadata: { purpose: 'inspiration-preview-image', inspirationId: id } })
         uploaded.push(asset.id)
       }
       if (!uploaded.length) throw new BadRequestException('请选择至少一张成组预览图片')

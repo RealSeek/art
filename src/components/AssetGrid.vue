@@ -14,6 +14,7 @@
         <time>{{ formatDate(asset.createdAt) }}</time>
         <div class="asset-card__tags">
           <span v-for="tag in asset.tags" :key="tag">{{ tag }}</span>
+          <span v-if="asset.expiresAt">保留至 {{ formatDate(asset.expiresAt) }}</span>
         </div>
       </div>
     </button>

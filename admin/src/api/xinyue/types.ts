@@ -754,6 +754,7 @@ export type SystemSettings = {
   trialCredits: number
   defaultUserGroupId: string
   temporaryChatRetentionHours: number
+  mediaRetentionDays: 7 | 30
   defaultChatHistoryEnabled: boolean
   defaultTrainingOptOut: boolean
   defaultShareUsageAnalytics: boolean

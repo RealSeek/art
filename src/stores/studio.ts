@@ -9,7 +9,7 @@ type ServerMessageMetadata = { jobId?: string; feedback?: 'UP' | 'DOWN' | null; 
 type ServerMessage = { id: string; role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'TOOL'; content: string; model?: string | null; metadata?: ServerMessageMetadata | null; createdAt: string; parentId?: string | null; branchIndex?: number; branchCount?: number; branches?: Array<{ id: string; branchIndex: number }>; attachments?: { assetId?: string; asset?: { id: string } }[] }
 type ServerProject = { id: string; name: string; description?: string; instructions?: string; workflowStatus?: ProjectWorkflowStatus; workflowConfig?: ProjectWorkflowConfig | null; defaultModel?: string; defaultAssistantId?: string | null; revision?: number; archivedAt?: string | null; updatedAt: string; teamId?: string | null; team?: { id: string; name: string } | null; assets?: ServerAsset[]; conversations?: ServerConversation[]; accessRole?: 'OWNER' | 'ADMIN' | 'MEMBER'; user?: { id: string; displayName: string; email?: string | null }; members?: Project['members']; activeSkillVersion?: Project['activeSkillVersion']; _count?: { assets?: number; conversations?: number; versions?: number } }
 type ServerVersion = Omit<ProjectVersion, 'createdAt' | 'snapshot'> & { createdAt: string; snapshot: ProjectVersion['snapshot'] }
-type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; contentUrl: string; createdAt: string; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
+type ServerAsset = { id: string; projectId?: string | null; kind: 'IMAGE' | 'VIDEO' | 'FILE' | 'PRODUCT_PACK'; name: string; mimeType: string; size: number; contentUrl: string; createdAt: string; expiresAt?: string | null; teamId?: string | null; team?: { id: string; name: string } | null; user?: { id: string; displayName: string } | null; canManage?: boolean; metadata?: Record<string, unknown> | null }
 type ServerJob = { id: string; conversationId?: string | null; kind: 'CHAT' | 'IMAGE' | 'VIDEO' | 'COMMERCE'; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; model: string; prompt: string; options?: Record<string, unknown>; creditCost?: number; errorMessage?: string | null; stream?: { messageId: string; content: string; model?: string | null; metadata?: ServerMessageMetadata | null } | null; outputs?: { asset: ServerAsset }[]; createdAt: string }
 type ServerGenerationEvent = { id?: string; sequence?: number; type?: string; payload?: unknown }
 
@@ -94,6 +94,7 @@ function mapAsset(item: ServerAsset): StudioAsset {
     size: Number(item.size || 0),
     status: 'done',
     createdAt: Date.parse(item.createdAt),
+    expiresAt: item.expiresAt ? Date.parse(item.expiresAt) : null,
     tags: [item.kind === 'PRODUCT_PACK' ? '商品素材' : item.kind === 'IMAGE' ? '图片' : item.kind === 'VIDEO' ? '视频' : '文件', sizeLabel],
     source: generated ? 'generated' : 'upload',
     purpose: typeof item.metadata?.purpose === 'string' ? item.metadata.purpose as StudioAsset['purpose'] : generated ? 'generated' : 'library',
@@ -491,11 +492,22 @@ export const useStudioStore = defineStore('studio', {
     async uploadFiles(files: File[], forcedKind?: 'IMAGE' | 'FILE', projectId?: string, purpose: 'library' | 'reference' | 'mask' | 'attachment' = 'library') {
       const uploaded: StudioAsset[] = []
       for (const file of files) {
-        const kind = forcedKind || (file.type.startsWith('image/') ? 'IMAGE' : 'FILE')
-        const form = new FormData(); form.append('file', file)
-        const query = new URLSearchParams({ kind, purpose }); if (projectId) query.set('projectId', projectId)
-        const row = await api<ServerAsset>(`/assets/uploads?${query}`, { method: 'POST', body: form })
-        uploaded.push(mapAsset(row))
+        try {
+          const kind = forcedKind || (file.type.startsWith('image/') ? 'IMAGE' : 'FILE')
+          const form = new FormData(); form.append('file', file)
+          const query = new URLSearchParams({ kind, purpose }); if (projectId) query.set('projectId', projectId)
+          const row = await api<ServerAsset>(`/assets/uploads?${query}`, { method: 'POST', body: form })
+          uploaded.push(mapAsset(row))
+        } catch (reason) {
+          const rollback = await Promise.allSettled(uploaded.map((asset) => api(`/assets/${asset.id}`, { method: 'DELETE' })))
+          const retained = uploaded.filter((_, index) => rollback[index]?.status === 'rejected')
+          if (retained.length) this.assets.unshift(...retained)
+          const detail = reason instanceof Error ? reason.message : '请求失败'
+          const outcome = retained.length
+            ? `；另有 ${retained.length} 个已上传文件无法自动撤销，已保留在文件库`
+            : uploaded.length ? '；本批次此前上传的文件已自动撤销' : ''
+          throw new Error(`“${file.name}”上传失败：${detail}${outcome}`)
+        }
       }
       this.assets.unshift(...uploaded)
       return uploaded
