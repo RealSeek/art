@@ -33,6 +33,9 @@ const REMOTE_PROMPT_HOSTS = new Set([
   "www.generateprompt.net",
 ]);
 const MAX_REMOTE_REDIRECTS = 3;
+const YOUMIND_PROMPT_LIMIT = 500;
+const YOUMIND_CONCURRENCY = 2;
+const YOUMIND_PROGRESS_INTERVAL = 100;
 
 type HttpFetchInit = NonNullable<Parameters<typeof httpFetch>[1]>;
 
@@ -113,13 +116,16 @@ function allowedRemoteUrl(value: string) {
 }
 
 function urlsFromSitemap(xml: string) {
-  return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)]
-    .map((match) => decodeHtml(match[1]).trim())
-    .filter((url) => /^https?:\/\//i.test(url));
+  const urls: string[] = [];
+  for (const match of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+    const url = decodeHtml(match[1]).trim();
+    if (/^https?:\/\//i.test(url)) urls.push(url);
+  }
+  return urls;
 }
 
 function decodeHtml(value: string) {
-  return value
+  const decoded = value
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
@@ -129,6 +135,11 @@ function decodeHtml(value: string) {
     .replace(/&#x([\da-f]+);/gi, (_, code: string) =>
       String.fromCodePoint(Number.parseInt(code, 16)),
     );
+  return detachText(decoded);
+}
+
+function detachText(value: string) {
+  return value ? Buffer.from(value, "utf8").toString("utf8") : "";
 }
 
 function metaContent(html: string, key: string) {
@@ -152,9 +163,9 @@ function metaContent(html: string, key: string) {
 
 function decodeJsonString(value: string) {
   try {
-    return JSON.parse(`"${value}"`) as string;
+    return detachText(JSON.parse(`"${value}"`) as string);
   } catch {
-    return value.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    return detachText(value.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\"));
   }
 }
 
@@ -175,7 +186,10 @@ async function concurrentHydrate(
   previous: readonly RemoteVideoPrompt[],
   task: (url: string, index: number) => Promise<RemoteVideoPrompt | null>,
   onProgress?: ProgressCallback,
+  options: { concurrency?: number; progressInterval?: number } = {},
 ) {
+  const concurrency = Math.max(1, options.concurrency || 6);
+  const progressInterval = Math.max(1, options.progressInterval || 20);
   const allowed = new Set(urls);
   const byUrl = new Map(
     previous
@@ -202,7 +216,7 @@ async function concurrentHydrate(
         // Failed pages remain pending and are retried during the next incremental refresh.
       }
       completed += 1;
-      if (onProgress && completed - lastPersisted >= 20) {
+      if (onProgress && completed - lastPersisted >= progressInterval) {
         lastPersisted = completed;
         const items = snapshot();
         persisting = persisting.then(() => onProgress(items));
@@ -211,7 +225,7 @@ async function concurrentHydrate(
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(6, pending.length) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, () => worker()));
   const items = snapshot();
   if (onProgress && completed > lastPersisted) {
     persisting = persisting.then(() => onProgress(items));
@@ -324,24 +338,38 @@ function youMindImageDetail(html: string, sourceUrl: string): RemoteVideoPrompt 
   };
 }
 
+export async function collectYouMindPromptUrls(
+  kind: "image" | "video",
+  sitemapXmls: Iterable<string> | AsyncIterable<string>,
+  limit = YOUMIND_PROMPT_LIMIT,
+) {
+  const route = kind === "video" ? "/video-prompts/" : "/prompts/";
+  const localeRank = (url: string) =>
+    url.includes(`/zh-CN${route}`) ? 0 : url.includes(route) ? 1 : 2;
+  const canonical = new Map<string, string>();
+  for await (const xml of sitemapXmls) {
+    for (const url of urlsFromSitemap(xml)) {
+      if (!url.includes(route) || (kind === "image" && url.includes("/video-prompts/"))) continue;
+      const slug = url.split(route)[1]?.replace(/\/$/, "");
+      if (!slug || !/-\d+$/.test(slug)) continue;
+      const current = canonical.get(slug);
+      if (!current || localeRank(url) < localeRank(current)) canonical.set(slug, url);
+    }
+  }
+  return [...canonical.values()].slice(0, Math.max(0, limit));
+}
+
 async function youMindPromptUrls(kind: "image" | "video") {
   const index = await requestText("https://youmind.com/sitemap.xml");
   const sitemapUrls = urlsFromSitemap(index).filter((url) =>
     /\/sitemaps\/prompts\/sitemap\/\d+\.xml$/.test(url),
   );
-  const maps = await Promise.all(sitemapUrls.map((url) => requestText(url, {}, 60_000)));
-  const route = kind === "video" ? "/video-prompts/" : "/prompts/";
-  const localeRank = (url: string) =>
-    url.includes(`/zh-CN${route}`) ? 0 : url.includes(route) ? 1 : 2;
-  const canonical = new Map<string, string>();
-  for (const url of maps.flatMap(urlsFromSitemap)) {
-    if (!url.includes(route) || (kind === "image" && url.includes("/video-prompts/"))) continue;
-    const slug = url.split(route)[1]?.replace(/\/$/, "");
-    if (!slug || !/-\d+$/.test(slug)) continue;
-    const current = canonical.get(slug);
-    if (!current || localeRank(url) < localeRank(current)) canonical.set(slug, url);
+  async function* sitemapXmls() {
+    for (const url of sitemapUrls) {
+      yield await requestText(url, {}, 60_000);
+    }
   }
-  return [...canonical.values()];
+  return collectYouMindPromptUrls(kind, sitemapXmls());
 }
 
 export async function syncYouMindImages(
@@ -354,6 +382,7 @@ export async function syncYouMindImages(
     previous,
     async (url) => youMindImageDetail(await requestText(url, {}, 60_000), url),
     onProgress,
+    { concurrency: YOUMIND_CONCURRENCY, progressInterval: YOUMIND_PROGRESS_INTERVAL },
   );
 }
 
@@ -367,6 +396,7 @@ export async function syncYouMindVideos(
     previous,
     async (url) => youMindDetail(await requestText(url, {}, 60_000), url),
     onProgress,
+    { concurrency: YOUMIND_CONCURRENCY, progressInterval: YOUMIND_PROGRESS_INTERVAL },
   );
 }
 
