@@ -272,8 +272,10 @@
               ><ElCol :span="8"
                 ><ElFormItem :label="xt('图片与视频保留期限')"
                   ><ElSelect v-model="settings.mediaRetentionDays" class="wide"
-                    ><ElOption :label="xt('7 天（节省存储）')" :value="7" /><ElOption
-                      :label="xt('30 天（默认）')"
+                    ><ElOption :label="xt('1 天（本地优先，默认）')" :value="1" /><ElOption
+                      :label="xt('7 天（节省存储）')"
+                      :value="7" /><ElOption
+                      :label="xt('30 天（长期在线保留）')"
                       :value="30" /></ElSelect></ElFormItem></ElCol></ElRow></ElForm
           ><div class="toggle-grid"
             ><ToggleRow

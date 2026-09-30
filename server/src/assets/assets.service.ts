@@ -39,6 +39,8 @@ const audioMimeByExtension: Record<string, string> = { '.aac': 'audio/aac', '.fl
 const audioMimeTypes = new Set([...Object.values(audioMimeByExtension), 'audio/webm'])
 for (const mimeType of audioMimeTypes) inlineMimeTypes.add(mimeType)
 const mediaKinds = new Set<AssetKind>([AssetKind.IMAGE, AssetKind.VIDEO, AssetKind.PRODUCT_PACK])
+/** 媒体保留天数：默认 1 天，本地优先工作流下服务器只做临时中转。 */
+const RETENTION_DAY_OPTIONS: Array<1 | 7 | 30> = [1, 7, 30]
 const permanentPurposes = new Set(['chat-home-banner', 'tool-icon', 'inspiration-cover', 'inspiration-preview-video', 'inspiration-preview-image'])
 
 export function resolveRasterImageMime(name: string, suppliedMimeType: string) {
@@ -205,11 +207,11 @@ export class AssetsService {
     const purpose = typeof metadata?.purpose === 'string' ? metadata.purpose : ''
     if (permanentPurposes.has(purpose)) return { expiresAt: null, retentionExempt: true }
     const setting = await this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { mediaRetentionDays: true } })
-    const days = setting?.mediaRetentionDays === 7 ? 7 : 30
+    const days = RETENTION_DAY_OPTIONS.includes(setting?.mediaRetentionDays as 1 | 7 | 30) ? setting!.mediaRetentionDays : 1
     return { expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000), retentionExempt: false }
   }
 
-  async applyMediaRetention(days: 7 | 30) {
+  async applyMediaRetention(days: 1 | 7 | 30) {
     const result = await this.prisma.$executeRaw`UPDATE "Asset" SET "expiresAt" = "createdAt" + (${days} * INTERVAL '1 day') WHERE "retentionExempt" = false AND "deletedAt" IS NULL AND "kind" IN ('IMAGE', 'VIDEO', 'PRODUCT_PACK')`
     return Number(result)
   }

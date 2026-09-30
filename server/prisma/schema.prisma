@@ -1685,7 +1685,7 @@ model SystemSetting {
   trialCredits                  Int      @default(8)
   defaultUserGroupId            String   @default("")
   temporaryChatRetentionHours   Int      @default(24)
-  mediaRetentionDays            Int      @default(30)
+  mediaRetentionDays            Int      @default(1)
   defaultChatHistoryEnabled     Boolean  @default(true)
   defaultTrainingOptOut         Boolean  @default(true)
   defaultShareUsageAnalytics    Boolean  @default(false)

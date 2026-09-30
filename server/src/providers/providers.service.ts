@@ -183,7 +183,7 @@ type SystemSettingsInput = Partial<{
   trialCredits: number
   defaultUserGroupId: string
   temporaryChatRetentionHours: number
-  mediaRetentionDays: 7 | 30
+  mediaRetentionDays: 1 | 7 | 30
   defaultChatHistoryEnabled: boolean
   defaultTrainingOptOut: boolean
   defaultShareUsageAnalytics: boolean

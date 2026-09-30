@@ -923,3 +923,9 @@ body.has-region-editor {
     margin-left: 0;
   }
 }
+
+/* ============ 本机副本标记 ============ */
+.asset-local-badge { background: rgba(59, 130, 246, .16); border: 1px solid rgba(59, 130, 246, .35); border-radius: 99px; color: #7cb0ff; font-size: 10px; padding: 0 6px; }
+.asset-preview-toolbar button.is-saved { color: #7cb0ff; }
+html[data-studio-theme="light"] .asset-local-badge { background: #eaf2ff; border-color: #bcd7ff; color: #2563eb; }
+html[data-studio-theme="light"] .asset-preview-toolbar button.is-saved { color: #2563eb; }

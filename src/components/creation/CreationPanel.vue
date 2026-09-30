@@ -139,7 +139,7 @@
               </article>
             </div>
             <template v-if="modeAssets.length">
-              <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" reusable regeneratable @delete="deleteAsset" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" />
+              <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" reusable regeneratable local-supported :local-saved-ids="localSavedIds" @delete="deleteAsset" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" @save-local="saveAssetLocally" @remove-local="removeLocalCopy" />
               <button v-if="visibleModeAssets.length < modeAssets.length" class="creation-output__more" type="button" @click="modeAssetLimit += 12">加载更多视频</button>
             </template>
             <div v-else-if="auth.isAuthenticated && !store.workspaceHydrated" class="creation-gallery-skeleton" aria-label="正在加载视频"><i v-for="index in 6" :key="index" /></div>
@@ -156,7 +156,7 @@
           </div>
           <div v-else-if="auth.isAuthenticated && !store.workspaceHydrated" class="creation-gallery-skeleton" aria-label="正在加载图片"><i v-for="index in 6" :key="index" /></div>
           <template v-else-if="modeAssets.length">
-            <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" :reusable="activeMode === 'images'" :regeneratable="activeMode === 'images'" :region-editable="activeMode === 'images' && regionEditAvailable" @delete="deleteAsset" @reuse="useGeneratedAssetAsReference" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" @region-edit="openRegionEditorForAsset" />
+            <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" :reusable="activeMode === 'images'" :regeneratable="activeMode === 'images'" :region-editable="activeMode === 'images' && regionEditAvailable" local-supported :local-saved-ids="localSavedIds" @delete="deleteAsset" @reuse="useGeneratedAssetAsReference" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" @region-edit="openRegionEditorForAsset" @save-local="saveAssetLocally" @remove-local="removeLocalCopy" />
             <button v-if="visibleModeAssets.length < modeAssets.length" class="creation-output__more" type="button" @click="modeAssetLimit += 12">加载更多图片</button>
           </template>
           <p v-else>{{ activeMode === 'images' ? '你创建的图片会显示在这里' : '你制作的商品素材包和详情页会显示在这里' }}</p>
@@ -220,6 +220,9 @@ const props = defineProps<{
   imageBackground: string
   creationAttachments: StudioAsset[]
   audioAttachments: StudioAsset[]
+  localSavedIds: string[]
+  saveAssetLocally: (asset: StudioAsset) => void
+  removeLocalCopy: (asset: StudioAsset) => void
   referenceMentions: Array<{ token: string; label: string; kind: 'image' | 'audio'; thumbnail: string; title: string }>
   audioReferenceLimit: number
   imageReferenceLimit: number

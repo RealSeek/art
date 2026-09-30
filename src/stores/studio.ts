@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api, streamApiEvents } from '../services/api'
+import { useLocalMediaStore } from './local-media'
 import type { ConversationSummary, GenerationOptions, GenerationRun, Message, MessageWebSearch, Project, ProjectVersion, ProjectWorkflowConfig, ProjectWorkflowStatus, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { createClientId } from '../utils/client-id'
 import { isGenerationActive, isGenerationTerminal } from '../utils/generation-run-state'
@@ -595,6 +596,8 @@ export const useStudioStore = defineStore('studio', {
         this.commerceRuns = this.commerceRuns.map((generation) => generation.id === jobId ? updated : generation)
         this.videoRuns = this.videoRuns.map((generation) => generation.id === jobId ? updated : generation)
         if (this.activeGeneration?.id === jobId) this.activeGeneration = updated
+        // 服务器只做临时中转（默认 1 天），生成成功即把结果存到本机浏览器。
+        if (updated.status === 'SUCCEEDED' && updated.assets.length) void useLocalMediaStore().captureGenerated(updated.assets)
         await Promise.all([this.refreshAssets(), this.refreshConversations(), updated.mode === 'commerce' ? this.refreshCommerceJobs() : updated.mode === 'videos' ? this.refreshVideoJobs() : Promise.resolve()])
       } catch (reason) {
         const error = reason instanceof Error ? reason.message : '任务状态读取失败'

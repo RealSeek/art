@@ -1,9 +1,12 @@
 <template>
   <h2 id="settings-data">数据控制</h2>
   <section class="settings-data-section">
+    <div class="settings-action-row"><span><strong>生成结果自动存到本机</strong><small>图片和视频生成后会存进当前浏览器的本地库（IndexedDB）。服务器只做临时中转，清理后本机副本仍可预览与下载。</small></span><button class="switch-control" :class="{ 'is-on': localMedia.enabled }" type="button" role="switch" :aria-checked="localMedia.enabled" :aria-label="localMedia.enabled ? '关闭自动保存到本机' : '开启自动保存到本机'" @click="localMedia.setEnabled(!localMedia.enabled)"><i /></button></div>
+    <div class="settings-action-row"><span><strong>本机副本用量</strong><small>{{ localMedia.records.length }} 个文件 · {{ formatBytes(localMedia.usageBytes) }}<template v-if="localMedia.quotaBytes">（浏览器配额 {{ formatBytes(localMedia.quotaBytes) }}）</template></small></span><button class="danger-button" type="button" :disabled="!localMedia.records.length" @click="clearLocalCopies"><Trash2 :size="15" />清空本机副本</button></div>
     <div class="settings-action-row"><span><strong>导出账户数据</strong><small>下载账户资料、设置、项目、文件索引和全部聊天记录的 JSON 副本。</small></span><button type="button" :disabled="dataActionBusy" @click="exportAccountData"><Download :size="15" />导出</button></div>
     <div class="settings-action-row"><span><strong>删除全部聊天</strong><small>永久删除所有聊天和消息。项目与已生成文件不会被删除。</small></span><button class="danger-button" type="button" :disabled="dataActionBusy || (!studio.conversations.length && !studio.archivedConversations.length)" @click="clearConversationHistory"><Trash2 :size="15" />全部删除</button></div>
     <small v-if="dataActionMessage" class="settings-feedback" :class="{ 'is-error': dataActionError }">{{ dataActionMessage }}</small>
+    <small v-if="localMedia.error" class="settings-feedback is-error">{{ localMedia.error }}</small>
   </section>
   <section class="settings-memory"><h3>隐私</h3><div><span><strong>保存聊天记录</strong><small>关闭后新聊天会自动作为临时聊天处理。</small></span><button class="switch-control" :class="{ 'is-on': settings.chatHistoryEnabled }" type="button" role="switch" :aria-checked="settings.chatHistoryEnabled" @click="settings.chatHistoryEnabled = !settings.chatHistoryEnabled"><i /></button></div><div><span><strong>不将内容用于模型训练</strong><small>管理员渠道会收到该隐私偏好，用于后续上游策略适配。</small></span><button class="switch-control" :class="{ 'is-on': settings.trainingOptOut }" type="button" role="switch" :aria-checked="settings.trainingOptOut" @click="settings.trainingOptOut = !settings.trainingOptOut"><i /></button></div><div><span><strong>默认使用临时聊天</strong><small>新聊天不显示在历史记录中并自动过期。</small></span><button class="switch-control" :class="{ 'is-on': settings.temporaryChatDefault }" type="button" role="switch" :aria-checked="settings.temporaryChatDefault" @click="settings.temporaryChatDefault = !settings.temporaryChatDefault"><i /></button></div><div><span><strong>共享匿名使用分析</strong><small>仅用于产品稳定性和功能使用统计。</small></span><button class="switch-control" :class="{ 'is-on': settings.shareUsageAnalytics }" type="button" role="switch" :aria-checked="settings.shareUsageAnalytics" @click="settings.shareUsageAnalytics = !settings.shareUsageAnalytics"><i /></button></div><label class="settings-option-row"><span><strong>聊天数据保留</strong><small>超过期限的普通聊天会自动永久删除。</small></span><select v-model.number="settings.dataRetentionDays"><option :value="0">永久保留</option><option :value="30">30 天</option><option :value="90">90 天</option><option :value="365">1 年</option></select></label></section>
   <section class="settings-moderation-cases">
@@ -29,6 +32,7 @@
 <script setup lang="ts">
 import { Download, Trash2 } from 'lucide-vue-next'
 import { useStudioStore } from '../../../../stores/studio'
+import { useLocalMediaStore } from '../../../../stores/local-media'
 import { formatServerDate } from '../../format'
 import { moderationSourceText } from '../../labels'
 import type { ModerationCase, WorkspaceSettings } from '../../types'
@@ -50,6 +54,20 @@ defineProps<{
 }>()
 
 const studio = useStudioStore()
+const localMedia = useLocalMediaStore()
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+async function clearLocalCopies() {
+  if (!window.confirm('清空本机保存的生成结果？服务器副本过期后这些文件将无法恢复。')) return
+  await localMedia.clearAll()
+  await localMedia.hydrate()
+}
 
 function moderationCaseStatus(item: ModerationCase) {
   const status = item.appeal?.status
