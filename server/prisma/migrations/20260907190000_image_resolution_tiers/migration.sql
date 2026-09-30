@@ -19,7 +19,7 @@ FROM (
       CASE
         WHEN jsonb_typeof(um2."options" -> 'imageCapabilities' -> 'resolutionPricing' -> '1K') = 'number'
           THEN (um2."options" -> 'imageCapabilities' -> 'resolutionPricing' ->> '1K')::int
-        ELSE GREATEST(1, um2."flatCreditCost")
+        ELSE 1
       END
     ) AS value
   FROM "UserModel" AS um2
