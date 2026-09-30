@@ -21,6 +21,9 @@ export type VideoCapabilityConfig = {
   maxPollSeconds: number
 }
 
+export const MIN_VIDEO_DURATION_SECONDS = 1
+export const MAX_VIDEO_DURATION_SECONDS = 15
+
 const DEFAULTS: VideoCapabilityConfig = {
   resolutions: ['720p', '1080p'],
   durations: [5, 10],
@@ -83,10 +86,11 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
 export function normalizeVideoOptions(options: Record<string, unknown>, configuredCapabilities?: unknown): NormalizedVideoOptions {
   const capabilities = videoCapabilities(configuredCapabilities)
   const resolution = String(options.resolution || capabilities.defaultResolution).toLowerCase()
-  const duration = Number(options.duration || capabilities.defaultDuration)
+  const duration = Math.round(Number(options.duration || capabilities.defaultDuration))
   const aspectRatio = String(options.aspectRatio || capabilities.defaultAspectRatio)
   if (!capabilities.resolutions.includes(resolution)) throw new BadRequestException('当前视频模型不支持该分辨率')
-  if (!capabilities.durations.includes(duration)) throw new BadRequestException('当前视频模型不支持该时长')
+  // 时长允许自定义，但统一限制在 1–15 秒；capabilities.durations 只作为前端档位建议。
+  if (!Number.isInteger(duration) || duration < MIN_VIDEO_DURATION_SECONDS || duration > MAX_VIDEO_DURATION_SECONDS) throw new BadRequestException(`视频时长仅支持 ${MIN_VIDEO_DURATION_SECONDS}-${MAX_VIDEO_DURATION_SECONDS} 秒`)
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
   return { resolution, duration, aspectRatio }
 }

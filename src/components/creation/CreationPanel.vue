@@ -42,16 +42,16 @@
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="选择要编辑的区域" @click.stop="openRegionEditor()"><Brush :size="16" />区域编辑</button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" :disabled="uploading" @click.stop="openFilePicker('mask')"><Blend :size="16" />上传蒙版</button>
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button v-if="activeMode === 'videos'" type="button" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration} 秒`" :title="`视频时长：${videoDuration} 秒`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown class="creation-control-chevron" :size="14" /></button>
               </div>
               <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
-              <div class="creation-more-wrap">
+              <div v-if="activeMode !== 'videos'" class="creation-more-wrap">
                 <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
                 <Teleport to="body">
                 <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
-                  <button v-if="activeMode === 'videos'" type="button" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'commerce'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
                 </div>
@@ -66,6 +66,10 @@
               <strong v-else>{{ creationMenuTitle }}</strong>
               <div v-if="creationMenu === 'size'" class="creation-ratio-grid">
                 <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span class="creation-ratio-shape" :class="ratioShapeClass(option)"><i /><i v-if="option === '自动'" /></span><span>{{ option }}</span></button>
+              </div>
+              <div v-else-if="creationMenu === 'duration'" class="creation-duration-menu">
+                <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
+                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="1" :max="videoDurationLimit" step="1" :value="videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒（最多 {{ videoDurationLimit }} 秒）</span></label>
               </div>
               <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>
@@ -188,6 +192,8 @@ const props = defineProps<{
   imageStyle: string
   videoResolution: string
   videoDuration: number
+  videoDurationLimit: number
+  setCustomVideoDuration: (value: string) => void
   commerceModules: number
   imageResolution: string
   imageCount: number

@@ -317,6 +317,12 @@ Invoke-RestMethod http://localhost:8080/v1/health/ready
 - 计费按 `resolutionPricing[tier]`；模型未配置分档价时按 `1× / 2× / 4×` 估算。Gemini 通过 `imageConfig.imageSize` 接收档位，OpenAI 兼容渠道通过 `size` 接收具体尺寸。
 - 管理端「模型」编辑可自定义尺寸清单与分档价格；自动导入的图片模型仅对多档家族（gpt-image / dall-e / gemini / imagen / seedream / flux 等）开放 1K/2K/4K。
 
+### 5.4 视频时长
+
+- 视频创作工具栏提供 5 / 10 / 15 秒档位，并允许自定义 1–15 秒；超过 15 秒会被拒绝。
+- 服务端校验口径为 1–15 秒，与模型 `videoCapabilities.durations` 无关；声明值只用于前端档位建议，未声明的档位仍可自定义选择。
+- 计费仍按 `pricing[分辨率:时长]` 查找，命中不到时按 `分辨率倍率 × ceil(时长/5)` 估算。
+
 ## 6. 手工 Node.js 部署
 
 不使用 Docker 时，需要自行提供 PostgreSQL 17、Redis 7、Node.js 20.19+（推荐 22）、pnpm 和 Nginx。
