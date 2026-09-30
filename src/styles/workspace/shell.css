@@ -778,6 +778,9 @@ html[data-studio-theme="light"] .settings-api-list article footer button:hover {
 .creation-attachments .attachment-remove { height: 22px; right: -6px; top: -5px; width: 22px; }
 .creation-attachments .attachment-card--file .attachment-remove { right: 6px; top: 6px; }
 .creation-attachments .attachment-card--mask { overflow: visible; position: relative; }
+.attachment-mask-preview { background: transparent; border: 0; cursor: zoom-in; display: block; height: 100%; padding: 0; width: 100%; }
+.attachment-mask-preview:disabled { cursor: default; }
+.attachment-mask-preview > img { border-radius: 7px; height: 100%; object-fit: cover; width: 100%; }
 .attachment-mask-label { background: #2563b8; border-radius: 4px; bottom: 3px; color: #fff; font-size: 10px; left: 3px; line-height: 16px; padding: 0 4px; position: absolute; }
 .creation-mask-button { color: #80b7ff !important; }
 .creation-composer:has(.creation-attachments) { min-height: 214px; padding-bottom: 58px; }

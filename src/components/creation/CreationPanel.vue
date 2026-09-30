@@ -21,7 +21,7 @@
               <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="creationAttachments.splice(index, 1)"><X :size="13" /></button>
             </article>
             <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
-              <img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" />
+              <button type="button" class="attachment-mask-preview" :aria-label="regionEditAvailable ? '重新编辑蒙版区域' : `蒙版：${maskAttachment.title}`" :title="regionEditAvailable ? '重新编辑蒙版区域' : maskAttachment.title" :disabled="!regionEditAvailable" @click="openRegionEditor"><img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" /></button>
               <span class="attachment-mask-label">蒙版</span>
               <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="maskAttachment = null"><X :size="13" /></button>
             </article>
@@ -45,7 +45,8 @@
                 <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
                 <Teleport to="body">
                 <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
-                  <button v-if="activeMode === 'images' && activeImageCapabilities.supportsMask" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />添加蒙版</button>
+                  <button v-if="activeMode === 'images' && regionEditAvailable" type="button" @click="openRegionEditor"><Brush :size="16" />区域编辑</button>
+                  <button v-if="activeMode === 'images' && regionEditAvailable" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />上传蒙版</button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('quality', $event)"><BadgeCheck :size="16" />{{ quality }}画质<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
@@ -132,7 +133,7 @@
           </div>
           <div v-else-if="auth.isAuthenticated && !store.workspaceHydrated" class="creation-gallery-skeleton" aria-label="正在加载图片"><i v-for="index in 6" :key="index" /></div>
           <template v-else-if="modeAssets.length">
-            <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" :reusable="activeMode === 'images'" :regeneratable="activeMode === 'images'" @delete="deleteAsset" @reuse="useGeneratedAssetAsReference" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" />
+            <AssetGrid :assets="visibleModeAssets" variant="gallery" :deletable="auth.isAuthenticated" :reusable="activeMode === 'images'" :regeneratable="activeMode === 'images'" :region-editable="activeMode === 'images' && regionEditAvailable" @delete="deleteAsset" @reuse="useGeneratedAssetAsReference" @quote="useAssetPrompt" @regenerate="retryAssetGeneration" @region-edit="openRegionEditorForAsset" />
             <button v-if="visibleModeAssets.length < modeAssets.length" class="creation-output__more" type="button" @click="modeAssetLimit += 12">加载更多图片</button>
           </template>
           <p v-else>{{ activeMode === 'images' ? '你创建的图片会显示在这里' : '你制作的商品素材包和详情页会显示在这里' }}</p>
@@ -145,7 +146,7 @@
 import { computed, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
+  ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../AssetGrid.vue'
 import ModelCatalogPicker from '../ModelCatalogPicker.vue'
@@ -166,6 +167,7 @@ const props = defineProps<{
   activeCreationModelLabel: string
   activeCreationModelAvailable: boolean
   activeImageCapabilities: { supportsMask: boolean }
+  regionEditAvailable: boolean
   creationPluginCapability: PluginCapability
   canSubmitCreation: boolean
   hasCreationInput: boolean
@@ -206,6 +208,8 @@ const props = defineProps<{
   resizeGenerationInput: () => void
   collapseWorkspacePopovers: () => void
   openFilePicker: (purpose: 'chat-file' | 'creation' | 'mask' | 'library') => void
+  openRegionEditor: () => void
+  openRegionEditorForAsset: (asset: StudioAsset) => void
   switchCreationMode: (mode: 'images' | 'videos') => void
   toggleCreationMenu: (menu: NonNullable<CreationMenu>, event: MouseEvent) => void
   toggleMoreOptions: () => void

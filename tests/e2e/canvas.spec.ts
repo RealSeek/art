@@ -241,9 +241,9 @@ test.describe('无限画布基础能力', () => {
       await expect(page.locator('.canvas-image-editor')).toHaveCount(0)
 
       await page.locator('.canvas-flow-node.is-image').dblclick()
-      await page.getByRole('button', { name: '绘制蒙版', exact: true }).click()
-      await expect(page.getByRole('heading', { name: '绘制编辑区域', exact: true })).toBeVisible()
-      const mask = page.locator('.canvas-mask-layer')
+      await page.getByRole('button', { name: '区域编辑', exact: true }).click()
+      await expect(page.getByRole('heading', { name: '选择要编辑的区域', exact: true })).toBeVisible()
+      const mask = page.locator('.region-editor__mask')
       const box = await mask.boundingBox()
       expect(box).toBeTruthy()
       if (box) {
@@ -252,13 +252,14 @@ test.describe('无限画布基础能力', () => {
         await page.mouse.move(box.x + box.width * .65, box.y + box.height * .5, { steps: 6 })
         await page.mouse.up()
       }
-      await page.getByRole('button', { name: '使用蒙版', exact: true }).click()
-      await expect(page.locator('.canvas-image-editor')).toHaveCount(0)
-      await expect(page.getByRole('button', { name: '重绘蒙版', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: '应用区域', exact: true }).click()
+      await expect(page.locator('.region-editor')).toHaveCount(0)
+      const maskPreview = page.getByRole('button', { name: '重绘区域', exact: true })
+      await expect(maskPreview).toBeVisible()
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.getByRole('button', { name: '重绘蒙版', exact: true }).click()
-      const editorBounds = await page.locator('.canvas-image-editor').boundingBox()
+      await maskPreview.click()
+      const editorBounds = await page.locator('.region-editor').boundingBox()
       expect(editorBounds).toBeTruthy()
       if (editorBounds) {
         expect(editorBounds.x).toBeGreaterThanOrEqual(0)
@@ -266,10 +267,10 @@ test.describe('无限画布基础能力', () => {
         expect(editorBounds.x + editorBounds.width).toBeLessThanOrEqual(390)
         expect(editorBounds.y + editorBounds.height).toBeLessThanOrEqual(844)
       }
-      await page.getByRole('button', { name: '关闭图片编辑器', exact: true }).click()
+      await page.locator('.region-editor').getByRole('button', { name: '取消', exact: true }).click()
 
       const derivedAssets = await (await page.request.get('/v1/assets?kind=IMAGE')).json() as Array<{ id: string; name: string }>
-      derivedAssetIds.push(...derivedAssets.filter((asset) => !existingAssetIds.has(asset.id) && (asset.name.startsWith('canvas-crop-') || asset.name.startsWith('canvas-mask-'))).map((asset) => asset.id))
+      derivedAssetIds.push(...derivedAssets.filter((asset) => !existingAssetIds.has(asset.id) && (asset.name.startsWith('canvas-crop-') || asset.name.startsWith('region-mask-'))).map((asset) => asset.id))
       await expect(page.locator('.canvas-save-status')).toContainText('已保存', { timeout: 10_000 })
 
       const assetsResponse = await page.request.get(`/v1/assets?kind=IMAGE&q=${encodeURIComponent(fileName)}`)

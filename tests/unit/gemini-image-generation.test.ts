@@ -84,5 +84,7 @@ test('OnlyCode 导入时只为 Gemini 图片选择原生协议和参考图能力
   service.discoverCredentialModels = (async () => ({ candidates: ['gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview', 'gpt-image-2'].map((id) => ({ id, capability: 'IMAGE', importable: true, displayName: id, vendorKey: 'test', vendorName: 'test' })), models: [] })) as unknown as typeof service.discoverCredentialModels
   await service.importCredentialModels('user', 'credential', { importAll: true })
   assert.deepEqual(saved.map((model) => model.apiProtocol), ['gemini', 'gemini', 'openai'])
-  assert.deepEqual(saved.map((model) => model.options.imageCapabilities.supportsReference), [true, true, false])
+  // Gemini 用原生参考图且不接收蒙版；gpt-image 走 OpenAI 编辑接口，两者都支持参考图。
+  assert.deepEqual(saved.map((model) => model.options.imageCapabilities.supportsReference), [true, true, true])
+  assert.deepEqual(saved.map((model) => model.options.imageCapabilities.supportsMask), [false, false, true])
 })

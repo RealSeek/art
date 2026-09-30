@@ -171,3 +171,71 @@ test('删除个人模型会记录上游模型，避免自动同步重新导入',
 
   assert.deepEqual(suppressed, [{ id: 'credential-1', suppressedModels: ['gpt-4o-mini', 'gpt-4o'] }])
 })
+
+test('导入与同步只为真正的编辑类图片模型开启蒙版能力', async () => {
+  const created: Array<Record<string, unknown>> = []
+  const credential = { id: 'credential-1', userId: 'user-1', name: 'onlyart-生图', priority: 0, weight: 100, providerType: 'NEW_API' as ProviderType, template: null, suppressedModels: [] }
+  const prisma = {
+    userApiCredential: { findFirst: async () => credential, update: async () => credential },
+    modelVendor: { upsert: async () => ({ id: 'vendor-1' }) },
+    userModel: {
+      findMany: async () => [],
+      findFirst: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        created.push(data)
+        return { id: `model-${created.length}`, key: data.key }
+      },
+    },
+    userModelRoute: { upsert: async () => ({}), findMany: async () => [], count: async () => 0, deleteMany: async () => ({ count: 0 }) },
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
+  }
+  const providers = service(prisma)
+  providers.discoverCredentialModels = async () => ({
+    models: ['gpt-image-2.5', 'grok-imagine-image-2.0', 'gemini-3-pro-image-preview'],
+    candidates: [
+      candidate('gpt-image-2.5', 'IMAGE' as ModelCapability),
+      candidate('grok-imagine-image-2.0', 'IMAGE' as ModelCapability),
+      candidate('gemini-3-pro-image-preview', 'IMAGE' as ModelCapability),
+    ],
+    latencyMs: 5,
+  })
+
+  await providers.syncCredentialModels('user-1', 'credential-1')
+
+  const capabilities = created.map((row) => (row.options as { imageCapabilities: Record<string, boolean> }).imageCapabilities)
+  assert.deepEqual(capabilities.map((item) => item.supportsMask), [true, false, false])
+  assert.deepEqual(capabilities.map((item) => item.supportsReference), [true, true, true])
+})
+
+test('同步会把已有图片模型升级到新的蒙版与参考图能力', async () => {
+  const credential = { id: 'credential-1', userId: 'user-1', name: 'onlyart-生图', priority: 0, weight: 100, providerType: 'NEW_API' as ProviderType, template: null, suppressedModels: [] }
+  const existing = { id: 'model-1', key: 'private:x:gpt-image-2-5:abc', capability: 'IMAGE' as ModelCapability, options: { imageCapabilities: { supportsMask: false, supportsReference: false, sizes: ['1024x1024'] } } }
+  const updated: Array<Record<string, unknown>> = []
+  const prisma = {
+    userApiCredential: { findFirst: async () => credential, update: async () => credential },
+    userModel: {
+      findMany: async () => [],
+      findFirst: async () => existing,
+      create: async () => { throw new Error('已有模型不应被重复创建') },
+      update: async ({ data }: { data: Record<string, unknown> }) => { updated.push(data); return existing },
+    },
+    userModelRoute: {
+      count: async () => 1,
+      upsert: async () => { throw new Error('已有路由不应被重写') },
+      findMany: async () => [{ id: 'route-1', userModelId: 'model-1', upstreamModel: 'gpt-image-2.5' }],
+      deleteMany: async () => ({ count: 0 }),
+    },
+    modelVendor: { upsert: async () => ({ id: 'vendor-1' }) },
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
+  }
+  const providers = service(prisma)
+  providers.discoverCredentialModels = async () => ({ models: ['gpt-image-2.5'], candidates: [candidate('gpt-image-2.5', 'IMAGE' as ModelCapability)], latencyMs: 5 })
+
+  const result = await providers.syncCredentialModels('user-1', 'credential-1')
+
+  const options = updated[0].options as { imageCapabilities: Record<string, unknown> }
+  assert.equal(options.imageCapabilities.supportsMask, true)
+  assert.equal(options.imageCapabilities.supportsReference, true)
+  assert.deepEqual(options.imageCapabilities.sizes, ['1024x1024'])
+  assert.equal(result.removed, 0)
+})

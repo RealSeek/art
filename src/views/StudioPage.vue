@@ -39,7 +39,9 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :commerce-modules="commerceModules" :quality="quality" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+
+    <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
 
     <ProjectsPanel v-else-if="activeMode === 'projects'" :key="activeMode" v-model:project-notice="projectNotice" :open-project-details="openProjectDetails" />
 
@@ -91,6 +93,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Brush, Check, ChevronDown, ChevronRight, Copy, Eraser, KeyRound, LayoutGrid, Lightbulb, List, ListFilter, Maximize2, MessageCircleDashed, Plus, ScanSearch, Search, Upload, WandSparkles, X } from 'lucide-vue-next'
 import AssetGrid from '../components/AssetGrid.vue'
+import RegionEditorDialog from '../components/RegionEditorDialog.vue'
 import CommerceGallery from '../components/CommerceGallery.vue'
 import CodeArtifactPanel from '../components/CodeArtifactPanel.vue'
 import GeneratedImagePreview from '../components/GeneratedImagePreview.vue'
@@ -113,6 +116,7 @@ import { api } from '../services/api'
 import { consumeCreationPrompt, type PendingCreationPrompt } from '../utils/prompt-transfer'
 import { getChatLayout, resolveChatUiPreset } from '../layouts/chat-presets'
 import { isDedicatedImageTool, mergeImageTools, type ImageToolType } from '../utils/image-tools'
+import { maskFormatForTarget, regionEditAvailable as regionEditAvailableFor, type MaskFormat } from '../utils/mask-image'
 import { useChatMessageNavigator } from '../composables/chat/useChatMessageNavigator'
 import { useChatConversationLifecycle } from '../composables/chat/useChatConversationLifecycle'
 import { useChatSubmission, type ChatCapability } from '../composables/chat/useChatSubmission'
@@ -224,6 +228,9 @@ const creationPluginCapability = computed<PluginCapability>(() => activeMode.val
 const generationPrompt = ref('')
 const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
+const regionEditor = ref<{ src: string; format: MaskFormat } | null>(null)
+const maskUploading = ref(false)
+const pendingRegionEditor = ref(false)
 const imageModel = ref('')
 const videoModel = ref('')
 const videoResolution = ref('720p')
@@ -435,6 +442,10 @@ const activeInspirationMode = computed<'IMAGE' | 'VIDEO' | 'COMMERCE'>(() => act
 const activeInspirationError = computed(() => inspirationErrors[activeInspirationMode.value])
 const activeInspirationLoading = computed(() => inspirationLoading[activeInspirationMode.value])
 const selectedImageTool = computed(() => activeMode.value === 'images' ? imageTools.value.find((tool) => tool.id === selectedImageToolId.value) || null : null)
+const activeImageModel = computed(() => findCatalogModel(catalogModels.value, imageModel.value, 'IMAGE'))
+/** 专用 Worker 工具自己接收蒙版，不要求当前图片模型声明支持。 */
+const regionEditWorkerTarget = computed(() => Boolean(selectedImageTool.value && isDedicatedImageTool(selectedImageTool.value)))
+const regionEditAvailable = computed(() => activeMode.value === 'images' && regionEditAvailableFor(activeImageModel.value, { worker: regionEditWorkerTarget.value }))
 const hasCreationInput = computed(() => Boolean(generationPrompt.value.trim()) || Boolean(selectedImageTool.value && creationAttachments.value.length))
 const canSubmitCreation = computed(() => hasCreationInput.value && activeCreationModelAvailable.value)
 const creationPromptPlaceholder = computed(() => selectedImageTool.value?.options?.placeholder || (activeMode.value === 'images' ? '描述你想要的图片' : activeMode.value === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'))
@@ -848,6 +859,47 @@ async function submitGeneration() {
   } catch { /* Store exposes the server error in-page. */ }
 }
 
+function regionEditUnavailableMessage() {
+  return '当前模型不支持区域编辑，请换用支持蒙版的图片模型，或改用「擦除」等本地工具'
+}
+
+function openRegionEditor() {
+  creationOptionsOpen.value = false
+  if (!regionEditAvailable.value) { store.lastError = regionEditUnavailableMessage(); return }
+  const base = creationAttachments.value.find((asset) => asset.mimeType?.startsWith('image/'))
+  if (!base) { pendingRegionEditor.value = true; openFilePicker('creation'); return }
+  regionEditor.value = { src: base.contentUrl || '', format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
+}
+
+function openRegionEditorForAsset(asset: StudioAsset) {
+  if (!regionEditAvailableFor(activeImageModel.value, { worker: regionEditWorkerTarget.value })) { store.lastError = regionEditUnavailableMessage(); return }
+  if (!asset.contentUrl) return
+  if (!creationAttachments.value.some((item) => item.id === asset.id)) creationAttachments.value = [asset, ...creationAttachments.value].slice(0, 4)
+  regionEditor.value = { src: asset.contentUrl, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
+}
+
+async function applyRegionMask(payload: { blob: Blob; name: string }) {
+  if (!requireAuth('/image')) return
+  maskUploading.value = true
+  try {
+    const [asset] = await store.uploadFiles([new File([payload.blob], payload.name, { type: 'image/png' })], 'IMAGE', store.currentProjectId || undefined, 'mask')
+    maskAttachment.value = asset || null
+    regionEditor.value = null
+    // 区域编辑的操作习惯是「选完直接改图」，已有提示词时不再多按一次提交。
+    if (maskAttachment.value && selectedImageToolId.value && generationPrompt.value.trim()) await submitGeneration()
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '蒙版上传失败'
+  } finally {
+    maskUploading.value = false
+  }
+}
+
+watch(() => creationAttachments.value.length, () => {
+  if (!pendingRegionEditor.value || !creationAttachments.value.length) return
+  pendingRegionEditor.value = false
+  openRegionEditor()
+})
+
 async function selectImageTool(tool: ImageTool) {
   if (activeMode.value === 'videos') {
     await switchCreationMode('images')
@@ -858,7 +910,12 @@ async function selectImageTool(tool: ImageTool) {
   if (!selectedImageToolId.value) return
   store.clearError()
   generationPrompt.value = tool.prompt
-  if (!creationAttachments.value.length) openFilePicker('creation')
+  const needsMask = tool.options?.inputMode === 'MASK'
+  if (needsMask && !regionEditAvailable.value) store.lastError = regionEditUnavailableMessage()
+  if (!creationAttachments.value.length) {
+    pendingRegionEditor.value = needsMask
+    openFilePicker('creation')
+  } else if (needsMask && !maskAttachment.value) openRegionEditor()
   else void nextTick(() => generationInput.value?.focus({ preventScroll: true }))
 }
 

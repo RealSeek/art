@@ -105,7 +105,7 @@
             @configure="openNodeSettings(id)"
             @derive="deriveNode(id, $event)"
             @download="downloadNodeAsset(id)"
-            @edit="openImageEditor(id, 'crop')"
+            @edit="openCropEditor(id)"
           />
         </template>
       </VueFlow>
@@ -202,8 +202,8 @@
             <WandSparkles :size="17" />
           </div>
           <div class="canvas-image-local-actions">
-            <button type="button" :disabled="!selectedNode.data.assetId" @click="openImageEditor(selectedNode.id, 'crop')"><Crop :size="16" />裁剪</button>
-            <button type="button" :disabled="!selectedNode.data.assetId" :class="{ 'is-active': Boolean(selectedNode.data.maskAssetId) }" @click="openImageEditor(selectedNode.id, 'mask')"><Brush :size="16" />{{ selectedNode.data.maskAssetId ? '重绘蒙版' : '绘制蒙版' }}</button>
+            <button type="button" :disabled="!selectedNode.data.assetId" @click="openCropEditor(selectedNode.id)"><Crop :size="16" />裁剪</button>
+            <button type="button" :disabled="!selectedNode.data.assetId" :class="{ 'is-active': Boolean(selectedNode.data.maskAssetId) }" @click="openRegionEditor(selectedNode.id)"><Brush :size="16" />{{ selectedNode.data.maskAssetId ? '重绘区域' : '区域编辑' }}</button>
           </div>
           <div v-if="imageTools.length" class="canvas-image-tool-grid">
             <button v-for="tool in imageTools" :key="tool.id" type="button" class="canvas-image-tool-card" :class="{ 'is-active': selectedNode.data.creationToolId === tool.id }" :aria-pressed="selectedNode.data.creationToolId === tool.id" :title="tool.prompt" @click="selectImageTool(selectedNode.id, tool)">
@@ -350,7 +350,8 @@
     </template>
 
     <CanvasMediaDialog v-if="mediaPickerNode" :kind="mediaPickerKind" :project-id="projectId || undefined" @close="mediaPickerNodeId = ''" @select="useMediaAsset" />
-    <CanvasImageEditorDialog v-if="imageEditorNode" :src="imageEditorNode.data.url!" :mode="imageEditorMode" :busy="imageEditorUploading" @close="closeImageEditor" @apply="applyImageEdit" />
+    <CanvasImageEditorDialog v-if="cropEditorNode" :src="cropEditorNode.data.url!" :busy="imageEditorUploading" @close="closeCropEditor" @apply="applyImageEdit" />
+    <RegionEditorDialog v-if="regionEditorNode" :src="regionEditorNode.data.url!" :mask-format="regionEditorFormat" :busy="imageEditorUploading" @close="closeRegionEditor" @apply="applyRegionMask" />
     <CanvasAgentDialog v-if="agentOpen" :canvas-id="String(route.params.id)" :canvas-title="title" :project-id="projectId || undefined" :document="serializeDocument()" :models="catalogModels" :initial-goal="agentGoal" :initial-model="agentModel" :initial-plugin-id="agentPluginId" :smart-planning="agentSmartPlanning" :generation-count="agentGenerationCount" :initial-task-id="selectedAgentTaskId" @close="agentOpen = false" @apply="applyAgentOperations" />
     <div v-if="clearCanvasOpen" class="canvas-modal-backdrop" @click.self="clearCanvasOpen = false">
       <section class="canvas-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-canvas-title">
@@ -375,6 +376,8 @@ import CanvasAssetsPanel, { type CanvasAssetPanelItem, type CanvasPromptPanelIte
 import CanvasDramaProductionPanel, { type DramaBatchState, type DramaProductionSummary } from '../components/CanvasDramaProductionPanel.vue'
 import CanvasDramaShotInspector from '../components/CanvasDramaShotInspector.vue'
 import CanvasImageEditorDialog from '../components/CanvasImageEditorDialog.vue'
+import RegionEditorDialog from '../components/RegionEditorDialog.vue'
+import { maskFormatForTarget, type MaskFormat } from '../utils/mask-image'
 import CanvasMediaDialog, { type CanvasMediaAsset, type CanvasMediaKind } from '../components/CanvasMediaDialog.vue'
 import CanvasFlowNode from '../components/CanvasFlowNode.vue'
 import PluginSelector from '../components/PluginSelector.vue'
@@ -430,8 +433,8 @@ const imageToolsError = ref('')
 const mediaPickerNodeId = ref('')
 const mediaPickerNode = computed(() => nodes.value.find((node) => node.id === mediaPickerNodeId.value && isMediaNode(node)) || null)
 const mediaPickerKind = computed<CanvasMediaKind>(() => mediaPickerNode.value?.data.kind === 'VIDEO' ? 'VIDEO' : mediaPickerNode.value?.data.kind === 'AUDIO' ? 'AUDIO' : 'IMAGE')
-const imageEditorNodeId = ref('')
-const imageEditorMode = ref<'crop' | 'mask'>('crop')
+const cropEditorNodeId = ref('')
+const regionEditorNodeId = ref('')
 const imageEditorUploading = ref(false)
 const agentOpen = ref(false)
 const agentGoal = ref('')
@@ -462,7 +465,14 @@ const nodeConfigOpen = ref(false)
 const canvasContextMenu = ref<{ x: number; y: number; flowX: number; flowY: number; nodeId?: string; edgeId?: string } | null>(null)
 const nodeCreateMenu = ref<NodeCreateMenu | null>(null)
 const connectionStartNodeId = ref('')
-const imageEditorNode = computed(() => nodes.value.find((node) => node.id === imageEditorNodeId.value && node.data.kind === 'IMAGE' && node.data.url && node.data.assetId) || null)
+const cropEditorNode = computed(() => nodes.value.find((node) => node.id === cropEditorNodeId.value && node.data.kind === 'IMAGE' && node.data.url && node.data.assetId) || null)
+const regionEditorNode = computed(() => nodes.value.find((node) => node.id === regionEditorNodeId.value && node.data.kind === 'IMAGE' && node.data.url && node.data.assetId) || null)
+const regionEditorFormat = computed<MaskFormat>(() => {
+  const node = regionEditorNode.value
+  if (!node) return 'ALPHA_TRANSPARENT'
+  const tool = activeImageTool(node)
+  return maskFormatForTarget(catalogModels.value.find((model) => model.key === node.data.model) || null, { worker: Boolean(tool && isDedicatedImageTool(tool)) })
+})
 const outpaintFields: Array<{ key: keyof CanvasImageToolOptions; label: string }> = [{ key: 'outpaintLeft', label: '左扩展' }, { key: 'outpaintRight', label: '右扩展' }, { key: 'outpaintTop', label: '上扩展' }, { key: 'outpaintBottom', label: '下扩展' }]
 const {
   applyingHistory,
@@ -1642,7 +1652,7 @@ function selectImageTool(nodeId: string, tool: CanvasImageTool) {
     error: '',
   })
   if (!node.data.assetId) openMediaPicker(nodeId)
-  else if (tool.options?.inputMode === 'MASK' && !node.data.maskAssetId) openImageEditor(nodeId, 'mask')
+  else if (tool.options?.inputMode === 'MASK' && !node.data.maskAssetId) openRegionEditor(nodeId)
 }
 
 function clearImageTool(nodeId: string) {
@@ -1656,32 +1666,56 @@ function updateImageToolOption(key: keyof CanvasImageToolOptions, event: Event) 
   updateNodeData(node.id, { imageToolOptions: { ...(node.data.imageToolOptions || {}), [key]: value } })
 }
 
-function openImageEditor(nodeId: string, mode: 'crop' | 'mask') {
+function openCropEditor(nodeId: string) {
   const node = nodes.value.find((item) => item.id === nodeId)
   if (!node || node.data.kind !== 'IMAGE') return
   if (!node.data.assetId || !node.data.url) { openMediaPicker(nodeId); return }
-  imageEditorMode.value = mode
-  imageEditorNodeId.value = nodeId
+  cropEditorNodeId.value = nodeId
 }
 
-function closeImageEditor() { imageEditorNodeId.value = '' }
+function openRegionEditor(nodeId: string) {
+  const node = nodes.value.find((item) => item.id === nodeId)
+  if (!node || node.data.kind !== 'IMAGE') return
+  if (!node.data.assetId || !node.data.url) { openMediaPicker(nodeId); return }
+  regionEditorNodeId.value = nodeId
+}
 
-async function applyImageEdit(payload: { blob: Blob; name: string; purpose: 'library' | 'mask' }) {
-  const node = imageEditorNode.value
+function closeCropEditor() { cropEditorNodeId.value = '' }
+function closeRegionEditor() { regionEditorNodeId.value = '' }
+
+async function uploadEditedAsset(payload: { blob: Blob; name: string }, purpose: 'library' | 'mask') {
+  const form = new FormData()
+  form.append('file', new File([payload.blob], payload.name, { type: payload.blob.type || 'image/png' }))
+  const params = new URLSearchParams({ kind: 'IMAGE', purpose })
+  if (projectId.value) params.set('projectId', projectId.value)
+  return api<CanvasMediaAsset>(`/assets/uploads?${params}`, { method: 'POST', body: form })
+}
+
+async function applyImageEdit(payload: { blob: Blob; name: string }) {
+  const node = cropEditorNode.value
   if (!node) return
   imageEditorUploading.value = true
   try {
-    const form = new FormData()
-    form.append('file', new File([payload.blob], payload.name, { type: payload.blob.type || 'image/png' }))
-    const params = new URLSearchParams({ kind: 'IMAGE', purpose: payload.purpose })
-    if (projectId.value) params.set('projectId', projectId.value)
-    const asset = await api<CanvasMediaAsset>(`/assets/uploads?${params}`, { method: 'POST', body: form })
+    const asset = await uploadEditedAsset(payload, 'library')
     checkpoint()
-    if (payload.purpose === 'mask') updateNodeData(node.id, { maskAssetId: asset.id, error: '' })
-    else updateNodeData(node.id, { url: asset.contentUrl, assetId: asset.id, mimeType: asset.mimeType, maskAssetId: undefined, status: 'SUCCEEDED', jobId: undefined, error: '' })
-    closeImageEditor()
+    updateNodeData(node.id, { url: asset.contentUrl, assetId: asset.id, mimeType: asset.mimeType, maskAssetId: undefined, status: 'SUCCEEDED', jobId: undefined, error: '' })
+    closeCropEditor()
   } catch (reason) {
     updateNodeData(node.id, { error: reason instanceof Error ? reason.message : '图片上传失败' })
+  } finally { imageEditorUploading.value = false }
+}
+
+async function applyRegionMask(payload: { blob: Blob; name: string }) {
+  const node = regionEditorNode.value
+  if (!node) return
+  imageEditorUploading.value = true
+  try {
+    const asset = await uploadEditedAsset(payload, 'mask')
+    checkpoint()
+    updateNodeData(node.id, { maskAssetId: asset.id, error: '' })
+    closeRegionEditor()
+  } catch (reason) {
+    updateNodeData(node.id, { error: reason instanceof Error ? reason.message : '蒙版上传失败' })
   } finally { imageEditorUploading.value = false }
 }
 
@@ -1705,7 +1739,7 @@ async function generateNode(id: string) {
   if (!prompt) { updateNodeData(id, { status: 'FAILED', error: '请输入提示词，或连接一个包含内容的文本节点。' }); return }
   if (!model) { updateNodeData(id, { status: 'FAILED', error: `暂无可用${kind === 'IMAGE' ? '图片' : '视频'}模型，请先在管理端配置模型与健康渠道。` }); return }
   if (tool && !node.data.assetId) { updateNodeData(id, { status: 'FAILED', error: '请先为图片节点选择一张需要处理的图片。' }); openMediaPicker(id); return }
-  if (tool?.options?.inputMode === 'MASK' && !node.data.maskAssetId) { updateNodeData(id, { status: 'FAILED', error: '当前工具需要先绘制蒙版。' }); openImageEditor(id, 'mask'); return }
+  if (tool?.options?.inputMode === 'MASK' && !node.data.maskAssetId) { updateNodeData(id, { status: 'FAILED', error: '当前工具需要先绘制蒙版。' }); openRegionEditor(id); return }
 
   checkpoint()
   updateNodeData(id, { model, prompt: node.data.prompt || '', generationOptions: generationOptions(node), status: 'QUEUED', error: '', jobId: undefined })

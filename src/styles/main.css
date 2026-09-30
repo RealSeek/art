@@ -670,3 +670,256 @@ button {
   outline: 2px solid var(--studio-focus);
   outline-offset: 2px;
 }
+
+/* ================= 区域编辑（蒙版绘制）弹层 =================
+   图片创作页与画布页共用。黑色=编辑区域，绿色=擦除已选区域；
+   导出蒙版的极性由调用方按目标渠道决定（见 utils/mask-image.ts）。 */
+.region-editor-layer {
+  align-items: center;
+  background: var(--studio-overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: var(--studio-z-modal);
+}
+
+.region-editor {
+  background: var(--studio-elevated);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-lg);
+  box-shadow: var(--studio-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100dvh - 48px);
+  padding: 18px 20px 14px;
+  width: min(1180px, calc(100vw - 48px));
+}
+
+.region-editor__header h2 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.region-editor__header p {
+  color: var(--studio-muted);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.region-editor__toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.region-editor__toolbar > label {
+  align-items: center;
+  color: var(--studio-muted);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+}
+
+.region-editor__toolbar input[type='range'] {
+  accent-color: var(--studio-brand);
+  width: 150px;
+}
+
+.region-editor__toolbar output {
+  color: var(--studio-text);
+  min-width: 40px;
+}
+
+.region-editor__tools {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.region-editor__tools button,
+.region-editor__actions button {
+  align-items: center;
+  background: var(--studio-control);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-sm);
+  color: var(--studio-text);
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  min-width: 32px;
+  padding: 0 8px;
+}
+
+.region-editor__tools button:hover,
+.region-editor__actions button:hover:not(:disabled) {
+  background: var(--studio-control-hover);
+}
+
+.region-editor__tools button.is-active {
+  background: var(--studio-inverse-bg);
+  border-color: var(--studio-inverse-bg);
+  color: var(--studio-inverse-text);
+}
+
+.region-editor__actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.region-editor__actions button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.region-editor__actions button:first-child,
+.region-editor__actions .region-editor__zoom {
+  padding: 0 10px;
+}
+
+.region-editor__actions button:nth-last-child(2) {
+  margin-left: auto;
+}
+
+.region-editor__actions .is-primary {
+  background: var(--studio-inverse-bg);
+  border-color: var(--studio-inverse-bg);
+  color: var(--studio-inverse-text);
+  gap: 6px;
+  margin-left: 4px;
+  padding: 0 14px;
+}
+
+.region-editor__zoom {
+  font-variant-numeric: tabular-nums;
+}
+
+.region-editor__divider {
+  background: var(--studio-border);
+  height: 20px;
+  width: 1px;
+}
+
+.region-editor__stage {
+  align-items: center;
+  background: var(--studio-panel-soft);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius-md);
+  display: flex;
+  height: min(58vh, 560px);
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+}
+
+.region-editor__stage.is-hand {
+  cursor: grab;
+}
+
+.region-editor__stage.is-drawing.is-hand {
+  cursor: grabbing;
+}
+
+.region-editor__status {
+  align-items: center;
+  color: var(--studio-muted);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.region-editor__status.is-error {
+  color: var(--studio-danger);
+}
+
+.region-editor__surface {
+  line-height: 0;
+  position: relative;
+}
+
+.region-editor__surface > img {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+/* 棋盘格让透明背景可辨，与画布页的预览一致 */
+.region-editor__surface::before {
+  background-image:
+    linear-gradient(45deg, rgba(127, 127, 127, .28) 25%, transparent 25%, transparent 75%, rgba(127, 127, 127, .28) 75%),
+    linear-gradient(45deg, rgba(127, 127, 127, .28) 25%, transparent 25%, transparent 75%, rgba(127, 127, 127, .28) 75%);
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
+  content: '';
+  inset: 0;
+  position: absolute;
+}
+
+.region-editor__surface > img,
+.region-editor__overlay,
+.region-editor__mask {
+  inset: 0;
+  position: absolute;
+}
+
+.region-editor__overlay,
+.region-editor__mask {
+  height: 100%;
+  pointer-events: none;
+  width: 100%;
+}
+
+.region-editor__footer {
+  color: var(--studio-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.region-editor__footer > span {
+  color: var(--studio-text);
+  margin-right: 6px;
+}
+
+.region-editor__spin {
+  animation: region-editor-spin .9s linear infinite;
+}
+
+body.has-region-editor {
+  overflow: hidden;
+}
+
+@keyframes region-editor-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+  .region-editor-layer {
+    padding: 10px;
+  }
+
+  .region-editor {
+    padding: 14px;
+    width: calc(100vw - 20px);
+  }
+
+  .region-editor__toolbar input[type='range'] {
+    width: 96px;
+  }
+
+  .region-editor__stage {
+    height: min(48vh, 380px);
+  }
+
+  .region-editor__actions {
+    flex-wrap: wrap;
+  }
+
+  .region-editor__actions button:nth-last-child(2) {
+    margin-left: 0;
+  }
+}

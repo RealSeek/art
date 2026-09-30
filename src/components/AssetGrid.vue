@@ -54,6 +54,7 @@
             <button type="button" aria-label="放大" title="放大" @click="zoomBy(0.2)"><ZoomIn :size="18" /></button>
           </template>
           <button v-if="regeneratable && selected.jobId" type="button" aria-label="重新生成" title="重新生成" @click="emitAction('regenerate')"><RefreshCw :size="18" /></button>
+          <button v-if="regionEditable && isVisualAsset(selected)" type="button" aria-label="区域编辑" title="区域编辑" @click="emitAction('regionEdit')"><Brush :size="18" /></button>
           <button v-if="reusable && isVisualAsset(selected)" type="button" aria-label="用作参考" title="用作参考" @click="emitAction('reuse')"><ImagePlus :size="18" /></button>
           <button v-if="reusable && selected.prompt" type="button" aria-label="引用提示词" title="引用提示词" @click="emitAction('quote')"><Quote :size="18" /></button>
           <button v-if="shareable && selected.canManage !== false" type="button" aria-label="设置团队归属" title="设置团队归属" @click="shareAsset"><UsersRound :size="18" /></button>
@@ -68,12 +69,12 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Download, FileText, Hand, ImagePlus, Maximize2, MousePointer2, Play, Quote, RefreshCw, Trash2, UsersRound, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { Brush, Download, FileText, Hand, ImagePlus, Maximize2, MousePointer2, Play, Quote, RefreshCw, Trash2, UsersRound, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { useAssetPreviewTransform } from '../composables/useAssetPreviewTransform'
 import type { StudioAsset } from '../types'
 
-withDefaults(defineProps<{ assets: StudioAsset[]; deletable?: boolean; reusable?: boolean; regeneratable?: boolean; shareable?: boolean; variant?: 'cards' | 'gallery' | 'list' }>(), { deletable: false, reusable: false, regeneratable: false, shareable: false, variant: 'cards' })
-const emit = defineEmits<{ delete: [assetId: string]; reuse: [asset: StudioAsset]; quote: [asset: StudioAsset]; regenerate: [asset: StudioAsset]; share: [asset: StudioAsset] }>()
+withDefaults(defineProps<{ assets: StudioAsset[]; deletable?: boolean; reusable?: boolean; regeneratable?: boolean; regionEditable?: boolean; shareable?: boolean; variant?: 'cards' | 'gallery' | 'list' }>(), { deletable: false, reusable: false, regeneratable: false, regionEditable: false, shareable: false, variant: 'cards' })
+const emit = defineEmits<{ delete: [assetId: string]; reuse: [asset: StudioAsset]; quote: [asset: StudioAsset]; regenerate: [asset: StudioAsset]; regionEdit: [asset: StudioAsset]; share: [asset: StudioAsset] }>()
 
 const selected = ref<StudioAsset | null>(null)
 
@@ -102,12 +103,13 @@ function isVisualAsset(asset: StudioAsset) { return asset.kind === 'image' || as
 function isVideoAsset(asset: StudioAsset) { return asset.kind === 'video' || Boolean(asset.mimeType?.startsWith('video/')) }
 function formatDate(value: number) { return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(value) }
 function closePreview() { selected.value = null; dragMode.value = false; resetView() }
-function emitAction(action: 'reuse' | 'quote' | 'regenerate') {
+function emitAction(action: 'reuse' | 'quote' | 'regenerate' | 'regionEdit') {
   if (!selected.value) return
   const asset = selected.value
   closePreview()
   if (action === 'reuse') emit('reuse', asset)
   else if (action === 'quote') emit('quote', asset)
+  else if (action === 'regionEdit') emit('regionEdit', asset)
   else emit('regenerate', asset)
 }
 function playCardVideo(event: MouseEvent) {

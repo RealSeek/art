@@ -98,6 +98,10 @@ function syncIntervalMs(hours: number | undefined | null, fallbackHours = 6) {
   return Math.min(168, Math.max(1, value || fallbackHours)) * 3_600_000
 }
 /** 只有标准 `/models` 模型清单渠道参与自动同步；Worker 与图片接口不是模型清单。 */
+/** 支持蒙版编辑的图片模型家族；其余模型仍可用参考图，但不提供区域编辑入口。 */
+const IMAGE_MASK_PATTERN = /gpt-image|dall-?e|[-_]edit\b|inpaint/i
+/** 支持参考图/图生图的图片模型家族。 */
+const IMAGE_REFERENCE_PATTERN = /gpt-image|dall-?e|grok-imagine-image|seedream|flux|qwen-image|nano-?banana|imagen|edit|inpaint/i
 const AUTO_SYNC_PROVIDER_TYPES: ProviderType[] = [ProviderType.OPENAI, ProviderType.NEW_API, ProviderType.SUB2API, ProviderType.OPENAI_COMPATIBLE]
 
 type UserModelInput = {
@@ -831,7 +835,19 @@ export class ProvidersService implements OnModuleInit {
     if (candidate.capability === ModelCapability.IMAGE) return {
       apiProtocol,
       discovery,
-      imageCapabilities: { sizes: ['1024x1024'], qualities: ['medium'], outputFormats: ['png'], backgrounds: ['opaque'], maxCount: 1, defaultSize: '1024x1024', defaultQuality: 'medium', supportsReference: apiProtocol === 'gemini', supportsMask: false, resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) } },
+      imageCapabilities: {
+        sizes: ['1024x1024'],
+        qualities: ['medium'],
+        outputFormats: ['png'],
+        backgrounds: ['opaque'],
+        maxCount: 1,
+        defaultSize: '1024x1024',
+        defaultQuality: 'medium',
+        // Gemini 图片接口使用原生参考图，不接收蒙版参数。
+        supportsReference: apiProtocol === 'gemini' || IMAGE_REFERENCE_PATTERN.test(candidate.id),
+        supportsMask: apiProtocol !== 'gemini' && IMAGE_MASK_PATTERN.test(candidate.id),
+        resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) },
+      },
     }
     if (candidate.capability === ModelCapability.VIDEO) {
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
@@ -1682,6 +1698,7 @@ export class ProvidersService implements OnModuleInit {
       const apiProtocol = credential.providerType === ProviderType.NEW_API && capability === ModelCapability.IMAGE && isGeminiImageModel(candidate.id) ? 'gemini' : credential.template?.apiProtocol || 'openai'
       const vendor = await this.prisma.modelVendor.upsert({ where: { key: candidate.vendorKey }, update: {}, create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 } })
       const existing = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
+      if (existing) await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
       const model = existing || await this.prisma.userModel.create({ data: {
         userId,
         vendorId: vendor.id,
@@ -1709,6 +1726,27 @@ export class ProvidersService implements OnModuleInit {
       models.push({ id: model.id, key: model.key, modelId: candidate.id })
     }
     return models
+  }
+
+  /**
+   * 同步时把新推导出的图片能力补进已有模型：只把「不支持」升级为「支持」，
+   * 不覆盖用户在设置里改过的其它字段。
+   */
+  private async upgradeUserModelImageCapabilities(
+    existing: { id: string; capability: ModelCapability; options: Prisma.JsonValue | null },
+    candidate: DiscoveredModel,
+    apiProtocol: string,
+  ) {
+    if (existing.capability !== ModelCapability.IMAGE) return
+    const options = this.jsonObject(existing.options)
+    const current = options.imageCapabilities && typeof options.imageCapabilities === 'object' && !Array.isArray(options.imageCapabilities)
+      ? { ...(options.imageCapabilities as Record<string, unknown>) }
+      : {}
+    const discovered = this.discoveredModelOptions(candidate, apiProtocol).imageCapabilities as Record<string, unknown>
+    const upgraded = ['supportsMask', 'supportsReference'].filter((key) => discovered[key] === true && current[key] !== true)
+    if (!upgraded.length) return
+    for (const key of upgraded) current[key] = true
+    await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...options, imageCapabilities: current } as Prisma.InputJsonValue } })
   }
 
   private async pruneCredentialModels(userId: string, credentialId: string, upstreamIds: Set<string>) {

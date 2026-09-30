@@ -7,6 +7,7 @@ export type CatalogModel = {
   upstreamModel?: string
   description?: string
   capability: ModelCapability
+  apiProtocol?: 'openai' | 'anthropic' | 'gemini'
   enabled?: boolean
   isDefault: boolean
   badge?: string
