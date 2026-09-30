@@ -1284,8 +1284,8 @@ html[data-studio-theme="light"] .creation-duration-custom input { background: #f
 .creation-mention-empty { color: var(--studio-muted); font-size: 12px; line-height: 1.6; margin: 0; padding: 8px 10px; }
 
 /* 参考素材编号与音频卡片 */
-.attachment-index-label { background: rgba(0, 0, 0, .62); border-radius: 4px; bottom: 3px; color: #fff; font-size: 10px; left: 3px; line-height: 16px; padding: 0 4px; position: absolute; }
-.attachment-card--audio { align-items: center; background: #242424; border: 1px solid #3a3a3a; border-radius: 8px; display: flex; flex: 0 0 auto; gap: 8px; height: 80px; justify-content: center; padding: 0 14px; position: relative; }
+.attachment-index-label { background: rgba(0, 0, 0, .62); border-radius: 4px; bottom: 3px; color: #fff; font-size: 10px; left: 3px; line-height: 16px; padding: 0 4px; position: absolute; white-space: nowrap; }
+.attachment-card--audio { align-items: center; background: #242424; border: 1px solid #3a3a3a; border-radius: 8px; display: flex; flex: 0 0 auto; gap: 8px; height: 64px; justify-content: center; min-width: 104px; padding: 0 16px; position: relative; }
 .attachment-audio-icon { align-items: center; color: #8ab4ff; display: inline-flex; }
 .creation-add--audio { margin-left: 2px; }
 html[data-studio-theme="light"] .creation-mention-menu { background: #fff; border-color: #e1e1e1; }
