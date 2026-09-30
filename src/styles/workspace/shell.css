@@ -1273,14 +1273,15 @@ html[data-studio-theme="light"] .creation-duration-menu > button.is-active { bac
 html[data-studio-theme="light"] .creation-duration-custom input { background: #fff; border-color: #dcdcdc; color: #171717; }
 
 /* ============ 创作输入框的 @ 参考素材菜单 ============ */
-.creation-prompt-row { position: relative; }
-.creation-mention-menu { background: var(--creation-surface-raised, #232323); border: 1px solid var(--creation-menu-border, #3a3a3a); border-radius: 12px; bottom: calc(100% + 8px); box-shadow: var(--creation-menu-shadow, 0 18px 44px rgba(0, 0, 0, .45)); display: grid; gap: 2px; left: 0; max-height: 260px; min-width: 260px; overflow-y: auto; padding: 6px; position: absolute; z-index: 1400; }
-.creation-mention-menu > button { align-items: center; background: transparent; border: 0; border-radius: 8px; color: #ededed; display: flex; font-size: 13px; gap: 10px; padding: 7px 9px; text-align: left; }
+.creation-mention-menu { background: var(--creation-surface-raised, #232323); border: 1px solid var(--creation-menu-border, #3a3a3a); border-radius: 12px; box-shadow: var(--creation-menu-shadow, 0 18px 44px rgba(0, 0, 0, .45)); display: grid; gap: 2px; max-height: 260px; overflow-y: auto; padding: 6px; }
+.creation-mention-menu--floating { position: fixed; z-index: 1401; }
+.creation-mention-menu > button { align-items: center; background: transparent; border: 0; border-radius: 8px; color: #ededed; display: flex; font-size: 13px; gap: 10px; padding: 7px 9px; text-align: left; width: 100%; }
 .creation-mention-menu > button.is-active, .creation-mention-menu > button:hover { background: var(--creation-control-active, #333); }
 .creation-mention-menu img { border-radius: 6px; height: 32px; object-fit: cover; width: 32px; }
 .creation-mention-menu svg { color: var(--studio-muted); flex: 0 0 auto; }
 .creation-mention-menu strong { flex: 0 0 auto; }
 .creation-mention-menu small { color: var(--studio-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.creation-mention-empty { color: var(--studio-muted); font-size: 12px; line-height: 1.6; margin: 0; padding: 8px 10px; }
 
 /* 参考素材编号与音频卡片 */
 .attachment-index-label { background: rgba(0, 0, 0, .62); border-radius: 4px; bottom: 3px; color: #fff; font-size: 10px; left: 3px; line-height: 16px; padding: 0 4px; position: absolute; }

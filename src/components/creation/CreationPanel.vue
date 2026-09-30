@@ -9,16 +9,19 @@
         <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-prompt-row">
-            <div v-if="mentionOpen && referenceMentions.length" class="creation-mention-menu" role="listbox" aria-label="插入参考素材">
-              <button v-for="(item, index) in referenceMentions" :key="item.token" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex }" @mousedown.prevent="insertMention(item)">
+            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
+          </div>
+          <Teleport to="body">
+            <div v-if="mentionOpen" ref="mentionMenu" class="creation-mention-menu creation-mention-menu--floating" :style="mentionStyle" role="listbox" aria-label="插入参考素材">
+              <button v-for="(item, index) in filteredMentions" :key="item.token" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex }" @mousedown.prevent="insertMention(item)">
                 <img v-if="item.thumbnail" :src="item.thumbnail" alt="" />
                 <component :is="item.kind === 'audio' ? Music : ImageIcon" v-else :size="16" aria-hidden="true" />
                 <strong>{{ item.label }}</strong>
                 <small>{{ item.title }}</small>
               </button>
+              <p v-if="!filteredMentions.length" class="creation-mention-empty">{{ referenceMentions.length ? '没有匹配的参考素材' : '还没有参考素材，点输入框左侧的 + 上传参考图或参考音频' }}</p>
             </div>
-            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
-          </div>
+          </Teleport>
           <div v-if="creationAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
             <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
               <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
@@ -163,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, type Component } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Music, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
@@ -278,12 +281,26 @@ const creationMoreTrigger = ref<HTMLButtonElement | null>(null)
 const creationMorePanel = ref<HTMLElement | null>(null)
 const creationOptionsMenu = ref<HTMLElement | null>(null)
 const inspirationRail = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  window.addEventListener('resize', repositionMentionMenu)
+  window.addEventListener('scroll', repositionMentionMenu, true)
+  document.addEventListener('xinyue:close-popovers', closeMentionMenu)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', repositionMentionMenu)
+  window.removeEventListener('scroll', repositionMentionMenu, true)
+  document.removeEventListener('xinyue:close-popovers', closeMentionMenu)
+})
 const canScrollInspirationPrevious = ref(false)
 const canScrollInspirationNext = ref(false)
 
 const mentionOpen = ref(false)
 const mentionIndex = ref(0)
 const mentionQuery = ref('')
+const mentionMenu = ref<HTMLElement | null>(null)
+const mentionStyle = ref<Record<string, string>>({ visibility: 'hidden' })
 
 const filteredMentions = computed(() => {
   const query = mentionQuery.value.trim().toLowerCase()
@@ -300,8 +317,36 @@ function handlePromptInput(event: Event) {
 function syncMentionMenu(before: string) {
   const match = /@([^\s@]{0,12})$/.exec(before)
   mentionQuery.value = match ? match[1] : ''
-  mentionOpen.value = Boolean(match) && props.referenceMentions.length > 0
   mentionIndex.value = 0
+  if (!match) { mentionOpen.value = false; return }
+  mentionOpen.value = true
+  void openMentionMenu()
+}
+
+async function openMentionMenu() {
+  mentionStyle.value = { visibility: 'hidden' }
+  await nextTick()
+  positionMentionMenu()
+}
+
+function positionMentionMenu() {
+  const anchor = generationInput.value
+  const menu = mentionMenu.value
+  if (!mentionOpen.value || !anchor || !menu) return
+  const rect = anchor.getBoundingClientRect()
+  const inset = 12
+  const gap = 8
+  const width = Math.min(340, Math.max(240, rect.width))
+  const height = menu.scrollHeight || 120
+  const left = Math.min(window.innerWidth - width - inset, Math.max(inset, rect.left))
+  const top = rect.top - height - gap >= inset
+    ? rect.top - height - gap
+    : Math.min(window.innerHeight - height - inset, rect.bottom + gap)
+  mentionStyle.value = { left: `${left}px`, top: `${top}px`, width: `${width}px`, visibility: 'visible' }
+}
+
+function repositionMentionMenu() {
+  if (mentionOpen.value) positionMentionMenu()
 }
 
 function closeMentionMenu() { mentionOpen.value = false }
