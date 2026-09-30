@@ -13,6 +13,8 @@
 
 ### 变更
 
+- 图片创作的「画质」改为分辨率档位（1K / 2K / 4K）：档位由模型的尺寸能力推导，只展示模型支持的档位；比例 × 档位决定实际输出尺寸，计费按档位（模型未配置分档价时按 1×/2×/4× 估算）。
+- 自动导入的图片模型按家族补齐尺寸与分档定价：gpt-image / dall-e / gemini / imagen / seedream / flux 等多档家族开放 1K/2K/4K，其余保持单档 1K。
 - 画布页的蒙版绘制改用同一套区域编辑器（裁剪仍用原对话框），旧版简单笔刷界面已移除。
 
 ### 上游模型自动同步
@@ -25,6 +27,8 @@
 
 ### 数据库
 
+- 新增迁移 `20260907180000_image_mask_capabilities`：为已导入的编辑家族图片模型补齐参考图/蒙版能力。
+- 新增迁移 `20260907190000_image_resolution_tiers`：为已导入的多档家族图片模型补齐 1K/2K/4K 尺寸与分档定价。
 - 新增迁移 `20260907170000_model_auto_sync`：`ProviderChannel` 与 `UserApiCredential` 增加 `autoSyncModels`、`lastModelSyncAt`，`UserApiCredential` 增加 `suppressedModels`，`SystemSetting` 增加 4 项自动同步配置。
 
 ## 1.0.1

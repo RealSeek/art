@@ -47,7 +47,7 @@
                 <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
                   <button v-if="activeMode === 'images' && regionEditAvailable" type="button" @click="openRegionEditor"><Brush :size="16" />区域编辑</button>
                   <button v-if="activeMode === 'images' && regionEditAvailable" type="button" :disabled="uploading" @click="openFilePicker('mask')"><Blend :size="16" />上传蒙版</button>
-                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('quality', $event)"><BadgeCheck :size="16" />{{ quality }}画质<ChevronDown :size="13" /></button>
+                  <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
@@ -189,7 +189,7 @@ const props = defineProps<{
   videoResolution: string
   videoDuration: number
   commerceModules: number
-  quality: string
+  imageResolution: string
   imageCount: number
   outputFormat: string
   imageBackground: string

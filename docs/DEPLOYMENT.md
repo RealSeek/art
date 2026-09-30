@@ -308,6 +308,15 @@ Invoke-RestMethod http://localhost:8080/v1/health/ready
 - 同步到已有模型时只会把能力从「不支持」升级为「支持」，不会覆盖管理员或用户手改过的其它字段。
 - 蒙版编码按渠道自动选择：本地 Worker（IOPaint 等）使用白底灰度蒙版，OpenAI 兼容 `/images/edits` 使用透明选区蒙版；两者都需要与参考图同尺寸。
 
+### 5.3 分辨率档位（1K / 2K / 4K）
+
+图片创作的画质选择按模型的尺寸能力展示，档位与计费口径：
+
+- 档位由模型的 `imageCapabilities.sizes` 推导：最大边 < 2048 记 1K，< 4096 记 2K，否则 4K；只展示尺寸清单里存在的档位。
+- 实际尺寸 = 比例 × 档位：先限定在该档位内，再取宽高比最接近的比例尺寸；未选中档位时回退完整尺寸清单。
+- 计费按 `resolutionPricing[tier]`；模型未配置分档价时按 `1× / 2× / 4×` 估算。Gemini 通过 `imageConfig.imageSize` 接收档位，OpenAI 兼容渠道通过 `size` 接收具体尺寸。
+- 管理端「模型」编辑可自定义尺寸清单与分档价格；自动导入的图片模型仅对多档家族（gpt-image / dall-e / gemini / imagen / seedream / flux 等）开放 1K/2K/4K。
+
 ## 6. 手工 Node.js 部署
 
 不使用 Docker 时，需要自行提供 PostgreSQL 17、Redis 7、Node.js 20.19+（推荐 22）、pnpm 和 Nginx。

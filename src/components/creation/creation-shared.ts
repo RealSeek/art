@@ -13,7 +13,7 @@ export interface Inspiration {
 }
 export interface ImageTool extends Inspiration { enabled?: boolean; options?: ImageToolOptions | null }
 
-export type CreationMenu = 'model' | 'type' | 'size' | 'style' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'quality' | 'modules' | 'count' | 'format' | 'background' | null
+export type CreationMenu = 'model' | 'type' | 'size' | 'style' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'imageResolution' | 'modules' | 'count' | 'format' | 'background' | null
 
 export function hasImagePreview(asset: StudioAsset) {
   return Boolean(asset.contentUrl) && (asset.kind === 'image' || asset.mimeType?.startsWith('image/'))

@@ -202,9 +202,12 @@ test('导入与同步只为真正的编辑类图片模型开启蒙版能力', as
 
   await providers.syncCredentialModels('user-1', 'credential-1')
 
-  const capabilities = created.map((row) => (row.options as { imageCapabilities: Record<string, boolean> }).imageCapabilities)
+  const capabilities = created.map((row) => (row.options as { imageCapabilities: Record<string, unknown> }).imageCapabilities)
   assert.deepEqual(capabilities.map((item) => item.supportsMask), [true, false, false])
   assert.deepEqual(capabilities.map((item) => item.supportsReference), [true, true, true])
+  // 多档家族（gpt-image / gemini）开放 1K/2K/4K 尺寸与分档定价，其余保持单档。
+  assert.deepEqual(capabilities.map((item) => (item.sizes as string[]).length), [5, 1, 5])
+  assert.deepEqual(capabilities.map((item) => (item.resolutionPricing as Record<string, number>)['2K'] || 0), [2, 0, 2])
 })
 
 test('同步会把已有图片模型升级到新的蒙版与参考图能力', async () => {

@@ -102,6 +102,9 @@ function syncIntervalMs(hours: number | undefined | null, fallbackHours = 6) {
 const IMAGE_MASK_PATTERN = /gpt-image|dall-?e|[-_]edit\b|inpaint/i
 /** 支持参考图/图生图的图片模型家族。 */
 const IMAGE_REFERENCE_PATTERN = /gpt-image|dall-?e|grok-imagine-image|seedream|flux|qwen-image|nano-?banana|imagen|edit|inpaint/i
+/** 已知支持多档输出尺寸的图片模型家族；其余按单档 1K 处理。 */
+const IMAGE_TIERED_PATTERN = /gpt-image|dall-?e|gemini|imagen|seedream|flux|qwen-image|nano-?banana|[-_]edit|inpaint/i
+const IMAGE_RESOLUTION_SIZES = ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096']
 const AUTO_SYNC_PROVIDER_TYPES: ProviderType[] = [ProviderType.OPENAI, ProviderType.NEW_API, ProviderType.SUB2API, ProviderType.OPENAI_COMPATIBLE]
 
 type UserModelInput = {
@@ -832,22 +835,29 @@ export class ProvidersService implements OnModuleInit {
 
   private discoveredModelOptions(candidate: DiscoveredModel, apiProtocol = 'openai') {
     const discovery = { source: candidate.pricingSource, confidence: candidate.confidence, contextWindow: candidate.contextWindow, maxOutputTokens: candidate.maxOutputTokens, features: candidate.features, importedAt: new Date().toISOString() }
-    if (candidate.capability === ModelCapability.IMAGE) return {
-      apiProtocol,
-      discovery,
-      imageCapabilities: {
-        sizes: ['1024x1024'],
-        qualities: ['medium'],
-        outputFormats: ['png'],
-        backgrounds: ['opaque'],
-        maxCount: 1,
-        defaultSize: '1024x1024',
-        defaultQuality: 'medium',
-        // Gemini 图片接口使用原生参考图，不接收蒙版参数。
-        supportsReference: apiProtocol === 'gemini' || IMAGE_REFERENCE_PATTERN.test(candidate.id),
-        supportsMask: apiProtocol !== 'gemini' && IMAGE_MASK_PATTERN.test(candidate.id),
-        resolutionPricing: { '1K': Math.max(1, candidate.flatCreditCost || 1) },
-      },
+    if (candidate.capability === ModelCapability.IMAGE) {
+      const creditCost = Math.max(1, candidate.flatCreditCost || 1)
+      const tiered = IMAGE_TIERED_PATTERN.test(candidate.id)
+      return {
+        apiProtocol,
+        discovery,
+        imageCapabilities: {
+          // 多档家族开放 1K/2K/4K 尺寸；分档定价与服务端 imageResolutionTier 的分档保持一致。
+          sizes: tiered ? IMAGE_RESOLUTION_SIZES : ['1024x1024'],
+          qualities: ['medium'],
+          outputFormats: ['png'],
+          backgrounds: ['opaque'],
+          maxCount: 1,
+          defaultSize: '1024x1024',
+          defaultQuality: 'medium',
+          // Gemini 图片接口使用原生参考图，不接收蒙版参数。
+          supportsReference: apiProtocol === 'gemini' || IMAGE_REFERENCE_PATTERN.test(candidate.id),
+          supportsMask: apiProtocol !== 'gemini' && IMAGE_MASK_PATTERN.test(candidate.id),
+          resolutionPricing: tiered
+            ? { '1K': creditCost, '2K': creditCost * 2, '4K': creditCost * 4 }
+            : { '1K': creditCost },
+        },
+      }
     }
     if (candidate.capability === ModelCapability.VIDEO) {
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
