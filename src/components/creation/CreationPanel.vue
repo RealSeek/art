@@ -69,7 +69,8 @@
               </div>
               <div v-else-if="creationMenu === 'duration'" class="creation-duration-menu">
                 <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
-                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="1" :max="videoDurationLimit" step="1" :value="videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒（最多 {{ videoDurationLimit }} 秒）</span></label>
+                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="1" :max="videoDurationLimit" step="1" :value="videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒</span></label>
+                <p class="creation-duration-hint">支持 1–{{ videoDurationLimit }} 秒，超出会自动调整。</p>
               </div>
               <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>

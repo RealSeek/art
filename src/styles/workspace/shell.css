@@ -1258,13 +1258,15 @@ html[data-studio-theme="light"] .inspiration-preview__stage { background: #f1f1f
 }
 
 /* ============ 视频时长档位（工具栏「N 秒」菜单） ============ */
-.creation-duration-menu { display: grid; gap: 6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.creation-duration-menu > button { align-items: center; background: var(--creation-control); border: 1px solid transparent; border-radius: 10px; color: #ededed; display: flex; font-size: 13px; gap: 6px; height: 40px; justify-content: center; }
+.creation-options-menu--duration { min-width: 288px; padding-bottom: 14px; }
+.creation-duration-menu { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 6px 12px 0; }
+.creation-duration-menu > button { align-items: center; background: var(--creation-control); border: 1px solid transparent; border-radius: 10px; color: #ededed; display: flex; font-size: 13px; gap: 6px; height: 44px; justify-content: center; }
 .creation-duration-menu > button:hover { background: var(--creation-control-hover); }
 .creation-duration-menu > button.is-active { background: #232b38; border-color: #4a8fff; color: #6ca7ff; }
-.creation-duration-custom { align-items: center; color: var(--studio-muted); display: flex; font-size: 12px; gap: 8px; grid-column: 1 / -1; padding: 2px 2px 0; }
-.creation-duration-custom input { background: var(--creation-control); border: 1px solid #3a3a3a; border-radius: 8px; color: #ededed; height: 32px; padding: 0 8px; text-align: center; width: 76px; }
+.creation-duration-custom { align-items: center; color: var(--studio-muted); display: flex; font-size: 12px; gap: 10px; grid-column: 1 / -1; padding: 10px 4px 0; }
+.creation-duration-custom input { background: var(--creation-control); border: 1px solid #3a3a3a; border-radius: 8px; color: #ededed; height: 36px; padding: 0 8px; text-align: center; width: 76px; }
 .creation-duration-custom input:focus { border-color: #4a8fff; outline: none; }
+.creation-duration-hint { color: var(--studio-muted); font-size: 11px; line-height: 1.5; margin: 8px 0 0; padding: 0 12px; }
 html[data-studio-theme="light"] .creation-duration-menu > button { background: #f4f4f5; color: #1f1f1f; }
 html[data-studio-theme="light"] .creation-duration-menu > button:hover { background: #e9e9eb; }
 html[data-studio-theme="light"] .creation-duration-menu > button.is-active { background: #eaf2ff; border-color: #82aef0; color: #2563eb; }
