@@ -895,3 +895,21 @@ html[data-studio-theme="light"] .chat-composer:focus-within {
 .video-run-card__progress { background: rgba(255, 255, 255, .12); border-radius: 99px; height: 4px; margin-top: 6px; overflow: hidden; width: min(240px, 70%); }
 .video-run-card__progress > span { background: var(--studio-brand); border-radius: 99px; display: block; height: 100%; transition: width .5s ease; }
 html[data-studio-theme="light"] .image-generation-progress, html[data-studio-theme="light"] .video-run-card__progress { background: rgba(0, 0, 0, .1); }
+
+/* 生成中带进度：左侧文案 + 中间进度条，右侧保留呼吸指示点（与图片生成的横幅一致） */
+.image-generation-response.is-running .image-generation-stage.is-progress,
+.image-generation-response.is-queued .image-generation-stage.is-progress {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  height: auto;
+  justify-content: flex-start;
+  min-height: 56px;
+  padding: 16px 62px 16px 18px;
+  text-align: left;
+}
+.image-generation-response.is-running .image-generation-stage.is-progress > span,
+.image-generation-response.is-queued .image-generation-stage.is-progress > span { left: 18px; position: static; top: auto; white-space: nowrap; }
+.image-generation-response.is-running .image-generation-stage.is-progress .image-generation-progress,
+.image-generation-response.is-queued .image-generation-stage.is-progress .image-generation-progress { flex: 1 1 auto; margin: 0; max-width: 380px; width: auto; }
