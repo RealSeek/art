@@ -78,7 +78,7 @@ type ShapeAction = { kind: 'shape'; tool: 'rect' | 'ellipse'; from: Point; to: P
 type RegionAction = BrushAction | ShapeAction
 
 const props = defineProps<{ src: string; maskFormat: MaskFormat; busy?: boolean }>()
-const emit = defineEmits<{ close: []; apply: [payload: { blob: Blob; name: string }] }>()
+const emit = defineEmits<{ close: []; apply: [payload: { blob: Blob; name: string; width: number; height: number }] }>()
 
 const stage = ref<HTMLDivElement | null>(null)
 const imageElement = ref<HTMLImageElement | null>(null)
@@ -364,7 +364,7 @@ async function applyMask() {
     imageData.data.set(writeMaskPixels(source.data, props.maskFormat))
     outputContext.putImageData(imageData, 0, 0)
     const blob = await new Promise<Blob>((resolve, reject) => output.toBlob((result) => result ? resolve(result) : reject(new Error('浏览器无法导出蒙版')), 'image/png'))
-    emit('apply', { blob, name: `region-mask-${Date.now()}.png` })
+    emit('apply', { blob, name: `region-mask-${Date.now()}.png`, width: mask.width, height: mask.height })
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '蒙版导出失败'
   } finally {

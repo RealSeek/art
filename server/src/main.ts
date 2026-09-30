@@ -19,7 +19,7 @@ BigInt.prototype.toJSON = function toJSON() { return this.toString() }
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ trustProxy: parseTrustProxy(process.env.TRUST_PROXY) }),
+    new FastifyAdapter({ trustProxy: parseTrustProxy(process.env.TRUST_PROXY), bodyLimit: 32 * 1024 * 1024 }),
     { bufferLogs: true, rawBody: true },
   )
 

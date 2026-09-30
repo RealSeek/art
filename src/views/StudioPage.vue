@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:audio-attachments="audioAttachments" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" :mask-attachment="composerMask" :audio-attachments="composerAudios" :remove-reference="removeComposerReference" :remove-audio="removeComposerAudio" :remove-mask="removeComposerMask" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="composerReferences" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
 
     <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
 
@@ -73,6 +73,8 @@
     </section>
 
     <input :ref="setFileInput" class="visually-hidden" type="file" multiple :accept="fileAccept" @change="handleFiles" />
+  <input :ref="setLocalReferenceInput" class="visually-hidden" type="file" accept="image/*" multiple @change="handleLocalReferenceFiles" />
+  <input :ref="setLocalAudioInput" class="visually-hidden" type="file" accept="audio/*" multiple @change="handleLocalAudioFiles" />
     <InspirationPreview v-if="inspirationPreview" :inspiration="inspirationPreview" :type-label="activeMode === 'commerce' ? '商品图灵感' : activeMode === 'videos' ? '视频灵感' : '图片灵感'" @close="inspirationPreview = null" @use="useInspiration(inspirationPreview)" />
     <CommerceGallery v-if="selectedCommerceRun" :run="selectedCommerceRun" @close="selectedCommerceRun = null" @reuse="useCommerceAsset" />
     <GeneratedImagePreview v-if="previewAsset" :asset="previewAsset" @close="previewAsset = null" @delete="deletePreviewAsset" @download="downloadGeneratedAsset(previewAsset)" @reuse="useGeneratedAssetAsReference(previewAsset)" @quote="useAssetPrompt(previewAsset)" @regenerate="retryAssetGeneration(previewAsset)" />
@@ -111,9 +113,9 @@ import ProjectDetailDialog from '../components/projects/ProjectDetailDialog.vue'
 import ProjectsPanel from '../components/projects/ProjectsPanel.vue'
 import type { ImageTool, Inspiration } from '../components/creation/creation-shared'
 import { mergeLocalAssets } from '../utils/local-media-merge'
-import { compressImageForUpload } from '../utils/image-compress'
 import { useAuthStore } from '../stores/auth'
 import { useLocalMediaStore } from '../stores/local-media'
+import { useLocalInputsStore } from '../stores/local-inputs'
 import { useCatalogStore, type ChatQuickAction, type ChatRecommendation, type ChatUiPreset } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
 import type { CodeArtifact, GenerationRun, PluginCapability, StudioAsset, StudioMode, WebSearchSource } from '../types'
@@ -234,9 +236,57 @@ const generationPrompt = ref('')
 const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
 const audioAttachments = ref<StudioAsset[]>([])
+void maskAttachment
+void audioAttachments
 const regionEditor = ref<{ src: string; format: MaskFormat } | null>(null)
 const maskUploading = ref(false)
 const pasting = ref(false)
+const localReferenceInput = ref<HTMLInputElement | null>(null)
+const localAudioInput = ref<HTMLInputElement | null>(null)
+
+function setLocalReferenceInput(element: unknown) { localReferenceInput.value = element instanceof HTMLInputElement ? element : null }
+function setLocalAudioInput(element: unknown) { localAudioInput.value = element instanceof HTMLInputElement ? element : null }
+
+async function handleLocalReferenceFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (files.length) await addLocalReferences(files)
+}
+
+async function handleLocalAudioFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (files.length) await addLocalAudios(files)
+}
+
+/** 本机参考图：不经过服务器，直接存在浏览器里。 */
+async function addLocalReferences(files: File[]) {
+  const remaining = Math.max(0, imageReferenceLimit.value - composerReferences.value.length)
+  if (!remaining) { store.lastError = imageReferenceLimit.value ? `当前模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前模型不支持参考图'; return }
+  store.clearError()
+  pasting.value = true
+  try {
+    await localInputs.addFiles(files.slice(0, remaining), 'reference')
+    if (files.length > remaining) store.lastError = `参考图上限 ${imageReferenceLimit.value} 张，超出部分已忽略`
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '参考图保存失败'
+  } finally { pasting.value = false }
+}
+
+/** 本机参考音频（视频创作，需搭配至少一张参考图）。 */
+async function addLocalAudios(files: File[]) {
+  const remaining = Math.max(0, audioReferenceLimit.value - localInputs.audios.length)
+  if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
+  if (!remaining) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
+  if (!composerReferences.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
+  store.clearError()
+  pasting.value = true
+  try { await localInputs.addFiles(files.slice(0, remaining), 'audio') }
+  catch (reason) { store.lastError = reason instanceof Error ? reason.message : '参考音频保存失败' }
+  finally { pasting.value = false }
+}
 const pendingRegionEditor = ref(false)
 const imageModel = ref('')
 const videoModel = ref('')
@@ -295,23 +345,54 @@ function setCustomVideoDuration(value: string) {
 const imageReferenceLimit = computed(() => activeMode.value === 'videos' ? activeVideoCapabilities.value.maxReferences : 4)
 const audioReferenceLimit = computed(() => activeMode.value === 'videos' ? activeVideoCapabilities.value.maxAudioReferences : 0)
 const referenceMentions = computed(() => [
-  ...creationAttachments.value.map((asset, index) => ({ token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const, thumbnail: asset.contentUrl || '', title: asset.title })),
-  ...audioAttachments.value.map((asset, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: '', title: asset.title })),
+  ...localInputs.images.map((record, index) => ({ token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const, thumbnail: localInputs.previewUrl(record), title: record.name })),
+  ...creationAttachments.value.map((asset, index) => ({ token: `@参考图${localInputs.images.length + index}`, label: `参考图${localInputs.images.length + index}`, kind: 'image' as const, thumbnail: asset.contentUrl || '', title: asset.title })),
+  ...localInputs.audios.map((record, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: '', title: record.name })),
 ])
 function openCreationAttachmentPicker(kind: 'image' | 'audio') {
+  if (!requireAuth(activeMode.value === 'videos' ? '/video' : activeMode.value === 'commerce' ? '/commerce' : '/image')) return
   if (kind === 'audio') {
-    if (!requireAuth('/video')) return
     if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
-    if (audioAttachments.value.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
-    if (!creationAttachments.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
-    openFilePicker('audio')
+    if (localInputs.audios.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
+    if (!composerReferences.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
+    localAudioInput.value?.click()
     return
   }
-  if (activeMode.value === 'videos' && creationAttachments.value.length >= imageReferenceLimit.value) {
-    store.lastError = imageReferenceLimit.value ? `当前视频模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前视频模型不支持参考图'
+  if (composerReferences.value.length >= imageReferenceLimit.value) {
+    store.lastError = imageReferenceLimit.value ? `当前模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前模型不支持参考图'
     return
   }
-  openFilePicker('creation')
+  localReferenceInput.value?.click()
+}
+
+/** 移除参考素材：本机素材与库内素材分开处理。 */
+async function removeComposerAudio(index: number) {
+  const record = localInputs.audios[index]
+  if (record) await localInputs.remove(record.id)
+}
+
+async function removeComposerMask() {
+  await localInputs.clearMask()
+}
+
+async function removeComposerReference(index: number) {
+  const localCount = localInputs.images.length
+  if (index < localCount) { await localInputs.remove(localInputs.images[index].id); renumberReferenceMentions(index, localCount); return }
+  creationAttachments.value.splice(index - localCount, 1)
+  renumberReferenceMentions(index, composerReferences.value.length + 1)
+}
+
+/** 删除参考图后重排 prompt 里的 @参考图N 标记，避免指向错图。 */
+function renumberReferenceMentions(index: number, total: number) {
+  void total
+  generationPrompt.value = generationPrompt.value
+    .replace(/@参考图(\d+)/g, (match, digits: string) => {
+      const position = Number(digits)
+      if (position === index) return ''
+      return position > index ? `@参考图${position - 1}` : match
+    })
+    .replace(/ {2,}/g, ' ')
+    .trimEnd()
 }
 const activeCreationCapability = computed<ModelCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : 'IMAGE')
 const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : imageModel.value)
@@ -499,7 +580,7 @@ const hasCreationInput = computed(() => Boolean(generationPrompt.value.trim()) |
 const canSubmitCreation = computed(() => hasCreationInput.value && activeCreationModelAvailable.value)
 const creationPromptPlaceholder = computed(() => {
   const base = selectedImageTool.value?.options?.placeholder || (activeMode.value === 'images' ? '描述你想要的图片' : activeMode.value === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页')
-  return creationAttachments.value.length ? base : `${base} · 可直接粘贴参考图`
+  return composerReferences.value.length ? base : `${base} · 可直接粘贴参考图`
 })
 const modeAssets = computed(() => mergeLocalAssets(store.recentAssets, localOnlyAssets.value).filter((asset) => asset.source === 'generated' && (activeMode.value === 'images' ? asset.kind === 'image' : activeMode.value === 'videos' ? asset.kind === 'video' : asset.kind === 'product-pack')))
 const visibleModeAssets = computed(() => modeAssets.value.slice(0, modeAssetLimit.value))
@@ -533,6 +614,29 @@ watch(() => creationAttachments.value.map((asset) => asset.id).join('|'), () => 
   }
 }, { immediate: true })
 const localMedia = useLocalMediaStore()
+const localInputs = useLocalInputsStore()
+/** 本机素材转成面板需要的素材形状（预览用 object URL，不上传服务器）。 */
+function localInputAsset(record: { id: string; name: string; mimeType: string; size: number; kind: string; width: number; height: number; createdAt: number; blob: Blob }) {
+  return {
+    id: record.id,
+    kind: record.mimeType.startsWith('video/') ? 'video' as const : record.mimeType.startsWith('audio/') ? 'audio' as const : 'image' as const,
+    title: record.name,
+    prompt: '',
+    preview: '',
+    status: 'done' as const,
+    createdAt: record.createdAt,
+    tags: ['本机素材'],
+    source: 'upload' as const,
+    purpose: 'reference' as const,
+    contentUrl: localInputs.previewUrl(record as never),
+    mimeType: record.mimeType,
+    size: record.size,
+  }
+}
+/** 创作输入框的参考素材：本机素材在前（与提交顺序、@参考图编号一致），库内素材在后。 */
+const composerReferences = computed(() => [...localInputs.images.map(localInputAsset), ...creationAttachments.value])
+const composerAudios = computed(() => localInputs.audios.map(localInputAsset))
+const composerMask = computed(() => (localInputs.mask ? localInputAsset(localInputs.mask) : null))
 /** 本机副本：服务器副本已被清理的素材仍能在这里浏览与下载。 */
 const localOnlyAssets = computed(() => {
   const serverIds = new Set(store.recentAssets.map((asset) => asset.id))
@@ -934,10 +1038,11 @@ async function submitGeneration() {
   if (!prompt) return
   await loadModelCatalog({ force: true })
   if (!activeCreationModelAvailable.value) { store.lastError = `暂无可用的${activeMode.value === 'videos' ? '视频' : activeMode.value === 'commerce' ? '商品视觉' : '图片'}模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥`; return }
-  if (selectedImageTool.value && !creationAttachments.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; openFilePicker('creation'); return }
+  if (selectedImageTool.value && !composerReferences.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; localReferenceInput.value?.click(); return }
   try {
-    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, audioAssetIds: audioAttachments.value.map((asset) => asset.id), outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
-    generationPrompt.value = ''; creationAttachments.value = []; audioAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
+    const inline = await localInputs.payload()
+    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
+    generationPrompt.value = ''; creationAttachments.value = []; selectedImageToolId.value = ''
     if (submittedMode === 'commerce') return
     await openGenerationConversation(job.id)
   } catch { /* Store exposes the server error in-page. */ }
@@ -950,36 +1055,28 @@ function regionEditUnavailableMessage() {
 function openRegionEditor() {
   creationOptionsOpen.value = false
   if (!regionEditAvailable.value) { store.lastError = regionEditUnavailableMessage(); return }
-  const base = creationAttachments.value.find((asset) => asset.mimeType?.startsWith('image/'))
-  if (!base) { pendingRegionEditor.value = true; openFilePicker('creation'); return }
-  regionEditor.value = { src: base.contentUrl || '', format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
+  const base = composerReferences.value.find((asset) => asset.contentUrl && asset.mimeType?.startsWith('image/'))
+  if (!base) { pendingRegionEditor.value = true; localReferenceInput.value?.click(); return }
+  regionEditor.value = { src: base.contentUrl!, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
 }
 
 function openRegionEditorForAsset(asset: StudioAsset) {
   if (!regionEditAvailableFor(activeImageModel.value, { worker: regionEditWorkerTarget.value })) { store.lastError = regionEditUnavailableMessage(); return }
   if (!asset.contentUrl) return
-  if (!creationAttachments.value.some((item) => item.id === asset.id)) creationAttachments.value = [asset, ...creationAttachments.value].slice(0, 4)
+  if (!composerReferences.value.some((item) => item.id === asset.id)) creationAttachments.value = [asset, ...creationAttachments.value].slice(0, 4)
   regionEditor.value = { src: asset.contentUrl, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
 }
 
-async function applyRegionMask(payload: { blob: Blob; name: string }) {
-  if (!requireAuth('/image')) return
-  maskUploading.value = true
-  try {
-    const [asset] = await store.uploadFiles([new File([payload.blob], payload.name, { type: 'image/png' })], 'IMAGE', store.currentProjectId || undefined, 'mask')
-    maskAttachment.value = asset || null
-    regionEditor.value = null
-    // 区域编辑的操作习惯是「选完直接改图」，已有提示词时不再多按一次提交。
-    if (maskAttachment.value && selectedImageToolId.value && generationPrompt.value.trim()) await submitGeneration()
-  } catch (reason) {
-    store.lastError = reason instanceof Error ? reason.message : '蒙版上传失败'
-  } finally {
-    maskUploading.value = false
-  }
+async function applyRegionMask(payload: { blob: Blob; name: string; width: number; height: number }) {
+  // 蒙版同样只存本机，提交时以 Data URL 直发上游，保证与参考图尺寸一致。
+  await localInputs.setMask(payload.blob, payload.width, payload.height)
+  regionEditor.value = null
+  // 区域编辑的操作习惯是「选完直接改图」，已有提示词时不再多按一次提交。
+  if (localInputs.mask && selectedImageToolId.value && generationPrompt.value.trim()) await submitGeneration()
 }
 
-watch(() => creationAttachments.value.length, () => {
-  if (!pendingRegionEditor.value || !creationAttachments.value.length) return
+watch(() => localInputs.images.length, () => {
+  if (!pendingRegionEditor.value || !localInputs.images.length) return
   pendingRegionEditor.value = false
   openRegionEditor()
 })
@@ -996,10 +1093,10 @@ async function selectImageTool(tool: ImageTool) {
   generationPrompt.value = tool.prompt
   const needsMask = tool.options?.inputMode === 'MASK'
   if (needsMask && !regionEditAvailable.value) store.lastError = regionEditUnavailableMessage()
-  if (!creationAttachments.value.length) {
+  if (!composerReferences.value.length) {
     pendingRegionEditor.value = needsMask
-    openFilePicker('creation')
-  } else if (needsMask && !maskAttachment.value) openRegionEditor()
+    localReferenceInput.value?.click()
+  } else if (needsMask && !localInputs.mask) openRegionEditor()
   else void nextTick(() => generationInput.value?.focus({ preventScroll: true }))
 }
 
@@ -1157,26 +1254,8 @@ function handleCreationPaste(event: ClipboardEvent) {
 }
 
 async function attachPastedImages(files: File[]) {
-  if (!requireAuth(activeMode.value === 'images' ? '/image' : activeMode.value === 'videos' ? '/video' : '/commerce')) return
-  const limit = imageReferenceLimit.value
-  const remaining = Math.max(0, limit - creationAttachments.value.length)
-  if (!remaining) {
-    store.lastError = limit ? `当前模型最多支持 ${limit} 张参考图` : '当前模型不支持参考图'
-    return
-  }
-  pasting.value = true
-  store.clearError()
-  try {
-    // 与文件选择路径一致：先在本机降采样压缩，避免把几 MB 设计稿原样上传。
-    const prepared = await Promise.all(files.map((file) => compressImageForUpload(file)))
-    const uploaded = await store.uploadFiles(prepared.slice(0, remaining), 'IMAGE', store.currentProjectId || undefined, 'reference')
-    creationAttachments.value = [...creationAttachments.value, ...uploaded]
-    if (files.length > remaining) store.lastError = `参考图上限 ${limit} 张，超出部分已忽略`
-  } catch (reason) {
-    store.lastError = reason instanceof Error ? reason.message : '粘贴的图片上传失败'
-  } finally {
-    pasting.value = false
-  }
+  // 与选文件、拖拽一致：直接存到本机，不经过服务器上传。
+  await addLocalReferences(files)
 }
 async function saveAssetLocally(asset: StudioAsset) {
   try {

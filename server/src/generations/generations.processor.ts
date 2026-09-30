@@ -254,7 +254,7 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit, On
     } while (cursor)
   }
 
-  async process(queueJob: Job<{ jobId: string }>) {
+  async process(queueJob: Job<{ jobId: string; inputs?: import('./generations.service').InlineGenerationInputs }>) {
     const started = await this.lifecycle.claim(queueJob.data.jobId, this.workerId, { attempt: queueJob.attemptsMade + 1 })
     let task = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: queueJob.data.jobId } })
     if (!started || task.status === 'CANCELLED' || task.lockedBy !== this.workerId) {
@@ -298,8 +298,12 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit, On
         // can reach a Provider, using the reservation table as the source of
         // truth instead of trusting a possibly stale JSON snapshot.
         task = await this.recoverTokenReservations(task)
+        // 本地参考素材只随队列传递，因此只在真正调用 runner 前合并进选项（不回到数据库）。
+        const runnerTask = queueJob.data.inputs
+          ? { ...task, options: { ...(task.options as Record<string, unknown>), ...queueJob.data.inputs } as Prisma.JsonValue }
+          : task
         await runWithOutboundSignal(abortController.signal, async () => {
-          await this.runners.run(task)
+          await this.runners.run(runnerTask)
           if (task.kind !== 'CHAT') {
             const completed = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: task.id } })
             if (completed.settlementStatus !== 'SETTLED') await this.settlement.settleNonChat(task.id)

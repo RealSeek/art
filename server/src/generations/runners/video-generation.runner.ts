@@ -122,13 +122,21 @@ export class VideoGenerationRunner implements GenerationRunner {
         }
         if (capabilities.referenceMode === 'DATA_URL_JSON') {
           // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
-          const images = await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图')
-          const audios = await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频')
+          const images = [
+            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
+            ...normalized.referenceImages.map((item) => item.dataUrl),
+          ]
+          const audios = [
+            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
+            ...normalized.referenceAudios.map((item) => item.dataUrl),
+          ]
           if (images.length) fields.images = images
           if (audios.length) fields.audios = audios
           payload = await this.provider(resolved, capabilities.createPath, fields)
-        } else if (normalized.referenceAssetIds.length) {
-          const reference = await this.assets.readForUser(task.userId, normalized.referenceAssetIds[0])
+        } else if (normalized.referenceAssetIds.length || normalized.referenceImages.length) {
+          const reference = normalized.referenceImages[0]
+            ? { file: Buffer.from(normalized.referenceImages[0].dataUrl.slice(normalized.referenceImages[0].dataUrl.indexOf(',') + 1), 'base64'), name: normalized.referenceImages[0].name, mimeType: normalized.referenceImages[0].mimeType }
+            : await this.assets.readForUser(task.userId, normalized.referenceAssetIds[0])
           const form = new FormData()
           for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
           form.append('input_reference', new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), reference.name)

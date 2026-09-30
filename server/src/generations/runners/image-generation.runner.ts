@@ -12,6 +12,12 @@ import { customImageSize, detectImageFormat, identifyImageFormat, imageFormatMet
 import type sharpFactory from 'sharp'
 
 const sharp = require('sharp') as typeof sharpFactory
+
+/** Data URL → Blob（本机参考素材直接以字节转发给上游）。 */
+function dataUrlBlob(dataUrl: string, mimeType: string) {
+  const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+  return new Blob([new Uint8Array(bytes)], { type: mimeType || 'image/png' })
+}
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 import { ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
@@ -94,12 +100,17 @@ export class ImageGenerationRunner implements GenerationRunner {
         const fields = { model: resolved.model, prompt: singlePrompt, n, size: imageOptions.size, quality: imageOptions.quality, output_format: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { output_compression: imageOptions.outputCompression }) }
         const maskedSize = await this.maskedEditSize(task, imageOptions)
         if (maskedSize) fields.size = maskedSize
-        if (!imageOptions.referenceAssetIds.length) return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', fields, Math.max(resolved.timeoutMs, 300_000)))
+        if (!imageOptions.referenceAssetIds.length && !imageOptions.referenceImages.length) return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', fields, Math.max(resolved.timeoutMs, 300_000)))
         const form = new FormData()
         for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
-        const references = await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))
-        for (const [index, reference] of references.entries()) form.append(index === 0 ? 'image' : 'image[]', new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), reference.name)
-        if (imageOptions.maskAssetId) {
+        const parts: Array<{ blob: Blob; name: string }> = []
+        for (const reference of imageOptions.referenceImages) parts.push({ blob: dataUrlBlob(reference.dataUrl, reference.mimeType), name: reference.name })
+        for (const reference of await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))) {
+          parts.push({ blob: new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), name: reference.name })
+        }
+        for (const [index, part] of parts.entries()) form.append(index === 0 ? 'image' : 'image[]', part.blob, part.name)
+        if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
+        else if (imageOptions.maskAssetId) {
           const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId)
           form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name)
         }
@@ -278,11 +289,21 @@ export class ImageGenerationRunner implements GenerationRunner {
    * 因此蒙版场景直接用参考图原始像素尺寸，其余情况交给客户端选择的比例/档位。
    */
   private async maskedEditSize(task: GenerationJob, options: ReturnType<typeof normalizeImageOptions>) {
-    if (!options.maskAssetId || !options.referenceAssetIds.length) return null
-    const dimensions = await this.referenceDimensions(task.userId, options.referenceAssetIds[0])
+    if (!options.maskAssetId && !options.maskImage) return null
+    const inline = options.referenceImages[0]
+    const dimensions = inline
+      ? await this.dataUrlDimensions(inline.dataUrl).catch(() => null)
+      : options.referenceAssetIds.length ? await this.referenceDimensions(task.userId, options.referenceAssetIds[0]) : null
     if (!dimensions) return null
     const size = `${dimensions.width}x${dimensions.height}`
     return customImageSize(size) ? size : null
+  }
+
+  private async dataUrlDimensions(dataUrl: string) {
+    const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+    const metadata = await sharp(bytes).metadata()
+    if (!metadata.width || !metadata.height) throw new Error('无法识别参考图尺寸')
+    return { width: metadata.width, height: metadata.height }
   }
 
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {

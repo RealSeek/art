@@ -15,7 +15,29 @@ export type NormalizedImageOptions = {
   background: ImageBackground
   outputCompression?: number
   referenceAssetIds: string[]
+  /** 浏览器本地持有的参考图（Data URL），不经过服务器存储。 */
+  referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
   maskAssetId?: string
+  maskImage?: { name: string; mimeType: string; dataUrl: string }
+}
+
+function inlineReferenceList(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const row = item as Record<string, unknown>
+    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+    if (!/^data:image\//i.test(dataUrl)) return []
+    return [{ name: typeof row.name === 'string' ? row.name : 'reference.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }]
+  })
+}
+
+function inlineMaskImage(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const row = value as Record<string, unknown>
+  const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+  if (!/^data:image\//i.test(dataUrl)) return undefined
+  return { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }
 }
 
 export type ImageCapabilityConfig = {
@@ -99,19 +121,24 @@ export function normalizeImageOptions(options: Record<string, unknown>, configur
   const quality = String(options.quality || capabilities.defaultQuality).toLowerCase()
   const count = Math.max(1, Math.min(10, Number(options.count || 1)))
   const referenceAssetIds = Array.isArray(options.referenceAssetIds) ? [...new Set(options.referenceAssetIds.map(String).filter((item) => /^[a-zA-Z0-9_-]{1,100}$/.test(item)))].slice(0, 4) : []
+  const referenceImages = inlineReferenceList(options.referenceImages).slice(0, 4)
   const maskAssetId = typeof options.maskAssetId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(options.maskAssetId) ? options.maskAssetId : undefined
+  const maskImage = inlineMaskImage(options.maskImage)
+  const referenceCount = referenceAssetIds.length + referenceImages.length
+  const hasMask = Boolean(maskAssetId || maskImage)
   // 声明尺寸直接放行；带参考图的编辑请求额外允许按参考图比例发送自定义尺寸（与上游限制一致）。
   const declaredSize = capabilities.sizes.includes(requestedSize)
   const customSize = declaredSize ? null : customImageSize(requestedSize)
-  if (!declaredSize && !(customSize && referenceAssetIds.length && capabilities.supportsReference)) throw new BadRequestException('当前图片模型不支持该尺寸')
+  if (!declaredSize && !(customSize && referenceCount && capabilities.supportsReference)) throw new BadRequestException('当前图片模型不支持该尺寸')
   const size = declaredSize ? requestedSize : customSize!
   if (!capabilities.qualities.includes(quality)) throw new BadRequestException('当前图片模型不支持该质量')
   if (count > capabilities.maxCount) throw new BadRequestException(`当前图片模型最多一次生成 ${capabilities.maxCount} 张`)
   const rawFormat = String(options.outputFormat || capabilities.outputFormats[0] || 'png').toLowerCase().replace('jpg', 'jpeg') as ImageOutputFormat
   const rawBackground = String(options.background || capabilities.backgrounds[0] || 'auto').toLowerCase() as ImageBackground
-  if (referenceAssetIds.length && !capabilities.supportsReference) throw new BadRequestException('当前图片模型不支持参考图')
-  if (maskAssetId && !capabilities.supportsMask) throw new BadRequestException('当前图片模型不支持蒙版编辑')
-  if (maskAssetId && !referenceAssetIds.length) throw new BadRequestException('使用蒙版前请先添加参考图')
+  if (referenceCount > 4) throw new BadRequestException('参考图最多 4 张')
+  if (referenceCount && !capabilities.supportsReference) throw new BadRequestException('当前图片模型不支持参考图')
+  if (hasMask && !capabilities.supportsMask) throw new BadRequestException('当前图片模型不支持蒙版编辑')
+  if (hasMask && !referenceCount) throw new BadRequestException('使用蒙版前请先添加参考图')
   if (!OUTPUT_FORMATS.has(rawFormat)) throw new BadRequestException('图片输出格式仅支持 PNG、JPEG 或 WebP')
   if (!BACKGROUNDS.has(rawBackground)) throw new BadRequestException('图片背景参数无效')
   if (!capabilities.outputFormats.includes(rawFormat)) throw new BadRequestException('当前图片模型不支持该输出格式')
@@ -129,7 +156,9 @@ export function normalizeImageOptions(options: Record<string, unknown>, configur
     outputFormat: rawFormat,
     background: rawBackground,
     referenceAssetIds,
+    referenceImages,
     ...(maskAssetId ? { maskAssetId } : {}),
+    ...(maskImage ? { maskImage } : {}),
     ...(compression === undefined ? {} : { outputCompression: Math.round(compression) }),
   }
 }

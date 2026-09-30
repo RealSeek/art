@@ -6,6 +6,9 @@ export type NormalizedVideoOptions = {
   aspectRatio: string
   referenceAssetIds: string[]
   audioAssetIds: string[]
+  /** 浏览器本地持有的参考图/音频（Data URL），不经过服务器存储。 */
+  referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
+  referenceAudios: Array<{ name: string; mimeType: string; dataUrl: string }>
 }
 
 /**
@@ -121,23 +124,39 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   const aspectRatio = String(options.aspectRatio || capabilities.defaultAspectRatio)
   const referenceAssetIds = assetIds(options.referenceAssetIds)
   const audioAssetIds = assetIds(options.audioAssetIds)
+  const referenceImages = inlineMediaList(options.referenceImages, 'image').slice(0, 16)
+  const referenceAudios = inlineMediaList(options.referenceAudios, 'audio').slice(0, 8)
+  const referenceCount = referenceAssetIds.length + referenceImages.length
+  const audioCount = audioAssetIds.length + referenceAudios.length
   if (!capabilities.resolutions.includes(resolution)) throw new BadRequestException('当前视频模型不支持该分辨率')
   if (!Number.isInteger(duration) || duration < capabilities.minDuration || duration > capabilities.maxDuration) {
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
-  if (referenceAssetIds.length > capabilities.maxReferences) {
+  if (referenceCount > capabilities.maxReferences) {
     throw new BadRequestException(capabilities.maxReferences
       ? `当前视频模型最多支持 ${capabilities.maxReferences} 张参考图`
       : '当前视频模型不支持参考图')
   }
-  if (audioAssetIds.length > capabilities.maxAudioReferences) {
+  if (audioCount > capabilities.maxAudioReferences) {
     throw new BadRequestException(capabilities.maxAudioReferences
       ? `当前视频模型最多支持 ${capabilities.maxAudioReferences} 段参考音频`
       : '当前视频模型不支持参考音频')
   }
-  if (audioAssetIds.length && !referenceAssetIds.length) throw new BadRequestException('参考音频必须搭配至少一张参考图')
-  return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds }
+  if (audioCount && !referenceCount) throw new BadRequestException('参考音频必须搭配至少一张参考图')
+  return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds, referenceImages, referenceAudios }
+}
+
+/** 内联参考素材：只接受对应类型的 Data URL。 */
+function inlineMediaList(value: unknown, kind: 'image' | 'audio') {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const row = item as Record<string, unknown>
+    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+    if (!new RegExp(`^data:${kind}/`, 'i').test(dataUrl)) return []
+    return [{ name: typeof row.name === 'string' ? row.name : `${kind}.bin`, mimeType: typeof row.mimeType === 'string' ? row.mimeType : `${kind}/png`, dataUrl }]
+  })
 }
 
 function assetIds(value: unknown) {

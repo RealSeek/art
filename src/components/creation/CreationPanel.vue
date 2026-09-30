@@ -30,17 +30,17 @@
                 <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
               </div>
               <span class="attachment-index-label">参考图{{ index }}</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeCreationAttachment(index)"><X :size="13" /></button>
+              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeReference(index)"><X :size="13" /></button>
             </article>
             <article v-for="(asset, index) in audioAttachments" :key="asset.id" class="attachment-card attachment-card--audio">
               <span class="attachment-audio-icon"><AudioLines :size="18" /></span>
               <span class="attachment-index-label">参考音频{{ index }}</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考音频 ${asset.title}`" title="移除参考音频" @click="audioAttachments.splice(index, 1)"><X :size="13" /></button>
+              <button class="attachment-remove" type="button" :aria-label="`移除参考音频 ${asset.title}`" title="移除参考音频" @click="removeAudio(index)"><X :size="13" /></button>
             </article>
             <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
               <button type="button" class="attachment-mask-preview" :aria-label="regionEditAvailable ? '重新编辑蒙版区域' : `蒙版：${maskAttachment.title}`" :title="regionEditAvailable ? '重新编辑蒙版区域' : maskAttachment.title" :disabled="!regionEditAvailable" @click="openRegionEditor"><img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" /></button>
               <span class="attachment-mask-label">蒙版</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="maskAttachment = null"><X :size="13" /></button>
+              <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="removeMask()"><X :size="13" /></button>
             </article>
           </div>
           <div class="creation-controls">
@@ -220,6 +220,10 @@ const props = defineProps<{
   imageBackground: string
   creationAttachments: StudioAsset[]
   audioAttachments: StudioAsset[]
+  maskAttachment: StudioAsset | null
+  removeReference: (index: number) => unknown
+  removeAudio: (index: number) => unknown
+  removeMask: () => unknown
   localSavedIds: string[]
   saveAssetLocally: (asset: StudioAsset) => void
   removeLocalCopy: (asset: StudioAsset) => void
@@ -267,7 +271,12 @@ const props = defineProps<{
   refreshModelCatalog: () => void
 }>()
 const generationPrompt = defineModel<string>('generationPrompt', { required: true })
-const maskAttachment = defineModel<StudioAsset | null>('maskAttachment', { required: true })
+const audioAttachments = computed(() => props.audioAttachments)
+const maskAttachment = computed(() => props.maskAttachment)
+function removeReference(index: number) { void props.removeReference(index) }
+function removeAudio(index: number) { void props.removeAudio(index) }
+function removeMask() { void props.removeMask() }
+void renumberReferenceMentions
 const creationPluginId = defineModel<string>('creationPluginId', { required: true })
 const creationPluginOpen = defineModel<boolean>('creationPluginOpen', { required: true })
 const modeAssetLimit = defineModel<number>('modeAssetLimit', { required: true })
@@ -396,10 +405,8 @@ function handlePromptKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') { event.preventDefault(); closeMentionMenu() }
 }
 
-/** 删除参考图后重排 prompt 里的 @参考图N 标记，避免指向错图。 */
-function removeCreationAttachment(index: number) {
-  if (!props.creationAttachments[index]) return
-  props.creationAttachments.splice(index, 1)
+/** 删除参考图后重排 prompt 里的 @参考图N 标记，由 StudioPage 统一处理本机与库内素材。 */
+function renumberReferenceMentions(index: number) {
   generationPrompt.value = generationPrompt.value
     .replace(/@参考图(\d+)/g, (match, digits: string) => {
       const position = Number(digits)

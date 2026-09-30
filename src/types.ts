@@ -203,6 +203,10 @@ export interface GenerationOptions {
   style?: string
   modules?: number
   referenceAssetIds?: string[]
+  /** 本机参考素材（浏览器本地，不经过服务器存储）以 Data URL 随请求发送。 */
+  referenceImages?: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
+  referenceAudios?: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
+  maskImage?: { name: string; mimeType: string; dataUrl: string }
   audioAssetIds?: string[]
   maskAssetId?: string
   creationType?: string

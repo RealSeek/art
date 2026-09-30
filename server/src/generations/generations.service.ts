@@ -24,6 +24,56 @@ import { GenerationReconciliationService } from './generation-reconciliation.ser
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
+/** 图片参考单文件上限 30 MB、音频 15 MB（base64 体积约为明文 4/3）。 */
+const MAX_INLINE_IMAGE_DATA_URL = 40_000_000
+const MAX_INLINE_AUDIO_DATA_URL = 20_000_000
+
+const MAX_INLINE_REFERENCES = 16
+export type InlineGenerationInputs = {
+  referenceImages?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
+  referenceAudios?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
+  maskImage?: { name?: string; mimeType?: string; dataUrl?: string }
+}
+
+function inlineItems(value: unknown, limit: number, maxLength: number, label: string) {
+  if (!Array.isArray(value) || !value.length) return []
+  return value.slice(0, limit).map((item) => {
+    const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+    if (!/^data:image\/(png|jpe?g|webp|avif);base64,/i.test(dataUrl) || dataUrl.length > maxLength) throw new BadRequestException(`${label}格式不支持或文件过大`)
+    return { id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : label, mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }
+  })
+}
+
+/**
+ * 抽出并清空任务选项里的内联素材（浏览器本地持有）：它们随 BullMQ 任务传递，
+ * 任务记录只保留计数标记，运维视图不会出现 base64。
+ */
+function extractInlineInputs(options: Record<string, unknown>): InlineGenerationInputs | null {
+  const rawImages = options.referenceImages
+  const rawAudios = options.referenceAudios
+  const rawMask = options.maskImage
+  delete options.referenceImages
+  delete options.referenceAudios
+  delete options.maskImage
+  if (rawImages === undefined && rawAudios === undefined && rawMask === undefined) return null
+  const referenceImages = inlineItems(rawImages, MAX_INLINE_REFERENCES, MAX_INLINE_IMAGE_DATA_URL, '参考图')
+  const referenceAudios = inlineItems(rawAudios, 8, MAX_INLINE_AUDIO_DATA_URL, '参考音频')
+  let maskImage: InlineGenerationInputs['maskImage']
+  if (rawMask && typeof rawMask === 'object' && !Array.isArray(rawMask)) {
+    const row = rawMask as Record<string, unknown>
+    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+    if (!/^data:image\/png;base64,/i.test(dataUrl) || dataUrl.length > MAX_INLINE_IMAGE_DATA_URL) throw new BadRequestException('蒙版格式不支持或文件过大')
+    maskImage = { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: 'image/png', dataUrl }
+  }
+  // 任务记录只留计数标记，供运维与重试路径判断素材是否缺失。
+  options.inlineInputs = { references: referenceImages.length, audios: referenceAudios.length, mask: Boolean(maskImage) }
+  return {
+    ...(referenceImages.length ? { referenceImages } : {}),
+    ...(referenceAudios.length ? { referenceAudios } : {}),
+    ...(maskImage ? { maskImage } : {}),
+  }
+}
 
 @Injectable()
 export class GenerationsService {
@@ -120,6 +170,8 @@ export class GenerationsService {
         ? { ...input.options, ...normalizeVideoOptions(input.options, resolved.videoCapabilities) }
         : { ...input.options, ...(resolved.options?.contextWindow ? { contextWindow: resolved.options.contextWindow } : {}), ...(projectSkillSnapshot ? { projectSkill: projectSkillSnapshot } : {}), ...(projectInstructions ? { projectInstructions } : {}) }
     if (input.kind === 'IMAGE' || input.kind === 'COMMERCE' || input.kind === 'VIDEO') await this.assertImageAssets(userId, normalizedOptions)
+    // 本地参考素材（浏览器持有）随队列传递，不写入任务记录。
+    const inlineInputs = extractInlineInputs(normalizedOptions)
     const quantity = input.kind === 'COMMERCE' ? Math.max(1, Math.min(Number(normalizedOptions.modules || 8), 12)) : input.kind === 'IMAGE' ? Math.max(1, Math.min(Number(normalizedOptions.count || 1), 10)) : 1
     let unitCreditCost = Math.max(0, resolved.creditCost)
     if (input.kind === 'IMAGE') {
@@ -251,7 +303,7 @@ export class GenerationsService {
       }
       await this.prisma.generationJob.update({ where: { id: job.id }, data: { settlementStatus: 'RESERVED' } })
       await this.eventsService.append(job.id, 'queued', { requestId: trace.requestId, traceId: trace.traceId, kind: job.kind, model: job.model })
-      await this.queue.add(input.kind.toLowerCase(), { jobId: job.id }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
+      await this.queue.add(input.kind.toLowerCase(), { jobId: job.id, ...(inlineInputs ? { inputs: inlineInputs } : {}) }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
       const created = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: job.id }, select: publicGenerationListSelect })
       return toPublicGeneration(created)
     } catch (error) {
