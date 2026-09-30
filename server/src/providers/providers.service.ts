@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import { ModelCapability, Prisma, ProviderAuthType, ProviderType, SystemSetting } from '@prisma/client'
@@ -34,6 +34,7 @@ type ProviderInput = {
   weight?: number
   timeoutMs?: number
   allowUserKeys?: boolean
+  autoSyncModels?: boolean
   customHeaders?: Record<string, string>
   metadata?: Record<string, unknown>
 }
@@ -77,11 +78,27 @@ type ProviderTemplateInput = {
 type CredentialInput = {
   apiKey?: string
   enabled?: boolean
+  autoSyncModels?: boolean
   isDefault?: boolean
   priority?: number
   weight?: number
   expiresAt?: string | null
 }
+
+const USER_MODEL_SYNC_CATCH_UP_MS = 60 * 60 * 1000
+const MODEL_SYNC_TICK_MS = 10 * 60 * 1000
+const MODEL_SYNC_TICK_LIMIT = 50
+const MODEL_SYNC_CONCURRENCY = 3
+const SUPPRESSED_MODEL_LIMIT = 500
+/** 自动同步停用预设时写入的标记，用于上游模型重新上线后恢复上架。 */
+const UPSTREAM_OFFLINE_BADGE = '上游已下线'
+/** 同步间隔小时数，非法值回退到默认值。 */
+function syncIntervalMs(hours: number | undefined | null, fallbackHours = 6) {
+  const value = Number.isFinite(hours) ? Math.trunc(hours as number) : fallbackHours
+  return Math.min(168, Math.max(1, value || fallbackHours)) * 3_600_000
+}
+/** 只有标准 `/models` 模型清单渠道参与自动同步；Worker 与图片接口不是模型清单。 */
+const AUTO_SYNC_PROVIDER_TYPES: ProviderType[] = [ProviderType.OPENAI, ProviderType.NEW_API, ProviderType.SUB2API, ProviderType.OPENAI_COMPATIBLE]
 
 type UserModelInput = {
   displayName: string
@@ -149,6 +166,10 @@ type SystemSettingsInput = Partial<{
   modelImportMarkupPercent: number
   modelPriceCatalogUrl: string
   modelPriceCatalogRefreshHours: number
+  modelAutoSyncEnabled: boolean
+  modelAutoSyncIntervalHours: number
+  channelModelAutoSyncEnabled: boolean
+  channelModelAutoSyncIntervalHours: number
   subscriptionsEnabled: boolean
   trialEnabled: boolean
   defaultTrialPlanId: string
@@ -321,6 +342,10 @@ const DEFAULT_PROVIDER_TEMPLATES = [
 
 @Injectable()
 export class ProvidersService implements OnModuleInit {
+  private readonly logger = new Logger(ProvidersService.name)
+  private modelSyncTimer?: ReturnType<typeof setInterval>
+  private readonly modelSyncLocks = new Map<string, Promise<unknown>>()
+
   constructor(private readonly prisma: PrismaService, private readonly crypto: CredentialCryptoService, private readonly config: ConfigService, private readonly capabilities: CapabilityRegistryService, private readonly pricing: ProviderPricingService, private readonly health: ProviderHealthService, private readonly routing: ProviderRoutingService, private readonly endpointPolicy: PublicEndpointPolicyService, private readonly assets: AssetsService) {}
 
   async onModuleInit() {
@@ -333,6 +358,16 @@ export class ProvidersService implements OnModuleInit {
     }
     await this.prisma.modelPreset.createMany({ data: DEFAULT_PRESETS.map((preset) => ({ ...preset, enabled: false, isDefault: false })), skipDuplicates: true })
     await this.prisma.modelPreset.updateMany({ where: { enabled: true, providerId: null, providerRoutes: { none: {} } }, data: { enabled: false, isDefault: false } })
+    this.modelSyncTimer = setInterval(() => {
+      void this.syncDueModels().catch((error) => {
+        this.logger.warn(`上游模型自动同步失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, MODEL_SYNC_TICK_MS)
+    this.modelSyncTimer.unref?.()
+  }
+
+  onModuleDestroy() {
+    if (this.modelSyncTimer) clearInterval(this.modelSyncTimer)
   }
 
   normalizeBaseUrl(input: string, type?: ProviderType) {
@@ -645,7 +680,7 @@ export class ProvidersService implements OnModuleInit {
     const providerType = template?.type ?? input.type
     const baseUrl = await this.assertProviderEndpoint(input.baseUrl || template?.baseUrl || '', providerType)
     const row = await this.prisma.providerChannel.create({ data: {
-      name: input.name.trim(), templateId: input.templateId || null, type: providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: template?.authType ?? input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: providerType !== ProviderType.POLLINATIONS && providerType !== ProviderType.LOCAL_WORKER && input.allowUserKeys, customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue, metadata: metadata as Prisma.InputJsonValue,
+      name: input.name.trim(), templateId: input.templateId || null, type: providerType, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey || ''), apiKeyHint: this.crypto.hint(input.apiKey || ''), authType: template?.authType ?? input.authType, enabled: input.enabled, priority: input.priority, weight: input.weight, timeoutMs: input.timeoutMs, allowUserKeys: providerType !== ProviderType.POLLINATIONS && providerType !== ProviderType.LOCAL_WORKER && input.allowUserKeys, autoSyncModels: AUTO_SYNC_PROVIDER_TYPES.includes(providerType) && input.autoSyncModels !== false, customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue, metadata: metadata as Prisma.InputJsonValue,
     } })
     return this.publicProvider(row)
   }
@@ -680,6 +715,7 @@ export class ProvidersService implements OnModuleInit {
       ...(input.weight !== undefined ? { weight: input.weight } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(nextType === ProviderType.POLLINATIONS || nextType === ProviderType.LOCAL_WORKER ? { allowUserKeys: false } : input.allowUserKeys !== undefined ? { allowUserKeys: input.allowUserKeys } : {}),
+      ...(input.autoSyncModels !== undefined ? { autoSyncModels: AUTO_SYNC_PROVIDER_TYPES.includes(nextType) && input.autoSyncModels } : {}),
       ...(input.customHeaders !== undefined || template ? { customHeaders: (input.customHeaders ?? template?.customHeaders) as Prisma.InputJsonValue } : {}),
       ...(metadata !== undefined ? { metadata: metadata as Prisma.InputJsonValue } : {}),
     } })
@@ -850,9 +886,35 @@ export class ProvidersService implements OnModuleInit {
       : await this.describeDiscoveredModels(discovered.candidates.map((item) => ({ id: item.id })), input.markupPercent)
     const importable = candidates.filter((item) => selected.has(item.id) && item.importable && item.capability)
     if (!importable.length) throw new BadRequestException('选择的模型不属于当前可导入能力')
+    const result = await this.applyProviderImport(provider, importable, { overwritePricing: input.overwritePricing })
+    await this.prisma.providerChannel.update({ where: { id: providerId }, data: { lastModelSyncAt: new Date() } })
+    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: result.length, models: result }
+  }
+
+  /** 上游模型自动同步：新增上游新模型，并清理已下线的路由与预设。 */
+  async syncProviderModels(providerId: string) {
+    return this.withModelSyncLock(`provider:${providerId}`, async () => {
+      const provider = await this.prisma.providerChannel.findUnique({ where: { id: providerId }, include: { template: true } })
+      if (!provider) throw new NotFoundException('上游渠道不存在')
+      let discovered: Awaited<ReturnType<ProvidersService['fetchRemoteModels']>>
+      try {
+        discovered = await this.fetchRemoteModels(providerId)
+      } catch (error) {
+        await this.prisma.providerChannel.update({ where: { id: providerId }, data: { lastModelSyncAt: new Date() } })
+        throw error
+      }
+      const importable = discovered.candidates.filter((item) => item.importable && item.capability)
+      const result = await this.applyProviderImport(provider, importable, { overwritePricing: false })
+      const removed = await this.pruneProviderModels(providerId, new Set(importable.map((item) => item.id)))
+      await this.prisma.providerChannel.update({ where: { id: providerId }, data: { lastModelSyncAt: new Date() } })
+      return { discovered: discovered.models.length, imported: result.filter((item) => item.action === 'created').length, routed: result.length, removed }
+    })
+  }
+
+  private async applyProviderImport(provider: { id: string; metadata: Prisma.JsonValue | null; template: { apiProtocol: string } | null }, candidates: DiscoveredModel[], options: { overwritePricing?: boolean }) {
     const defaultCapabilities = new Set((await this.prisma.modelPreset.findMany({ where: { isDefault: true }, select: { capability: true } })).map((item) => item.capability))
     const result: Array<{ id: string; key: string; modelId: string; action: 'created' | 'routed' | 'updated' }> = []
-    for (const candidate of importable) {
+    for (const candidate of candidates) {
       const capability = candidate.capability!
       const vendor = await this.prisma.modelVendor.upsert({
         where: { key: candidate.vendorKey },
@@ -889,29 +951,56 @@ export class ProvidersService implements OnModuleInit {
         })
         defaultCapabilities.add(capability)
         action = 'created'
-      } else if (input.overwritePricing) {
-        model = await this.updateModel(model.id, {
-          inputCreditsPerMillion: candidate.inputCreditsPerMillion,
-          outputCreditsPerMillion: candidate.outputCreditsPerMillion,
-          inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion,
-          outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion,
-          imageCostMicros: candidate.imageCostMicros,
-          videoCostMicros: candidate.videoCostMicros,
-          ...(candidate.flatCreditCost ? { flatCreditCost: candidate.flatCreditCost } : {}),
-        })
+      } else if (!model.enabled && model.badge === UPSTREAM_OFFLINE_BADGE) {
+        // 上游重新上线的模型恢复上架，不需要人工复核。
+        await this.prisma.modelPreset.update({ where: { id: model.id }, data: { enabled: true, badge: candidate.pricingSource === 'none' ? '待定价' : '自动定价' } })
+        if (options.overwritePricing) await this.overwriteImportedPricing(model.id, candidate)
+        action = 'updated'
+      } else if (options.overwritePricing) {
+        model = await this.overwriteImportedPricing(model.id, candidate)
         action = 'updated'
       }
       const routeOptions = candidate.capability === ModelCapability.VIDEO
         ? { videoCapabilities: (this.discoveredModelOptions(candidate) as Record<string, unknown>).videoCapabilities } as Prisma.InputJsonValue
         : undefined
       await this.prisma.modelProviderRoute.upsert({
-        where: { modelPresetId_providerId: { modelPresetId: model.id, providerId } },
+        where: { modelPresetId_providerId: { modelPresetId: model.id, providerId: provider.id } },
         update: { upstreamModelOverride: candidate.id, enabled: true, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion || null, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion || null, imageCostMicros: candidate.imageCostMicros || null, videoCostMicros: candidate.videoCostMicros || null, ...(routeOptions ? { options: routeOptions } : {}) },
-        create: { modelPresetId: model.id, providerId, upstreamModelOverride: candidate.id, enabled: true, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion || null, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion || null, imageCostMicros: candidate.imageCostMicros || null, videoCostMicros: candidate.videoCostMicros || null, ...(routeOptions ? { options: routeOptions } : {}) },
+        create: { modelPresetId: model.id, providerId: provider.id, upstreamModelOverride: candidate.id, enabled: true, inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion || null, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion || null, imageCostMicros: candidate.imageCostMicros || null, videoCostMicros: candidate.videoCostMicros || null, ...(routeOptions ? { options: routeOptions } : {}) },
       })
       result.push({ id: model.id, key: model.key, modelId: candidate.id, action })
     }
-    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: result.length, models: result }
+    return result
+  }
+
+  private overwriteImportedPricing(modelPresetId: string, candidate: DiscoveredModel) {
+    return this.updateModel(modelPresetId, {
+      inputCreditsPerMillion: candidate.inputCreditsPerMillion,
+      outputCreditsPerMillion: candidate.outputCreditsPerMillion,
+      inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion,
+      outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion,
+      imageCostMicros: candidate.imageCostMicros,
+      videoCostMicros: candidate.videoCostMicros,
+      ...(candidate.flatCreditCost ? { flatCreditCost: candidate.flatCreditCost } : {}),
+    })
+  }
+
+  /** 上游已下线的模型：删除路由；渠道直连且无其它路由的预设停用（保留定价版本与分组授权）。 */
+  private async pruneProviderModels(providerId: string, upstreamIds: Set<string>) {
+    const routes = await this.prisma.modelProviderRoute.findMany({
+      where: { providerId },
+      select: { id: true, modelPresetId: true, upstreamModelOverride: true, modelPreset: { select: { providerId: true, upstreamModel: true } } },
+    })
+    const stale = routes.filter((route) => !upstreamIds.has(route.upstreamModelOverride || route.modelPreset.upstreamModel))
+    if (!stale.length) return 0
+    await this.prisma.$transaction(async (tx) => {
+      await tx.modelProviderRoute.deleteMany({ where: { id: { in: stale.map((route) => route.id) } } })
+      for (const modelPresetId of new Set(stale.filter((route) => route.modelPreset.providerId === providerId).map((route) => route.modelPresetId))) {
+        if (await tx.modelProviderRoute.count({ where: { modelPresetId } })) continue
+        await tx.modelPreset.updateMany({ where: { id: modelPresetId, providerId, enabled: true }, data: { enabled: false, isDefault: false, badge: UPSTREAM_OFFLINE_BADGE } })
+      }
+    })
+    return stale.length
   }
 
   async cancelLocalWorkerTask(providerChannelId: string, taskId: string) {
@@ -991,6 +1080,7 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async listModelsForUser(userId: string, capability?: ModelCapability) {
+    await this.syncStaleUserModels(userId, 4_000)
     const policy = await this.userPolicy(userId)
     const [models, privateModels] = await Promise.all([
       this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}), ...(policy.restrictModels ? { id: { in: policy.allowedModelIds } } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { vendor: true, provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } }, providerRoutes: { where: { enabled: true }, select: { id: true, providerId: true, options: true, provider: { select: { type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
@@ -1257,6 +1347,8 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async listCredentials(userId: string) {
+    // 设置页打开时与模型列表一致做一次限时兜底同步，让“上次同步”状态尽量新鲜。
+    await this.syncStaleUserModels(userId, 2_000)
     const rows = await this.prisma.userApiCredential.findMany({ where: { userId }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] })
     return rows.map((row) => this.publicCredential(row))
   }
@@ -1265,7 +1357,7 @@ export class ProvidersService implements OnModuleInit {
     if (!input.apiKey?.trim()) throw new BadRequestException('请输入 API 密钥')
     const baseUrl = await this.assertUserProviderUrl(this.onlyCodeProviderBaseUrl())
     if (input.isDefault) await this.prisma.userApiCredential.updateMany({ where: { userId }, data: { isDefault: false } })
-    const row = await this.prisma.userApiCredential.create({ data: { userId, name: `OnlyCode-${randomUUID()}`, providerType: ProviderType.NEW_API, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: ProviderAuthType.BEARER, enabled: input.enabled, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
+    const row = await this.prisma.userApiCredential.create({ data: { userId, name: `OnlyCode-${randomUUID()}`, providerType: ProviderType.NEW_API, baseUrl, encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey), authType: ProviderAuthType.BEARER, enabled: input.enabled, autoSyncModels: input.autoSyncModels ?? true, isDefault: input.isDefault, priority: input.priority ?? 0, weight: input.weight ?? 100, lastRotatedAt: new Date(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
     return this.publicCredential(row)
   }
 
@@ -1357,6 +1449,7 @@ export class ProvidersService implements OnModuleInit {
       templateId: null, providerType: ProviderType.NEW_API, baseUrl, authType: ProviderAuthType.BEARER, customHeaders: Prisma.DbNull,
       ...(input.apiKey ? { encryptedApiKey: this.crypto.encrypt(input.apiKey), apiKeyHint: this.crypto.hint(input.apiKey) } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.autoSyncModels !== undefined ? { autoSyncModels: input.autoSyncModels } : {}),
       ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       ...(input.weight !== undefined ? { weight: input.weight } : {}),
@@ -1402,17 +1495,7 @@ export class ProvidersService implements OnModuleInit {
       const result = await tx.userApiCredential.deleteMany({ where: { id, userId } })
       if (!result.count) throw new NotFoundException('API 凭据不存在')
       // 只清理本次删除后失去全部路由的模型，保留仍绑定其他密钥的模型。
-      const orphaned = await tx.userModel.findMany({ where: { userId, id: { in: affected.map((model) => model.id) }, routes: { none: {} } }, select: { id: true, capability: true, isDefault: true } })
-      await tx.userModel.deleteMany({ where: { userId, id: { in: orphaned.map((model) => model.id) }, routes: { none: {} } } })
-      for (const capability of new Set(orphaned.filter((model) => model.isDefault).map((model) => model.capability))) {
-        if (await tx.userModel.findFirst({ where: { userId, capability, isDefault: true } })) continue
-        const replacement = await tx.userModel.findFirst({
-          where: { userId, capability, enabled: true, routes: { some: { enabled: true, credential: { enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } } } },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: { id: true },
-        })
-        if (replacement) await tx.userModel.update({ where: { id: replacement.id }, data: { isDefault: true } })
-      }
+      await this.pruneOrphanUserModels(tx, userId, affected.map((model) => model.id))
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return { success: true }
   }
@@ -1454,38 +1537,218 @@ export class ProvidersService implements OnModuleInit {
     if (!selected.size) throw new BadRequestException('请选择需要导入的模型')
     const candidates = discovered.candidates.filter((item) => selected.has(item.id) && item.importable && item.capability)
     if (!candidates.length) throw new BadRequestException('选择的模型不属于当前可导入能力')
-    const defaultCapabilities = new Set((await this.prisma.userModel.findMany({ where: { userId, isDefault: true }, select: { capability: true } })).map((item) => item.capability))
-    const models = []
+    const models = await this.applyCredentialCandidates(userId, credential, candidates, await this.defaultUserModelCapabilities(userId), { reactivateRoutes: true })
+    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: models.length, models }
+  }
+
+  /** 上游模型自动同步：新增上游新模型，并删除已下线的路由与孤立模型。 */
+  async syncCredentialModels(userId: string, credentialId: string) {
+    return this.withModelSyncLock(`credential:${credentialId}`, async () => {
+      const credential = await this.prisma.userApiCredential.findFirst({ where: { id: credentialId, userId }, include: { template: true } })
+      if (!credential) throw new NotFoundException('API 凭据不存在')
+      let discovered: Awaited<ReturnType<ProvidersService['discoverCredentialModels']>>
+      try {
+        discovered = await this.discoverCredentialModels(userId, credentialId)
+      } catch (error) {
+        // 同步失败同样推进时间戳，避免定时任务对同一凭据反复重试。
+        await this.prisma.userApiCredential.update({ where: { id: credentialId }, data: { lastModelSyncAt: new Date() } })
+        throw error
+      }
+      const suppressed = new Set(credential.suppressedModels)
+      const importable = discovered.candidates.filter((item) => item.importable && item.capability)
+      const candidates = importable.filter((item) => !suppressed.has(item.id))
+      const added = await this.applyCredentialCandidates(userId, credential, candidates, await this.defaultUserModelCapabilities(userId), { reactivateRoutes: false })
+      const removed = await this.pruneCredentialModels(userId, credentialId, new Set(importable.map((item) => item.id)))
+      await this.prisma.userApiCredential.update({ where: { id: credentialId }, data: { lastModelSyncAt: new Date() } })
+      return { discovered: discovered.models.length, availableModels: discovered.models, imported: added.length, removed }
+    })
+  }
+
+  /** 定时与读时兜底：同步超过间隔未刷新的个人模型。 */
+  async syncDueModels() {
+    const settings = await this.modelSyncSettings()
+    const userSynced = settings.userEnabled ? await this.syncDueUserCredentials(settings.userIntervalMs) : 0
+    const channelSynced = settings.channelEnabled ? await this.syncDueProviderChannels(settings.channelIntervalMs) : 0
+    return { userSynced, channelSynced }
+  }
+
+  /** 读请求兜底：设置页与选择模型打开时，超过一小时未同步则补一次（有超时上限）。 */
+  private async syncStaleUserModels(userId: string, maxWaitMs: number) {
+    const settings = await this.modelSyncSettings()
+    if (!settings.userEnabled) return
+    const due = await this.prisma.userApiCredential.findMany({
+      where: {
+        userId, enabled: true, autoSyncModels: true,
+        AND: [
+          { OR: [{ templateId: null }, { template: { supportsDiscovery: true } }] },
+          { OR: [{ lastModelSyncAt: null }, { lastModelSyncAt: { lt: new Date(Date.now() - USER_MODEL_SYNC_CATCH_UP_MS) } }] },
+        ],
+      },
+      select: { id: true },
+      take: 5,
+    })
+    if (!due.length) return
+    const work = Promise.allSettled(due.map((item) => this.syncCredentialModels(userId, item.id))).then(() => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([work, new Promise<void>((resolve) => { timer = setTimeout(resolve, maxWaitMs) })])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async syncDueUserCredentials(intervalMs: number) {
+    const rows = await this.prisma.userApiCredential.findMany({
+      where: {
+        enabled: true, autoSyncModels: true,
+        AND: [
+          { OR: [{ templateId: null }, { template: { supportsDiscovery: true } }] },
+          { OR: [{ lastModelSyncAt: null }, { lastModelSyncAt: { lt: new Date(Date.now() - intervalMs) } }] },
+        ],
+      },
+      select: { id: true, userId: true },
+      orderBy: { lastModelSyncAt: { sort: 'asc', nulls: 'first' } },
+      take: MODEL_SYNC_TICK_LIMIT,
+    })
+    return this.runModelSyncBatch(rows.map((row) => ({ label: `凭据 ${row.id}`, run: () => this.syncCredentialModels(row.userId, row.id) })))
+  }
+
+  private async syncDueProviderChannels(intervalMs: number) {
+    const rows = await this.prisma.providerChannel.findMany({
+      where: {
+        enabled: true, autoSyncModels: true, type: { in: AUTO_SYNC_PROVIDER_TYPES },
+        // 仅同步已接入过模型的渠道（存在预设或路由），避免新渠道未经验收就批量上架预设。
+        OR: [
+          { modelRoutes: { some: {} } },
+          { modelPresets: { some: {} } },
+          { lastModelSyncAt: { not: null } },
+        ],
+        AND: [{ OR: [{ lastModelSyncAt: null }, { lastModelSyncAt: { lt: new Date(Date.now() - intervalMs) } }] }],
+      },
+      select: { id: true },
+      orderBy: { lastModelSyncAt: { sort: 'asc', nulls: 'first' } },
+      take: MODEL_SYNC_TICK_LIMIT,
+    })
+    return this.runModelSyncBatch(rows.map((row) => ({ label: `渠道 ${row.id}`, run: () => this.syncProviderModels(row.id) })))
+  }
+
+  private async runModelSyncBatch(tasks: Array<{ label: string; run: () => Promise<unknown> }>) {
+    let succeeded = 0
+    for (let index = 0; index < tasks.length; index += MODEL_SYNC_CONCURRENCY) {
+      const results = await Promise.allSettled(tasks.slice(index, index + MODEL_SYNC_CONCURRENCY).map((task) => task.run()))
+      results.forEach((result, offset) => {
+        if (result.status === 'fulfilled') { succeeded += 1; return }
+        this.logger.warn(`上游模型自动同步失败（${tasks[index + offset].label}）：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+      })
+    }
+    return succeeded
+  }
+
+  private async modelSyncSettings() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: 'global' },
+      select: { modelAutoSyncEnabled: true, modelAutoSyncIntervalHours: true, channelModelAutoSyncEnabled: true, channelModelAutoSyncIntervalHours: true },
+    })
+    return {
+      userEnabled: row?.modelAutoSyncEnabled ?? true,
+      userIntervalMs: syncIntervalMs(row?.modelAutoSyncIntervalHours),
+      channelEnabled: row?.channelModelAutoSyncEnabled ?? true,
+      channelIntervalMs: syncIntervalMs(row?.channelModelAutoSyncIntervalHours),
+    }
+  }
+
+  private withModelSyncLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const running = this.modelSyncLocks.get(key) as Promise<T> | undefined
+    if (running) return running
+    const promise = Promise.resolve().then(task).finally(() => { this.modelSyncLocks.delete(key) })
+    this.modelSyncLocks.set(key, promise)
+    return promise
+  }
+
+  private defaultUserModelCapabilities(userId: string) {
+    return this.prisma.userModel.findMany({ where: { userId, isDefault: true }, select: { capability: true } }).then((rows) => new Set(rows.map((item) => item.capability)))
+  }
+
+  private async applyCredentialCandidates(
+    userId: string,
+    credential: { id: string; name: string; priority: number; weight: number; providerType: ProviderType; template: { apiProtocol: string } | null },
+    candidates: DiscoveredModel[],
+    defaultCapabilities: Set<ModelCapability>,
+    options: { reactivateRoutes: boolean },
+  ) {
+    const models: Array<{ id: string; key: string; modelId: string }> = []
     for (const candidate of candidates) {
       const capability = candidate.capability!
       const apiProtocol = credential.providerType === ProviderType.NEW_API && capability === ModelCapability.IMAGE && isGeminiImageModel(candidate.id) ? 'gemini' : credential.template?.apiProtocol || 'openai'
       const vendor = await this.prisma.modelVendor.upsert({ where: { key: candidate.vendorKey }, update: {}, create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 } })
-      let model = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
-      if (!model) {
-        const isDefault = !defaultCapabilities.has(capability)
-        model = await this.prisma.userModel.create({ data: {
-          userId,
-          vendorId: vendor.id,
-          key: this.privateModelKey(userId, candidate.id),
-          displayName: candidate.displayName,
-          description: `${candidate.vendorName} · 由 ${credential.name} 自动识别`,
-          capability,
-          apiProtocol,
-          routingStrategy: 'PRIORITY',
-          enabled: true,
-          isDefault,
-          options: { ...this.discoveredModelOptions(candidate, apiProtocol), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
-        } })
-        defaultCapabilities.add(capability)
+      const existing = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
+      const model = existing || await this.prisma.userModel.create({ data: {
+        userId,
+        vendorId: vendor.id,
+        key: this.privateModelKey(userId, candidate.id),
+        displayName: candidate.displayName,
+        description: `${candidate.vendorName} · 由 ${credential.name} 自动识别`,
+        capability,
+        apiProtocol,
+        routingStrategy: 'PRIORITY',
+        enabled: true,
+        isDefault: !defaultCapabilities.has(capability),
+        options: { ...this.discoveredModelOptions(candidate, apiProtocol), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
+      } })
+      if (!existing) defaultCapabilities.add(capability)
+      // 手动导入会重新启用路由；自动同步只补缺失路由，不覆盖用户已停用的路由。
+      const routeExists = !options.reactivateRoutes && Boolean(existing)
+        && await this.prisma.userModelRoute.count({ where: { userModelId: model.id, credentialId: credential.id, upstreamModel: candidate.id } }) > 0
+      if (!routeExists) {
+        await this.prisma.userModelRoute.upsert({
+          where: { userModelId_credentialId_upstreamModel: { userModelId: model.id, credentialId: credential.id, upstreamModel: candidate.id } },
+          update: { enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date(), cooldownUntil: null },
+          create: { userModelId: model.id, credentialId: credential.id, upstreamModel: candidate.id, enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date() },
+        })
       }
-      await this.prisma.userModelRoute.upsert({
-        where: { userModelId_credentialId_upstreamModel: { userModelId: model.id, credentialId, upstreamModel: candidate.id } },
-        update: { enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date(), cooldownUntil: null },
-        create: { userModelId: model.id, credentialId, upstreamModel: candidate.id, enabled: true, priority: credential.priority, weight: credential.weight, lastHealthStatus: 'healthy', lastHealthMessage: '模型发现成功', lastHealthAt: new Date() },
-      })
       models.push({ id: model.id, key: model.key, modelId: candidate.id })
     }
-    return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: models.length, models }
+    return models
+  }
+
+  private async pruneCredentialModels(userId: string, credentialId: string, upstreamIds: Set<string>) {
+    const routes = await this.prisma.userModelRoute.findMany({ where: { credentialId }, select: { id: true, userModelId: true, upstreamModel: true } })
+    const stale = routes.filter((route) => !upstreamIds.has(route.upstreamModel))
+    if (!stale.length) return 0
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userModelRoute.deleteMany({ where: { id: { in: stale.map((route) => route.id) } } })
+      await this.pruneOrphanUserModels(tx, userId, [...new Set(stale.map((route) => route.userModelId))])
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    return stale.length
+  }
+
+  /** 删除失去全部路由的用户模型，并为受影响能力补上默认模型（与删除密钥一致）。 */
+  private async pruneOrphanUserModels(tx: Prisma.TransactionClient, userId: string, modelIds: string[]) {
+    if (!modelIds.length) return
+    const orphaned = await tx.userModel.findMany({ where: { userId, id: { in: modelIds }, routes: { none: {} } }, select: { id: true, capability: true, isDefault: true } })
+    if (!orphaned.length) return
+    await tx.userModel.deleteMany({ where: { userId, id: { in: orphaned.map((model) => model.id) }, routes: { none: {} } } })
+    for (const capability of new Set(orphaned.filter((model) => model.isDefault).map((model) => model.capability))) {
+      if (await tx.userModel.findFirst({ where: { userId, capability, isDefault: true } })) continue
+      const replacement = await tx.userModel.findFirst({
+        where: { userId, capability, enabled: true, routes: { some: { enabled: true, credential: { enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } } } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      })
+      if (replacement) await tx.userModel.update({ where: { id: replacement.id }, data: { isDefault: true } })
+    }
+  }
+
+  /** 用户手动删除的模型不再被自动同步加回。 */
+  private async suppressCredentialModels(tx: Prisma.TransactionClient, routes: Array<{ credentialId: string; upstreamModel: string }>) {
+    const grouped = new Map<string, string[]>()
+    for (const route of routes) grouped.set(route.credentialId, [...(grouped.get(route.credentialId) || []), route.upstreamModel])
+    for (const [credentialId, upstreamModels] of grouped) {
+      const credential = await tx.userApiCredential.findUnique({ where: { id: credentialId }, select: { suppressedModels: true } })
+      if (!credential) continue
+      const merged = [...new Set([...credential.suppressedModels, ...upstreamModels])].slice(-SUPPRESSED_MODEL_LIMIT)
+      await tx.userApiCredential.update({ where: { id: credentialId }, data: { suppressedModels: merged } })
+    }
   }
 
   listPrivateModels(userId: string) {
@@ -1545,8 +1808,12 @@ export class ProvidersService implements OnModuleInit {
   }
 
   async deletePrivateModel(userId: string, id: string) {
-    const result = await this.prisma.userModel.deleteMany({ where: { id, userId } })
-    if (!result.count) throw new NotFoundException('私有模型不存在')
+    const model = await this.prisma.userModel.findFirst({ where: { id, userId }, select: { id: true, routes: { select: { credentialId: true, upstreamModel: true } } } })
+    if (!model) throw new NotFoundException('私有模型不存在')
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userModel.deleteMany({ where: { id, userId } })
+      await this.suppressCredentialModels(tx, model.routes)
+    })
     return { success: true }
   }
 

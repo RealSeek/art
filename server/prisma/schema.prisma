@@ -1358,6 +1358,9 @@ model ProviderChannel {
   weight              Int                  @default(100)
   timeoutMs           Int                  @default(120000)
   allowUserKeys       Boolean              @default(true)
+  // 上游模型变动时自动同步平台模型预设（仅对已导入过模型的渠道生效）。
+  autoSyncModels      Boolean              @default(true)
+  lastModelSyncAt     DateTime?
   customHeaders       Json?
   metadata            Json?
   lastHealthStatus    String?
@@ -1535,6 +1538,10 @@ model UserApiCredential {
   lastUsedAt        DateTime?
   lastRotatedAt     DateTime?
   expiresAt         DateTime?
+  // 上游模型变动时自动同步个人模型；suppressedModels 记录用户手动删除过的上游模型 ID，避免被同步重新加回。
+  autoSyncModels    Boolean           @default(true)
+  lastModelSyncAt   DateTime?
+  suppressedModels  String[]          @default([])
   provisionKey      String?
   externalTokenId   String?
   totalRequests     Int               @default(0)
@@ -1667,6 +1674,10 @@ model SystemSetting {
   modelImportMarkupPercent      Int      @default(130)
   modelPriceCatalogUrl          String   @default("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json") @db.Text
   modelPriceCatalogRefreshHours Int      @default(12)
+  modelAutoSyncEnabled          Boolean  @default(true)
+  modelAutoSyncIntervalHours    Int      @default(6)
+  channelModelAutoSyncEnabled   Boolean  @default(true)
+  channelModelAutoSyncIntervalHours Int  @default(6)
   subscriptionsEnabled          Boolean  @default(true)
   trialEnabled                  Boolean  @default(true)
   defaultTrialPlanId            String   @default("")

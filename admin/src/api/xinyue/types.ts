@@ -271,6 +271,8 @@ export type Provider = {
   weight: number
   timeoutMs: number
   allowUserKeys: boolean
+  autoSyncModels: boolean
+  lastModelSyncAt?: string | null
   lastHealthStatus?: string
   lastHealthMessage?: string
   consecutiveFailures?: number
@@ -748,6 +750,10 @@ export type SystemSettings = {
   modelImportMarkupPercent: number
   modelPriceCatalogUrl: string
   modelPriceCatalogRefreshHours: number
+  modelAutoSyncEnabled: boolean
+  modelAutoSyncIntervalHours: number
+  channelModelAutoSyncEnabled: boolean
+  channelModelAutoSyncIntervalHours: number
   subscriptionsEnabled: boolean
   trialEnabled: boolean
   defaultTrialPlanId: string

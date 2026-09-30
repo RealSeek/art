@@ -86,10 +86,21 @@
             }}</ElTag></template
           >
         </ElTableColumn>
-        <ElTableColumn :label="xt('操作')" width="190" fixed="right">
+        <ElTableColumn :label="xt('自动同步')" width="150">
+          <template #default="{ row }"
+            ><ElTag :type="row.autoSyncModels ? 'success' : 'info'">{{
+              row.autoSyncModels ? xt('已开启') : xt('已关闭')
+            }}</ElTag
+            ><small class="block-note">{{ syncTimeText(row.lastModelSyncAt) }}</small></template
+          >
+        </ElTableColumn>
+        <ElTableColumn :label="xt('操作')" width="265" fixed="right">
           <template #default="{ row }">
             <ElButton link type="primary" :loading="checking === row.id" @click="discover(row)">{{
               xt('连接测试')
+            }}</ElButton>
+            <ElButton link type="primary" :loading="syncing === row.id" @click="syncModels(row)">{{
+              xt('同步模型')
             }}</ElButton>
             <ElButton link @click="openChannelEdit(row)">{{ xt('编辑') }}</ElButton>
             <ElButton link type="danger" @click="removeChannel(row)">{{ xt('删除') }}</ElButton>
@@ -320,6 +331,9 @@
             >{{ xt('允许用户密钥') }}</ElCheckbox
           ><ElCheckbox v-model="channelEditor.autoDiscover">{{
             xt('保存后识别并导入模型')
+          }}</ElCheckbox
+          ><ElCheckbox v-model="channelEditor.autoSyncModels">{{
+            xt('上游模型变动时自动同步')
           }}</ElCheckbox></ElSpace
         >
       </ElForm>
@@ -595,6 +609,7 @@
   const loading = ref(false)
   const saving = ref(false)
   const checking = ref('')
+  const syncing = ref('')
   const checkingAll = ref(false)
   const batchResult = ref<{ checked: number; healthy: number; unhealthy: number } | null>(null)
   const channelDialog = ref(false)
@@ -632,6 +647,7 @@
     weight: 100,
     timeoutMs: 120000,
     allowUserKeys: true,
+    autoSyncModels: true,
     autoDiscover: true
   })
   const emptyTemplate = () => ({
@@ -762,6 +778,7 @@
           allowUserKeys: ['POLLINATIONS', 'LOCAL_WORKER'].includes(channelEditor.type)
             ? false
             : channelEditor.allowUserKeys,
+          autoSyncModels: channelEditor.autoSyncModels,
           metadata: {
             apiProtocol: channelEditor.apiProtocol,
             nativeSearchProvider: channelEditor.nativeSearchProvider
@@ -894,6 +911,21 @@
   }
   async function discover(row: Provider) {
     await openDiscovery(row)
+  }
+  async function syncModels(row: Provider) {
+    syncing.value = row.id
+    try {
+      const result = await xinyueApi.syncProviderModels(row.id)
+      ElMessage.success(
+        `${xt('同步完成')}：${xt('发现')} ${result.discovered} ${xt('个模型')}，${xt('新增')} ${result.imported}，${xt('下线')} ${result.removed}`
+      )
+      await load()
+    } finally {
+      syncing.value = ''
+    }
+  }
+  function syncTimeText(value?: string | null) {
+    return value ? `${xt('上次同步')} ${new Date(value).toLocaleString(undefined, { hour12: false })}` : xt('尚未同步')
   }
   async function checkAll() {
     checkingAll.value = true

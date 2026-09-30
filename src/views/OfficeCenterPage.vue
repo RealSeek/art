@@ -180,6 +180,7 @@ import {
 import ChatMessageContent from '../components/ChatMessageContent.vue'
 import ModelCatalogPicker from '../components/ModelCatalogPicker.vue'
 import { api, apiUrl, streamApiEvents } from '../services/api'
+import { useModelCatalogRefresh } from '../composables/useModelCatalogRefresh'
 import { useAuthStore } from '../stores/auth'
 import { useStudioStore } from '../stores/studio'
 import type { Plugin, StudioAsset } from '../types'
@@ -759,18 +760,27 @@ function applyRouteIntent() {
   void nextTick(() => taskInput.value?.focus({ preventScroll: true }))
 }
 
+async function reloadOfficeModels() {
+  const models = await api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => null)
+  if (!models) return
+  chatModels.value = models.filter((item) => item.capability === 'CHAT' && item.enabled !== false)
+  if (chatModels.value.some((item) => item.key === model.value)) return
+  const fallback = chatModels.value.find((item) => item.isDefault) || chatModels.value[0]
+  if (fallback) model.value = fallback.key
+}
+
+// 管理员在后台增删模型后，已打开的办公页同步更新可选模型。
+useModelCatalogRefresh(() => void reloadOfficeModels())
+
 onMounted(async () => {
   studio.setMode('office')
   document.addEventListener('xinyue:close-popovers', closeOfficePopovers)
   void nextTick(resizeTaskInput)
-  const [models, assistants, plugins] = await Promise.all([
-    api<CatalogModel[]>(auth.isAuthenticated ? '/users/me/models' : '/catalog/models', { cache: 'no-store' }).catch(() => []),
+  const [assistants, plugins] = await Promise.all([
     auth.isAuthenticated ? api<AssistantOption[]>('/assistants').catch(() => []) : Promise.resolve([]),
     auth.isAuthenticated ? api<Plugin[]>('/plugins/available?capability=OFFICE').catch(() => []) : Promise.resolve([]),
   ])
-  chatModels.value = models.filter((item) => item.capability === 'CHAT' && item.enabled !== false)
-  const defaultModel = chatModels.value.find((item) => item.isDefault) || chatModels.value[0]
-  if (defaultModel) model.value = defaultModel.key
+  await reloadOfficeModels()
   organizationSkills.value = assistants.map((assistant, index) => {
     const id = `assistant:${assistant.id}`
     if (assistant.defaultModel) organizationAssistantModels.set(id, assistant.defaultModel)

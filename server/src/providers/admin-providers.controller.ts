@@ -22,6 +22,7 @@ class CreateProviderDto {
   @IsOptional() @IsInt() @Min(0) @Max(10000) weight?: number
   @IsOptional() @IsInt() @Min(1000) @Max(600000) timeoutMs?: number
   @IsOptional() @IsBoolean() allowUserKeys?: boolean
+  @IsOptional() @IsBoolean() autoSyncModels?: boolean
   @IsOptional() @IsObject() customHeaders?: Record<string, string>
   @IsOptional() @IsObject() metadata?: Record<string, unknown>
 }
@@ -38,6 +39,7 @@ class UpdateProviderDto {
   @IsOptional() @IsInt() @Min(0) @Max(10000) weight?: number
   @IsOptional() @IsInt() @Min(1000) @Max(600000) timeoutMs?: number
   @IsOptional() @IsBoolean() allowUserKeys?: boolean
+  @IsOptional() @IsBoolean() autoSyncModels?: boolean
   @IsOptional() @IsObject() customHeaders?: Record<string, string>
   @IsOptional() @IsObject() metadata?: Record<string, unknown>
 }
@@ -223,6 +225,10 @@ class UpdateSystemDto {
   @IsOptional() @IsInt() @Min(100) @Max(1000) modelImportMarkupPercent?: number
   @IsOptional() @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }) @MaxLength(2000) modelPriceCatalogUrl?: string
   @IsOptional() @IsInt() @Min(1) @Max(168) modelPriceCatalogRefreshHours?: number
+  @IsOptional() @IsBoolean() modelAutoSyncEnabled?: boolean
+  @IsOptional() @IsInt() @Min(1) @Max(168) modelAutoSyncIntervalHours?: number
+  @IsOptional() @IsBoolean() channelModelAutoSyncEnabled?: boolean
+  @IsOptional() @IsInt() @Min(1) @Max(168) channelModelAutoSyncIntervalHours?: number
   @IsOptional() @IsBoolean() subscriptionsEnabled?: boolean
   @IsOptional() @IsBoolean() trialEnabled?: boolean
   @IsOptional() @IsString() defaultTrialPlanId?: string
@@ -306,6 +312,7 @@ export class AdminProvidersController {
   @Delete('providers/:id') providerDelete(@Param('id') id: string) { return this.providers.deleteProvider(id) }
   @Post('providers/check-all') checkAllProviders() { return this.providers.checkAllProviders() }
   @Post('providers/:id/discover-models') discover(@Param('id') id: string) { return this.providers.fetchRemoteModels(id) }
+  @Post('providers/:id/sync-models') syncModels(@Param('id') id: string) { return this.providers.syncProviderModels(id) }
   @Post('providers/:id/import-models') importModels(@Param('id') id: string, @Body() body: ImportProviderModelsDto) { return this.providers.importProviderModels(id, body) }
   @Post('providers/:id/reset-health') resetHealth(@Param('id') id: string) { return this.providers.resetProviderHealth(id) }
   @Get('byok/summary') byokSummary() { return this.providers.adminByokSummary() }

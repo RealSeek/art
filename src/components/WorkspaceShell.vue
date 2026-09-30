@@ -102,7 +102,9 @@
           :api-credentials="apiCredentials"
           :credential-checking-id="credentialCheckingId"
           :open-credential-editor="openCredentialEditor"
-          :discover-credential="discoverCredential"
+          :open-private-model-editor="() => openPrivateModelEditor()"
+          :sync-credential-models="syncCredentialModels"
+          :toggle-credential-auto-sync="toggleCredentialAutoSync"
           :delete-credential="deleteCredential"
           :provision-only-code="provisionOnlyCodeCredential"
         />
@@ -488,6 +490,7 @@ function openSettings(section: SettingsSection) {
   mobileOpen.value = false
   if (section === 'api' && auth.session?.id) {
     void loadDeferredWorkspaceData()
+    void reloadCredentials()
     void loadOnlyCodeGroups()
   }
   scrollActiveSetting('auto')
@@ -501,6 +504,7 @@ function selectSettingsSection(section: SettingsSection) {
   settingsSection.value = section
   if (section === 'api' && auth.session?.id) {
     void loadDeferredWorkspaceData()
+    void reloadCredentials()
     void loadOnlyCodeGroups()
   }
   scrollActiveSetting('smooth')
@@ -747,24 +751,36 @@ async function deleteCredential(item: ApiCredential) {
   } catch (reason) { message.error(reason instanceof Error ? reason.message : 'API 密钥删除失败') }
 }
 
-async function discoverCredential(item: ApiCredential) {
+async function syncCredentialModels(item: ApiCredential) {
   credentialCheckingId.value = item.id
   try {
-    const imported = await api<{ imported: number; availableModels: string[] }>(`/users/me/api-credentials/${item.id}/import-models`, { method: 'POST', body: JSON.stringify({ importAll: true }) })
-    discoveredCredentialModels.value = imported.availableModels
-    const [credentials, models] = await Promise.all([api<ApiCredential[]>('/users/me/api-credentials'), api<PrivateModel[]>('/users/me/private-models')])
-    apiCredentials.value = credentials
-    privateModels.value = models
-    message.success(`检测完成，已同步 ${imported.imported} 个模型`)
-    document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
-  } catch (reason) {
-    const template = providerTemplates.value.find((entry) => entry.id === item.templateId)
-    if (template && !template.supportsDiscovery) {
-      discoveredCredentialModels.value = []
-      openPrivateModelEditor(undefined, item.id)
-      message.info('该渠道不提供模型列表，请手动填写模型 ID')
-    } else message.error(reason instanceof Error ? reason.message : '密钥检测失败')
-  } finally { credentialCheckingId.value = '' }
+    const result = await api<{ discovered: number; availableModels: string[]; imported: number; removed: number }>(`/users/me/api-credentials/${item.id}/sync-models`, { method: 'POST' })
+    discoveredCredentialModels.value = result.availableModels
+    await reloadCredentials()
+    message.success(`同步完成：上游 ${result.discovered} 个模型，新增 ${result.imported} 个，下线 ${result.removed} 个`)
+  } catch (reason) { message.error(reason instanceof Error ? reason.message : '模型同步失败') }
+  finally { credentialCheckingId.value = '' }
+}
+
+async function toggleCredentialAutoSync(item: ApiCredential) {
+  credentialCheckingId.value = item.id
+  try {
+    await api(`/users/me/api-credentials/${item.id}`, { method: 'PATCH', body: JSON.stringify({ autoSyncModels: item.autoSyncModels === false }) })
+    await reloadCredentials()
+  } catch (reason) { message.error(reason instanceof Error ? reason.message : '自动同步设置保存失败') }
+  finally { credentialCheckingId.value = '' }
+}
+
+/** 手动同步设置后重读密钥与模型，并通知对话/办公页刷新模型目录。 */
+async function reloadCredentials() {
+  const [credentials, userModels] = await Promise.all([
+    api<ApiCredential[]>('/users/me/api-credentials').catch(() => [] as ApiCredential[]),
+    api<PrivateModel[]>('/users/me/private-models').catch(() => [] as PrivateModel[]),
+  ])
+  apiCredentials.value = credentials
+  privateModels.value = userModels
+  availableModels.value = await api<AvailableModel[]>('/users/me/models').catch(() => [])
+  document.dispatchEvent(new Event('xinyue:model-catalog-changed'))
 }
 
 function openPrivateModelEditor(item?: PrivateModel, credentialId = '', upstreamModel = '') {

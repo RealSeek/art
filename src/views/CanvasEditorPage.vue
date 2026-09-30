@@ -382,6 +382,7 @@ import { api, streamApiEvents } from '../services/api'
 import type { CanvasAgentOperation, CanvasBackground, CanvasDocumentPayload, CanvasDramaStage, CanvasGenerationKind, CanvasGenerationOptions, CanvasImageToolOptions, CanvasImageToolType, CanvasKind, CanvasNodeData, CanvasNodeKind, CanvasRecord } from '../types/canvas'
 import { emptyCanvasDocument } from '../types/canvas'
 import { createClientId } from '../utils/client-id'
+import { useModelCatalogRefresh } from '../composables/useModelCatalogRefresh'
 import { isAgentModelEligible, type CatalogModel } from '../utils/model-catalog'
 import { splitShortDramaScript, type ShortDramaShotDraft } from '../utils/short-drama'
 import { isDedicatedImageTool, mergeImageTools, type ImageToolOptions, type ImageToolRecord } from '../utils/image-tools'
@@ -720,6 +721,9 @@ async function reloadCanvasCatalog() {
   ])
   applyCanvasCatalogResults(modelsResult, toolsResult)
 }
+
+// 管理员在后台增删模型后，已打开的画布页同步更新可选模型。
+useModelCatalogRefresh(() => void reloadCanvasCatalog())
 
 function applyDocument(document: CanvasDocumentPayload) {
   applyingHistory.value = true

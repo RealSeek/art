@@ -267,7 +267,7 @@ const activeCreationModels = computed(() => {
 const activeCreationModelAvailable = computed(() => Boolean(findCatalogModel(activeCreationModels.value, activeCreationModel.value, activeCreationCapability.value)))
 const activeCreationModelLabel = computed(() => catalogModelLabel(activeCreationModels.value, activeCreationModel.value, activeCreationCapability.value) || '暂无可用模型')
 
-const { loadModelCatalog, refreshModelCatalogOnFocus, refreshModelCatalog } = useStudioModelCatalog({
+const { loadModelCatalog, refreshModelCatalog } = useStudioModelCatalog({
   models: catalogModels,
   error: modelCatalogError,
   chatModel: model,
@@ -556,7 +556,6 @@ onMounted(async () => {
   window.addEventListener('resize', positionCreationMorePanel)
   window.addEventListener('scroll', positionCreationMorePanel, true)
   window.addEventListener('resize', resizeGenerationInput)
-  window.addEventListener('focus', refreshModelCatalogOnFocus)
   document.addEventListener('xinyue:model-catalog-changed', refreshModelCatalog)
   document.addEventListener('pointerdown', closeCreationMenuOnOutside)
   qianwenBannerTimer = window.setInterval(() => {
@@ -572,7 +571,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', positionCreationMorePanel)
   window.removeEventListener('scroll', positionCreationMorePanel, true)
   window.removeEventListener('resize', resizeGenerationInput)
-  window.removeEventListener('focus', refreshModelCatalogOnFocus)
   document.removeEventListener('xinyue:model-catalog-changed', refreshModelCatalog)
   document.removeEventListener('pointerdown', closeCreationMenuOnOutside)
   window.clearInterval(qianwenBannerTimer)

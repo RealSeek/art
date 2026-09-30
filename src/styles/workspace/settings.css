@@ -115,6 +115,8 @@
 .settings-api-list article footer { display: flex; grid-column: 1 / -1; gap: 8px; justify-content: flex-end; padding-top: 6px; border-top: 1px solid var(--studio-border); }
 .settings-api-list article footer button { min-height: 28px; padding: 0 9px; border: 1px solid var(--studio-border); border-radius: 4px; background: transparent; color: var(--studio-text); font-size: 11px; }
 .settings-api-list article footer .danger-button { color: #ef4444; }
+.settings-api-list article footer .settings-api-autosync { align-items: center; color: var(--studio-muted); display: inline-flex; font-size: 11px; gap: 5px; margin-right: auto; }
+.settings-api-synced { color: var(--studio-muted); font-size: 11px; }
 .settings-api-state { align-self: start; color: #22c55e; font-size: 11px; }
 .settings-api-state.disabled { color: var(--studio-muted); }
 .settings-spin { animation: settings-spin .8s linear infinite; }

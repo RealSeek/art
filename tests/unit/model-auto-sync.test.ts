@@ -1,0 +1,173 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import type { ModelCapability, ProviderType } from '@prisma/client'
+import { ProvidersService } from '../../server/src/providers/providers.service'
+import type { DiscoveredModel } from '../../server/src/providers/model-discovery.service'
+
+function candidate(id: string, capability: ModelCapability = 'CHAT'): DiscoveredModel {
+  return {
+    id,
+    displayName: id,
+    vendorKey: 'openai',
+    vendorName: 'OpenAI',
+    capability,
+    importable: true,
+    confidence: 'exact',
+    pricingSource: 'litellm',
+    inputCostMicrosPerMillion: 1,
+    outputCostMicrosPerMillion: 2,
+    imageCostMicros: 0,
+    videoCostMicros: 0,
+    inputCreditsPerMillion: 1,
+    outputCreditsPerMillion: 2,
+    flatCreditCost: 1,
+    contextWindow: 128_000,
+    maxOutputTokens: 4_096,
+    features: [],
+    agentCapabilities: null,
+    warnings: [],
+    raw: {},
+  }
+}
+
+function service(prisma: Record<string, unknown>) {
+  return new ProvidersService(prisma as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never)
+}
+
+test('个人模型同步会新增上游新模型并删除已下线模型，且不复活手动删除的模型', async () => {
+  const credential = {
+    id: 'credential-1', userId: 'user-1', name: 'onlyart-codex', priority: 0, weight: 100,
+    providerType: 'NEW_API' as ProviderType, template: null, suppressedModels: ['gpt-removed-by-user'],
+  }
+  const routes = [
+    { id: 'route-gone', userModelId: 'model-gone', upstreamModel: 'gpt-retired' },
+    { id: 'route-kept', userModelId: 'model-kept', upstreamModel: 'gpt-keep' },
+  ]
+  const created: Array<Record<string, unknown>> = []
+  const upsertedRoutes: Array<Record<string, unknown>> = []
+  const deletedRoutes: string[][] = []
+  const deletedModels: string[] = []
+  const prisma = {
+    userApiCredential: { findFirst: async () => credential, update: async () => credential },
+    modelVendor: { upsert: async () => ({ id: 'vendor-1' }) },
+    userModel: {
+      // 默认能力查询返回空，只剩孤儿的模型查询返回待清理的模型。
+      findMany: async ({ where }: { where: Record<string, unknown> }) => where.isDefault === true
+        ? []
+        : [{ id: 'model-gone', capability: 'CHAT', isDefault: false }],
+      findFirst: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        created.push(data)
+        return { id: `model-${data.key}`, key: data.key }
+      },
+      deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
+        deletedModels.push(...where.id.in)
+        return { count: where.id.in.length }
+      },
+      update: async () => ({}),
+    },
+    userModelRoute: {
+      count: async () => 0,
+      findMany: async () => routes,
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        upsertedRoutes.push(create)
+        return create
+      },
+      deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
+        deletedRoutes.push(where.id.in)
+        return { count: where.id.in.length }
+      },
+    },
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
+  }
+  const providers = service(prisma)
+  providers.discoverCredentialModels = async () => ({
+    models: ['gpt-new', 'gpt-keep', 'gpt-removed-by-user'],
+    candidates: [candidate('gpt-new'), candidate('gpt-keep'), candidate('gpt-removed-by-user')],
+    latencyMs: 12,
+  })
+
+  const result = await providers.syncCredentialModels('user-1', 'credential-1')
+
+  assert.deepEqual(created.map((row) => row.displayName), ['gpt-new', 'gpt-keep'])
+  assert.deepEqual(upsertedRoutes.map((row) => row.upstreamModel), ['gpt-new', 'gpt-keep'])
+  assert.deepEqual(deletedRoutes, [['route-gone']])
+  assert.deepEqual(deletedModels, ['model-gone'])
+  assert.deepEqual(result, { discovered: 3, availableModels: ['gpt-new', 'gpt-keep', 'gpt-removed-by-user'], imported: 2, removed: 1 })
+})
+
+test('渠道模型同步会停用上游已下线的预设，并给上游新模型建路由', async () => {
+  const provider = { id: 'provider-1', metadata: null, template: null }
+  const routes = [
+    { id: 'route-live', modelPresetId: 'preset-live', upstreamModelOverride: 'gpt-live', modelPreset: { providerId: 'provider-1', upstreamModel: 'gpt-live' } },
+    { id: 'route-retired', modelPresetId: 'preset-retired', upstreamModelOverride: 'gpt-retired', modelPreset: { providerId: 'provider-1', upstreamModel: 'gpt-retired' } },
+  ]
+  const createdPresets: Array<Record<string, unknown>> = []
+  const upsertedRoutes: Array<Record<string, unknown>> = []
+  const disabledPresets: string[] = []
+  const prisma = {
+    providerChannel: { findUnique: async () => provider, update: async () => provider },
+    modelVendor: { upsert: async () => ({ id: 'vendor-1' }) },
+    modelPreset: {
+      findMany: async () => [],
+      findFirst: async ({ where }: { where: { OR?: Array<{ upstreamModel?: string }> } }) => {
+        const upstream = where.OR?.map((item) => item.upstreamModel).find(Boolean)
+        return upstream === 'gpt-live' ? { id: 'preset-live', key: 'gpt-live', enabled: true, badge: '自动定价' } : null
+      },
+      count: async () => 0,
+      updateMany: async ({ where }: { where: { id?: string } }) => {
+        if (where.id) disabledPresets.push(where.id)
+        return { count: 1 }
+      },
+      update: async () => ({}),
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        createdPresets.push(data)
+        return { id: `preset-${data.key}`, key: data.key, enabled: true }
+      },
+    },
+    modelPriceVersion: { create: async () => ({}) },
+    modelProviderRoute: {
+      findMany: async () => routes,
+      count: async ({ where }: { where: { modelPresetId: string } }) =>
+        routes.filter((route) => route.modelPresetId === where.modelPresetId && route.id !== 'route-retired').length,
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        upsertedRoutes.push(create)
+        return create
+      },
+      deleteMany: async () => ({ count: 1 }),
+    },
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
+  }
+  const providers = service(prisma)
+  providers.fetchRemoteModels = async () => ({ models: ['gpt-new', 'gpt-live'], candidates: [candidate('gpt-new'), candidate('gpt-live')], latencyMs: 8 })
+
+  const result = await providers.syncProviderModels('provider-1')
+
+  assert.deepEqual(createdPresets.map((row) => row.upstreamModel), ['gpt-new'])
+  assert.deepEqual(upsertedRoutes.map((row) => row.upstreamModelOverride), ['gpt-new', 'gpt-live'])
+  assert.deepEqual(disabledPresets, ['preset-retired'])
+  assert.deepEqual(result, { discovered: 2, imported: 1, routed: 2, removed: 1 })
+})
+
+test('删除个人模型会记录上游模型，避免自动同步重新导入', async () => {
+  const suppressed: Array<{ id: string; suppressedModels: string[] }> = []
+  const prisma = {
+    userModel: {
+      findFirst: async () => ({ id: 'model-1', routes: [{ credentialId: 'credential-1', upstreamModel: 'gpt-4o' }] }),
+      deleteMany: async () => ({ count: 1 }),
+    },
+    userApiCredential: {
+      findUnique: async () => ({ suppressedModels: ['gpt-4o-mini'] }),
+      update: async ({ where, data }: { where: { id: string }; data: { suppressedModels: string[] } }) => {
+        suppressed.push({ id: where.id, suppressedModels: data.suppressedModels })
+        return {}
+      },
+    },
+    $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(prisma),
+  }
+  const providers = service(prisma)
+
+  await providers.deletePrivateModel('user-1', 'model-1')
+
+  assert.deepEqual(suppressed, [{ id: 'credential-1', suppressedModels: ['gpt-4o-mini', 'gpt-4o'] }])
+})

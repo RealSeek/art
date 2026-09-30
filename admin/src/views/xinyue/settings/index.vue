@@ -77,6 +77,38 @@
                     :key="item.id"
                     :label="item.displayName"
                     :value="item.key" /></ElSelect></ElFormItem></ElCol></ElRow></ElCard
+        ><ElCard v-if="settings" shadow="never"
+          ><template #header
+            ><strong>{{ xt('模型自动同步') }}</strong></template
+          ><div class="toggle-grid"
+            ><ToggleRow
+              v-model="settings.modelAutoSyncEnabled"
+              :title="xt('用户模型自动同步')"
+              :note="xt('按间隔重新读取用户接入密钥的上游模型，新增上架、下线移除')" /><ToggleRow
+              v-model="settings.channelModelAutoSyncEnabled"
+              :title="xt('渠道模型自动同步')"
+              :note="xt('仅对已导入过模型的渠道生效，上游下线后自动停用预设')" /></div
+          ><ElRow :gutter="16" class="number-row"
+            ><ElCol :xs="24" :sm="12"
+              ><ElFormItem :label="xt('用户模型同步间隔（小时）')"
+                ><ElInputNumber
+                  v-model="settings.modelAutoSyncIntervalHours"
+                  :min="1"
+                  :max="168"
+                  class="wide" /></ElFormItem></ElCol
+            ><ElCol :xs="24" :sm="12"
+              ><ElFormItem :label="xt('渠道模型同步间隔（小时）')"
+                ><ElInputNumber
+                  v-model="settings.channelModelAutoSyncIntervalHours"
+                  :min="1"
+                  :max="168"
+                  class="wide" /></ElFormItem></ElCol></ElRow
+          ><div class="quick-action-note">
+            <ArtSvgIcon icon="ri:information-line" /><span>{{
+              xt('用户打开选择模型或设置页时，超过一小时未同步会立即补一次；手动删除的模型不会被重新加回。')
+            }}</span></div
+          ></ElCard
+        >
       ></ElTabPane>
 
       <ElTabPane :label="xt('后台安全')" name="security">

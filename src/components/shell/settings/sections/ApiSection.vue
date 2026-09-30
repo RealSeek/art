@@ -1,6 +1,6 @@
 <template>
   <h2 id="settings-api">API 与模型</h2>
-  <p class="settings-section-intro">按用途接入 OnlyCode 密钥，模型会在接入后自动同步。</p>
+  <p class="settings-section-intro">按用途接入 OnlyCode 密钥，模型会在接入后自动同步；上游新增或下线模型时无需手动导入。</p>
 
   <section class="settings-capability-grid" aria-label="OnlyCode 接入分类">
     <article v-for="item in capabilityItems" :key="item.capability" :class="`is-${item.capability.toLowerCase()}`">
@@ -25,7 +25,7 @@
       </label>
 
       <p v-if="selectedGroup(item.capability)" class="settings-capability-models">
-        创建后自动同步该分组的 {{ selectedGroup(item.capability)?.models.length }} 个模型，无需复制密钥。
+        创建后自动同步该分组的 {{ selectedGroup(item.capability)?.models.length }} 个模型，之后跟随上游自动更新。
       </p>
       <p v-else class="settings-capability-models">仍可使用已有 OnlyCode 密钥手动接入。</p>
 
@@ -46,6 +46,7 @@
 
   <div class="settings-action-row settings-api-heading">
     <span><strong>已接入密钥</strong><small>OnlyArt 只会显示密钥末尾四位。</small></span>
+    <button type="button" @click="openPrivateModelEditor()">手动添加模型</button>
   </div>
   <section class="settings-api-list">
     <article v-for="item in apiCredentials" :key="item.id">
@@ -56,7 +57,12 @@
       </div>
       <span class="settings-api-state" :class="{ disabled: !item.enabled || item.lastHealthStatus === 'unhealthy' }">{{ item.lastHealthStatus === 'healthy' ? '连接正常' : item.lastHealthStatus === 'unhealthy' ? '连接异常' : item.enabled ? '待检测' : '已停用' }}</span>
       <footer>
-        <button type="button" :disabled="credentialCheckingId === item.id" @click="discoverCredential(item)">{{ credentialCheckingId === item.id ? '检测中' : '检测并导入模型' }}</button>
+        <label class="settings-api-autosync">
+          <input type="checkbox" :checked="item.autoSyncModels !== false" :disabled="credentialCheckingId === item.id" @change="toggleCredentialAutoSync(item)" />
+          自动同步上游模型
+        </label>
+        <span class="settings-api-synced">{{ item.lastModelSyncAt ? `上次同步 ${formatServerDate(item.lastModelSyncAt)}` : '尚未同步' }}</span>
+        <button type="button" :disabled="credentialCheckingId === item.id" @click="syncCredentialModels(item)">{{ credentialCheckingId === item.id ? '同步中' : '立即同步模型' }}</button>
         <button type="button" @click="openCredentialEditor(item)">编辑</button>
         <button type="button" class="danger-button" @click="deleteCredential(item)">删除</button>
       </footer>
@@ -78,7 +84,9 @@ const props = defineProps<{
   apiCredentials: ApiCredential[]
   credentialCheckingId: string
   openCredentialEditor: (item?: ApiCredential) => void
-  discoverCredential: (item: ApiCredential) => Promise<void>
+  openPrivateModelEditor: () => void
+  syncCredentialModels: (item: ApiCredential) => Promise<void>
+  toggleCredentialAutoSync: (item: ApiCredential) => Promise<void>
   deleteCredential: (item: ApiCredential) => Promise<void>
   provisionOnlyCode: (group: string, name: string) => Promise<boolean>
 }>()

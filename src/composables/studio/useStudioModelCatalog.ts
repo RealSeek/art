@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import { defaultCatalogModel, findCatalogModel, type CatalogModel } from '../../utils/model-catalog'
+import { useModelCatalogRefresh } from '../useModelCatalogRefresh'
 
 type CapabilitySelection = Record<'CHAT' | 'IMAGE' | 'VIDEO' | 'AGENT', string>
 
@@ -66,13 +67,12 @@ export function useStudioModelCatalog(state: StudioModelCatalogState, actions: S
     return state.models.value
   }
 
-  function refreshModelCatalogOnFocus() {
-    if (Date.now() - loadedAt >= 2_000) void loadModelCatalog({ force: true })
-  }
-
   function refreshModelCatalog() {
     void loadModelCatalog({ force: true })
   }
 
-  return { loadModelCatalog, refreshModelCatalogOnFocus, refreshModelCatalog }
+  // 打开选择器会主动刷新，这里补上保持页面打开时的自动刷新。
+  useModelCatalogRefresh(refreshModelCatalog)
+
+  return { loadModelCatalog, refreshModelCatalog }
 }

@@ -58,6 +58,12 @@ export const modelApi = {
       url: `/v1/admin/providers/${id}/discover-models`,
       params: {}
     }),
+  syncProviderModels: (id: string) =>
+    request.post<{ discovered: number; imported: number; routed: number; removed: number }>({
+      url: `/v1/admin/providers/${id}/sync-models`,
+      data: {},
+      showSuccessMessage: true
+    }),
   importProviderModels: (
     id: string,
     data: {

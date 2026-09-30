@@ -18,6 +18,7 @@ class CreateCredentialDto {
 class UpdateCredentialDto {
   @IsOptional() @IsString() @MaxLength(1000) apiKey?: string
   @IsOptional() @IsBoolean() enabled?: boolean
+  @IsOptional() @IsBoolean() autoSyncModels?: boolean
   @IsOptional() @IsBoolean() isDefault?: boolean
   @IsOptional() @IsInt() @Min(-10000) @Max(10000) priority?: number
   @IsOptional() @IsInt() @Min(1) @Max(10000) weight?: number
@@ -85,6 +86,7 @@ export class UserCredentialsController {
   @Post('only-code') provisionOnlyCode(@CurrentUser() user: AuthenticatedUser, @Body() body: ProvisionOnlyCodeCredentialDto) { return this.providers.provisionOnlyCodeCredential(user.id, body.group, body.name) }
   @Patch(':id') update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: UpdateCredentialDto) { return this.providers.updateCredential(user.id, id, body) }
   @Post(':id/discover-models') discover(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.providers.discoverCredentialModels(user.id, id) }
+  @Post(':id/sync-models') syncModels(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.providers.syncCredentialModels(user.id, id) }
   @Post(':id/import-models') importModels(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: ImportCredentialModelsDto) { return this.providers.importCredentialModels(user.id, id, body) }
   @Post(':id/test') test(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.providers.discoverCredentialModels(user.id, id) }
   @Get(':id/usage') usage(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.providers.credentialUsage(user.id, id).then((rows) => rows[0]) }
