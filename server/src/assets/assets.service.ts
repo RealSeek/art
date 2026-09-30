@@ -9,6 +9,9 @@ import type sharpFactory from 'sharp'
 
 const sharp = require('sharp') as typeof sharpFactory
 
+/** 上传图片只在超过该长边时降采样，其余情况原样存储，避免同步重编码拖慢上传。 */
+const MAX_UPLOAD_IMAGE_EDGE = 2560
+
 type StoredFile = {
   stream: NodeJS.ReadableStream
   name: string
@@ -95,7 +98,7 @@ export class AssetsService {
     const objectKey = this.makeObjectKey(userId, input.name)
     const location = this.storage.activeLocation()
     try {
-      const source = input.mimeType.startsWith('image/') ? await this.optimizeImage(await this.readUpload(input.stream), input.mimeType) : null
+      const source = input.mimeType.startsWith('image/') ? await this.prepareUploadImage(await this.readUpload(input.stream), input.mimeType) : null
       const stored = source ? await this.storage.putBytes(objectKey, source, input.mimeType) : await this.storage.putStream(objectKey, input.stream, input.mimeType)
       const retention = await this.assetRetention(input.kind, input.metadata)
       return await this.prisma.asset.create({
@@ -180,22 +183,44 @@ export class AssetsService {
     let size = 0
     for await (const chunk of stream as AsyncIterable<Uint8Array>) {
       size += chunk.byteLength
-      if (size > 50 * 1024 * 1024) throw new BadRequestException('鏂囦欢涓嶈兘瓒呰繃 50 MB')
+      if (size > 50 * 1024 * 1024) throw new BadRequestException('文件不能超过 50 MB')
       chunks.push(Buffer.from(chunk))
     }
-    if (!size) throw new BadRequestException('鏂囦欢鍐呭涓虹┖')
+    if (!size) throw new BadRequestException('文件内容为空')
     return Buffer.concat(chunks, size)
   }
 
+  /**
+   * 上传的参考图/素材：只做头部校验，尺寸过大时才降采样。
+   * 旧实现对每张图都做 png(level 9 + adaptiveFiltering + effort 6) 同步重编码，
+   * 5 MB 级设计稿要 2 秒以上（小机器更久），直接体现为“上传很慢”。
+   */
+  private async prepareUploadImage(data: Uint8Array, mimeType: string) {
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/avif'].includes(mimeType)) return data
+    let metadata: { width?: number; height?: number }
+    try {
+      metadata = await sharp(data, { limitInputPixels: 100_000_000 }).metadata()
+    } catch {
+      throw new BadRequestException('图片内容无效或格式无法处理')
+    }
+    const longEdge = Math.max(metadata.width || 0, metadata.height || 0)
+    if (!longEdge || longEdge <= MAX_UPLOAD_IMAGE_EDGE) return data
+    const resized = await sharp(data, { limitInputPixels: 100_000_000 })
+      .resize({ width: MAX_UPLOAD_IMAGE_EDGE, height: MAX_UPLOAD_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
+      .toBuffer()
+    return resized.byteLength < data.byteLength ? resized : data
+  }
+
+  /** 生成结果：保持轻量无损压缩，设置比原来快一倍以上。 */
   private async optimizeImage(data: Uint8Array, mimeType: string) {
     if (!['image/png', 'image/webp', 'image/avif'].includes(mimeType)) return data
     try {
       const image = sharp(data, { animated: true, limitInputPixels: 100_000_000 })
       const optimized = mimeType === 'image/png'
-        ? await image.png({ compressionLevel: 9, adaptiveFiltering: true, effort: 6 }).toBuffer()
+        ? await image.png({ compressionLevel: 6, effort: 2 }).toBuffer()
         : mimeType === 'image/webp'
-          ? await image.webp({ lossless: true, effort: 5, exact: true }).toBuffer()
-          : await image.avif({ lossless: true, effort: 4 }).toBuffer()
+          ? await image.webp({ lossless: true, effort: 3, exact: true }).toBuffer()
+          : await image.avif({ lossless: true, effort: 2 }).toBuffer()
       return optimized.byteLength < data.byteLength ? optimized : data
     } catch {
       throw new BadRequestException('鍥剧墖鍐呭鏃犳晥鎴栨牸寮忔棤娉曞鐞?')

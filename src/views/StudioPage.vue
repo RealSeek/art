@@ -111,6 +111,7 @@ import ProjectDetailDialog from '../components/projects/ProjectDetailDialog.vue'
 import ProjectsPanel from '../components/projects/ProjectsPanel.vue'
 import type { ImageTool, Inspiration } from '../components/creation/creation-shared'
 import { mergeLocalAssets } from '../utils/local-media-merge'
+import { compressImageForUpload } from '../utils/image-compress'
 import { useAuthStore } from '../stores/auth'
 import { useLocalMediaStore } from '../stores/local-media'
 import { useCatalogStore, type ChatQuickAction, type ChatRecommendation, type ChatUiPreset } from '../stores/catalog'
@@ -1166,7 +1167,9 @@ async function attachPastedImages(files: File[]) {
   pasting.value = true
   store.clearError()
   try {
-    const uploaded = await store.uploadFiles(files.slice(0, remaining), 'IMAGE', store.currentProjectId || undefined, 'reference')
+    // 与文件选择路径一致：先在本机降采样压缩，避免把几 MB 设计稿原样上传。
+    const prepared = await Promise.all(files.map((file) => compressImageForUpload(file)))
+    const uploaded = await store.uploadFiles(prepared.slice(0, remaining), 'IMAGE', store.currentProjectId || undefined, 'reference')
     creationAttachments.value = [...creationAttachments.value, ...uploaded]
     if (files.length > remaining) store.lastError = `参考图上限 ${limit} 张，超出部分已忽略`
   } catch (reason) {

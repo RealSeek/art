@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from 'vue'
 import type { StudioAsset, StudioMode } from '../../types'
+import { compressImageForUpload } from '../../utils/image-compress'
 
 export type StudioFilePurpose = 'chat-file' | 'creation' | 'mask' | 'audio' | 'library'
 type StudioUploadPurpose = 'attachment' | 'reference' | 'mask' | 'library'
@@ -66,8 +67,10 @@ export function useStudioFileUpload(state: StudioFileUploadState, actions: Studi
     actions.clearError()
     try {
       const request = studioFileRequest(filePurpose.value)
+      // 参考图/对话图片先在本机降采样，不必把 5 MB 设计稿原样上传。
+      const prepared = request.purpose === 'mask' ? files : await Promise.all(files.map((file) => compressImageForUpload(file)))
       const uploaded = await actions.uploadFiles(
-        files,
+        prepared,
         request.kind,
         actions.currentProjectId() || undefined,
         request.purpose,
