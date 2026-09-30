@@ -270,11 +270,16 @@ export class GenerationsService {
   private async assertImageAssets(userId: string, options: Record<string, unknown>) {
     const ids = Array.isArray(options.referenceAssetIds) ? options.referenceAssetIds.map(String) : []
     const maskId = typeof options.maskAssetId === 'string' ? options.maskAssetId : undefined
-    const allIds = [...new Set([...ids, ...(maskId ? [maskId] : [])])]
+    const audioIds = Array.isArray(options.audioAssetIds) ? options.audioAssetIds.map(String) : []
+    const allIds = [...new Set([...ids, ...audioIds, ...(maskId ? [maskId] : [])])]
     if (!allIds.length) return
     const assets = await this.prisma.asset.findMany({ where: { id: { in: allIds }, deletedAt: null, ...this.access.assetWhere(userId) }, select: { id: true, kind: true, mimeType: true } })
-    if (assets.length !== allIds.length) throw new NotFoundException('参考图片不存在或你没有访问权限')
-    if (assets.some((asset) => asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/'))) throw new BadRequestException('参考图和蒙版必须是图片文件')
+    if (assets.length !== allIds.length) throw new NotFoundException('参考素材不存在或你没有访问权限')
+    const audio = new Set(audioIds)
+    if (assets.some((asset) => audio.has(asset.id)
+      ? asset.kind !== 'AUDIO' || !asset.mimeType.toLowerCase().startsWith('audio/')
+      : asset.kind !== 'IMAGE' || !asset.mimeType.toLowerCase().startsWith('image/')))
+      throw new BadRequestException('参考图、蒙版必须是图片，参考音频必须是音频文件')
   }
   async get(userId: string, id: string): Promise<PublicGenerationDto> {
     const job = await this.prisma.generationJob.findFirst({ where: { id, userId }, select: publicGenerationDetailSelect })

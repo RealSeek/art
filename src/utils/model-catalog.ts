@@ -58,6 +58,12 @@ export type CatalogModel = {
       defaultDuration?: number
       defaultAspectRatio?: string
       pricing?: Record<string, number>
+      maxReferences?: number
+      maxAudioReferences?: number
+      referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON'
+      minDuration?: number
+      maxDuration?: number
+      resolutionLocked?: boolean
     }
   }
 }

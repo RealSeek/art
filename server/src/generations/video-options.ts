@@ -4,7 +4,16 @@ export type NormalizedVideoOptions = {
   resolution: string
   duration: number
   aspectRatio: string
+  referenceAssetIds: string[]
+  audioAssetIds: string[]
 }
+
+/**
+ * 参考素材传输方式：
+ * - INPUT_REFERENCE：multipart 的 input_reference 字段，单张参考图（旧行为）；
+ * - DATA_URL_JSON：JSON 的 images/audios 数组，使用 base64 Data URL。
+ */
+export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON'
 
 export type VideoCapabilityConfig = {
   resolutions: string[]
@@ -19,10 +28,20 @@ export type VideoCapabilityConfig = {
   contentPath: string
   pollIntervalMs: number
   maxPollSeconds: number
+  maxReferences: number
+  maxAudioReferences: number
+  referenceMode: VideoReferenceMode
+  minDuration: number
+  maxDuration: number
+  /** 分辨率由模型名绑定（如 MiniMax H3 变体），请求时不再发送 resolution。 */
+  resolutionLocked: boolean
 }
 
 export const MIN_VIDEO_DURATION_SECONDS = 1
 export const MAX_VIDEO_DURATION_SECONDS = 15
+/** 参考素材单文件上限（与上游文档一致：图片 30 MB、音频 15 MB）。 */
+export const MAX_VIDEO_REFERENCE_BYTES = 30 * 1024 * 1024
+export const MAX_VIDEO_AUDIO_BYTES = 15 * 1024 * 1024
 
 const DEFAULTS: VideoCapabilityConfig = {
   resolutions: ['720p', '1080p'],
@@ -37,6 +56,12 @@ const DEFAULTS: VideoCapabilityConfig = {
   contentPath: '/videos/{id}/content',
   pollIntervalMs: 3000,
   maxPollSeconds: 600,
+  maxReferences: 1,
+  maxAudioReferences: 0,
+  referenceMode: 'INPUT_REFERENCE',
+  minDuration: MIN_VIDEO_DURATION_SECONDS,
+  maxDuration: MAX_VIDEO_DURATION_SECONDS,
+  resolutionLocked: false,
 }
 
 function safePath(value: unknown, fallback: string) {
@@ -80,6 +105,12 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     contentPath: safePath(raw.contentPath, DEFAULTS.contentPath),
     pollIntervalMs: Math.max(500, Math.min(30000, Number(raw.pollIntervalMs) || DEFAULTS.pollIntervalMs)),
     maxPollSeconds: Math.max(30, Math.min(3600, Number(raw.maxPollSeconds) || DEFAULTS.maxPollSeconds)),
+    maxReferences: Math.max(0, Math.min(16, Number.isInteger(Number(raw.maxReferences)) ? Number(raw.maxReferences) : DEFAULTS.maxReferences)),
+    maxAudioReferences: Math.max(0, Math.min(8, Number.isInteger(Number(raw.maxAudioReferences)) ? Number(raw.maxAudioReferences) : DEFAULTS.maxAudioReferences)),
+    referenceMode: raw.referenceMode === 'DATA_URL_JSON' ? 'DATA_URL_JSON' : DEFAULTS.referenceMode,
+    minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(MAX_VIDEO_DURATION_SECONDS, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
+    maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(MAX_VIDEO_DURATION_SECONDS, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
+    resolutionLocked: raw.resolutionLocked === true,
   }
 }
 
@@ -88,11 +119,31 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   const resolution = String(options.resolution || capabilities.defaultResolution).toLowerCase()
   const duration = Math.round(Number(options.duration || capabilities.defaultDuration))
   const aspectRatio = String(options.aspectRatio || capabilities.defaultAspectRatio)
+  const referenceAssetIds = assetIds(options.referenceAssetIds)
+  const audioAssetIds = assetIds(options.audioAssetIds)
   if (!capabilities.resolutions.includes(resolution)) throw new BadRequestException('当前视频模型不支持该分辨率')
-  // 时长允许自定义，但统一限制在 1–15 秒；capabilities.durations 只作为前端档位建议。
-  if (!Number.isInteger(duration) || duration < MIN_VIDEO_DURATION_SECONDS || duration > MAX_VIDEO_DURATION_SECONDS) throw new BadRequestException(`视频时长仅支持 ${MIN_VIDEO_DURATION_SECONDS}-${MAX_VIDEO_DURATION_SECONDS} 秒`)
+  if (!Number.isInteger(duration) || duration < capabilities.minDuration || duration > capabilities.maxDuration) {
+    throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
+  }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
-  return { resolution, duration, aspectRatio }
+  if (referenceAssetIds.length > capabilities.maxReferences) {
+    throw new BadRequestException(capabilities.maxReferences
+      ? `当前视频模型最多支持 ${capabilities.maxReferences} 张参考图`
+      : '当前视频模型不支持参考图')
+  }
+  if (audioAssetIds.length > capabilities.maxAudioReferences) {
+    throw new BadRequestException(capabilities.maxAudioReferences
+      ? `当前视频模型最多支持 ${capabilities.maxAudioReferences} 段参考音频`
+      : '当前视频模型不支持参考音频')
+  }
+  if (audioAssetIds.length && !referenceAssetIds.length) throw new BadRequestException('参考音频必须搭配至少一张参考图')
+  return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds }
+}
+
+function assetIds(value: unknown) {
+  return Array.isArray(value)
+    ? [...new Set(value.map(String).filter((item) => /^[A-Za-z0-9_-]{1,100}$/.test(item)))].slice(0, 16)
+    : []
 }
 
 export function videoCreditCost(options: NormalizedVideoOptions, configuredCapabilities: unknown, fallback: number) {

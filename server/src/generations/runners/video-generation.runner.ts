@@ -11,7 +11,7 @@ import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-ht
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
-import { normalizeVideoOptions, videoCapabilities } from '../video-options'
+import { MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities } from '../video-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 
@@ -109,22 +109,26 @@ export class VideoGenerationRunner implements GenerationRunner {
       let payload: ProviderPayload = {}
       let providerJobId = task.providerJobId && task.providerChannelId === resolved.providerId ? task.providerJobId : undefined
       if (!providerJobId) {
-        const fields = {
+        const fields: Record<string, unknown> = {
           model: resolved.model,
           prompt,
-          resolution: normalized.resolution,
           duration: normalized.duration,
           aspect_ratio: normalized.aspectRatio,
+          ...(capabilities.resolutionLocked ? {} : { resolution: normalized.resolution }),
           ...(resolved.type === ProviderType.SUB2API || /minimax|hailuo/i.test(resolved.model) ? {} : {
             size: normalized.resolution,
             seconds: String(normalized.duration),
           }),
         }
-        const referenceAssetIds = Array.isArray(options.referenceAssetIds)
-          ? [...new Set(options.referenceAssetIds.map(String).filter((id) => /^[A-Za-z0-9_-]{1,100}$/.test(id)))].slice(0, 1)
-          : []
-        if (referenceAssetIds.length) {
-          const reference = await this.assets.readForUser(task.userId, referenceAssetIds[0])
+        if (capabilities.referenceMode === 'DATA_URL_JSON') {
+          // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
+          const images = await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图')
+          const audios = await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频')
+          if (images.length) fields.images = images
+          if (audios.length) fields.audios = audios
+          payload = await this.provider(resolved, capabilities.createPath, fields)
+        } else if (normalized.referenceAssetIds.length) {
+          const reference = await this.assets.readForUser(task.userId, normalized.referenceAssetIds[0])
           const form = new FormData()
           for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
           form.append('input_reference', new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), reference.name)
@@ -190,6 +194,18 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private localizedCostMicros(usdMicros: number, exchangeRateMicros: number) {
     return Math.min(2_000_000_000, Math.ceil(usdMicros * exchangeRateMicros / 1_000_000))
+  }
+
+  /** 将本地参考素材转成上游接受的 base64 Data URL，并在服务端提前拦截超大文件。 */
+  private async referenceDataUrls(userId: string, assetIds: string[], kind: 'image' | 'audio', maxBytes: number, label: string) {
+    const values: string[] = []
+    for (const assetId of assetIds) {
+      const asset = await this.assets.readForUser(userId, assetId)
+      if (kind === 'audio' && !asset.mimeType.startsWith('audio/')) throw new ProviderRequestError(`${label} ${asset.name} 不是音频文件`, 422)
+      if (asset.file.length > maxBytes) throw new ProviderRequestError(`${label} ${asset.name} 超过 ${Math.round(maxBytes / 1024 / 1024)} MB`, 413)
+      values.push(`data:${asset.mimeType};base64,${Buffer.from(asset.file).toString('base64')}`)
+    }
+    return values
   }
 
   private videoPath(template: string, id: string) {

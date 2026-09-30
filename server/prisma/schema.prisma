@@ -30,6 +30,7 @@ enum AssetKind {
   IMAGE
   VIDEO
   FILE
+  AUDIO
   PRODUCT_PACK
 }
 

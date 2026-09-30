@@ -9,16 +9,30 @@
         <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-prompt-row">
-            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeGenerationInput" />
+            <div v-if="mentionOpen && referenceMentions.length" class="creation-mention-menu" role="listbox" aria-label="插入参考素材">
+              <button v-for="(item, index) in referenceMentions" :key="item.token" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex }" @mousedown.prevent="insertMention(item)">
+                <img v-if="item.thumbnail" :src="item.thumbnail" alt="" />
+                <component :is="item.kind === 'audio' ? Music : ImageIcon" v-else :size="16" aria-hidden="true" />
+                <strong>{{ item.label }}</strong>
+                <small>{{ item.title }}</small>
+              </button>
+            </div>
+            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
           </div>
-          <div v-if="creationAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
+          <div v-if="creationAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
             <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
               <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
               <div v-else class="attachment-file-copy">
                 <span class="attachment-file-icon"><FileText :size="18" /></span>
                 <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
               </div>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="creationAttachments.splice(index, 1)"><X :size="13" /></button>
+              <span class="attachment-index-label">参考图{{ index }}</span>
+              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeCreationAttachment(index)"><X :size="13" /></button>
+            </article>
+            <article v-for="(asset, index) in audioAttachments" :key="asset.id" class="attachment-card attachment-card--audio">
+              <span class="attachment-audio-icon"><AudioLines :size="18" /></span>
+              <span class="attachment-index-label">参考音频{{ index }}</span>
+              <button class="attachment-remove" type="button" :aria-label="`移除参考音频 ${asset.title}`" title="移除参考音频" @click="audioAttachments.splice(index, 1)"><X :size="13" /></button>
             </article>
             <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
               <button type="button" class="attachment-mask-preview" :aria-label="regionEditAvailable ? '重新编辑蒙版区域' : `蒙版：${maskAttachment.title}`" :title="regionEditAvailable ? '重新编辑蒙版区域' : maskAttachment.title" :disabled="!regionEditAvailable" @click="openRegionEditor"><img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" /></button>
@@ -28,7 +42,8 @@
           </div>
           <div class="creation-controls">
             <div class="creation-control-track">
-              <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openFilePicker('creation')"><Plus :size="20" /></button>
+              <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
+              <button v-if="activeMode === 'videos' && audioReferenceLimit > 0" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
                 <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>
@@ -148,10 +163,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue'
+import { computed, nextTick, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
+  ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Music, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../AssetGrid.vue'
 import ModelCatalogPicker from '../ModelCatalogPicker.vue'
@@ -201,6 +216,10 @@ const props = defineProps<{
   outputFormat: string
   imageBackground: string
   creationAttachments: StudioAsset[]
+  audioAttachments: StudioAsset[]
+  referenceMentions: Array<{ token: string; label: string; kind: 'image' | 'audio'; thumbnail: string; title: string }>
+  audioReferenceLimit: number
+  imageReferenceLimit: number
   imageTools: ImageTool[]
   selectedImageToolId: string
   activeInspirations: Inspiration[]
@@ -215,6 +234,7 @@ const props = defineProps<{
   resizeGenerationInput: () => void
   collapseWorkspacePopovers: () => void
   openFilePicker: (purpose: 'chat-file' | 'creation' | 'mask' | 'library') => void
+  openCreationAttachmentPicker: (kind: 'image' | 'audio') => void
   openRegionEditor: () => void
   openRegionEditorForAsset: (asset: StudioAsset) => void
   switchCreationMode: (mode: 'images' | 'videos') => void
@@ -260,6 +280,74 @@ const creationOptionsMenu = ref<HTMLElement | null>(null)
 const inspirationRail = ref<HTMLElement | null>(null)
 const canScrollInspirationPrevious = ref(false)
 const canScrollInspirationNext = ref(false)
+
+const mentionOpen = ref(false)
+const mentionIndex = ref(0)
+const mentionQuery = ref('')
+
+const filteredMentions = computed(() => {
+  const query = mentionQuery.value.trim().toLowerCase()
+  if (!query) return props.referenceMentions
+  return props.referenceMentions.filter((item) => item.label.toLowerCase().includes(query) || item.title.toLowerCase().includes(query))
+})
+
+function handlePromptInput(event: Event) {
+  props.resizeGenerationInput()
+  const element = event.target as HTMLTextAreaElement
+  syncMentionMenu(element.value.slice(0, element.selectionStart ?? 0))
+}
+
+function syncMentionMenu(before: string) {
+  const match = /@([^\s@]{0,12})$/.exec(before)
+  mentionQuery.value = match ? match[1] : ''
+  mentionOpen.value = Boolean(match) && props.referenceMentions.length > 0
+  mentionIndex.value = 0
+}
+
+function closeMentionMenu() { mentionOpen.value = false }
+
+function insertMention(item: { token: string }) {
+  const element = generationInput.value
+  const caret = element?.selectionStart ?? generationPrompt.value.length
+  const before = generationPrompt.value.slice(0, caret)
+  const match = /@([^\s@]{0,12})$/.exec(before)
+  const start = match ? caret - match[0].length : caret
+  generationPrompt.value = `${generationPrompt.value.slice(0, start)}${item.token} ${generationPrompt.value.slice(caret)}`
+  mentionOpen.value = false
+  if (!element) return
+  const position = start + item.token.length + 1
+  void nextTick(() => { element.focus(); element.setSelectionRange(position, position) })
+}
+
+function handlePromptKeydown(event: KeyboardEvent) {
+  if (!mentionOpen.value || !filteredMentions.value.length) return
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    mentionIndex.value = (mentionIndex.value + step + filteredMentions.value.length) % filteredMentions.value.length
+    return
+  }
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    insertMention(filteredMentions.value[Math.min(mentionIndex.value, filteredMentions.value.length - 1)])
+    return
+  }
+  if (event.key === 'Escape') { event.preventDefault(); closeMentionMenu() }
+}
+
+/** 删除参考图后重排 prompt 里的 @参考图N 标记，避免指向错图。 */
+function removeCreationAttachment(index: number) {
+  if (!props.creationAttachments[index]) return
+  props.creationAttachments.splice(index, 1)
+  generationPrompt.value = generationPrompt.value
+    .replace(/@参考图(\d+)/g, (match, digits: string) => {
+      const position = Number(digits)
+      if (position === index) return ''
+      return position > index ? `@参考图${position - 1}` : match
+    })
+    .replace(/ {2,}/g, ' ')
+    .trimEnd()
+}
 
 function syncInspirationNavigation() {
   const rail = inspirationRail.value

@@ -5,7 +5,7 @@ import type { FastifyRequest } from 'fastify'
 import { AuthGuard } from '../auth/auth.guard'
 import { CurrentUser, AuthenticatedUser } from '../common/request-user'
 import { PrismaService } from '../prisma/prisma.service'
-import { assetDisposition, AssetsService, resolveRasterImageMime, resolveVideoMime } from './assets.service'
+import { assetDisposition, AssetsService, resolveAudioMime, resolveRasterImageMime, resolveVideoMime } from './assets.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { publicAssetSelect, toPublicAsset } from './public-asset.dto'
 
@@ -38,6 +38,7 @@ export class AssetsController {
     if (!part) throw new BadRequestException('请选择文件')
     const imageMimeType = kind === AssetKind.IMAGE ? resolveRasterImageMime(part.filename, part.mimetype) : null
     const videoMimeType = kind === AssetKind.VIDEO ? resolveVideoMime(part.filename, part.mimetype) : null
+    const audioMimeType = kind === AssetKind.AUDIO ? resolveAudioMime(part.filename, part.mimetype) : null
     if (kind === AssetKind.IMAGE && !imageMimeType) {
       part.file.resume()
       throw new BadRequestException('请选择 JPG、PNG、WebP、GIF 或 AVIF 图片')
@@ -46,7 +47,11 @@ export class AssetsController {
       part.file.resume()
       throw new BadRequestException('请选择 MP4、WebM 或 MOV 视频')
     }
-    const asset = await this.assets.storeUpload(user.id, { stream: part.file, name: part.filename, mimeType: imageMimeType || videoMimeType || part.mimetype || 'application/octet-stream', kind, projectId, metadata: { purpose } })
+    if (kind === AssetKind.AUDIO && !audioMimeType) {
+      part.file.resume()
+      throw new BadRequestException('请选择 MP3、M4A、WAV、AAC、OGG、Opus 或 FLAC 音频')
+    }
+    const asset = await this.assets.storeUpload(user.id, { stream: part.file, name: part.filename, mimeType: imageMimeType || videoMimeType || audioMimeType || part.mimetype || 'application/octet-stream', kind, projectId, metadata: { purpose } })
     return toPublicAsset(asset)
   }
 

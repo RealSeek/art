@@ -34,6 +34,10 @@ inlineMimeTypes.add('video/quicktime')
 const rasterMimeTypes = new Set(Object.values(rasterMimeByExtension))
 const videoMimeByExtension: Record<string, string> = { '.mov': 'video/quicktime', '.mp4': 'video/mp4', '.webm': 'video/webm' }
 const videoMimeTypes = new Set(Object.values(videoMimeByExtension))
+// 音频只作为视频参考素材上传，不参与生成任务的结果类型。
+const audioMimeByExtension: Record<string, string> = { '.aac': 'audio/aac', '.flac': 'audio/flac', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.opus': 'audio/opus', '.wav': 'audio/wav' }
+const audioMimeTypes = new Set([...Object.values(audioMimeByExtension), 'audio/webm'])
+for (const mimeType of audioMimeTypes) inlineMimeTypes.add(mimeType)
 const mediaKinds = new Set<AssetKind>([AssetKind.IMAGE, AssetKind.VIDEO, AssetKind.PRODUCT_PACK])
 const permanentPurposes = new Set(['chat-home-banner', 'tool-icon', 'inspiration-cover', 'inspiration-preview-video', 'inspiration-preview-image'])
 
@@ -43,6 +47,10 @@ export function resolveRasterImageMime(name: string, suppliedMimeType: string) {
 
 export function resolveVideoMime(name: string, suppliedMimeType: string) {
   return videoMimeByExtension[extname(name).toLowerCase()] || (videoMimeTypes.has(suppliedMimeType.toLowerCase()) ? suppliedMimeType.toLowerCase() : null)
+}
+
+export function resolveAudioMime(name: string, suppliedMimeType: string) {
+  return audioMimeByExtension[extname(name).toLowerCase()] || (audioMimeTypes.has(suppliedMimeType.toLowerCase()) ? suppliedMimeType.toLowerCase() : null)
 }
 
 export function assetDisposition(mimeType: string, name: string) {

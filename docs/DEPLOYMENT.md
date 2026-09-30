@@ -323,6 +323,15 @@ Invoke-RestMethod http://localhost:8080/v1/health/ready
 - 服务端校验口径为 1–15 秒，与模型 `videoCapabilities.durations` 无关；声明值只用于前端档位建议，未声明的档位仍可自定义选择。
 - 计费仍按 `pricing[分辨率:时长]` 查找，命中不到时按 `分辨率倍率 × ceil(时长/5)` 估算。
 
+### 5.5 视频参考素材（图片 / 音频）
+
+MiniMax H3 按上游文档（`/v1/videos`）实现，能力写在 `videoCapabilities`：
+
+- `maxReferences`（H3 为 9）、`maxAudioReferences`（H3 为 3）、`referenceMode: DATA_URL_JSON`、`minDuration`/`maxDuration`（H3 为 5–15）、`resolutionLocked`（H3 分辨率由模型名绑定，不再发送 `resolution`）。
+- 参考素材以 base64 Data URL 随 JSON 发送（图片单文件 30 MB、音频 15 MB）；少于上限时保持旧的 multipart `input_reference` 单图行为。
+- 音频必须搭配至少一张参考图，否则前后端都会拒绝。
+- `AssetKind` 新增 `AUDIO`；音频只作为参考素材，不参与生成结果类型，也不受媒体保留期限制。
+
 ## 6. 手工 Node.js 部署
 
 不使用 Docker 时，需要自行提供 PostgreSQL 17、Redis 7、Node.js 20.19+（推荐 22）、pnpm 和 Nginx。

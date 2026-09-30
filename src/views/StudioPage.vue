@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:audio-attachments="audioAttachments" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
 
     <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
 
@@ -230,6 +230,7 @@ const creationPluginCapability = computed<PluginCapability>(() => activeMode.val
 const generationPrompt = ref('')
 const creationAttachments = ref<StudioAsset[]>([])
 const maskAttachment = ref<StudioAsset | null>(null)
+const audioAttachments = ref<StudioAsset[]>([])
 const regionEditor = ref<{ src: string; format: MaskFormat } | null>(null)
 const maskUploading = ref(false)
 const pendingRegionEditor = ref(false)
@@ -261,7 +262,7 @@ const activeImageCapabilities = computed(() => {
 const activeVideoCapabilities = computed(() => {
   const model = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
   const raw = model?.options?.videoCapabilities || {}
-  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {} }
+  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {}, maxReferences: Math.max(0, raw.maxReferences ?? 1), maxAudioReferences: Math.max(0, raw.maxAudioReferences || 0), minDuration: Math.max(1, raw.minDuration || 1), maxDuration: Math.min(MAX_VIDEO_DURATION_SECONDS, raw.maxDuration || MAX_VIDEO_DURATION_SECONDS) }
 })
 function backgroundLabel(value: string) { return value === 'transparent' ? '透明背景' : value === 'opaque' ? '不透明背景' : '自动背景' }
 /** 画质档位由模型尺寸清单推导，模型只支持 1K 时就只展示 1K。 */
@@ -277,12 +278,36 @@ function syncResolutionFromSize(size: unknown) {
   const tier = imageResolutionTier(size)
   if (availableResolutionTiers.value.includes(tier)) imageResolution.value = tier
 }
-function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!Number.isInteger(videoDuration.value) || videoDuration.value < 1 || videoDuration.value > MAX_VIDEO_DURATION_SECONDS) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
-/** 视频时长档位：模型声明时长 ∪ 5/10/15，超出 15 秒不展示。 */
-const videoDurationPresets = computed(() => videoDurationOptions(activeVideoCapabilities.value.durations))
-const videoDurationLimit = MAX_VIDEO_DURATION_SECONDS
+function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
+/** 视频时长档位：模型声明时长 ∪ 5/10/15，限制在该模型允许的区间内。 */
+const videoDurationPresets = computed(() => videoDurationOptions(activeVideoCapabilities.value.durations, activeVideoCapabilities.value.minDuration, activeVideoCapabilities.value.maxDuration))
+const videoDurationLimit = computed(() => activeVideoCapabilities.value.maxDuration)
 function setCustomVideoDuration(value: string) {
-  videoDuration.value = clampVideoDuration(value, activeVideoCapabilities.value.defaultDuration)
+  const caps = activeVideoCapabilities.value
+  videoDuration.value = clampVideoDuration(value, caps.defaultDuration, caps.minDuration, caps.maxDuration)
+}
+
+/** 参考素材上限与 @ 引用列表。 */
+const imageReferenceLimit = computed(() => activeMode.value === 'videos' ? activeVideoCapabilities.value.maxReferences : 4)
+const audioReferenceLimit = computed(() => activeMode.value === 'videos' ? activeVideoCapabilities.value.maxAudioReferences : 0)
+const referenceMentions = computed(() => [
+  ...creationAttachments.value.map((asset, index) => ({ token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const, thumbnail: asset.contentUrl || '', title: asset.title })),
+  ...audioAttachments.value.map((asset, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: '', title: asset.title })),
+])
+function openCreationAttachmentPicker(kind: 'image' | 'audio') {
+  if (kind === 'audio') {
+    if (!requireAuth('/video')) return
+    if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
+    if (audioAttachments.value.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
+    if (!creationAttachments.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
+    openFilePicker('audio')
+    return
+  }
+  if (activeMode.value === 'videos' && creationAttachments.value.length >= imageReferenceLimit.value) {
+    store.lastError = imageReferenceLimit.value ? `当前视频模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前视频模型不支持参考图'
+    return
+  }
+  openFilePicker('creation')
 }
 const activeCreationCapability = computed<ModelCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : 'IMAGE')
 const activeCreationModel = computed(() => activeMode.value === 'videos' ? videoModel.value : imageModel.value)
@@ -413,6 +438,7 @@ const { fileAccept, uploading, setFileInput, openFilePicker, handleFiles } = use
   activeMode,
   chatAttachments: attachments,
   creationAttachments,
+  audioAttachments,
   maskAttachment,
 }, {
   requireAuth,
@@ -873,8 +899,8 @@ async function submitGeneration() {
   if (!activeCreationModelAvailable.value) { store.lastError = `暂无可用的${activeMode.value === 'videos' ? '视频' : activeMode.value === 'commerce' ? '商品视觉' : '图片'}模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥`; return }
   if (selectedImageTool.value && !creationAttachments.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; openFilePicker('creation'); return }
   try {
-    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
-    generationPrompt.value = ''; creationAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
+    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), maskAssetId: maskAttachment.value?.id, audioAssetIds: audioAttachments.value.map((asset) => asset.id), outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
+    generationPrompt.value = ''; creationAttachments.value = []; audioAttachments.value = []; maskAttachment.value = null; selectedImageToolId.value = ''
     if (submittedMode === 'commerce') return
     await openGenerationConversation(job.id)
   } catch { /* Store exposes the server error in-page. */ }

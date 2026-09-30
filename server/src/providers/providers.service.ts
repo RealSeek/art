@@ -861,11 +861,28 @@ export class ProvidersService implements OnModuleInit {
     }
     if (candidate.capability === ModelCapability.VIDEO) {
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
-      const resolution = candidate.id.match(/minimaxh3-(\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
+      // MiniMax H3：分辨率由模型名绑定，支持 5–15 秒与 9 张参考图 + 3 段参考音频（见上游文档）。
+      const h3 = /minimaxh3/i.test(candidate.id)
+      const resolution = candidate.id.match(/minimaxh3-(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
+      const durations = h3 ? [5, 10, 15] : [5, 10]
       return {
         apiProtocol,
         discovery,
-        videoCapabilities: { resolutions: [resolution], durations: [5, 10], aspectRatios: ['16:9', '9:16', '1:1'], defaultResolution: resolution, defaultDuration: 5, defaultAspectRatio: '16:9', pricing: { [`${resolution}:5`]: perSecond * 5, [`${resolution}:10`]: perSecond * 10 }, createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content', pollIntervalMs: 3000, maxPollSeconds: 600 },
+        videoCapabilities: {
+          resolutions: [resolution],
+          durations,
+          aspectRatios: h3 ? ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] : ['16:9', '9:16', '1:1'],
+          defaultResolution: resolution,
+          defaultDuration: 5,
+          defaultAspectRatio: '16:9',
+          pricing: Object.fromEntries(durations.map((seconds) => [`${resolution}:${seconds}`, perSecond * seconds])),
+          createPath: '/videos',
+          statusPath: '/videos/{id}',
+          contentPath: '/videos/{id}/content',
+          pollIntervalMs: 3000,
+          maxPollSeconds: 600,
+          ...(h3 ? { maxReferences: 9, maxAudioReferences: 3, referenceMode: 'DATA_URL_JSON' as const, minDuration: 5, maxDuration: 15, resolutionLocked: true } : {}),
+        },
       }
     }
     return { apiProtocol, discovery, agentEnabled: candidate.agentCapabilities?.eligible !== false, agentCapabilities: candidate.agentCapabilities }

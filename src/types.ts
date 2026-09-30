@@ -9,7 +9,7 @@ export interface AssistantProfile { id: string; name: string; description: strin
 export interface KnowledgeBaseAssetLink { assetId: string; chunkCount: number; asset: { id: string; name: string; mimeType: string; createdAt: string } }
 export interface KnowledgeBaseSummary { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; assets?: KnowledgeBaseAssetLink[]; _count?: { assets: number; assistants: number } }
 
-export type AssetKind = 'image' | 'video' | 'text' | 'product-pack'
+export type AssetKind = 'image' | 'video' | 'audio' | 'text' | 'product-pack'
 
 export interface WebSearchSource {
   title: string
@@ -203,6 +203,7 @@ export interface GenerationOptions {
   style?: string
   modules?: number
   referenceAssetIds?: string[]
+  audioAssetIds?: string[]
   maskAssetId?: string
   creationType?: string
   platform?: string
