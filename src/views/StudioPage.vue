@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:audio-attachments="audioAttachments" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" v-model:mask-attachment="maskAttachment" v-model:audio-attachments="audioAttachments" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="creationAttachments" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
 
     <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
 
@@ -235,6 +235,7 @@ const maskAttachment = ref<StudioAsset | null>(null)
 const audioAttachments = ref<StudioAsset[]>([])
 const regionEditor = ref<{ src: string; format: MaskFormat } | null>(null)
 const maskUploading = ref(false)
+const pasting = ref(false)
 const pendingRegionEditor = ref(false)
 const imageModel = ref('')
 const videoModel = ref('')
@@ -495,7 +496,10 @@ const regionEditWorkerTarget = computed(() => Boolean(selectedImageTool.value &&
 const regionEditAvailable = computed(() => activeMode.value === 'images' && regionEditAvailableFor(activeImageModel.value, { worker: regionEditWorkerTarget.value }))
 const hasCreationInput = computed(() => Boolean(generationPrompt.value.trim()) || Boolean(selectedImageTool.value && creationAttachments.value.length))
 const canSubmitCreation = computed(() => hasCreationInput.value && activeCreationModelAvailable.value)
-const creationPromptPlaceholder = computed(() => selectedImageTool.value?.options?.placeholder || (activeMode.value === 'images' ? '描述你想要的图片' : activeMode.value === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页'))
+const creationPromptPlaceholder = computed(() => {
+  const base = selectedImageTool.value?.options?.placeholder || (activeMode.value === 'images' ? '描述你想要的图片' : activeMode.value === 'videos' ? '描述你想要的视频' : '描述你想制作的商品素材包或详情页')
+  return creationAttachments.value.length ? base : `${base} · 可直接粘贴参考图`
+})
 const modeAssets = computed(() => mergeLocalAssets(store.recentAssets, localOnlyAssets.value).filter((asset) => asset.source === 'generated' && (activeMode.value === 'images' ? asset.kind === 'image' : activeMode.value === 'videos' ? asset.kind === 'video' : asset.kind === 'product-pack')))
 const visibleModeAssets = computed(() => modeAssets.value.slice(0, modeAssetLimit.value))
 const commerceRuns = computed(() => {
@@ -628,6 +632,7 @@ async function syncTransferredPrompt() {
 
 onMounted(async () => {
   document.addEventListener('xinyue:close-popovers', closeWorkspacePopovers)
+  window.addEventListener('paste', handleCreationPaste)
   await syncTransferredPrompt()
   const inspirationLoad = activeMode.value === 'images' ? Promise.all([loadInspirations('IMAGE'), loadImageTools()]) : activeMode.value === 'videos' ? Promise.all([loadInspirations('VIDEO'), loadImageTools()]) : activeMode.value === 'commerce' ? loadInspirations('COMMERCE') : Promise.resolve()
   await Promise.all([catalog.load(), inspirationLoad, loadModelCatalog({ applyDefaults: true, force: true }), auth.isAuthenticated ? loadAssistants() : Promise.resolve(), localMedia.hydrate()])
@@ -652,6 +657,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   document.removeEventListener('xinyue:close-popovers', closeWorkspacePopovers)
+  window.removeEventListener('paste', handleCreationPaste)
   voiceRecognizer.value?.stop()
   window.removeEventListener('resize', syncInspirationNavigation)
   window.removeEventListener('resize', positionCreationMenu)
@@ -1136,6 +1142,39 @@ async function useInspiration(item: Inspiration | null) {
   generationInput.value?.focus({ preventScroll: true })
 }
 async function deleteAsset(assetId: string) { try { if (localMedia.savedIds.has(assetId) && !store.recentAssets.some((asset) => asset.id === assetId)) { await localMedia.removeLocal(assetId); return } await store.deleteAsset(assetId) } catch (reason) { store.lastError = reason instanceof Error ? reason.message : '文件删除失败' } }
+
+/** 生图/视频创作页支持直接粘贴图片作为参考图（Ctrl+V）。 */
+function handleCreationPaste(event: ClipboardEvent) {
+  if (!['images', 'videos', 'commerce'].includes(activeMode.value)) return
+  const files = [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+  if (!files.length) return
+  event.preventDefault()
+  void attachPastedImages(files)
+}
+
+async function attachPastedImages(files: File[]) {
+  if (!requireAuth(activeMode.value === 'images' ? '/image' : activeMode.value === 'videos' ? '/video' : '/commerce')) return
+  const limit = imageReferenceLimit.value
+  const remaining = Math.max(0, limit - creationAttachments.value.length)
+  if (!remaining) {
+    store.lastError = limit ? `当前模型最多支持 ${limit} 张参考图` : '当前模型不支持参考图'
+    return
+  }
+  pasting.value = true
+  store.clearError()
+  try {
+    const uploaded = await store.uploadFiles(files.slice(0, remaining), 'IMAGE', store.currentProjectId || undefined, 'reference')
+    creationAttachments.value = [...creationAttachments.value, ...uploaded]
+    if (files.length > remaining) store.lastError = `参考图上限 ${limit} 张，超出部分已忽略`
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '粘贴的图片上传失败'
+  } finally {
+    pasting.value = false
+  }
+}
 async function saveAssetLocally(asset: StudioAsset) {
   try {
     await localMedia.saveAsset(asset)
