@@ -8,7 +8,10 @@ import { GenerationOutputService } from '../generation-output.service'
 import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
 import { readResponseBytes } from '../../common/response-bytes'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-http'
-import { detectImageFormat, identifyImageFormat, imageFormatMetadata, imageResolutionTier, isGeminiImageModel, normalizeImageOptions } from '../image-options'
+import { customImageSize, detectImageFormat, identifyImageFormat, imageFormatMetadata, imageResolutionTier, isGeminiImageModel, normalizeImageOptions } from '../image-options'
+import type sharpFactory from 'sharp'
+
+const sharp = require('sharp') as typeof sharpFactory
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 import { ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
@@ -89,6 +92,8 @@ export class ImageGenerationRunner implements GenerationRunner {
           return this.geminiImage(task, resolved, singlePrompt, imageOptions)
         }
         const fields = { model: resolved.model, prompt: singlePrompt, n, size: imageOptions.size, quality: imageOptions.quality, output_format: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { output_compression: imageOptions.outputCompression }) }
+        const maskedSize = await this.maskedEditSize(task, imageOptions)
+        if (maskedSize) fields.size = maskedSize
         if (!imageOptions.referenceAssetIds.length) return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', fields, Math.max(resolved.timeoutMs, 300_000)))
         const form = new FormData()
         for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
@@ -255,6 +260,29 @@ export class ImageGenerationRunner implements GenerationRunner {
     catch (error) { throw new ImageProviderError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ImageProviderError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
+  }
+
+  /** 参考图/蒙版的真实像素尺寸（读取失败时返回 null）。 */
+  private async referenceDimensions(userId: string, assetId: string) {
+    try {
+      const asset = await this.assets.readForUser(userId, assetId)
+      const metadata = await sharp(asset.file).metadata()
+      return metadata.width && metadata.height ? { width: metadata.width, height: metadata.height } : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 带蒙版的局部编辑要求尺寸与参考图完全一致（OpenAI 会校验图片与蒙版尺寸），
+   * 因此蒙版场景直接用参考图原始像素尺寸，其余情况交给客户端选择的比例/档位。
+   */
+  private async maskedEditSize(task: GenerationJob, options: ReturnType<typeof normalizeImageOptions>) {
+    if (!options.maskAssetId || !options.referenceAssetIds.length) return null
+    const dimensions = await this.referenceDimensions(task.userId, options.referenceAssetIds[0])
+    if (!dimensions) return null
+    const size = `${dimensions.width}x${dimensions.height}`
+    return customImageSize(size) ? size : null
   }
 
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {

@@ -104,7 +104,14 @@ const IMAGE_MASK_PATTERN = /gpt-image|dall-?e|[-_]edit\b|inpaint/i
 const IMAGE_REFERENCE_PATTERN = /gpt-image|dall-?e|grok-imagine-image|seedream|flux|qwen-image|nano-?banana|imagen|edit|inpaint/i
 /** 已知支持多档输出尺寸的图片模型家族；其余按单档 1K 处理。 */
 const IMAGE_TIERED_PATTERN = /gpt-image|dall-?e|gemini|imagen|seedream|flux|qwen-image|nano-?banana|[-_]edit|inpaint/i
-const IMAGE_RESOLUTION_SIZES = ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096']
+const IMAGE_RESOLUTION_SIZES = [
+  // 1K
+  '1024x1024', '1280x720', '720x1280', '1536x1024', '1024x1536',
+  // 2K
+  '2048x2048', '2048x1152', '1152x2048', '2016x1344', '1344x2016',
+  // 4K（上游单图上限约 829 万像素）
+  '2880x2880', '3840x2160', '2160x3840', '3520x2352', '2352x3520',
+]
 const AUTO_SYNC_PROVIDER_TYPES: ProviderType[] = [ProviderType.OPENAI, ProviderType.NEW_API, ProviderType.SUB2API, ProviderType.OPENAI_COMPATIBLE]
 
 type UserModelInput = {

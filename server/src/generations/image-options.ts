@@ -33,12 +33,34 @@ export type ImageCapabilityConfig = {
 
 const OUTPUT_FORMATS = new Set<ImageOutputFormat>(['png', 'jpeg', 'webp'])
 const BACKGROUNDS = new Set<ImageBackground>(['auto', 'opaque', 'transparent'])
+/** 上游允许的自定义尺寸：每条边 256–3840、16 的倍数、总像素 65.5万–829万、长短比 ≤ 3:1。 */
+const CUSTOM_SIZE_LIMITS = { minEdge: 256, maxEdge: 3840, minPixels: 655_360, maxPixels: 8_294_400, maxRatio: 3 }
+
+export function customImageSize(value: string) {
+  const match = /^(\d{3,4})x(\d{3,4})$/.exec(value.trim().toLowerCase())
+  if (!match) return null
+  const width = Number(match[1])
+  const height = Number(match[2])
+  const edge = Math.max(width, height)
+  const shortEdge = Math.min(width, height)
+  const pixels = width * height
+  if (width % 16 || height % 16) return null
+  if (edge > CUSTOM_SIZE_LIMITS.maxEdge || shortEdge < CUSTOM_SIZE_LIMITS.minEdge) return null
+  if (pixels < CUSTOM_SIZE_LIMITS.minPixels || pixels > CUSTOM_SIZE_LIMITS.maxPixels) return null
+  if (edge / shortEdge > CUSTOM_SIZE_LIMITS.maxRatio) return null
+  return `${width}x${height}`
+}
 const DEFAULT_CAPABILITIES: ImageCapabilityConfig = { sizes: ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096'], qualities: ['low', 'medium', 'high'], outputFormats: ['png', 'jpeg', 'webp'], backgrounds: ['auto', 'opaque', 'transparent'], maxCount: 4, defaultSize: '1024x1024', defaultQuality: 'medium', supportsReference: true, supportsMask: false, resolutionPricing: {} }
 
+/**
+ * 分辨率档位按总像素划分，与上游 1K/2K/4K 价格档一致：
+ * 1K ≤ 2M 像素（1024x1024、1280x720、1024x1536），2K ≤ 6M（2048x2048、2016x1344、2048x1152），
+ * 其余为 4K（2880x2880、3520x2352、3840x2160）。
+ */
 export function imageResolutionTier(size: string) {
   const [width, height] = size.toLowerCase().split('x').map(Number)
-  const edge = Math.max(width || 0, height || 0)
-  return edge >= 4096 ? '4K' : edge >= 2048 ? '2K' : '1K'
+  const pixels = (width || 0) * (height || 0)
+  return pixels > 6_000_000 ? '4K' : pixels > 2_000_000 ? '2K' : '1K'
 }
 
 function pricingMap(value: unknown) {
@@ -73,16 +95,20 @@ export function imageCreditCost(size: string, configuredCapabilities: unknown, f
 
 export function normalizeImageOptions(options: Record<string, unknown>, configuredCapabilities?: unknown): NormalizedImageOptions {
   const capabilities = imageCapabilities(configuredCapabilities)
-  const size = String(options.size || capabilities.defaultSize)
+  const requestedSize = String(options.size || capabilities.defaultSize)
   const quality = String(options.quality || capabilities.defaultQuality).toLowerCase()
   const count = Math.max(1, Math.min(10, Number(options.count || 1)))
-  if (!capabilities.sizes.includes(size)) throw new BadRequestException('当前图片模型不支持该尺寸')
+  const referenceAssetIds = Array.isArray(options.referenceAssetIds) ? [...new Set(options.referenceAssetIds.map(String).filter((item) => /^[a-zA-Z0-9_-]{1,100}$/.test(item)))].slice(0, 4) : []
+  const maskAssetId = typeof options.maskAssetId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(options.maskAssetId) ? options.maskAssetId : undefined
+  // 声明尺寸直接放行；带参考图的编辑请求额外允许按参考图比例发送自定义尺寸（与上游限制一致）。
+  const declaredSize = capabilities.sizes.includes(requestedSize)
+  const customSize = declaredSize ? null : customImageSize(requestedSize)
+  if (!declaredSize && !(customSize && referenceAssetIds.length && capabilities.supportsReference)) throw new BadRequestException('当前图片模型不支持该尺寸')
+  const size = declaredSize ? requestedSize : customSize!
   if (!capabilities.qualities.includes(quality)) throw new BadRequestException('当前图片模型不支持该质量')
   if (count > capabilities.maxCount) throw new BadRequestException(`当前图片模型最多一次生成 ${capabilities.maxCount} 张`)
   const rawFormat = String(options.outputFormat || capabilities.outputFormats[0] || 'png').toLowerCase().replace('jpg', 'jpeg') as ImageOutputFormat
   const rawBackground = String(options.background || capabilities.backgrounds[0] || 'auto').toLowerCase() as ImageBackground
-  const referenceAssetIds = Array.isArray(options.referenceAssetIds) ? [...new Set(options.referenceAssetIds.map(String).filter((item) => /^[a-zA-Z0-9_-]{1,100}$/.test(item)))].slice(0, 4) : []
-  const maskAssetId = typeof options.maskAssetId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(options.maskAssetId) ? options.maskAssetId : undefined
   if (referenceAssetIds.length && !capabilities.supportsReference) throw new BadRequestException('当前图片模型不支持参考图')
   if (maskAssetId && !capabilities.supportsMask) throw new BadRequestException('当前图片模型不支持蒙版编辑')
   if (maskAssetId && !referenceAssetIds.length) throw new BadRequestException('使用蒙版前请先添加参考图')

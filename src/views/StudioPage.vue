@@ -88,7 +88,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from 'vue'
 import { catalogModelKey, catalogModelLabel, findCatalogModel, isAgentModelEligible, type CatalogModel, type ModelCapability } from '../utils/model-catalog'
-import { availableImageTiers, imageResolutionTier, pickImageSize, type ImageResolutionTier } from '../utils/image-resolution'
+import { availableImageTiers, imageResolutionTier, imageSizeForReferenceRatio, pickImageSize, type ImageResolutionTier } from '../utils/image-resolution'
 import { MAX_VIDEO_DURATION_SECONDS, clampVideoDuration, videoDurationOptions, } from '../utils/video-duration'
 import { groupVideoModels, videoModelVariant, videoModelVariants } from '../utils/video-model-variants'
 import { useRoute, useRouter } from 'vue-router'
@@ -510,6 +510,23 @@ const pendingVideoRuns = computed(() => {
     .filter((run) => isGenerationActive(run.status))
     .sort((left, right) => right.createdAt - left.createdAt)
 })
+/** 参考图宽高比（仅用于自动比例时跟随参考图，图片尺寸由浏览器解码得到）。 */
+const referenceRatios = reactive<Record<string, number>>({})
+const activeReferenceRatio = computed(() => {
+  for (const asset of creationAttachments.value) {
+    const ratio = referenceRatios[asset.id]
+    if (ratio) return ratio
+  }
+  return null
+})
+watch(() => creationAttachments.value.map((asset) => asset.id).join('|'), () => {
+  for (const asset of creationAttachments.value) {
+    if (referenceRatios[asset.id] || !asset.contentUrl || !asset.mimeType?.startsWith('image/')) continue
+    const image = new Image()
+    image.onload = () => { if (image.naturalWidth && image.naturalHeight) referenceRatios[asset.id] = image.naturalWidth / image.naturalHeight }
+    image.src = asset.contentUrl
+  }
+}, { immediate: true })
 const localMedia = useLocalMediaStore()
 /** 本机副本：服务器副本已被清理的素材仍能在这里浏览与下载。 */
 const localOnlyAssets = computed(() => {
@@ -549,6 +566,10 @@ const creationMenuOptions = computed(() => {
 function creationOptionLabel(option: string) {
   if (creationMenu.value === 'model') return catalogModelLabel(catalogModels.value, option, activeCreationCapability.value)
   if (creationMenu.value === 'imageResolution') return resolutionOptionLabel(option)
+  if (creationMenu.value === 'size' && option === '自动' && activeReferenceRatio.value) {
+    const followed = imageSizeForReferenceRatio(activeReferenceRatio.value, imageResolution.value)
+    if (followed) return `自动 · 跟随参考图 ${followed}`
+  }
   return option
 }
 
@@ -1142,6 +1163,12 @@ function imageRatioForSize(value: string) {
 }
 function imageSizeForSelection() {
   const caps = activeImageCapabilities.value
+  // 自动比例 + 参考图：输出尺寸跟随参考图宽高比（上游 size 决定输出比例），档位仍由用户选择。
+  const ratio = activeReferenceRatio.value
+  if (autoMode.value === '自动' && ratio && caps.supportsReference) {
+    const followed = imageSizeForReferenceRatio(ratio, imageResolution.value)
+    if (followed) return followed
+  }
   return pickImageSize(caps.sizes, imageResolution.value, autoMode.value, caps.defaultSize)
 }
 function providerOutputFormat(value: typeof outputFormat.value) { return value === 'JPEG' ? 'jpeg' : value === 'WebP' ? 'webp' : 'png' as const }
