@@ -888,3 +888,10 @@ html[data-studio-theme="light"] .chat-composer:focus-within {
   .image-result-actions { opacity: 1; transform: none; }
 }
 
+
+/* ============ 生成进度（视频任务卡片 / 对话内的生成中提示） ============ */
+.image-generation-progress { background: rgba(255, 255, 255, .12); border-radius: 99px; height: 4px; margin-top: 10px; overflow: hidden; position: relative; width: min(320px, 74%); z-index: 1; }
+.image-generation-progress > span { background: var(--studio-brand); border-radius: 99px; display: block; height: 100%; transition: width .5s ease; }
+.video-run-card__progress { background: rgba(255, 255, 255, .12); border-radius: 99px; height: 4px; margin-top: 6px; overflow: hidden; width: min(240px, 70%); }
+.video-run-card__progress > span { background: var(--studio-brand); border-radius: 99px; display: block; height: 100%; transition: width .5s ease; }
+html[data-studio-theme="light"] .image-generation-progress, html[data-studio-theme="light"] .video-run-card__progress { background: rgba(0, 0, 0, .1); }

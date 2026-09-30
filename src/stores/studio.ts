@@ -19,11 +19,12 @@ async function waitForServerJob(jobId: string, onEvent?: (job: ServerJob) => voi
   try {
     return await streamApiEvents<ServerJob>(`/generations/${jobId}/events`, onEvent)
   } catch {
-    for (let attempt = 0; attempt < 180; attempt += 1) {
+    // 上游视频任务可能持续数十分钟；快照流不可用时改为按秒轮询直到终态。
+    for (let attempt = 0; attempt < 7200; attempt += 1) {
       const job = await api<ServerJob>(`/generations/${jobId}`)
       onEvent?.(job)
       if (terminalJob(job)) return job
-      await wait(1000)
+      await wait(2000)
     }
     throw new Error('任务处理超时，请稍后重新打开查看')
   }
@@ -146,6 +147,7 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
     error: job.errorMessage || (job.status === 'CANCELLED' ? '任务已取消' : ''),
     assets: (job.outputs || []).map((output) => mapAsset(output.asset)),
     request,
+    progress: Number.isFinite(Number(options.progress)) ? Math.max(0, Math.min(100, Math.round(Number(options.progress)))) : undefined,
     createdAt: Date.parse(job.createdAt) || Date.now(),
   }
 }
@@ -604,10 +606,14 @@ export const useStudioStore = defineStore('studio', {
     },
     async pollGenerationJob(jobId: string) {
       return waitForServerJob(jobId, (job) => {
-        if (this.activeGeneration?.id === jobId && this.activeGeneration.status !== job.status) {
-          this.activeGeneration = { ...this.activeGeneration, status: job.status }
-          this.generations = this.generations.map((generation) => generation.id === jobId ? { ...generation, status: job.status } : generation)
+        const progress = Number.isFinite(Number(job.options?.progress)) ? Math.max(0, Math.min(100, Math.round(Number(job.options?.progress)))) : undefined
+        if (this.activeGeneration?.id === jobId && (this.activeGeneration.status !== job.status || this.activeGeneration.progress !== progress)) {
+          this.activeGeneration = { ...this.activeGeneration, status: job.status, progress }
         }
+        const patch = (generation: GenerationRun) => generation.id === jobId ? { ...generation, status: job.status, progress } : generation
+        this.generations = this.generations.map(patch)
+        this.videoRuns = this.videoRuns.map(patch)
+        this.commerceRuns = this.commerceRuns.map(patch)
       })
     },
     async pollJob(jobId: string, onEvent?: (job: ServerJob) => void) {

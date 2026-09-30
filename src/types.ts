@@ -230,5 +230,7 @@ export interface GenerationRun {
   error: string
   assets: StudioAsset[]
   request: GenerationOptions
+  /** 上游生成进度（0-100）；不提供进度的渠道为 undefined。 */
+  progress?: number
   createdAt: number
 }

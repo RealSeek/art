@@ -77,6 +77,10 @@ export class GenerationsController {
       }).join('|') : ''
       return `${String(row.status || '')}:${queries}:${sources}:${String(row.error || '')}`
     }
+    const progressOf = (job: { options?: unknown }) => {
+      const options = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+      return Number.isFinite(Number(options.progress)) ? Number(options.progress) : 0
+    }
     let lastSequence = initialSequence
     return interval(250).pipe(
       startWith(0),
@@ -84,7 +88,8 @@ export class GenerationsController {
       distinctUntilChanged((a, b) => a.status === b.status
         && a.stream?.content === b.stream?.content
         && reasoningOf(a) === reasoningOf(b)
-        && webSearchOf(a) === webSearchOf(b)),
+        && webSearchOf(a) === webSearchOf(b)
+        && progressOf(a) === progressOf(b)),
       map((job) => {
         const events = Array.isArray((job as typeof job & { events?: Array<{ sequence?: number }> }).events) ? (job as typeof job & { events?: Array<{ sequence?: number }> }).events || [] : []
         const sequence = events.reduce((max, event) => Math.max(max, Number(event.sequence || 0)), lastSequence)

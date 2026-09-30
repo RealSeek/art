@@ -880,7 +880,7 @@ export class ProvidersService implements OnModuleInit {
           statusPath: '/videos/{id}',
           contentPath: '/videos/{id}/content',
           pollIntervalMs: 3000,
-          maxPollSeconds: 600,
+          maxPollSeconds: 0,
           ...(h3 ? { maxReferences: 9, maxAudioReferences: 3, referenceMode: 'DATA_URL_JSON' as const, minDuration: 5, maxDuration: 15, resolutionLocked: true } : {}),
         },
       }

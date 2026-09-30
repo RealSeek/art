@@ -142,14 +142,27 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (!providerJobId) throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
         await this.updateRunningTask(task, { providerJobId, updatedAt: new Date() }, true)
       }
-      const deadline = Date.now() + capabilities.maxPollSeconds * 1000
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, capabilities.pollIntervalMs))
+      // 上游视频任务常见耗时数分钟到数十分钟（参考图/音频任务更慢），不再使用固定超时：
+      // 只在任务终态、取消或部署方显式配置 maxPollSeconds 上限时结束轮询。
+      const startedAt = Date.now()
+      const deadline = capabilities.maxPollSeconds > 0 ? startedAt + capabilities.maxPollSeconds * 1000 : 0
+      let pollCount = 0
+      let progress = 0
+      while (!deadline || Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, this.pollDelay(capabilities.pollIntervalMs, Date.now() - startedAt, pollCount)))
+        pollCount += 1
         await this.assertNotCancelled(task.id)
         payload = await this.providerGet(resolved, this.videoPath(capabilities.statusPath, providerJobId))
         const status = this.videoStatus(payload)
         const resultUrl = this.videoResultUrl(payload)
-        await this.updateRunningTask(task, { updatedAt: new Date() }, true)
+        const nextProgress = this.videoProgress(payload)
+        if (nextProgress !== null && nextProgress > progress) {
+          progress = nextProgress
+          // 进度写回任务 options，前端通过任务快照流实时读取。
+          await this.updateRunningTask(task, { updatedAt: new Date(), options: { ...options, progress } as Prisma.InputJsonValue }, true)
+        } else {
+          await this.updateRunningTask(task, { updatedAt: new Date() }, true)
+        }
         if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status)) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
         if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
@@ -194,6 +207,21 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private localizedCostMicros(usdMicros: number, exchangeRateMicros: number) {
     return Math.min(2_000_000_000, Math.ceil(usdMicros * exchangeRateMicros / 1_000_000))
+  }
+
+  /** 轮询间隔：前 5 分钟按模型配置，之后逐步放慢到 20 秒，避免长任务压垮上游。 */
+  private pollDelay(baseMs: number, elapsedMs: number, pollCount: number) {
+    const base = Math.max(500, Math.min(30_000, baseMs || 3000))
+    if (elapsedMs < 60_000) return base
+    if (elapsedMs < 300_000) return Math.max(base, 10_000)
+    return Math.max(base, pollCount % 4 === 0 ? 20_000 : 12_000)
+  }
+
+  /** 读取上游进度（0-100），无法识别时返回 null。 */
+  private videoProgress(payload: ProviderPayload) {
+    const raw = payload.progress ?? (payload.data && !Array.isArray(payload.data) ? (payload.data as Record<string, unknown>).progress : undefined)
+    const value = Number(raw)
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null
   }
 
   /** 将本地参考素材转成上游接受的 base64 Data URL，并在服务端提前拦截超大文件。 */

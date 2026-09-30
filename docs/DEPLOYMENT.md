@@ -323,6 +323,12 @@ Invoke-RestMethod http://localhost:8080/v1/health/ready
 - 服务端校验口径为 1–15 秒，与模型 `videoCapabilities.durations` 无关；声明值只用于前端档位建议，未声明的档位仍可自定义选择。
 - 计费仍按 `pricing[分辨率:时长]` 查找，命中不到时按 `分辨率倍率 × ceil(时长/5)` 估算。
 
+视频任务轮询（与上游文档一致）：
+
+- 不设固定客户端超时；从提交到终态一直轮询，间隔按耗时退避（< 1 分钟用模型配置、< 5 分钟 10 秒、之后 12/20 秒交替），避免长任务压垮上游。
+- 只有模型配置了 `maxPollSeconds > 0` 时才会提前失败；默认 0 表示不限制。
+- 上游 `progress` 会写回任务 `options.progress`，前端生成卡片与任务卡片实时显示百分比与进度条。
+
 ### 5.5 视频参考素材（图片 / 音频）
 
 MiniMax H3 按上游文档（`/v1/videos`）实现，能力写在 `videoCapabilities`：

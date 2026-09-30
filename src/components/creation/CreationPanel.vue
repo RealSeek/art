@@ -133,7 +133,7 @@
           <template v-if="activeMode === 'videos'">
             <div v-if="pendingVideoRuns.length" class="video-runs video-runs--pending">
               <article v-for="run in pendingVideoRuns" :key="run.id" class="video-run-card" :class="`is-${run.status.toLowerCase()}`">
-                <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration || 5 }} 秒 · {{ run.request.aspectRatio || '16:9' }}</small></div>
+                <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频{{ run.progress !== undefined ? ` · ${run.progress}%` : '' }}</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration || 5 }} 秒 · {{ run.request.aspectRatio || '16:9' }} · 已用 {{ elapsedSeconds(run) }} 秒</small><div v-if="run.progress !== undefined" class="video-run-card__progress" role="progressbar" :aria-valuenow="run.progress"><span :style="{ width: `${run.progress}%` }" /></div></div>
                 <footer><span><strong>{{ run.model }}</strong></span><nav><button type="button" title="停止生成" :disabled="store.cancelingJobId === run.id" @click="stopGeneration(run)"><Square :size="14" fill="currentColor" /></button></nav></footer>
                 <p>{{ run.prompt }}</p>
               </article>
@@ -166,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, type Component } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Music, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
@@ -289,6 +289,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.clearInterval(elapsedTimer)
   window.removeEventListener('resize', repositionMentionMenu)
   window.removeEventListener('scroll', repositionMentionMenu, true)
   document.removeEventListener('xinyue:close-popovers', closeMentionMenu)
@@ -299,6 +300,18 @@ const canScrollInspirationNext = ref(false)
 const mentionOpen = ref(false)
 const mentionIndex = ref(0)
 const mentionQuery = ref('')
+/** 视频任务卡片的已用时间需要每秒刷新，其它页面不跑定时器。 */
+const elapsedTick = ref(Date.now())
+let elapsedTimer = 0
+
+function elapsedSeconds(run: { createdAt: number }) {
+  return Math.max(0, Math.round((elapsedTick.value - run.createdAt) / 1000))
+}
+
+watch(() => props.pendingVideoRuns.length, (count: number) => {
+  window.clearInterval(elapsedTimer)
+  elapsedTimer = count ? window.setInterval(() => { elapsedTick.value = Date.now() }, 1000) : 0
+}, { immediate: true })
 const mentionMenu = ref<HTMLElement | null>(null)
 const mentionStyle = ref<Record<string, string>>({ visibility: 'hidden' })
 
