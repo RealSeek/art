@@ -62,6 +62,82 @@ test('图片意图提交为生成任务并清空草稿和附件', async () => {
   assert.equal(scrolled, true)
 })
 
+test('提交时同步清空草稿，目录已有模型就不再等待模型请求', async () => {
+  const draft = ref('生成一张图片')
+  const activeCapability = ref<'CHAT' | 'IMAGE' | 'VIDEO' | 'AGENT'>('CHAT')
+  let submitted = 0
+  const { submitMessage } = useChatSubmission({
+    draft,
+    attachments: ref([] as StudioAsset[]),
+    activeCapability,
+    activeCapabilityModel: computed(() => 'image-model'),
+    capabilityModelAvailable: computed(() => true),
+    model: computed(() => 'chat-model'),
+    assistantId: computed(() => ''),
+    pluginId: computed(() => ''),
+    responseMode: computed(() => 'fast' as const),
+    pendingRecommendationSource: ref(null),
+  }, {
+    isGenerating: () => false,
+    requireAuth: () => true,
+    loadModels: async () => assert.fail('目录已有模型时不应再请求模型目录'),
+    setError: () => undefined,
+    closePopovers: () => undefined,
+    resizeComposer: () => undefined,
+    scrollThreadToBottom: async () => undefined,
+    currentConversationId: () => 'conversation-1',
+    buildGenerationOptions: ({ content }) => ({ mode: 'images', prompt: content, model: 'image-model', ratio: '1024x1024', count: 1 }),
+    startGeneration: async () => { submitted += 1 },
+    sendChat: async () => assert.fail('不应发送聊天任务'),
+    shouldRestoreDraft: () => false,
+  })
+
+  const pending = submitMessage()
+  assert.equal(draft.value, '')
+  await pending
+  assert.equal(submitted, 1)
+})
+
+test('重复点击不会重复提交生成任务', async () => {
+  const draft = ref('生成一张图片')
+  let submitted = 0
+  let releaseJob: (() => void) | null = null
+  const jobAccepted = new Promise<void>((resolve) => { releaseJob = resolve })
+  const { submitMessage } = useChatSubmission({
+    draft,
+    attachments: ref([] as StudioAsset[]),
+    activeCapability: ref('IMAGE' as const),
+    activeCapabilityModel: computed(() => 'image-model'),
+    capabilityModelAvailable: computed(() => true),
+    model: computed(() => 'chat-model'),
+    assistantId: computed(() => ''),
+    pluginId: computed(() => ''),
+    responseMode: computed(() => 'fast' as const),
+    pendingRecommendationSource: ref(null),
+  }, {
+    isGenerating: () => false,
+    requireAuth: () => true,
+    loadModels: async () => undefined,
+    setError: () => undefined,
+    closePopovers: () => undefined,
+    resizeComposer: () => undefined,
+    scrollThreadToBottom: async () => undefined,
+    currentConversationId: () => 'conversation-1',
+    buildGenerationOptions: ({ content }) => ({ mode: 'images', prompt: content, model: 'image-model', ratio: '1024x1024', count: 1 }),
+    startGeneration: async () => { submitted += 1; await jobAccepted },
+    sendChat: async () => assert.fail('不应发送聊天任务'),
+    shouldRestoreDraft: () => false,
+  })
+
+  const first = submitMessage()
+  await Promise.resolve()
+  await submitMessage()
+  releaseJob?.()
+  await first
+
+  assert.equal(submitted, 1)
+})
+
 test('消息持久化前失败时恢复草稿、附件和推荐来源', async () => {
   const source = { title: '来源', url: 'https://example.com' }
   const draft = ref('解释这个来源')

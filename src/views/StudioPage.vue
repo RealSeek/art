@@ -431,7 +431,7 @@ const { submitMessage } = useChatSubmission({
 }, {
   isGenerating: () => store.isGenerating,
   requireAuth: () => requireAuth('/chat'),
-  loadModels: () => loadModelCatalog({ force: true }),
+  loadModels: () => loadModelCatalog(),
   setError: (message) => { store.lastError = message },
   closePopovers: () => chatComposer.value?.closePopovers(),
   resizeComposer,
@@ -1036,16 +1036,28 @@ async function submitGeneration() {
   const submittedMode = activeMode.value
   const prompt = generationPrompt.value.trim() || (selectedImageTool.value ? `使用${selectedImageTool.value.title}处理这张图片` : '')
   if (!prompt) return
-  await loadModelCatalog({ force: true })
-  if (!activeCreationModelAvailable.value) { store.lastError = `暂无可用的${activeMode.value === 'videos' ? '视频' : activeMode.value === 'commerce' ? '商品视觉' : '图片'}模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥`; return }
+  if (!activeCreationModelAvailable.value) {
+    await loadModelCatalog()
+    if (!activeCreationModelAvailable.value) { store.lastError = `暂无可用的${activeMode.value === 'videos' ? '视频' : activeMode.value === 'commerce' ? '商品视觉' : '图片'}模型，请联系管理员配置健康渠道，或在设置中添加个人 API 密钥`; return }
+  }
   if (selectedImageTool.value && !composerReferences.value.length) { store.lastError = '请先上传一张需要处理的参考图片'; localReferenceInput.value?.click(); return }
+  // 同步清空输入与素材：界面立刻反馈，重复点击也因为没有输入而直接返回。
+  const pendingAttachments = creationAttachments.value
+  const pendingToolId = selectedImageToolId.value
+  const referenceAssetIds = pendingAttachments.map((asset) => asset.id)
+  const creationToolId = isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined
+  generationPrompt.value = ''; creationAttachments.value = []; selectedImageToolId.value = ''
+  let jobId = ''
   try {
     const inline = await localInputs.payload()
-    const job = await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: creationAttachments.value.map((asset) => asset.id), referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: isDedicatedImageTool(selectedImageTool.value) ? selectedImageTool.value!.id : undefined }, undefined, false, activeCreationModel.value)
-    generationPrompt.value = ''; creationAttachments.value = []; selectedImageToolId.value = ''
-    if (submittedMode === 'commerce') return
-    await openGenerationConversation(job.id)
-  } catch { /* Store exposes the server error in-page. */ }
+    jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
+  } catch {
+    // 任务没有建成功时把输入还给用户；服务端错误已由 Store 展示在页面上。
+    generationPrompt.value = prompt; creationAttachments.value = pendingAttachments; selectedImageToolId.value = pendingToolId
+    return
+  }
+  if (submittedMode === 'commerce') return
+  await openGenerationConversation(jobId)
 }
 
 function regionEditUnavailableMessage() {

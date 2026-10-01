@@ -11,7 +11,7 @@ type LocalInputsState = {
 export type GenerationInputPayload = {
   references: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
   audios: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
-  mask?: { name: string; mimeType: string; dataUrl: string }
+  mask?: { id?: string; name: string; mimeType: string; dataUrl: string }
 }
 
 async function imageDimensions(blob: Blob) {
@@ -119,7 +119,29 @@ export const useLocalInputsStore = defineStore('local-inputs', {
       const references = await Promise.all(this.images.map(async (record) => ({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })))
       const audios = await Promise.all(this.records.filter((record) => record.kind === 'audio').map(async (record) => ({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })))
       const mask = this.mask
-      return { references, audios, ...(mask ? { mask: { name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
+      return { references, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
+    },
+    /**
+     * 按提交时的素材 id 还原内联素材（重试路径）：任务记录里没有本机素材的数据，只有这份 id。
+     * 任一素材已被清理就返回 null，让上层给出可溯源的提示，而不是静默换成别的素材。
+     */
+    async payloadForIds(ids: { referenceIds: string[]; audioIds: string[]; maskId?: string }): Promise<GenerationInputPayload | null> {
+      await this.hydrate()
+      const byId = new Map(this.records.map((record) => [record.id, record]))
+      const readList = async (recordIds: string[], kind: LocalInputKind) => {
+        const items: GenerationInputPayload['references'] = []
+        for (const id of recordIds) {
+          const record = byId.get(id)
+          if (!record || record.kind !== kind) return null
+          items.push({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })
+        }
+        return items
+      }
+      const references = await readList(ids.referenceIds, 'reference')
+      const audios = await readList(ids.audioIds, 'audio')
+      const mask = ids.maskId ? byId.get(ids.maskId) : undefined
+      if (!references || !audios || (ids.maskId && mask?.kind !== 'mask')) return null
+      return { references, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
     },
   },
 })

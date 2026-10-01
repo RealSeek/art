@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { api, streamApiEvents } from '../services/api'
+import { generationLocalInputIds, rememberGenerationInputIds } from '../services/local-inputs'
+import { useLocalInputsStore } from './local-inputs'
 import { useLocalMediaStore } from './local-media'
 import type { ConversationSummary, GenerationOptions, GenerationRun, Message, MessageWebSearch, Project, ProjectVersion, ProjectWorkflowConfig, ProjectWorkflowStatus, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { createClientId } from '../utils/client-id'
@@ -31,6 +33,17 @@ async function waitForServerJob(jobId: string, onEvent?: (job: ServerJob) => voi
   }
 }
 const idempotencyKey = (prefix: string) => `${prefix}:${createClientId()}`
+/** 本地回显的行在服务端确认后就地替换，避免整个列表重建导致滚动位置跳动。 */
+function replaceMessage(messages: Message[], localId: string, persisted: Message) {
+  const index = messages.findIndex((message) => message.id === localId)
+  if (index >= 0) messages.splice(index, 1, persisted)
+  else messages.push(persisted)
+}
+function replaceGeneration(generations: GenerationRun[], localId: string, persisted: GenerationRun) {
+  const index = generations.findIndex((generation) => generation.id === localId)
+  if (index >= 0) generations.splice(index, 1, persisted)
+  else generations.push(persisted)
+}
 const welcomeMessage = (): Message => ({ id: 'welcome', role: 'assistant', content: '告诉我今天要做的商品、画面或文案目标。我会先拆任务，再把可交付的素材放进资料库。', createdAt: Date.now() })
 let pendingWorkspaceHydration: Promise<void> | null = null
 let conversationLoadSequence = 0
@@ -136,6 +149,9 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
     resolution: typeof options.resolution === 'string' ? options.resolution : undefined,
     duration: typeof options.duration === 'number' ? options.duration : undefined,
     aspectRatio: typeof options.aspectRatio === 'string' ? options.aspectRatio : undefined,
+    // 插件与图片工具决定生成指令，重试必须沿用，否则「按原方案重试」会变成另一个任务。
+    pluginId: typeof options.pluginId === 'string' ? options.pluginId : undefined,
+    creationToolId: typeof options.creationToolId === 'string' ? options.creationToolId : undefined,
     creditCost: job.creditCost,
   }
   return {
@@ -368,6 +384,10 @@ export const useStudioStore = defineStore('studio', {
       const trimmed = content.trim()
       if (!trimmed) return
       const safeModel = input.model.trim() || 'gpt-5.5'
+      // 本地回显：创建会话/消息/任务三个往返完成前先给出反馈，用户不会误判成没提交而重复点击。
+      const optimisticId = `pending:${createClientId()}`
+      const optimisticMessage: Message = { id: optimisticId, role: 'user', content: trimmed, createdAt: Date.now(), attachmentIds: input.assetIds }
+      this.messages.push(optimisticMessage)
       let messagePersisted = false
       let jobId = ''
       this.isGenerating = true; this.lastError = ''
@@ -376,12 +396,12 @@ export const useStudioStore = defineStore('studio', {
           const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: safeModel, projectId: this.currentProjectId || undefined, title: trimmed.slice(0, 42), temporary: this.temporaryChat }) })
           this.currentConversationId = conversation.id
           if (!conversation.temporary) this.conversations.unshift(mapConversation(conversation))
-          this.messages = []
+          this.messages = [optimisticMessage]
         }
         const conversationId = this.currentConversationId
         const userMessage = await api<ServerMessage>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: trimmed, assetIds: input.assetIds || [] }) })
         messagePersisted = true
-        if (this.currentConversationId === conversationId) this.messages.push({ id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
+        if (this.currentConversationId === conversationId) replaceMessage(this.messages, optimisticId, { id: userMessage.id, role: 'user', content: trimmed, createdAt: Date.parse(userMessage.createdAt), attachmentIds: input.assetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({ kind: 'CHAT', prompt: trimmed, model: safeModel, projectId: this.currentProjectId || undefined, conversationId, options: { ...(input.assistantId ? { assistantId: input.assistantId } : {}), ...(input.pluginId ? { pluginId: input.pluginId } : {}), ...(input.webSearchSources?.length ? { webSearchSources: input.webSearchSources.slice(0, 3) } : {}), responseMode: input.responseMode || 'fast', ...(input.officeMode ? { officeMode: input.officeMode } : {}) }, idempotencyKey: idempotencyKey('chat') }) })
         jobId = job.id
         if (this.currentConversationId === conversationId) this.activeJobId = job.id
@@ -394,6 +414,7 @@ export const useStudioStore = defineStore('studio', {
         ])
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : '消息发送失败'
+        this.messages = this.messages.filter((item) => item.id !== optimisticId)
         this.lastError = message
         throw new ChatSendError(message, !messagePersisted)
       } finally {
@@ -539,37 +560,57 @@ export const useStudioStore = defineStore('studio', {
     },
     async startGeneration(options: GenerationOptions, conversationId?: string, retry = false, conversationModel = 'gpt-5.5') {
       this.lastError = ''
+      const kind = options.mode === 'commerce' ? 'COMMERCE' : options.mode === 'videos' ? 'VIDEO' : 'IMAGE'
+      const safeConversationModel = conversationModel.trim() || options.model.trim() || 'gpt-5.5'
+      const messageContent = retry ? `按原方案重试「${options.mode === 'videos' ? '视频生成' : '图片生成'}」` : options.prompt
+      // 本地回显：创建会话/消息/任务三个往返完成前先渲染占位任务，用户不会误判成没提交而重复点击。
+      const optimisticId = `pending:${createClientId()}`
+      const optimisticMessage: Message = { id: `pending-message:${optimisticId}`, role: 'user', content: messageContent, createdAt: Date.now(), attachmentIds: options.referenceAssetIds }
+      const optimisticGeneration: GenerationRun = { id: optimisticId, conversationId, prompt: options.prompt, model: options.model, mode: kind === 'COMMERCE' ? 'commerce' : kind === 'VIDEO' ? 'videos' : 'images', status: 'QUEUED', error: '', assets: [], request: options, createdAt: Date.now() }
+      this.messages.push(optimisticMessage)
+      this.generations.push(optimisticGeneration)
+      if (optimisticGeneration.mode === 'videos') this.videoRuns = [optimisticGeneration, ...this.videoRuns]
+      if (optimisticGeneration.mode === 'commerce') this.commerceRuns = [optimisticGeneration, ...this.commerceRuns]
+      this.activeGeneration = optimisticGeneration
       try {
-        const kind = options.mode === 'commerce' ? 'COMMERCE' : options.mode === 'videos' ? 'VIDEO' : 'IMAGE'
-        const safeConversationModel = conversationModel.trim() || options.model.trim() || 'gpt-5.5'
         let targetConversationId = conversationId
         if (!targetConversationId) {
           const conversation = await api<ServerConversation>('/conversations', { method: 'POST', body: JSON.stringify({ model: safeConversationModel, projectId: this.currentProjectId || undefined, title: options.prompt.slice(0, 42), temporary: this.temporaryChat }) })
           targetConversationId = conversation.id
           this.currentConversationId = conversation.id
-          this.messages = []
-          this.generations = []
+          this.messages = [optimisticMessage]
+          this.generations = [optimisticGeneration]
           if (!conversation.temporary) this.conversations.unshift(mapConversation(conversation))
         } else {
           this.currentConversationId = targetConversationId
         }
-        const messageContent = retry ? `按原方案重试「${options.mode === 'videos' ? '视频生成' : '图片生成'}」` : options.prompt
         const userMessage = await api<ServerMessage>(`/conversations/${targetConversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: messageContent, assetIds: options.referenceAssetIds || [] }) })
-        this.messages.push({ id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
+        replaceMessage(this.messages, optimisticMessage.id, { id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model.trim() || safeConversationModel, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
           options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
+        // 本机素材（参考图/音频/蒙版）不落库，记住它们的 id 才能让“重新生成”用回同一批素材。
+        rememberGenerationInputIds(job.id, {
+          referenceIds: (options.referenceImages || []).map((item) => item.id),
+          audioIds: (options.referenceAudios || []).map((item) => item.id),
+          ...(options.maskImage?.id ? { maskId: options.maskImage.id } : {}),
+        })
         const generation = mapGeneration(job, options)
         this.activeGeneration = generation
-        this.generations = [...this.generations.filter((item) => item.id !== job.id), generation]
-        if (generation.mode === 'videos') this.videoRuns = [generation, ...this.videoRuns.filter((item) => item.id !== job.id)]
-        if (generation.mode === 'commerce') this.commerceRuns = [generation, ...this.commerceRuns.filter((item) => item.id !== job.id)]
+        replaceGeneration(this.generations, optimisticId, generation)
+        if (generation.mode === 'videos') this.videoRuns = [generation, ...this.videoRuns.filter((item) => item.id !== optimisticId && item.id !== job.id)]
+        if (generation.mode === 'commerce') this.commerceRuns = [generation, ...this.commerceRuns.filter((item) => item.id !== optimisticId && item.id !== job.id)]
         void this.monitorGeneration(job.id)
         await this.refreshConversations()
         return job
       } catch (reason) {
+        this.messages = this.messages.filter((item) => item.id !== optimisticMessage.id)
+        this.generations = this.generations.filter((item) => item.id !== optimisticId)
+        this.videoRuns = this.videoRuns.filter((item) => item.id !== optimisticId)
+        this.commerceRuns = this.commerceRuns.filter((item) => item.id !== optimisticId)
+        if (this.activeGeneration?.id === optimisticId) this.activeGeneration = null
         this.lastError = reason instanceof Error ? reason.message : '生成任务失败'
         this.cancelingJobId = ''
         throw reason
@@ -595,7 +636,17 @@ export const useStudioStore = defineStore('studio', {
     async retryGeneration(generationId?: string) {
       const current = generationId ? this.generations.find((generation) => generation.id === generationId) : this.activeGeneration
       if (!current) return null
-      return this.startGeneration(current.request, current.conversationId, true)
+      let request = current.request
+      // 本机参考素材（参考图/音频/蒙版）只存在发起任务的浏览器里，服务端任务记录带不回 Data URL：
+      // 从服务端重读任务（刷新页、切换对话）后重试时，按提交时记住的素材 id 还原，
+      // 否则“重新生成”会静默变成一个没有参考素材的新任务。
+      const remembered = generationLocalInputIds(current.id)
+      if (remembered && !request.referenceImages?.length && !request.referenceAudios?.length && !request.maskImage) {
+        const payload = await useLocalInputsStore().payloadForIds(remembered)
+        if (!payload) throw new Error('原任务的参考素材只保存在发起任务的浏览器里，当前浏览器已找不到这份素材，请重新添加参考素材后再试')
+        request = { ...request, referenceImages: payload.references, referenceAudios: payload.audios, maskImage: payload.mask }
+      }
+      return this.startGeneration(request, current.conversationId, true)
     },
     async monitorGeneration(jobId: string) {
       try {
@@ -731,7 +782,8 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async cancelGeneration(jobId: string) {
-      if (!jobId || this.cancelingJobId === jobId) return
+      // 占位任务还没有服务端任务号，等真实任务返回后停止按钮才会生效。
+      if (!jobId || jobId.startsWith('pending:') || this.cancelingJobId === jobId) return
       this.cancelingJobId = jobId
       try {
         const job = await api<ServerJob>(`/generations/${jobId}/cancel`, { method: 'POST' })

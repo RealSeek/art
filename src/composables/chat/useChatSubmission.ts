@@ -71,27 +71,41 @@ export function unavailableChatCapabilityMessage(capability: ChatCapability) {
 }
 
 export function useChatSubmission(state: ChatSubmissionState, actions: ChatSubmissionActions) {
+  function restoreDraft(content: string, attachments: StudioAsset[], recommendationSource?: WebSearchSource) {
+    if (!state.draft.value.trim()) state.draft.value = content
+    if (!state.attachments.value.length) state.attachments.value = attachments
+    if (recommendationSource) state.pendingRecommendationSource.value = { prompt: content, source: recommendationSource }
+  }
+
   async function submitMessage() {
     if (actions.isGenerating() || !actions.requireAuth()) return
     const content = state.draft.value.trim() || (state.attachments.value.length ? '请分析我上传的文件。' : '')
     if (!content) return
 
-    await actions.loadModels()
-    state.activeCapability.value = inferChatSubmissionCapability(content, state.activeCapability.value)
-    if (!state.capabilityModelAvailable.value) {
-      actions.setError(unavailableChatCapabilityMessage(state.activeCapability.value))
-      return
-    }
-
     const pendingAttachments = [...state.attachments.value]
     const pendingSource = state.pendingRecommendationSource.value
     const recommendationSource = pendingSource?.prompt === content ? pendingSource.source : undefined
-    state.pendingRecommendationSource.value = null
+    // 同步清空输入框与附件：用户立即看到提交生效，重复点击也因为没有内容而直接返回。
     state.draft.value = ''
     state.attachments.value = []
     actions.closePopovers()
     await nextTick()
     actions.resizeComposer()
+
+    state.activeCapability.value = inferChatSubmissionCapability(content, state.activeCapability.value)
+    // 目录里已有选中的模型就直接提交；查不到时才等一次刷新，避免每次提交都白等一个网络往返。
+    if (!state.capabilityModelAvailable.value) {
+      await actions.loadModels()
+      if (!state.capabilityModelAvailable.value) {
+        actions.setError(unavailableChatCapabilityMessage(state.activeCapability.value))
+        restoreDraft(content, pendingAttachments)
+        await nextTick()
+        actions.resizeComposer()
+        return
+      }
+    }
+
+    state.pendingRecommendationSource.value = null
 
     try {
       if (state.activeCapability.value === 'IMAGE' || state.activeCapability.value === 'VIDEO') {
@@ -119,13 +133,7 @@ export function useChatSubmission(state: ChatSubmissionState, actions: ChatSubmi
       }
       await actions.scrollThreadToBottom()
     } catch (reason) {
-      if (actions.shouldRestoreDraft(reason)) {
-        if (!state.draft.value.trim()) state.draft.value = content
-        if (!state.attachments.value.length) state.attachments.value = pendingAttachments
-        if (recommendationSource) {
-          state.pendingRecommendationSource.value = { prompt: content, source: recommendationSource }
-        }
-      }
+      if (actions.shouldRestoreDraft(reason)) restoreDraft(content, pendingAttachments, recommendationSource)
       await nextTick()
       actions.resizeComposer()
     }

@@ -115,3 +115,45 @@ export function releaseLocalInput(id: string) {
     objectUrls.delete(id)
   }
 }
+
+export type GenerationLocalInputIds = {
+  referenceIds: string[]
+  audioIds: string[]
+  maskId?: string
+}
+
+const GENERATION_INPUTS_KEY = 'flux:generation-local-inputs'
+/** 只服务“重新生成”，保留最近一批即可。 */
+const GENERATION_INPUTS_LIMIT = 50
+
+function readGenerationInputIds(): Record<string, GenerationLocalInputIds> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(GENERATION_INPUTS_KEY) || '{}')
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, GenerationLocalInputIds> : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 记住任务用过的本机素材 id：任务记录里只有参考素材的数量，Data URL 不落库，
+ * 所以重试必须靠这份 id 从浏览器还原参考图/参考音频/蒙版。
+ */
+export function rememberGenerationInputIds(jobId: string, ids: GenerationLocalInputIds) {
+  if (!ids.referenceIds.length && !ids.audioIds.length && !ids.maskId) return
+  const stored = readGenerationInputIds()
+  delete stored[jobId]
+  stored[jobId] = ids
+  const keys = Object.keys(stored)
+  for (const key of keys.slice(0, Math.max(0, keys.length - GENERATION_INPUTS_LIMIT))) delete stored[key]
+  try {
+    localStorage.setItem(GENERATION_INPUTS_KEY, JSON.stringify(stored))
+  } catch {
+    // 私密浏览或配额写满时退化为“重试需要重新添加素材”。
+  }
+}
+
+/** 任务提交时用过的本机素材 id；不是在本浏览器提交的任务返回 undefined。 */
+export function generationLocalInputIds(jobId: string) {
+  return readGenerationInputIds()[jobId]
+}
