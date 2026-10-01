@@ -6,12 +6,12 @@ import { isGeminiImageModel } from '../../server/src/generations/image-options'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 
-function harness(model = 'gemini-3-pro-image-preview', baseUrl = 'https://ai.example/proxy/v1', apiProtocol = 'openai') {
+function harness(model = 'gemini-3-pro-image-preview', baseUrl = 'https://ai.example/proxy/v1', apiProtocol = 'openai', type = 'NEW_API') {
   const requests: Array<{ url: string; body: any; headers: Headers }> = []
   const stored: Uint8Array[] = []
   const assetReads: string[] = []
   let payload: unknown = { candidates: [{ content: { parts: [{ text: '生成完成' }, { thought: true, inlineData: { mimeType: 'image/png', data: png.toString('base64') } }, { inlineData: { mimeType: 'image/png', data: png.toString('base64') } }] } }] }
-  const resolved = { source: 'user', type: 'NEW_API', model, baseUrl, apiProtocol, apiKey: 'test-key', authType: 'BEARER', headers: {}, timeoutMs: 1000, imageCostMicros: 0, pricingUsdExchangeRateMicros: 1_000_000 } as ResolvedProvider
+  const resolved = { source: 'user', type, model, baseUrl, apiProtocol, apiKey: 'test-key', authType: 'BEARER', headers: {}, timeoutMs: 1000, imageCostMicros: 0, pricingUsdExchangeRateMicros: 1_000_000 } as ResolvedProvider
   const providers = new ProvidersService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never)
   const runner = new ImageGenerationRunner({ generationJob: { findUnique: async () => ({ status: 'RUNNING' }), updateMany: async () => ({ count: 1 }) } } as never,
     { readForUser: async (userId: string, id: string) => { assert.equal(userId, 'user'); assetReads.push(id); return { file: png, mimeType: 'image/png', name: 'reference.png' } } } as never,
@@ -57,6 +57,28 @@ test('Gemini 无图片和不支持的选项不会被当作成功', async () => {
   await assert.rejects(() => h.run({ background: 'transparent' }), /不支持透明背景/)
   await assert.rejects(() => h.run({ count: 2 }), /单次仅支持 1 张/)
   assert.equal(h.requests.length, 1)
+})
+
+test('Gemini 带上浏览器本机参考图，不会退化成纯文生图', async () => {
+  const h = harness()
+  await h.run({ size: '1536x1024', referenceImages: [{ name: '本机参考.webp', mimeType: 'image/webp', dataUrl: `data:image/webp;base64,${png.toString('base64')}` }] })
+  const parts = h.requests[0].body.contents[0].parts
+  assert.equal(parts.length, 2)
+  assert.deepEqual(parts[1], { inlineData: { mimeType: 'image/webp', data: png.toString('base64') } })
+  assert.deepEqual(h.assetReads, [])
+})
+
+test('Gemini 模型带本机蒙版时明确报错，不会静默改成无蒙版编辑', async () => {
+  const h = harness()
+  const dataUrl = `data:image/png;base64,${png.toString('base64')}`
+  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl }], maskImage: { name: 'm.png', mimeType: 'image/png', dataUrl } }), /不支持蒙版编辑/)
+  assert.equal(h.requests.length, 0)
+})
+
+test('Pollinations 渠道遇到本机参考图直接报错', async () => {
+  const h = harness('flux', 'https://pollinations.ai', 'openai', 'POLLINATIONS')
+  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: `data:image/png;base64,${png.toString('base64')}` }] }), /不支持参考图或蒙版编辑/)
+  assert.equal(h.requests.length, 0)
 })
 
 test('GPT 图片仍使用 OpenAI 图片端点和原请求参数', async () => {

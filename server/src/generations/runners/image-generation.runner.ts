@@ -66,7 +66,7 @@ export class ImageGenerationRunner implements GenerationRunner {
         return { resolved, payload: await this.localWorkerImage(task, resolved, prompt, imageOptions) }
       }
       if (resolved.type === ProviderType.POLLINATIONS) {
-        if (imageOptions.referenceAssetIds.length || imageOptions.maskAssetId) throw new ImageProviderError('Pollinations 渠道不支持参考图或蒙版编辑', 400)
+        if (imageOptions.referenceAssetIds.length || imageOptions.referenceImages.length || imageOptions.maskAssetId || imageOptions.maskImage) throw new ImageProviderError('Pollinations 渠道不支持参考图或蒙版编辑', 400)
         if (task.kind !== 'COMMERCE' && count > 1) throw new ImageProviderError('Pollinations 渠道每次最多生成 1 张图片', 400)
         const [rawWidth, rawHeight] = imageOptions.size.toLowerCase().split('x').map(Number)
         const width = Number.isInteger(rawWidth) ? rawWidth : 1024
@@ -210,9 +210,14 @@ export class ImageGenerationRunner implements GenerationRunner {
       return value === undefined ? [] : [[key, value]]
     }))
     form.append('options', JSON.stringify({ size: imageOptions.size, quality: imageOptions.quality, outputFormat: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { outputCompression: imageOptions.outputCompression }), ...workerOptions }))
-    const references = await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))
-    for (const reference of references) form.append('input', new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), reference.name)
+    const references = [
+      // 本机参考图（浏览器直发 Data URL）排在前，与界面 @参考图 编号一致。
+      ...imageOptions.referenceImages.map((reference) => ({ blob: dataUrlBlob(reference.dataUrl, reference.mimeType), name: reference.name })),
+      ...(await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))).map((reference) => ({ blob: new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), name: reference.name })),
+    ]
+    for (const reference of references) form.append('input', reference.blob, reference.name)
     if (imageOptions.maskAssetId) { const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId); form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name) }
+    else if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
     let response: Response
     try { response = await this.providerFetch(resolved, `${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', undefined), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(`本地 Worker 连接失败：${error instanceof Error ? error.message : '网络错误'}`, 503) }
@@ -230,13 +235,19 @@ export class ImageGenerationRunner implements GenerationRunner {
   }
 
   private async geminiImage(task: GenerationJob, resolved: ResolvedProvider, prompt: string, options: ReturnType<typeof normalizeImageOptions>): Promise<ProviderPayload> {
-    if (options.maskAssetId) throw new ImageProviderError('Gemini 生图不支持蒙版参数，请通过参考图和文字描述编辑要求', 400)
+    if (options.maskAssetId || options.maskImage) throw new ImageProviderError('Gemini 生图不支持蒙版参数，请通过参考图和文字描述编辑要求', 400)
     if (options.background === 'transparent' || options.outputFormat !== 'png' || options.outputCompression !== undefined) throw new ImageProviderError('Gemini 生图暂仅支持 PNG 输出，不支持透明背景或压缩参数', 400)
     const [width, height] = options.size.split('x').map(Number)
     const ratios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
     const aspectRatio = ratios.find((ratio) => { const [w, h] = ratio.split(':').map(Number); return width * h === height * w })
     if (!aspectRatio) throw new ImageProviderError('Gemini 生图不支持该宽高比', 400)
     const parts: Array<Record<string, unknown>> = [{ text: prompt }]
+    // 本机参考图只存在浏览器里，随请求以 Data URL 携带：漏掉就会退化成纯文生图。
+    for (const reference of options.referenceImages) {
+      const inline = /^data:(image\/[\w.+-]+);base64,(.+)$/is.exec(reference.dataUrl)
+      if (!inline) throw new ImageProviderError('本机参考图数据无效，请重新添加参考图后再试', 400)
+      parts.push({ inlineData: { mimeType: inline[1].toLowerCase(), data: inline[2] } })
+    }
     for (const id of options.referenceAssetIds) {
       const reference = await this.assets.readForUser(task.userId, id)
       const format = identifyImageFormat(reference.file)

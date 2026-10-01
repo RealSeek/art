@@ -152,8 +152,11 @@ export class GenerationsService {
     const creationToolUsesWorker = creationToolOptions.executionMode === 'WORKER'
     if (creationTool) {
       const referenceAssetIds = Array.isArray(input.options.referenceAssetIds) ? input.options.referenceAssetIds.filter((value) => typeof value === 'string' && value.trim()) : []
-      if (!referenceAssetIds.length) throw new BadRequestException('图片工具需要一张参考图片')
-      if (creationToolOptions.inputMode === 'MASK' && !(typeof input.options.maskAssetId === 'string' && input.options.maskAssetId.trim())) throw new BadRequestException('当前图片工具需要先绘制或上传蒙版')
+      // 参考图/蒙版可以只存在浏览器里（本机素材随请求发 Data URL）。
+      const inlineReferences = Array.isArray(input.options.referenceImages) ? input.options.referenceImages.length : 0
+      const hasMask = Boolean((typeof input.options.maskAssetId === 'string' && input.options.maskAssetId.trim()) || input.options.maskImage)
+      if (!referenceAssetIds.length && !inlineReferences) throw new BadRequestException('图片工具需要一张参考图片')
+      if (creationToolOptions.inputMode === 'MASK' && !hasMask) throw new BadRequestException('当前图片工具需要先绘制或上传蒙版')
       if (creationToolUsesWorker && !creationTool.model?.trim()) throw new BadRequestException('图片工具尚未绑定专用 Worker 模型')
     }
     const requestedModel = creationToolUsesWorker ? creationTool?.model || input.model : input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
