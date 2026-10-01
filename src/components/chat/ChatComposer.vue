@@ -120,7 +120,7 @@ const props = defineProps<{
   submitMessage: () => void
   toggleVoice: (target?: 'chat' | 'creation') => void
   selectModel: (value: string) => void
-  openFilePicker: (purpose: 'chat-file' | 'creation' | 'mask' | 'library') => void
+  openFilePicker: (purpose: 'chat-file' | 'creation' | 'library') => void
   collapseWorkspacePopovers: () => void
   applyQuickActionModel: (item: ChatQuickAction) => Promise<boolean>
 }>()

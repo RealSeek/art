@@ -75,6 +75,7 @@
     <input :ref="setFileInput" class="visually-hidden" type="file" multiple :accept="fileAccept" @change="handleFiles" />
   <input :ref="setLocalReferenceInput" class="visually-hidden" type="file" accept="image/*" multiple @change="handleLocalReferenceFiles" />
   <input :ref="setLocalAudioInput" class="visually-hidden" type="file" accept="audio/*" multiple @change="handleLocalAudioFiles" />
+  <input :ref="setLocalMaskInput" class="visually-hidden" type="file" accept="image/*" @change="handleLocalMaskFiles" />
     <InspirationPreview v-if="inspirationPreview" :inspiration="inspirationPreview" :type-label="activeMode === 'commerce' ? '商品图灵感' : activeMode === 'videos' ? '视频灵感' : '图片灵感'" @close="inspirationPreview = null" @use="useInspiration(inspirationPreview)" />
     <CommerceGallery v-if="selectedCommerceRun" :run="selectedCommerceRun" @close="selectedCommerceRun = null" @reuse="useCommerceAsset" />
     <GeneratedImagePreview v-if="previewAsset" :asset="previewAsset" @close="previewAsset = null" @delete="deletePreviewAsset" @download="downloadGeneratedAsset(previewAsset)" @reuse="useGeneratedAssetAsReference(previewAsset)" @quote="useAssetPrompt(previewAsset)" @regenerate="retryAssetGeneration(previewAsset)" />
@@ -234,18 +235,34 @@ const activeChatModelLabel = computed(() => catalogModelLabel(chatModels.value, 
 const creationPluginCapability = computed<PluginCapability>(() => activeMode.value === 'videos' ? 'VIDEO' : activeMode.value === 'commerce' ? 'COMMERCE' : 'IMAGE')
 const generationPrompt = ref('')
 const creationAttachments = ref<StudioAsset[]>([])
-const maskAttachment = ref<StudioAsset | null>(null)
-const audioAttachments = ref<StudioAsset[]>([])
-void maskAttachment
-void audioAttachments
-const regionEditor = ref<{ src: string; format: MaskFormat } | null>(null)
+const regionEditor = ref<{ src: string; format: MaskFormat; baseId: string } | null>(null)
 const maskUploading = ref(false)
+/** 蒙版底图 id：蒙版只会应用到第一张参考图，提交时要让底图排第一。 */
+const maskReferenceId = ref('')
 const pasting = ref(false)
 const localReferenceInput = ref<HTMLInputElement | null>(null)
 const localAudioInput = ref<HTMLInputElement | null>(null)
+const localMaskInput = ref<HTMLInputElement | null>(null)
 
 function setLocalReferenceInput(element: unknown) { localReferenceInput.value = element instanceof HTMLInputElement ? element : null }
 function setLocalAudioInput(element: unknown) { localAudioInput.value = element instanceof HTMLInputElement ? element : null }
+function setLocalMaskInput(element: unknown) { localMaskInput.value = element instanceof HTMLInputElement ? element : null }
+
+/** 服务器副本已被清理的素材只存在本机：转成本机参考素材（浏览器直发上游），避免提交不存在的素材 id。 */
+async function addLocalOnlyAssetAsReference(asset: StudioAsset) {
+  if (!asset.contentUrl) { store.lastError = '本机副本已不存在，请重新生成或上传这张图片'; return '' }
+  try {
+    const response = await fetch(asset.contentUrl)
+    if (!response.ok) throw new Error('读取本机副本失败')
+    const blob = await response.blob()
+    const [record] = await localInputs.addFiles([new File([blob], asset.title || 'reference.png', { type: blob.type || asset.mimeType || 'image/png' })], 'reference')
+    if (!record) throw new Error('参考素材保存失败')
+    return record.id
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '参考素材保存失败'
+    return ''
+  }
+}
 
 async function handleLocalReferenceFiles(event: Event) {
   const input = event.target as HTMLInputElement
@@ -259,6 +276,22 @@ async function handleLocalAudioFiles(event: Event) {
   const files = Array.from(input.files || [])
   input.value = ''
   if (files.length) await addLocalAudios(files)
+}
+
+/** 上传已有蒙版：和区域编辑器产物一样只存本机，提交时以 Data URL 直发上游。 */
+async function handleLocalMaskFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = (input.files || [])[0]
+  input.value = ''
+  if (!file) return
+  store.clearError()
+  maskUploading.value = true
+  try {
+    await localInputs.setMaskFile(file)
+    maskReferenceId.value = composerReferences.value[0]?.id || ''
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '蒙版保存失败'
+  } finally { maskUploading.value = false }
 }
 
 /** 本机参考图：不经过服务器，直接存在浏览器里。 */
@@ -349,8 +382,13 @@ const referenceMentions = computed(() => [
   ...creationAttachments.value.map((asset, index) => ({ token: `@参考图${localInputs.images.length + index}`, label: `参考图${localInputs.images.length + index}`, kind: 'image' as const, thumbnail: asset.contentUrl || '', title: asset.title })),
   ...localInputs.audios.map((record, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: '', title: record.name })),
 ])
-function openCreationAttachmentPicker(kind: 'image' | 'audio') {
+function openCreationAttachmentPicker(kind: 'image' | 'audio' | 'mask') {
   if (!requireAuth(activeMode.value === 'videos' ? '/video' : activeMode.value === 'commerce' ? '/commerce' : '/image')) return
+  if (kind === 'mask') {
+    if (!regionEditAvailable.value) { store.lastError = regionEditUnavailableMessage(); return }
+    localMaskInput.value?.click()
+    return
+  }
   if (kind === 'audio') {
     if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
     if (localInputs.audios.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
@@ -372,6 +410,7 @@ async function removeComposerAudio(index: number) {
 }
 
 async function removeComposerMask() {
+  maskReferenceId.value = ''
   await localInputs.clearMask()
 }
 
@@ -523,8 +562,6 @@ const { fileAccept, uploading, setFileInput, openFilePicker, handleFiles } = use
   activeMode,
   chatAttachments: attachments,
   creationAttachments,
-  audioAttachments,
-  maskAttachment,
 }, {
   requireAuth,
   currentProjectId: () => store.currentProjectId,
@@ -1050,7 +1087,7 @@ async function submitGeneration() {
   let jobId = ''
   try {
     const inline = await localInputs.payload()
-    jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
+    jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
   } catch {
     // 任务没有建成功时把输入还给用户；服务端错误已由 Store 展示在页面上。
     generationPrompt.value = prompt; creationAttachments.value = pendingAttachments; selectedImageToolId.value = pendingToolId
@@ -1069,20 +1106,28 @@ function openRegionEditor() {
   if (!regionEditAvailable.value) { store.lastError = regionEditUnavailableMessage(); return }
   const base = composerReferences.value.find((asset) => asset.contentUrl && asset.mimeType?.startsWith('image/'))
   if (!base) { pendingRegionEditor.value = true; localReferenceInput.value?.click(); return }
-  regionEditor.value = { src: base.contentUrl!, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
+  regionEditor.value = { src: base.contentUrl!, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }), baseId: base.id }
 }
 
-function openRegionEditorForAsset(asset: StudioAsset) {
+async function openRegionEditorForAsset(asset: StudioAsset) {
   if (!regionEditAvailableFor(activeImageModel.value, { worker: regionEditWorkerTarget.value })) { store.lastError = regionEditUnavailableMessage(); return }
   if (!asset.contentUrl) return
-  if (!composerReferences.value.some((item) => item.id === asset.id)) creationAttachments.value = [asset, ...creationAttachments.value].slice(0, 4)
-  regionEditor.value = { src: asset.contentUrl, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }) }
+  // 服务器副本已清理的素材：先变成本机参考素材，再作为蒙版底图。
+  const localId = localOnlyAssets.value.some((item) => item.id === asset.id) ? await addLocalOnlyAssetAsReference(asset) : ''
+  if (!localId && !composerReferences.value.some((item) => item.id === asset.id)) creationAttachments.value = [asset, ...creationAttachments.value].slice(0, 4)
+  regionEditor.value = { src: asset.contentUrl, format: maskFormatForTarget(activeImageModel.value, { worker: regionEditWorkerTarget.value }), baseId: localId || asset.id }
 }
 
 async function applyRegionMask(payload: { blob: Blob; name: string; width: number; height: number }) {
   // 蒙版同样只存本机，提交时以 Data URL 直发上游，保证与参考图尺寸一致。
-  await localInputs.setMask(payload.blob, payload.width, payload.height)
-  regionEditor.value = null
+  maskUploading.value = true
+  try {
+    await localInputs.setMask(payload.blob, payload.width, payload.height)
+    maskReferenceId.value = regionEditor.value?.baseId || ''
+    regionEditor.value = null
+  } catch (reason) {
+    store.lastError = reason instanceof Error ? reason.message : '蒙版保存失败'
+  } finally { maskUploading.value = false }
   // 区域编辑的操作习惯是「选完直接改图」，已有提示词时不再多按一次提交。
   if (localInputs.mask && selectedImageToolId.value && generationPrompt.value.trim()) await submitGeneration()
 }
@@ -1179,7 +1224,11 @@ async function downloadGeneratedAsset(asset: StudioAsset) {
 }
 
 async function useGeneratedAssetAsReference(asset: StudioAsset, generation?: GenerationRun) {
-  creationAttachments.value = [asset]
+  // 服务器副本被清理后只剩本机副本：转成本机参考素材，而不是提交一个服务端不存在的素材 id。
+  if (localOnlyAssets.value.some((item) => item.id === asset.id)) {
+    if (!await addLocalOnlyAssetAsReference(asset)) return
+    creationAttachments.value = []
+  } else creationAttachments.value = [asset]
   generationPrompt.value = generation?.prompt || store.activeGeneration?.prompt || ''
   const options: Record<string, unknown> = asset.options || (generation ? { size: generation.request.ratio, quality: generation.request.quality, count: generation.request.count, outputFormat: generation.request.outputFormat, background: generation.request.background } : {})
   if (typeof options.size === 'string') { autoMode.value = imageRatioForSize(options.size); syncResolutionFromSize(options.size) }

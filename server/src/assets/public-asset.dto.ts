@@ -28,6 +28,7 @@ const publicOptionKeys = [
   'referenceAssetIds',
   'audioAssetIds',
   'maskAssetId',
+  'maskReferenceId',
   'progress',
   'outputFormat',
   'outputCompression',

@@ -103,12 +103,9 @@ export class ImageGenerationRunner implements GenerationRunner {
         if (!imageOptions.referenceAssetIds.length && !imageOptions.referenceImages.length) return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', fields, Math.max(resolved.timeoutMs, 300_000)))
         const form = new FormData()
         for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
-        const parts: Array<{ blob: Blob; name: string }> = []
-        for (const reference of imageOptions.referenceImages) parts.push({ blob: dataUrlBlob(reference.dataUrl, reference.mimeType), name: reference.name })
-        for (const reference of await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))) {
-          parts.push({ blob: new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), name: reference.name })
+        for (const [index, reference] of (await this.referenceParts(task, imageOptions)).entries()) {
+          form.append(index === 0 ? 'image' : 'image[]', new Blob([new Uint8Array(reference.bytes)], { type: reference.mimeType }), reference.name)
         }
-        for (const [index, part] of parts.entries()) form.append(index === 0 ? 'image' : 'image[]', part.blob, part.name)
         if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
         else if (imageOptions.maskAssetId) {
           const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId)
@@ -210,12 +207,8 @@ export class ImageGenerationRunner implements GenerationRunner {
       return value === undefined ? [] : [[key, value]]
     }))
     form.append('options', JSON.stringify({ size: imageOptions.size, quality: imageOptions.quality, outputFormat: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { outputCompression: imageOptions.outputCompression }), ...workerOptions }))
-    const references = [
-      // 本机参考图（浏览器直发 Data URL）排在前，与界面 @参考图 编号一致。
-      ...imageOptions.referenceImages.map((reference) => ({ blob: dataUrlBlob(reference.dataUrl, reference.mimeType), name: reference.name })),
-      ...(await Promise.all(imageOptions.referenceAssetIds.map((id) => this.assets.readForUser(task.userId, id)))).map((reference) => ({ blob: new Blob([new Uint8Array(reference.file)], { type: reference.mimeType }), name: reference.name })),
-    ]
-    for (const reference of references) form.append('input', reference.blob, reference.name)
+    const references = await this.referenceParts(task, imageOptions)
+    for (const reference of references) form.append('input', new Blob([new Uint8Array(reference.bytes)], { type: reference.mimeType }), reference.name)
     if (imageOptions.maskAssetId) { const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId); form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name) }
     else if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
     let response: Response
@@ -284,37 +277,36 @@ export class ImageGenerationRunner implements GenerationRunner {
     return response.json() as Promise<ProviderPayload>
   }
 
-  /** 参考图/蒙版的真实像素尺寸（读取失败时返回 null）。 */
-  private async referenceDimensions(userId: string, assetId: string) {
-    try {
-      const asset = await this.assets.readForUser(userId, assetId)
-      const metadata = await sharp(asset.file).metadata()
-      return metadata.width && metadata.height ? { width: metadata.width, height: metadata.height } : null
-    } catch {
-      return null
-    }
-  }
-
   /**
    * 带蒙版的局部编辑要求尺寸与参考图完全一致（OpenAI 会校验图片与蒙版尺寸），
-   * 因此蒙版场景直接用参考图原始像素尺寸，其余情况交给客户端选择的比例/档位。
+   * 因此蒙版场景直接用底图原始像素尺寸，其余情况交给客户端选择的比例/档位。
    */
   private async maskedEditSize(task: GenerationJob, options: ReturnType<typeof normalizeImageOptions>) {
     if (!options.maskAssetId && !options.maskImage) return null
-    const inline = options.referenceImages[0]
-    const dimensions = inline
-      ? await this.dataUrlDimensions(inline.dataUrl).catch(() => null)
-      : options.referenceAssetIds.length ? await this.referenceDimensions(task.userId, options.referenceAssetIds[0]) : null
-    if (!dimensions) return null
-    const size = `${dimensions.width}x${dimensions.height}`
+    const [base] = await this.referenceParts(task, options)
+    if (!base) return null
+    const metadata = await sharp(Buffer.from(base.bytes)).metadata().catch(() => null)
+    if (!metadata?.width || !metadata?.height) return null
+    const size = `${metadata.width}x${metadata.height}`
     return customImageSize(size) ? size : null
   }
 
-  private async dataUrlDimensions(dataUrl: string) {
-    const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
-    const metadata = await sharp(bytes).metadata()
-    if (!metadata.width || !metadata.height) throw new Error('无法识别参考图尺寸')
-    return { width: metadata.width, height: metadata.height }
+  /**
+   * 参考图按「本机在前、库内在后」排序（与界面 @参考图 编号一致）；
+   * 带蒙版时把蒙版底图排到第一位，因为上游与本地 Worker 都只把蒙版应用到第一张图。
+   */
+  private async referenceParts(task: GenerationJob, options: ReturnType<typeof normalizeImageOptions>) {
+    const references = [
+      ...options.referenceImages.map((item) => ({ id: item.id || '', name: item.name, mimeType: item.mimeType, bytes: Buffer.from(item.dataUrl.slice(item.dataUrl.indexOf(',') + 1), 'base64') })),
+      ...await Promise.all(options.referenceAssetIds.map(async (id) => {
+        const asset = await this.assets.readForUser(task.userId, id)
+        return { id, name: asset.name, mimeType: asset.mimeType, bytes: asset.file }
+      })),
+    ]
+    const base = options.maskReferenceId
+    if (!base) return references
+    const index = references.findIndex((reference) => reference.id === base)
+    return index > 0 ? [references[index], ...references.slice(0, index), ...references.slice(index + 1)] : references
   }
 
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {

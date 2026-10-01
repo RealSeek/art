@@ -58,7 +58,7 @@
                 <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><SlidersHorizontal :size="16" /><span class="creation-control-label">{{ activeMode === 'commerce' ? '平台' : '比例' }}</span>{{ activeMode === 'videos' ? videoAspectRatio : activeMode === 'commerce' ? commercePlatform : autoMode }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span><template v-if="activeMode === 'images'">{{ imageStyle }}</template><template v-else-if="activeMode === 'videos'">{{ videoResolution }}</template><template v-else>{{ commerceModules }} 模块</template><ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="选择要编辑的区域" @click.stop="openRegionEditor()"><Brush :size="16" />区域编辑</button>
-                <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" :disabled="uploading" @click.stop="openFilePicker('mask')"><Blend :size="16" />上传蒙版</button>
+                <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" @click.stop="openCreationAttachmentPicker('mask')"><Blend :size="16" />上传蒙版</button>
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button v-if="activeMode === 'videos'" type="button" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration} 秒`" :title="`视频时长：${videoDuration} 秒`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown class="creation-control-chevron" :size="14" /></button>
               </div>
@@ -243,8 +243,8 @@ const props = defineProps<{
   submitGeneration: () => void
   resizeGenerationInput: () => void
   collapseWorkspacePopovers: () => void
-  openFilePicker: (purpose: 'chat-file' | 'creation' | 'mask' | 'library') => void
-  openCreationAttachmentPicker: (kind: 'image' | 'audio') => void
+  openFilePicker: (purpose: 'chat-file' | 'creation' | 'library') => void
+  openCreationAttachmentPicker: (kind: 'image' | 'audio' | 'mask') => void
   openRegionEditor: () => void
   openRegionEditorForAsset: (asset: StudioAsset) => void
   switchCreationMode: (mode: 'images' | 'videos') => void

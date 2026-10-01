@@ -2,16 +2,14 @@ import { computed, ref, type Ref } from 'vue'
 import type { StudioAsset, StudioMode } from '../../types'
 import { compressImageForUpload } from '../../utils/image-compress'
 
-export type StudioFilePurpose = 'chat-file' | 'creation' | 'mask' | 'audio' | 'library'
-type StudioUploadPurpose = 'attachment' | 'reference' | 'mask' | 'library'
+export type StudioFilePurpose = 'chat-file' | 'creation' | 'library'
+type StudioUploadPurpose = 'attachment' | 'reference' | 'library'
 type StudioUploadKind = 'IMAGE' | 'FILE' | 'AUDIO'
 
 interface StudioFileUploadState {
   activeMode: Readonly<Ref<StudioMode>>
   chatAttachments: Ref<StudioAsset[]>
   creationAttachments: Ref<StudioAsset[]>
-  audioAttachments: Ref<StudioAsset[]>
-  maskAttachment: Ref<StudioAsset | null>
 }
 
 interface StudioFileUploadActions {
@@ -34,8 +32,6 @@ export function studioFileRedirect(mode: StudioMode) {
 
 export function studioFileRequest(purpose: StudioFilePurpose): { kind: StudioUploadKind | undefined; purpose: StudioUploadPurpose } {
   if (purpose === 'creation') return { kind: 'IMAGE' as const, purpose: 'reference' }
-  if (purpose === 'mask') return { kind: 'IMAGE' as const, purpose: 'mask' }
-  if (purpose === 'audio') return { kind: 'AUDIO' as const, purpose: 'reference' }
   if (purpose === 'chat-file') return { kind: undefined, purpose: 'attachment' }
   return { kind: undefined, purpose: 'library' }
 }
@@ -44,7 +40,7 @@ export function useStudioFileUpload(state: StudioFileUploadState, actions: Studi
   const fileInput = ref<HTMLInputElement | null>(null)
   const filePurpose = ref<StudioFilePurpose>('chat-file')
   const uploading = ref(false)
-  const fileAccept = computed(() => filePurpose.value === 'creation' || filePurpose.value === 'mask' ? 'image/*' : filePurpose.value === 'audio' ? 'audio/*' : '*/*')
+  const fileAccept = computed(() => filePurpose.value === 'creation' ? 'image/*' : '*/*')
 
   function setFileInput(element: unknown) {
     fileInput.value = element instanceof HTMLInputElement ? element : null
@@ -68,7 +64,7 @@ export function useStudioFileUpload(state: StudioFileUploadState, actions: Studi
     try {
       const request = studioFileRequest(filePurpose.value)
       // 参考图/对话图片先在本机降采样，不必把 5 MB 设计稿原样上传。
-      const prepared = request.purpose === 'mask' ? files : await Promise.all(files.map((file) => compressImageForUpload(file)))
+      const prepared = await Promise.all(files.map((file) => compressImageForUpload(file)))
       const uploaded = await actions.uploadFiles(
         prepared,
         request.kind,
@@ -77,8 +73,6 @@ export function useStudioFileUpload(state: StudioFileUploadState, actions: Studi
       )
       if (filePurpose.value === 'chat-file') state.chatAttachments.value.push(...uploaded)
       else if (filePurpose.value === 'creation') state.creationAttachments.value.push(...uploaded)
-      else if (filePurpose.value === 'audio') state.audioAttachments.value.push(...uploaded)
-      else if (filePurpose.value === 'mask') state.maskAttachment.value = uploaded[0] || null
     } catch (reason) {
       actions.setError(reason instanceof Error ? reason.message : '文件上传失败')
     } finally {

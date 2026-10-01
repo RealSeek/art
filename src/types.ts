@@ -209,6 +209,8 @@ export interface GenerationOptions {
   maskImage?: { id?: string; name: string; mimeType: string; dataUrl: string }
   audioAssetIds?: string[]
   maskAssetId?: string
+  /** 蒙版对应的底图 id（本机素材或库内素材）：蒙版只会应用到第一张参考图。 */
+  maskReferenceId?: string
   creationType?: string
   platform?: string
   outputFormat?: 'png' | 'jpeg' | 'webp'

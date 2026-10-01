@@ -16,9 +16,11 @@ export type NormalizedImageOptions = {
   outputCompression?: number
   referenceAssetIds: string[]
   /** 浏览器本地持有的参考图（Data URL），不经过服务器存储。 */
-  referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
+  referenceImages: Array<{ id?: string; name: string; mimeType: string; dataUrl: string }>
   maskAssetId?: string
   maskImage?: { name: string; mimeType: string; dataUrl: string }
+  /** 蒙版对应的底图 id（本机素材或库内素材）：蒙版只会应用到第一张参考图，底图必须排第一。 */
+  maskReferenceId?: string
 }
 
 function inlineReferenceList(value: unknown) {
@@ -28,7 +30,7 @@ function inlineReferenceList(value: unknown) {
     const row = item as Record<string, unknown>
     const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
     if (!/^data:image\//i.test(dataUrl)) return []
-    return [{ name: typeof row.name === 'string' ? row.name : 'reference.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }]
+    return [{ id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : 'reference.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }]
   })
 }
 
@@ -124,6 +126,7 @@ export function normalizeImageOptions(options: Record<string, unknown>, configur
   const referenceImages = inlineReferenceList(options.referenceImages).slice(0, 4)
   const maskAssetId = typeof options.maskAssetId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(options.maskAssetId) ? options.maskAssetId : undefined
   const maskImage = inlineMaskImage(options.maskImage)
+  const maskReferenceId = typeof options.maskReferenceId === 'string' && /^[a-zA-Z0-9_:-]{1,120}$/.test(options.maskReferenceId) ? options.maskReferenceId : undefined
   const referenceCount = referenceAssetIds.length + referenceImages.length
   const hasMask = Boolean(maskAssetId || maskImage)
   // 声明尺寸直接放行；带参考图的编辑请求额外允许按参考图比例发送自定义尺寸（与上游限制一致）。
@@ -159,6 +162,7 @@ export function normalizeImageOptions(options: Record<string, unknown>, configur
     referenceImages,
     ...(maskAssetId ? { maskAssetId } : {}),
     ...(maskImage ? { maskImage } : {}),
+    ...(maskReferenceId ? { maskReferenceId } : {}),
     ...(compression === undefined ? {} : { outputCompression: Math.round(compression) }),
   }
 }

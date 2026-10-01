@@ -95,6 +95,11 @@ export const useLocalInputsStore = defineStore('local-inputs', {
       releaseLocalInput(id)
       this.records = this.records.filter((record) => record.id !== id)
     },
+    /** 上传已有蒙版图片：与区域编辑器一致，蒙版只存本机。 */
+    async setMaskFile(file: Blob) {
+      const dimensions = await imageDimensions(file)
+      return this.setMask(file, dimensions.width, dimensions.height)
+    },
     async clearMask() {
       for (const record of this.records.filter((item) => item.kind === 'mask')) await this.remove(record.id)
     },

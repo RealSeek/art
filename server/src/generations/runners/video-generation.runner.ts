@@ -122,13 +122,14 @@ export class VideoGenerationRunner implements GenerationRunner {
         }
         if (capabilities.referenceMode === 'DATA_URL_JSON') {
           // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
+          // 本机参考素材（浏览器直发）排在前，与界面 @参考图 / @参考音频 编号一致。
           const images = [
-            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
             ...normalized.referenceImages.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
           const audios = [
-            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
             ...normalized.referenceAudios.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
           if (images.length) fields.images = images
           if (audios.length) fields.audios = audios

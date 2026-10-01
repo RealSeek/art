@@ -141,6 +141,8 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
     modules: Number(options.modules || 8),
     referenceAssetIds: Array.isArray(options.referenceAssetIds) ? options.referenceAssetIds.map(String) : [],
     maskAssetId: typeof options.maskAssetId === 'string' ? options.maskAssetId : undefined,
+    maskReferenceId: typeof options.maskReferenceId === 'string' ? options.maskReferenceId : undefined,
+    audioAssetIds: Array.isArray(options.audioAssetIds) ? options.audioAssetIds.map(String) : undefined,
     creationType: typeof options.creationType === 'string' ? options.creationType : undefined,
     platform: typeof options.platform === 'string' ? options.platform : undefined,
     outputFormat: options.outputFormat as GenerationOptions['outputFormat'],
@@ -588,7 +590,7 @@ export const useStudioStore = defineStore('studio', {
         replaceMessage(this.messages, optimisticMessage.id, { id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model.trim() || safeConversationModel, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
-          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
+          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, maskReferenceId: options.maskReferenceId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
         // 本机素材（参考图/音频/蒙版）不落库，记住它们的 id 才能让“重新生成”用回同一批素材。
