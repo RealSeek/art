@@ -20,6 +20,7 @@ import {
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { isGeminiImageModel } from '../generations/image-options'
+import { seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
 
 type ProviderInput = {
@@ -482,15 +483,16 @@ export class ProvidersService implements OnModuleInit {
   private normalizeVideoCapabilities(value: Record<string, unknown> | undefined): VideoCapabilities {
     const resolutions = Array.isArray(value?.resolutions)
       ? value.resolutions.map((item) => String(item).trim().toLowerCase()).filter((item) => {
+        if (item === '4k') return true
         const match = /^(\d{3,4})p$/.exec(item)
         return Boolean(match && Number(match[1]) >= 144 && Number(match[1]) <= 4320)
       })
       : []
     const durations = Array.isArray(value?.durations)
-      ? value.durations.map(Number).filter((item) => Number.isInteger(item) && item >= 1 && item <= 300)
+      ? value.durations.map(Number).filter((item) => Number.isInteger(item) && ((item >= 1 && item <= 300) || (item === -1 && value.supportsAutoDuration === true)))
       : []
     const aspectRatios = Array.isArray(value?.aspectRatios)
-      ? value.aspectRatios.map((item) => String(item).trim()).filter((item) => /^[1-9]\d?:[1-9]\d?$/.test(item))
+      ? value.aspectRatios.map((item) => String(item).trim()).filter((item) => item === 'adaptive' || /^[1-9]\d?:[1-9]\d?$/.test(item))
       : []
     return {
       resolutions: [...new Set(resolutions)],
@@ -555,7 +557,7 @@ export class ProvidersService implements OnModuleInit {
     if (enabled && (!normalized.resolutions.length || !normalized.durations.length || !normalized.aspectRatios.length)) {
       throw new BadRequestException(`第 ${index + 1} 个视频渠道必须完整配置分辨率、时长和画面比例`)
     }
-    return { ...options, videoCapabilities: normalized }
+    return { ...options, videoCapabilities: { ...this.videoRouteCapabilities(options as Prisma.JsonObject), ...normalized } }
   }
 
   private routeSupportsVideo(value: Prisma.JsonValue | null | undefined, requirements: Record<string, unknown>) {
@@ -567,7 +569,9 @@ export class ProvidersService implements OnModuleInit {
       return !configured.length || configured.includes(normalize(requested))
     }
     return supports('resolutions', requirements.resolution, (item) => String(item).trim().toLowerCase())
-      && supports('durations', requirements.duration, Number)
+      && (requirements.duration === -1 && capabilities.supportsAutoDuration === true
+        || Number(requirements.duration) >= Number(capabilities.minDuration) && Number(requirements.duration) <= Number(capabilities.maxDuration)
+        || supports('durations', requirements.duration, Number))
       && supports('aspectRatios', requirements.aspectRatio, (item) => String(item).trim())
   }
 
@@ -867,6 +871,8 @@ export class ProvidersService implements OnModuleInit {
       }
     }
     if (candidate.capability === ModelCapability.VIDEO) {
+      const seedance = seedanceVideoCapabilities(candidate.id)
+      if (seedance) return { apiProtocol, discovery, videoCapabilities: seedance }
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
       // MiniMax H3：分辨率由模型名绑定，支持 5–15 秒与 9 张参考图 + 3 段参考音频（见上游文档）。
       const h3 = /minimaxh3/i.test(candidate.id)
@@ -1732,7 +1738,14 @@ export class ProvidersService implements OnModuleInit {
       const apiProtocol = credential.providerType === ProviderType.NEW_API && capability === ModelCapability.IMAGE && isGeminiImageModel(candidate.id) ? 'gemini' : credential.template?.apiProtocol || 'openai'
       const vendor = await this.prisma.modelVendor.upsert({ where: { key: candidate.vendorKey }, update: {}, create: { key: candidate.vendorKey, name: candidate.vendorName, sortOrder: candidate.vendorKey === 'other' ? 999 : 500 } })
       const existing = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
-      if (existing) await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
+      if (existing) {
+        await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
+        const seedance = seedanceVideoCapabilities(candidate.id)
+        const current = this.videoRouteCapabilities(existing.options)
+        if (seedance && current?.referenceMode !== 'CONTENT_JSON') {
+          await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: { ...current, ...seedance } } as Prisma.InputJsonValue } })
+        }
+      }
       const model = existing || await this.prisma.userModel.create({ data: {
         userId,
         vendorId: vendor.id,

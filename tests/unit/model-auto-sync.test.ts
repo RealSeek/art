@@ -34,6 +34,25 @@ function service(prisma: Record<string, unknown>) {
   return new ProvidersService(prisma as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never)
 }
 
+test('已有 Seedance 模型同步升级原生能力并保留售价和原路由', async () => {
+  const credential = { id: 'credential-1', userId: 'user-1', name: 'OnlyCode', priority: 0, weight: 100, providerType: 'NEW_API', template: null, suppressedModels: [] }
+  const existing = { id: 'model-1', key: 'private:seedance', capability: 'VIDEO', options: { discovery: { vendorKey: 'doubao' }, videoCapabilities: { resolutions: ['720p'], pricing: { '720p:5': 12 } } } }
+  let updated: Record<string, any> | undefined
+  const prisma = {
+    userApiCredential: { findFirst: async () => credential, update: async () => credential },
+    modelVendor: { upsert: async () => ({ id: 'vendor-1' }) },
+    userModel: { findMany: async () => [], findFirst: async () => existing, update: async ({ data }: { data: Record<string, unknown> }) => { updated = data; return existing } },
+    userModelRoute: { count: async () => 1, findMany: async () => [] },
+  }
+  const providers = service(prisma)
+  providers.discoverCredentialModels = async () => ({ models: ['Seedance-2.5'], candidates: [candidate('Seedance-2.5', 'VIDEO')], latencyMs: 1 })
+  await providers.syncCredentialModels('user-1', 'credential-1')
+  assert.equal(updated?.options.videoCapabilities.referenceMode, 'CONTENT_JSON')
+  assert.equal(updated?.options.videoCapabilities.maxDuration, 30)
+  assert.deepEqual(updated?.options.videoCapabilities.pricing, { '720p:5': 12 })
+  assert.deepEqual(updated?.options.discovery, { vendorKey: 'doubao' })
+})
+
 test('个人模型同步会新增上游新模型并删除已下线模型，且不复活手动删除的模型', async () => {
   const credential = {
     id: 'credential-1', userId: 'user-1', name: 'onlyart-codex', priority: 0, weight: 100,

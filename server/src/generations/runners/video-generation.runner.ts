@@ -7,7 +7,7 @@ import { GenerationJobCancelledError, GenerationRunner } from '../generation-run
 import { GenerationOutputService } from '../generation-output.service'
 import { PublicEndpointPolicyService } from '../../common/public-endpoint-policy.service'
 import { readResponseBytes } from '../../common/response-bytes'
-import { fetchNoRedirect, fetchPublicNoRedirect } from '../../common/outbound-http'
+import { fetchNoRedirect, fetchPublicNoRedirect, fetchPublicManualRedirect } from '../../common/outbound-http'
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
@@ -43,10 +43,16 @@ export class VideoGenerationRunner implements GenerationRunner {
     try {
       response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
+    if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON' && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`Seedance 创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
-    return response.json() as Promise<ProviderPayload>
+    try { return await response.json() as ProviderPayload }
+    catch (error) {
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
   }
 
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {
@@ -62,17 +68,21 @@ export class VideoGenerationRunner implements GenerationRunner {
   }
 
   private canFailover(error: unknown) {
+    if (error instanceof TerminalProviderJobError) return false
     if (!(error instanceof ProviderRequestError)) return false
     if (error.status === undefined) return true
     return [401, 403, 404, 408, 409, 425, 429].includes(error.status) || error.status >= 500
   }
 
   private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO', execute: (provider: ResolvedProvider) => Promise<T>) {
-    const options = task.options as Record<string, unknown>
+    const { referenceImages: _images, referenceAudios: _audios, ...options } = task.options as Record<string, unknown>
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
+    const nativeTask = task.providerJobId && (candidates.some(candidate => videoCapabilities(candidate.videoCapabilities).referenceMode === 'CONTENT_JSON') || /seedance/i.test(task.model))
+    const runnable = nativeTask ? candidates.filter(candidate => (task.providerChannelId || undefined) === candidate.providerId && (task.userCredentialId || undefined) === candidate.credentialId) : candidates
+    if (nativeTask && !runnable.length) throw new ReconciliationRequiredError(`Seedance 任务 ${task.providerJobId} 的原渠道不可用，请核对原任务`)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
     let lastError: unknown
-    for (const candidate of candidates) {
+    for (const candidate of runnable) {
       const startedAt = Date.now()
       const attemptMetadata = { providerId: candidate.providerId || null, routeId: candidate.routeId || null, credentialId: candidate.credentialId || null }
       const providerAttempt = await this.attemptAudit.start({ generationId: task.id, provider: `${candidate.source}:${candidate.type}`, model: candidate.model, metadata: attemptMetadata as Prisma.InputJsonValue })
@@ -102,12 +112,13 @@ export class VideoGenerationRunner implements GenerationRunner {
   async run(task: GenerationJob) {
     await this.outputs.cleanup(task, { requireActiveLease: true })
     const options = task.options as Record<string, unknown>
+    const { referenceImages: _images, referenceAudios: _audios, ...storedOptions } = options
     const prompt = await this.pluginPrompt(task, PluginCapability.VIDEO)
     const execution = await this.withProviderFailover(task, 'VIDEO', async (resolved) => {
       const capabilities = videoCapabilities(resolved.videoCapabilities)
       const normalized = normalizeVideoOptions(options, resolved.videoCapabilities)
       let payload: ProviderPayload = {}
-      let providerJobId = task.providerJobId && task.providerChannelId === resolved.providerId ? task.providerJobId : undefined
+      let providerJobId = task.providerJobId && (task.providerChannelId || undefined) === resolved.providerId && (task.userCredentialId || undefined) === resolved.credentialId ? task.providerJobId : undefined
       if (!providerJobId) {
         const fields: Record<string, unknown> = {
           model: resolved.model,
@@ -120,7 +131,30 @@ export class VideoGenerationRunner implements GenerationRunner {
             seconds: String(normalized.duration),
           }),
         }
-        if (capabilities.referenceMode === 'DATA_URL_JSON') {
+        if (capabilities.referenceMode === 'CONTENT_JSON') {
+          const images = [
+            ...normalized.referenceImages.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
+          ]
+          const audios = [
+            ...normalized.referenceAudios.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
+          ]
+          const content = [
+            { type: 'text', text: prompt },
+            ...images.map((url, index) => ({ type: 'image_url', image_url: { url }, role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole })),
+            ...normalized.referenceVideoUrls.map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })),
+            ...audios.map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })),
+          ]
+          payload = await this.provider(resolved, capabilities.createPath, {
+            model: resolved.model, content, duration: normalized.duration, resolution: normalized.resolution, ratio: normalized.aspectRatio,
+            ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
+            ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
+            ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
+            ...(normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
+            ...(normalized.videoFormat ? { video_format: normalized.videoFormat } : {}),
+          })
+        } else if (capabilities.referenceMode === 'DATA_URL_JSON') {
           // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
           // 本机参考素材（浏览器直发）排在前，与界面 @参考图 / @参考音频 编号一致。
           const images = [
@@ -146,10 +180,14 @@ export class VideoGenerationRunner implements GenerationRunner {
           payload = await this.provider(resolved, capabilities.createPath, fields)
         }
         const immediateUrl = this.videoResultUrl(payload)
+        if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(this.videoStatus(payload))) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
         if (immediateUrl) return { resolved, payload, url: immediateUrl }
         providerJobId = this.videoJobId(payload)
-        if (!providerJobId) throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
-        await this.updateRunningTask(task, { providerJobId, updatedAt: new Date() }, true)
+        if (!providerJobId) {
+          if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError('Seedance 未返回任务 ID，请核对原请求，禁止自动重发')
+          throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
+        }
+        await this.updateRunningTask(task, { providerJobId, providerChannelId: resolved.providerId || null, userCredentialId: resolved.credentialId || null, userModelRouteId: resolved.source === 'user' ? resolved.routeId || null : null, updatedAt: new Date() }, true)
       }
       // 上游视频任务常见耗时数分钟到数十分钟（参考图/音频任务更慢），不再使用固定超时：
       // 只在任务终态、取消或部署方显式配置 maxPollSeconds 上限时结束轮询。
@@ -161,37 +199,49 @@ export class VideoGenerationRunner implements GenerationRunner {
         await new Promise((resolve) => setTimeout(resolve, this.pollDelay(capabilities.pollIntervalMs, Date.now() - startedAt, pollCount)))
         pollCount += 1
         await this.assertNotCancelled(task.id)
-        payload = await this.providerGet(resolved, this.videoPath(capabilities.statusPath, providerJobId))
+        try { payload = await this.providerGet(resolved, this.videoPath(capabilities.statusPath, providerJobId)) }
+        catch (error) {
+          if (capabilities.referenceMode !== 'CONTENT_JSON') throw error
+          if (error instanceof ProviderRequestError && (error.status === undefined || [408, 429, 502, 503, 504].includes(error.status))) continue
+          throw new ReconciliationRequiredError(`Seedance 任务 ${providerJobId} 查询失败：${error instanceof Error ? error.message : String(error)}`)
+        }
         const status = this.videoStatus(payload)
         const resultUrl = this.videoResultUrl(payload)
         const nextProgress = this.videoProgress(payload)
         if (nextProgress !== null && nextProgress > progress) {
           progress = nextProgress
           // 进度写回任务 options，前端通过任务快照流实时读取。
-          await this.updateRunningTask(task, { updatedAt: new Date(), options: { ...options, progress } as Prisma.InputJsonValue }, true)
+          await this.updateRunningTask(task, { updatedAt: new Date(), options: { ...storedOptions, progress } as Prisma.InputJsonValue }, true)
         } else {
           await this.updateRunningTask(task, { updatedAt: new Date() }, true)
         }
-        if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status)) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
+        if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
       }
+      if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 任务 ${providerJobId} 等待超时，请继续查询原任务`)
       throw new ProviderRequestError('视频生成等待超时', 504)
     })
 
-    const { resolved, url } = execution.result
+    const { resolved, url, payload } = execution.result
     await this.assertNotCancelled(task.id)
-    const result = await this.videoBytes(url, resolved)
+    let result: { bytes: Uint8Array; mimeType: string }
+    try { result = await this.videoBytes(url, resolved) }
+    catch (error) {
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
     await this.assertNotCancelled(task.id)
     const extension = result.mimeType.includes('webm') ? 'webm' : result.mimeType.includes('quicktime') ? 'mov' : 'mp4'
     const normalized = normalizeVideoOptions(options, resolved.videoCapabilities)
+    const { referenceImages: _outputImages, referenceAudios: _outputAudios, ...outputOptions } = normalized
     const asset = await this.outputs.storeAndLink(task, {
       data: result.bytes,
       projectId: task.projectId || undefined,
       name: `生成视频.${extension}`,
       mimeType: result.mimeType,
       kind: AssetKind.VIDEO,
-      metadata: { purpose: 'generated', prompt: task.prompt, model: task.model, jobId: task.id, position: 0, options: normalized },
+      metadata: { purpose: 'generated', prompt: task.prompt, model: resolved.model, jobId: task.id, position: 0, options: outputOptions, ...(payload.usage ? { upstreamUsage: payload.usage } : {}), ...(this.videoLastFrameUrl(payload) ? { lastFrameUrl: this.videoLastFrameUrl(payload) } : {}) },
     })
     try { await this.assertNotCancelled(task.id) } catch (error) { await this.assets.remove(task.userId, asset.id); throw error }
     await this.updateRunningTask(task, {
@@ -251,7 +301,7 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private videoJobId(payload: ProviderPayload) {
     const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data as Record<string, unknown> : {}
-    return [payload.id, payload.request_id, payload.requestId, payload.task_id, payload.taskId, data.id, data.request_id, data.requestId, data.task_id, data.taskId]
+    return [payload.task_id, payload.id, payload.request_id, payload.requestId, payload.taskId, data.task_id, data.id, data.request_id, data.requestId, data.taskId]
       .find((value): value is string => typeof value === 'string' && value.length > 0)
   }
 
@@ -278,6 +328,19 @@ export class VideoGenerationRunner implements GenerationRunner {
     if (data && typeof data === 'object') return this.videoResultUrl(data as ProviderPayload)
     const output = payload.output
     if (output && typeof output === 'object' && !Array.isArray(output)) return this.videoResultUrl(output as ProviderPayload)
+    for (const value of [payload.metadata, payload.result, payload.content]) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const url = this.videoResultUrl(value as ProviderPayload)
+        if (url) return url
+      }
+    }
+    return undefined
+  }
+
+  private videoLastFrameUrl(payload: ProviderPayload) {
+    for (const value of [payload.metadata, payload.result, payload.content]) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && typeof (value as Record<string, unknown>).last_frame_url === 'string') return (value as Record<string, unknown>).last_frame_url as string
+    }
     return undefined
   }
 
@@ -297,8 +360,18 @@ export class VideoGenerationRunner implements GenerationRunner {
     // Only explicitly allowlisted local workers may bypass the public DNS
     // dispatcher. Admin-managed public Providers must use the dispatcher even
     // for same-origin result URLs so DNS rebinding cannot reach a private IP.
-    const request = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
-    const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    const native = videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON'
+    const standardRequest = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
+    const request = native && resolved.type !== ProviderType.LOCAL_WORKER ? fetchPublicManualRedirect : standardRequest
+    let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content')) ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    for (let hop = 0; native && [301, 302, 303, 307, 308].includes(response.status) && hop < 3; hop += 1) {
+      const location = response.headers.get('location')
+      await response.body?.cancel()
+      if (!location) throw new ProviderRequestError('视频下载跳转缺少地址', 502)
+      url = new URL(location, url)
+      await this.endpointPolicy.assertPublicHttpUrl(url.toString())
+      response = await fetchPublicManualRedirect(url, { signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    }
     if (!response.ok) throw new ProviderRequestError(`视频下载返回 ${response.status}`, response.status)
     const contentType = (response.headers.get('content-type') || 'video/mp4').split(';')[0].toLowerCase()
     if (contentType.startsWith('text/') || contentType.includes('json')) throw new ProviderRequestError(`视频下载返回了非视频内容：${contentType}`, 502)

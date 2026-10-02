@@ -36,6 +36,13 @@ const publicOptionKeys = [
   'resolution',
   'duration',
   'aspectRatio',
+  'referenceVideoUrls',
+  'imageRole',
+  'generateAudio',
+  'watermark',
+  'returnLastFrame',
+  'videoTaskType',
+  'videoFormat',
   'pluginId',
   'creationToolId',
   'assistantId',
@@ -91,7 +98,7 @@ export function publicAssetOptions(value: unknown) {
 export function publicAssetMetadata(value: unknown) {
   const metadata = recordOf(value)
   if (!Object.keys(metadata).length) return null
-  const result = pick(metadata, ['purpose', 'prompt', 'model', 'jobId', 'position', 'moduleLabel', 'creationType', 'platform'])
+  const result = pick(metadata, ['purpose', 'prompt', 'model', 'jobId', 'position', 'moduleLabel', 'creationType', 'platform', 'lastFrameUrl', 'upstreamUsage'])
   if (metadata.options !== undefined) result.options = publicAssetOptions(metadata.options)
   return result
 }

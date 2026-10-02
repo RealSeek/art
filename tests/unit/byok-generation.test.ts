@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { GenerationsService } from '../../server/src/generations/generations.service'
+import { seedanceVideoCapabilities } from '../../server/src/generations/video-options'
 
 test('用户密钥生成不会扣除个人或团队创作点', async () => {
   let createdData: Record<string, any> | undefined
   let resolvedOptions: Record<string, unknown> | undefined
   let spendCalls = 0
+  let queuedData: Record<string, any> | undefined
   const now = new Date()
   const job: Record<string, any> = {
     id: 'job-byok',
@@ -68,6 +70,7 @@ test('用户密钥生成不会扣除个人或团队创作点', async () => {
         inputCreditsPerMillion: 10, outputCreditsPerMillion: 20, baseInputCreditsPerMillion: 10, baseOutputCreditsPerMillion: 20,
         inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0,
         imageCapabilities: { sizes: ['1024x1024'], qualities: ['medium'], outputFormats: ['png'], backgrounds: ['auto'], maxCount: 4, defaultSize: '1024x1024', defaultQuality: 'medium', resolutionPricing: { '1K': 9 } },
+        videoCapabilities: seedanceVideoCapabilities('seedance-2.5'),
       }
     } } as never,
     { inspect: async () => undefined } as never,
@@ -80,7 +83,7 @@ test('用户密钥生成不会扣除个人或团队创作点', async () => {
     {} as never,
     {} as never,
     {} as never,
-    { add: async () => undefined } as never,
+    { add: async (_name: string, data: Record<string, any>) => { queuedData = data } } as never,
   )
 
   const result = await service.create('user-1', {
@@ -98,4 +101,15 @@ test('用户密钥生成不会扣除个人或团队创作点', async () => {
   assert.equal((createdData?.options.billing as Record<string, unknown>).baseCreditCost, 0)
   assert.equal(spendCalls, 0)
   assert.equal(result.creditCost, 0)
+
+  const audio = { name: 'reference.wav', mimeType: 'audio/wav', dataUrl: 'data:audio/wav;base64,YQ==' }
+  await service.create('user-1', {
+    kind: 'VIDEO', prompt: '按参考音频节奏生成视频', model: 'seedance-2.5',
+    options: { duration: 30, referenceAudios: [audio], generateAudio: false },
+  })
+  assert.equal(createdData?.creditCost, 0)
+  assert.equal(createdData?.options.generateAudio, false)
+  assert.equal(createdData?.options.referenceAudios, undefined)
+  assert.equal(queuedData?.inputs.referenceAudios[0].dataUrl, audio.dataUrl)
+  assert.equal(spendCalls, 0)
 })

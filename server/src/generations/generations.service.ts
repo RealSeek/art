@@ -28,20 +28,22 @@ interface RequestTrace { requestId?: string; traceId?: string }
 const MAX_INLINE_IMAGE_DATA_URL = 40_000_000
 const MAX_INLINE_AUDIO_DATA_URL = 20_000_000
 
-const MAX_INLINE_REFERENCES = 16
+const MAX_INLINE_REFERENCES = 30
 export type InlineGenerationInputs = {
   referenceImages?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
   referenceAudios?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
   maskImage?: { name?: string; mimeType?: string; dataUrl?: string }
 }
 
-function inlineItems(value: unknown, limit: number, maxLength: number, label: string) {
+function inlineItems(value: unknown, limit: number, maxLength: number, label: string, kind: 'image' | 'audio' = 'image') {
   if (!Array.isArray(value) || !value.length) return []
-  return value.slice(0, limit).map((item) => {
+  if (value.length > limit) throw new BadRequestException(`${label}最多 ${limit} 个`)
+  return value.map((item) => {
     const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
     const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-    if (!/^data:image\/(png|jpe?g|webp|avif);base64,/i.test(dataUrl) || dataUrl.length > maxLength) throw new BadRequestException(`${label}格式不支持或文件过大`)
-    return { id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : label, mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }
+    const pattern = kind === 'image' ? /^data:image\/(png|jpe?g|webp|avif);base64,/i : /^data:audio\/[a-z0-9.+-]+;base64,/i
+    if (!pattern.test(dataUrl) || dataUrl.length > maxLength) throw new BadRequestException(`${label}格式不支持或文件过大`)
+    return { id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : label, mimeType: typeof row.mimeType === 'string' ? row.mimeType : dataUrl.slice(5, dataUrl.indexOf(';')), dataUrl }
   })
 }
 
@@ -58,7 +60,7 @@ function extractInlineInputs(options: Record<string, unknown>): InlineGeneration
   delete options.maskImage
   if (rawImages === undefined && rawAudios === undefined && rawMask === undefined) return null
   const referenceImages = inlineItems(rawImages, MAX_INLINE_REFERENCES, MAX_INLINE_IMAGE_DATA_URL, '参考图')
-  const referenceAudios = inlineItems(rawAudios, 8, MAX_INLINE_AUDIO_DATA_URL, '参考音频')
+  const referenceAudios = inlineItems(rawAudios, 10, MAX_INLINE_AUDIO_DATA_URL, '参考音频', 'audio')
   let maskImage: InlineGenerationInputs['maskImage']
   if (rawMask && typeof rawMask === 'object' && !Array.isArray(rawMask)) {
     const row = rawMask as Record<string, unknown>
@@ -183,7 +185,7 @@ export class GenerationsService {
       const raw = imageCreditCost(size, resolved.imageCapabilities, resolved.creditCost)
       unitCreditCost = configured === undefined ? raw : Math.ceil(raw * resolved.creditRatePercent / 100)
     } else if (input.kind === 'VIDEO') {
-      const videoOptions = normalizeVideoOptions(normalizedOptions, resolved.videoCapabilities)
+      const videoOptions = normalizeVideoOptions({ ...normalizedOptions, ...inlineInputs }, resolved.videoCapabilities)
       const configured = videoCapabilities(resolved.videoCapabilities).pricing[`${videoOptions.resolution}:${videoOptions.duration}`]
       const raw = videoCreditCost(videoOptions, resolved.videoCapabilities, resolved.creditCost)
       unitCreditCost = configured === undefined ? raw : Math.ceil(raw * resolved.creditRatePercent / 100)

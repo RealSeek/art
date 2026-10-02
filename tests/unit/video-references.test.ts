@@ -66,7 +66,7 @@ test('H3 模型自动导入时带上分辨率、时长区间与参考能力', ()
 })
 
 test('非 H3 视频模型保持旧的单张参考图行为', () => {
-  const result = (ProvidersService.prototype as never as { discoveredModelOptions: (candidate: unknown, apiProtocol?: string) => { videoCapabilities: Record<string, unknown> } }).discoveredModelOptions({ id: 'seedance-2.0', capability: 'VIDEO', flatCreditCost: 3 }, 'openai')
+  const result = (ProvidersService.prototype as never as { discoveredModelOptions: (candidate: unknown, apiProtocol?: string) => { videoCapabilities: Record<string, unknown> } }).discoveredModelOptions({ id: 'sora-2', capability: 'VIDEO', flatCreditCost: 3 }, 'openai')
   assert.equal(result.videoCapabilities.maxReferences, undefined)
   assert.equal(result.videoCapabilities.maxAudioReferences, undefined)
 })

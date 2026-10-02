@@ -150,6 +150,13 @@ function mapGeneration(job: ServerJob, fallback?: GenerationOptions): Generation
     outputCompression: typeof options.outputCompression === 'number' ? options.outputCompression : undefined,
     resolution: typeof options.resolution === 'string' ? options.resolution : undefined,
     duration: typeof options.duration === 'number' ? options.duration : undefined,
+    referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls.map(String) : undefined,
+    imageRole: options.imageRole as GenerationOptions['imageRole'],
+    generateAudio: typeof options.generateAudio === 'boolean' ? options.generateAudio : undefined,
+    watermark: typeof options.watermark === 'boolean' ? options.watermark : undefined,
+    returnLastFrame: typeof options.returnLastFrame === 'boolean' ? options.returnLastFrame : undefined,
+    videoTaskType: options.videoTaskType as GenerationOptions['videoTaskType'],
+    videoFormat: options.videoFormat as GenerationOptions['videoFormat'],
     aspectRatio: typeof options.aspectRatio === 'string' ? options.aspectRatio : undefined,
     // 插件与图片工具决定生成指令，重试必须沿用，否则「按原方案重试」会变成另一个任务。
     pluginId: typeof options.pluginId === 'string' ? options.pluginId : undefined,
@@ -590,7 +597,7 @@ export const useStudioStore = defineStore('studio', {
         replaceMessage(this.messages, optimisticMessage.id, { id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model.trim() || safeConversationModel, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
-          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, maskReferenceId: options.maskReferenceId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, pluginId: options.pluginId, creationToolId: options.creationToolId },
+          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, maskReferenceId: options.maskReferenceId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, referenceVideoUrls: options.referenceVideoUrls, imageRole: options.imageRole, generateAudio: options.generateAudio, watermark: options.watermark, returnLastFrame: options.returnLastFrame, videoTaskType: options.videoTaskType, videoFormat: options.videoFormat, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
         // 本机素材（参考图/音频/蒙版）不落库，记住它们的 id 才能让“重新生成”用回同一批素材。

@@ -43,6 +43,19 @@
               <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="removeMask()"><X :size="13" /></button>
             </article>
           </div>
+          <details v-if="activeMode === 'videos' && nativeVideo" class="seedance-settings">
+            <summary>视频参考与生成设置</summary>
+            <div class="seedance-settings__fields">
+              <label>图片用途<select v-model="videoSettings.imageRole" aria-label="图片用途"><option value="reference_image">参考图片</option><option value="first_frame">首帧</option><option value="first_last_frame">首尾帧（按图片顺序）</option></select></label>
+              <label v-if="videoEditing">生成模式<select v-model="videoSettings.videoTaskType" aria-label="生成模式"><option :value="undefined">模型默认</option><option value="auto">自动</option><option value="reference">参考生成</option><option value="edit">编辑视频</option><option value="extend">延长视频</option></select></label>
+              <label v-if="videoEditing">输出格式<select v-model="videoSettings.videoFormat" aria-label="输出格式"><option :value="undefined">模型默认</option><option value="mp4">MP4</option><option value="mov">MOV</option></select></label>
+              <label><input v-model="videoSettings.generateAudio" type="checkbox" />生成音频</label>
+              <label><input v-model="videoSettings.watermark" type="checkbox" />水印</label>
+              <label><input v-model="videoSettings.returnLastFrame" type="checkbox" />返回尾帧链接</label>
+              <label class="seedance-settings__urls">参考视频（最多 {{ videoReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceVideoText" rows="2" aria-label="参考视频地址" placeholder="https://example.com/video.mp4" /></label>
+              <p>首帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
+            </div>
+          </details>
           <div class="creation-controls">
             <div class="creation-control-track">
               <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
@@ -60,7 +73,7 @@
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="选择要编辑的区域" @click.stop="openRegionEditor()"><Brush :size="16" />区域编辑</button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" @click.stop="openCreationAttachmentPicker('mask')"><Blend :size="16" />上传蒙版</button>
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button v-if="activeMode === 'videos'" type="button" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration} 秒`" :title="`视频时长：${videoDuration} 秒`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration }} 秒<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button v-if="activeMode === 'videos'" type="button" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration === -1 ? '自动' : `${videoDuration} 秒`}`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration === -1 ? '自动' : `${videoDuration} 秒` }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
               </div>
               <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
               <div v-if="activeMode !== 'videos'" class="creation-more-wrap">
@@ -87,8 +100,8 @@
               </div>
               <div v-else-if="creationMenu === 'duration'" class="creation-duration-menu">
                 <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
-                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="1" :max="videoDurationLimit" step="1" :value="videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒</span></label>
-                <p class="creation-duration-hint">支持 1–{{ videoDurationLimit }} 秒，超出会自动调整。</p>
+                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="videoDurationMin" :max="videoDurationLimit" step="1" :value="videoDuration === -1 ? '' : videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒</span></label>
+                <p class="creation-duration-hint">支持 {{ videoDurationMin }}–{{ videoDurationLimit }} 秒，超出会自动调整。</p>
               </div>
               <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>
@@ -133,7 +146,7 @@
           <template v-if="activeMode === 'videos'">
             <div v-if="pendingVideoRuns.length" class="video-runs video-runs--pending">
               <article v-for="run in pendingVideoRuns" :key="run.id" class="video-run-card" :class="`is-${run.status.toLowerCase()}`">
-                <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频{{ run.progress !== undefined ? ` · ${run.progress}%` : '' }}</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration || 5 }} 秒 · {{ run.request.aspectRatio || '16:9' }} · 已用 {{ elapsedSeconds(run) }} 秒</small><div v-if="run.progress !== undefined" class="video-run-card__progress" role="progressbar" :aria-valuenow="run.progress"><span :style="{ width: `${run.progress}%` }" /></div></div>
+                <div class="video-run-card__stage"><LoaderCircle :size="26" /><strong>正在生成视频{{ run.progress !== undefined ? ` · ${run.progress}%` : '' }}</strong><small>{{ run.request.resolution || '720p' }} · {{ run.request.duration === -1 ? '自动时长' : `${run.request.duration || 5} 秒` }} · {{ run.request.aspectRatio || '16:9' }} · 已用 {{ elapsedSeconds(run) }} 秒</small><div v-if="run.progress !== undefined" class="video-run-card__progress" role="progressbar" :aria-valuenow="run.progress"><span :style="{ width: `${run.progress}%` }" /></div></div>
                 <footer><span><strong>{{ run.model }}</strong></span><nav><button type="button" title="停止生成" :disabled="store.cancelingJobId === run.id" @click="stopGeneration(run)"><Square :size="14" fill="currentColor" /></button></nav></footer>
                 <p>{{ run.prompt }}</p>
               </article>
@@ -176,7 +189,7 @@ import ModelCatalogPicker from '../ModelCatalogPicker.vue'
 import PluginSelector from '../PluginSelector.vue'
 import { useAuthStore } from '../../stores/auth'
 import { useStudioStore } from '../../stores/studio'
-import type { GenerationRun, PluginCapability, StudioAsset, StudioMode } from '../../types'
+import type { GenerationOptions, GenerationRun, PluginCapability, StudioAsset, StudioMode } from '../../types'
 import { findCatalogModel, type CatalogModel } from '../../utils/model-catalog'
 import { resolveGenerationRunState } from '../../utils/generation-run-state'
 import ModelBadge from '../common/ModelBadge.vue'
@@ -212,6 +225,10 @@ const props = defineProps<{
   videoResolution: string
   videoDuration: number
   videoDurationLimit: number
+  videoDurationMin: number
+  nativeVideo: boolean
+  videoEditing: boolean
+  videoReferenceLimit: number
   setCustomVideoDuration: (value: string) => void
   commerceModules: number
   imageResolution: string
@@ -271,6 +288,8 @@ const props = defineProps<{
   refreshModelCatalog: () => void
 }>()
 const generationPrompt = defineModel<string>('generationPrompt', { required: true })
+const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceVideoUrls'>>('videoSettings', { required: true })
+const referenceVideoText = computed({ get: () => (videoSettings.value.referenceVideoUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceVideoUrls = text.split('\n') } })
 const audioAttachments = computed(() => props.audioAttachments)
 const maskAttachment = computed(() => props.maskAttachment)
 function removeReference(index: number) { void props.removeReference(index) }
@@ -439,3 +458,13 @@ defineExpose({
   syncInspirationNavigation,
 })
 </script>
+
+<style scoped>
+.seedance-settings { margin: 0 16px 12px; font-size: 13px; }
+.seedance-settings summary { cursor: pointer; padding: 8px 0; }
+.seedance-settings__fields { display: flex; flex-wrap: wrap; gap: 12px 18px; padding: 8px 0; }
+.seedance-settings__fields label { display: flex; align-items: center; gap: 8px; }
+.seedance-settings__fields select, .seedance-settings__fields textarea { padding: 6px; border: 1px solid var(--border-color, #8884); border-radius: 6px; background: transparent; color: inherit; }
+.seedance-settings__fields .seedance-settings__urls { flex-basis: 100%; align-items: stretch; flex-direction: column; }
+.seedance-settings__fields p { margin: 0; opacity: .7; line-height: 1.6; }
+</style>

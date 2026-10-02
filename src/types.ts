@@ -218,6 +218,13 @@ export interface GenerationOptions {
   outputCompression?: number
   resolution?: string
   duration?: number
+  referenceVideoUrls?: string[]
+  imageRole?: 'reference_image' | 'first_frame' | 'first_last_frame'
+  generateAudio?: boolean
+  watermark?: boolean
+  returnLastFrame?: boolean
+  videoTaskType?: 'auto' | 'reference' | 'edit' | 'extend'
+  videoFormat?: 'mp4' | 'mov'
   aspectRatio?: string
   creditCost?: number
   pluginId?: string

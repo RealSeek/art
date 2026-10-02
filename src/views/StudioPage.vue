@@ -39,7 +39,7 @@
       <CodeArtifactPanel v-if="activeArtifact" :artifact="activeArtifact" @close="activeArtifact = null" />
     </section>
 
-    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" :mask-attachment="composerMask" :audio-attachments="composerAudios" :remove-reference="removeComposerReference" :remove-audio="removeComposerAudio" :remove-mask="removeComposerMask" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="composerReferences" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+    <CreationPanel v-else-if="activeMode === 'images' || activeMode === 'videos' || activeMode === 'commerce'" :key="activeMode" ref="creationPanel" v-model:generation-prompt="generationPrompt" :mask-attachment="composerMask" :audio-attachments="composerAudios" :remove-reference="removeComposerReference" :remove-audio="removeComposerAudio" :remove-mask="removeComposerMask" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="activeMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :video-duration-min="activeVideoCapabilities.minDuration" :native-video="activeVideoCapabilities.native" :video-editing="activeVideoCapabilities.supportsVideoEditing" :video-reference-limit="activeVideoCapabilities.maxVideoReferences" v-model:video-settings="videoSettings" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="composerReferences" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
 
     <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
 
@@ -119,7 +119,7 @@ import { useLocalMediaStore } from '../stores/local-media'
 import { useLocalInputsStore } from '../stores/local-inputs'
 import { useCatalogStore, type ChatQuickAction, type ChatRecommendation, type ChatUiPreset } from '../stores/catalog'
 import { ChatSendError, useStudioStore } from '../stores/studio'
-import type { CodeArtifact, GenerationRun, PluginCapability, StudioAsset, StudioMode, WebSearchSource } from '../types'
+import type { CodeArtifact, GenerationOptions, GenerationRun, PluginCapability, StudioAsset, StudioMode, WebSearchSource } from '../types'
 import { api } from '../services/api'
 import { consumeCreationPrompt, type PendingCreationPrompt } from '../utils/prompt-transfer'
 import { getChatLayout, resolveChatUiPreset } from '../layouts/chat-presets'
@@ -313,7 +313,7 @@ async function addLocalAudios(files: File[]) {
   const remaining = Math.max(0, audioReferenceLimit.value - localInputs.audios.length)
   if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
   if (!remaining) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
-  if (!composerReferences.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
+  if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
   store.clearError()
   pasting.value = true
   try { await localInputs.addFiles(files.slice(0, remaining), 'audio') }
@@ -325,6 +325,7 @@ const imageModel = ref('')
 const videoModel = ref('')
 const videoResolution = ref('720p')
 const videoDuration = ref(5)
+const videoSettings = ref<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceVideoUrls'>>({ imageRole: 'reference_image', generateAudio: true, watermark: false, returnLastFrame: false, referenceVideoUrls: [] })
 const videoAspectRatio = ref('16:9')
 const activeVideoVariants = computed(() => videoModelVariants(catalogModels.value, videoModel.value))
 const videoQuality = computed(() => {
@@ -349,7 +350,7 @@ const activeImageCapabilities = computed(() => {
 const activeVideoCapabilities = computed(() => {
   const model = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
   const raw = model?.options?.videoCapabilities || {}
-  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {}, maxReferences: Math.max(0, raw.maxReferences ?? 1), maxAudioReferences: Math.max(0, raw.maxAudioReferences || 0), minDuration: Math.max(1, raw.minDuration || 1), maxDuration: Math.min(MAX_VIDEO_DURATION_SECONDS, raw.maxDuration || MAX_VIDEO_DURATION_SECONDS) }
+  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {}, maxReferences: Math.max(0, raw.maxReferences ?? 1), maxAudioReferences: Math.max(0, raw.maxAudioReferences || 0), minDuration: Math.max(1, raw.minDuration || 1), maxDuration: raw.maxDuration || MAX_VIDEO_DURATION_SECONDS, native: raw.referenceMode === 'CONTENT_JSON', maxVideoReferences: raw.maxVideoReferences || 0, supportsAutoDuration: raw.supportsAutoDuration === true, audioRequiresVisualReference: raw.audioRequiresVisualReference !== false, supportsVideoEditing: raw.supportsVideoEditing === true }
 })
 function backgroundLabel(value: string) { return value === 'transparent' ? '透明背景' : value === 'opaque' ? '不透明背景' : '自动背景' }
 /** 画质档位由模型尺寸清单推导，模型只支持 1K 时就只展示 1K。 */
@@ -365,10 +366,16 @@ function syncResolutionFromSize(size: unknown) {
   const tier = imageResolutionTier(size)
   if (availableResolutionTiers.value.includes(tier)) imageResolution.value = tier
 }
-function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
+function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!(videoDuration.value === -1 && caps.supportsAutoDuration) && (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio }
 /** 视频时长档位：模型声明时长 ∪ 5/10/15，限制在该模型允许的区间内。 */
 const videoDurationPresets = computed(() => videoDurationOptions(activeVideoCapabilities.value.durations, activeVideoCapabilities.value.minDuration, activeVideoCapabilities.value.maxDuration))
 const videoDurationLimit = computed(() => activeVideoCapabilities.value.maxDuration)
+watch(videoModel, () => {
+  if (!activeVideoCapabilities.value.supportsVideoEditing) {
+    delete videoSettings.value.videoTaskType
+    delete videoSettings.value.videoFormat
+  }
+})
 function setCustomVideoDuration(value: string) {
   const caps = activeVideoCapabilities.value
   videoDuration.value = clampVideoDuration(value, caps.defaultDuration, caps.minDuration, caps.maxDuration)
@@ -392,7 +399,7 @@ function openCreationAttachmentPicker(kind: 'image' | 'audio' | 'mask') {
   if (kind === 'audio') {
     if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
     if (localInputs.audios.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
-    if (!composerReferences.value.length) { store.lastError = '参考音频必须搭配至少一张参考图'; return }
+    if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
     localAudioInput.value?.click()
     return
   }
@@ -699,7 +706,7 @@ const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'size') return imageRatios
   if (creationMenu.value === 'style') return imageStyles
   if (creationMenu.value === 'resolution') return activeVideoVariants.value.length ? [...new Set(activeVideoVariants.value.map(item => videoModelVariant(item)!.quality))] : activeVideoCapabilities.value.resolutions
-  if (creationMenu.value === 'duration') return videoDurationPresets.value.map((item) => `${item} 秒`)
+  if (creationMenu.value === 'duration') return [...(activeVideoCapabilities.value.supportsAutoDuration ? ['自动'] : []), ...videoDurationPresets.value.map((item) => `${item} 秒`)]
   if (creationMenu.value === 'aspect') return activeVideoCapabilities.value.aspectRatios
   if (creationMenu.value === 'platform') return ['自动', '淘宝/天猫', '京东', '拼多多', '抖音电商', '小红书', 'Amazon', 'TikTok Shop', 'Shopee']
   if (creationMenu.value === 'imageResolution') return availableResolutionTiers.value
@@ -1019,7 +1026,7 @@ function isCreationOptionActive(option: string) {
   if (creationMenu.value === 'size') return autoMode.value === option
   if (creationMenu.value === 'platform') return commercePlatform.value === option
   if (creationMenu.value === 'resolution') return videoQuality.value === option
-  if (creationMenu.value === 'duration') return `${videoDuration.value} 秒` === option
+  if (creationMenu.value === 'duration') return (videoDuration.value === -1 ? '自动' : `${videoDuration.value} 秒`) === option
   if (creationMenu.value === 'aspect') return videoAspectRatio.value === option
   if (creationMenu.value === 'style') return imageStyle.value === option
   if (creationMenu.value === 'imageResolution') return imageResolution.value === option
@@ -1042,7 +1049,7 @@ function selectCreationOption(option: string) {
       syncVideoSelection()
     } else if (!activeVideoVariants.value.length) videoResolution.value = option
   }
-  else if (creationMenu.value === 'duration') videoDuration.value = Number.parseInt(option, 10)
+  else if (creationMenu.value === 'duration') videoDuration.value = option === '自动' ? -1 : Number.parseInt(option, 10)
   else if (creationMenu.value === 'aspect') videoAspectRatio.value = option
   else if (creationMenu.value === 'style') imageStyle.value = imageStyle.value === option ? '' : option
   else if (creationMenu.value === 'imageResolution') imageResolution.value = option as ImageResolutionTier
@@ -1087,7 +1094,7 @@ async function submitGeneration() {
   let jobId = ''
   try {
     const inline = await localInputs.payload()
-    jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
+    jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, ...(activeMode.value === 'videos' && activeVideoCapabilities.value.native ? videoSettings.value : {}), pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
   } catch {
     // 任务没有建成功时把输入还给用户；服务端错误已由 Store 展示在页面上。
     generationPrompt.value = prompt; creationAttachments.value = pendingAttachments; selectedImageToolId.value = pendingToolId
