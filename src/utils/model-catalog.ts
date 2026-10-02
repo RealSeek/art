@@ -60,6 +60,10 @@ export type CatalogModel = {
       pricing?: Record<string, number>
       maxReferences?: number
       maxAudioReferences?: number
+      maxFirstLastFrames?: number
+      maxTotalReferences?: number
+      faceSupported?: boolean | null
+      requiresPublicReferenceUrls?: boolean
       referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
       maxVideoReferences?: number
       supportsAutoDuration?: boolean

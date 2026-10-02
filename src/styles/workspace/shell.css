@@ -769,9 +769,57 @@ html[data-studio-theme="light"] .settings-api-list article footer button:hover {
   position: relative;
 }
 .creation-composer:focus-within { border-color: rgba(116, 160, 222, .66); box-shadow: 0 8px 28px rgba(0, 0, 0, .18), 0 0 0 3px rgba(74, 144, 226, .1); }
+.creation-content { min-width: 0; }
 .creation-prompt-row { display: flex; min-height: 66px; min-width: 0; overflow: hidden; }
 .creation-prompt-row textarea { background: transparent; border: 0; color: #f5f5f5; flex: 1 1 auto; font: inherit; font-size: 16px; line-height: 25px; max-height: min(42vh, 320px); min-height: 66px; min-width: 0; outline: none; overflow-x: hidden; overflow-y: hidden; padding: 0; resize: none; scrollbar-color: #777 transparent; scrollbar-width: thin; width: 100%; }
 .creation-prompt-row textarea::placeholder { color: #a1a1a1; }
+.creation-reference-entry { display: none; }
+.creation-composer.is-video {
+  background: linear-gradient(108deg, color-mix(in srgb, var(--creation-surface) 96%, #fff 4%), var(--creation-surface));
+  border-color: rgba(255, 255, 255, .13);
+  border-radius: 22px;
+  min-height: 158px;
+  padding: 15px 18px 57px;
+}
+.creation-composer.is-video .creation-content { column-gap: 17px; display: grid; grid-template-columns: 68px minmax(0, 1fr); min-height: 84px; }
+.creation-composer.is-video .creation-reference-entry {
+  align-items: center;
+  align-self: start;
+  background: transparent;
+  border: 0;
+  color: #9fa3a8;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  gap: 4px;
+  height: 78px;
+  justify-content: center;
+  padding: 0;
+  width: 68px;
+}
+.creation-reference-entry__sheet {
+  align-items: center;
+  background: #2b2e31;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 3px;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .2);
+  color: #94989c;
+  display: flex;
+  height: 54px;
+  justify-content: center;
+  position: relative;
+  transform: rotate(-7deg);
+  transition: background-color .16s ease, color .16s ease, transform .16s ease;
+  width: 54px;
+}
+.creation-reference-entry__sheet::before { background: #383b3e; border-radius: 2px; content: ''; height: 45px; left: 7px; position: absolute; top: -4px; transform: rotate(5deg); width: 46px; z-index: -1; }
+.creation-composer.is-video .creation-reference-entry:not(:disabled):hover { color: #d9dcdf; }
+.creation-composer.is-video .creation-reference-entry:not(:disabled):hover .creation-reference-entry__sheet { background: #35393d; color: #e2e5e8; transform: rotate(-4deg) translateY(-1px); }
+.creation-composer.is-video .creation-reference-entry:disabled { cursor: not-allowed; opacity: .46; }
+.creation-composer.is-video .creation-prompt-row { min-height: 82px; }
+.creation-composer.is-video .creation-prompt-row textarea { font-size: 14px; line-height: 24px; min-height: 82px; padding: 2px 4px 0 0; }
+.creation-composer.is-video .creation-prompt-row textarea::placeholder { color: #83878c; }
+.creation-composer.is-video .creation-attachments { grid-column: 2; margin: -2px 0 6px; padding-top: 6px; }
 .creation-attachments { display: flex; gap: 10px; margin-top: 4px; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 5px 8px 2px 1px; position: static; scrollbar-width: none; }
 .creation-attachments .attachment-card--image { height: 64px; width: 64px; }
 .creation-attachments .attachment-card--file { height: 60px; width: 220px; }
@@ -784,6 +832,7 @@ html[data-studio-theme="light"] .settings-api-list article footer button:hover {
 .attachment-mask-label { background: #2563b8; border-radius: 4px; bottom: 3px; color: #fff; font-size: 10px; left: 3px; line-height: 16px; padding: 0 4px; position: absolute; }
 .creation-mask-button { color: #80b7ff !important; }
 .creation-composer:has(.creation-attachments) { min-height: 214px; padding-bottom: 58px; }
+.creation-composer.is-video:has(.creation-attachments) { min-height: 224px; }
 .creation-controls { align-items: center; bottom: 10px; display: flex; height: 38px; left: 20px; min-width: 0; position: absolute; right: 12px; }
 .creation-control-track { align-items: center; display: flex; gap: 2px; height: 38px; min-width: 0; overflow-x: auto; overflow-y: hidden; padding-right: 4px; scrollbar-width: none; width: calc(100% - 46px); }
 .creation-control-track::-webkit-scrollbar { display: none; }
@@ -796,6 +845,16 @@ html[data-studio-theme="light"] .settings-api-list article footer button:hover {
 .creation-mode-switch { align-items: center; background: var(--creation-control); border-radius: 10px; display: inline-flex; flex: 0 0 auto; padding: 3px; }
 .creation-mode-switch button { background: transparent; border: 0; border-radius: 8px; color: #a8a8a8; font-size: 13px; height: 30px; min-width: 48px; padding: 0 11px; transition: background-color .16s ease, color .16s ease; }
 .creation-mode-switch button.is-active { background: var(--creation-control-active); color: #f4f4f4; }
+.creation-composer.is-video .creation-controls { bottom: 9px; left: 16px; right: 12px; }
+.creation-composer.is-video .creation-control-track { gap: 0; }
+.creation-composer.is-video .creation-mode-switch { background: transparent; padding: 0; }
+.creation-composer.is-video .creation-mode-switch button { min-width: 0; padding: 0 8px; }
+.creation-composer.is-video .creation-mode-switch button.is-active { background: transparent; color: #4fa7ff; }
+.creation-composer.is-video .creation-option-buttons > button { border-left: 1px solid rgba(255, 255, 255, .1); border-radius: 0; font-size: 12px; height: 25px; margin-block: 4px; padding: 0 9px; }
+.creation-composer.is-video .creation-option-buttons > button:hover,
+.creation-composer.is-video .creation-option-buttons > button.is-open { background: transparent; color: #fff; }
+.creation-composer.is-video .creation-option-buttons > button:first-child { border-left: 0; }
+.creation-composer.is-video .creation-control-label { display: none; }
 .creation-option-buttons { align-items: center; display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .creation-option-buttons::-webkit-scrollbar { display: none; }
 .creation-option-buttons > button { flex: 0 0 auto; white-space: nowrap; }
@@ -910,6 +969,12 @@ html[data-studio-theme="light"] .studio-create-page {
 }
 html[data-studio-theme="light"] .creation-composer { border-color: #a9ceff; box-shadow: 0 2px 8px rgba(31, 35, 41, .04), 0 18px 46px rgba(65, 116, 168, .09); }
 html[data-studio-theme="light"] .creation-composer:focus-within { border-color: #c7d7ef; box-shadow: 0 8px 28px rgba(24, 28, 33, .08), 0 0 0 3px rgba(52, 119, 220, .08); }
+html[data-studio-theme="light"] .creation-composer.is-video { background: linear-gradient(108deg, #fff, #f9fafb); border-color: #d9e2ec; }
+html[data-studio-theme="light"] .creation-reference-entry__sheet { background: #edf0f3; border-color: #dfe3e8; box-shadow: 0 5px 14px rgba(31, 35, 41, .08); color: #7d8389; }
+html[data-studio-theme="light"] .creation-reference-entry__sheet::before { background: #e1e5e9; }
+html[data-studio-theme="light"] .creation-composer.is-video .creation-reference-entry:not(:disabled):hover .creation-reference-entry__sheet { background: #e6ebef; color: #33383d; }
+html[data-studio-theme="light"] .creation-composer.is-video .creation-prompt-row textarea::placeholder { color: #777d83; }
+html[data-studio-theme="light"] .creation-composer.is-video .creation-option-buttons > button { border-left-color: #dde1e5; }
 html[data-studio-theme="light"] .creation-prompt-row textarea { color: #18191b; }
 html[data-studio-theme="light"] .creation-prompt-row textarea::placeholder { color: #92969c; }
 html[data-studio-theme="light"] .creation-control-track > button,
@@ -1191,6 +1256,15 @@ html[data-studio-theme="light"] .inspiration-preview__stage { background: #f1f1f
   .library-page .index-page-inner { padding-top: 40px; width: calc(100% - 64px); }
   .index-page-header h1 { font-size: 28px; }
   .creation-composer { border-radius: 22px; margin-left: -6px; min-height: 132px; padding: 16px 16px 54px; width: calc(100% + 12px); }
+  .creation-composer.is-video { min-height: 146px; padding: 13px 12px 54px; }
+  .creation-composer.is-video .creation-content { column-gap: 10px; grid-template-columns: 54px minmax(0, 1fr); min-height: 76px; }
+  .creation-composer.is-video .creation-reference-entry { height: 68px; width: 54px; }
+  .creation-composer.is-video .creation-reference-entry__sheet { height: 46px; width: 46px; }
+  .creation-composer.is-video .creation-reference-entry__sheet::before { height: 39px; width: 39px; }
+  .creation-composer.is-video .creation-prompt-row,
+  .creation-composer.is-video .creation-prompt-row textarea { min-height: 74px; }
+  .creation-composer.is-video .creation-prompt-row textarea { font-size: 13px; line-height: 21px; }
+  .creation-composer.is-video .creation-controls { left: 9px; }
   .creation-prompt-row { padding-left: 0; }
   .creation-prompt-row > strong { display: none; }
   .creation-prompt-row textarea { max-height: min(36vh, 240px); }

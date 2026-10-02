@@ -218,8 +218,11 @@ export interface GenerationOptions {
   outputCompression?: number
   resolution?: string
   duration?: number
+  referenceImageUrls?: string[]
+  referenceAudioUrls?: string[]
   referenceVideoUrls?: string[]
-  imageRole?: 'reference_image' | 'first_frame' | 'first_last_frame'
+  imageRole?: 'reference_image' | 'first_frame' | 'last_frame' | 'first_last_frame'
+  faceRequired?: boolean
   generateAudio?: boolean
   watermark?: boolean
   returnLastFrame?: boolean

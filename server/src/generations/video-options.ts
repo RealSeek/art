@@ -9,8 +9,11 @@ export type NormalizedVideoOptions = {
   /** 浏览器本地持有的参考图/音频（Data URL），不经过服务器存储。 */
   referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
   referenceAudios: Array<{ name: string; mimeType: string; dataUrl: string }>
+  referenceImageUrls: string[]
+  referenceAudioUrls: string[]
   referenceVideoUrls: string[]
-  imageRole: 'reference_image' | 'first_frame' | 'first_last_frame'
+  imageRole: 'reference_image' | 'first_frame' | 'last_frame' | 'first_last_frame'
+  faceRequired?: boolean
   generateAudio?: boolean
   watermark?: boolean
   returnLastFrame?: boolean
@@ -22,7 +25,7 @@ export type NormalizedVideoOptions = {
  * 参考素材传输方式：
  * - INPUT_REFERENCE：multipart 的 input_reference 字段，单张参考图（旧行为）；
  * - DATA_URL_JSON：JSON 的 images/audios 数组，使用 base64 Data URL。
- * - CONTENT_JSON：Seedance 原生 content 数组，明确指定媒体类型和角色。
+ * - CONTENT_JSON：原生 content 数组，明确指定媒体类型和角色。
  */
 export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
 
@@ -42,6 +45,10 @@ export type VideoCapabilityConfig = {
   maxReferences: number
   maxAudioReferences: number
   maxVideoReferences: number
+  maxFirstLastFrames: number
+  maxTotalReferences: number
+  faceSupported: boolean | null
+  requiresPublicReferenceUrls: boolean
   supportsAutoDuration: boolean
   audioRequiresVisualReference: boolean
   supportsVideoEditing: boolean
@@ -74,6 +81,10 @@ const DEFAULTS: VideoCapabilityConfig = {
   maxReferences: 1,
   maxAudioReferences: 0,
   maxVideoReferences: 0,
+  maxFirstLastFrames: 0,
+  maxTotalReferences: 0,
+  faceSupported: null,
+  requiresPublicReferenceUrls: false,
   supportsAutoDuration: false,
   audioRequiresVisualReference: true,
   supportsVideoEditing: false,
@@ -95,6 +106,7 @@ export function seedanceVideoCapabilities(model: string) {
     defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9',
     minDuration: 4, maxDuration: v25 ? 30 : 15,
     maxReferences: v25 ? 30 : 9, maxAudioReferences: v25 ? 10 : 3, maxVideoReferences: v25 ? 10 : 3,
+    maxFirstLastFrames: 2, maxTotalReferences: 0, faceSupported: null, requiresPublicReferenceUrls: false,
     referenceMode: 'CONTENT_JSON' as const, supportsAutoDuration: true,
     audioRequiresVisualReference: !v25, supportsVideoEditing: v25,
     createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content',
@@ -146,6 +158,10 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     maxReferences: Math.max(0, Math.min(30, Number.isInteger(Number(raw.maxReferences)) ? Number(raw.maxReferences) : DEFAULTS.maxReferences)),
     maxAudioReferences: Math.max(0, Math.min(10, Number.isInteger(Number(raw.maxAudioReferences)) ? Number(raw.maxAudioReferences) : DEFAULTS.maxAudioReferences)),
     maxVideoReferences: Math.max(0, Math.min(10, Number.isInteger(Number(raw.maxVideoReferences)) ? Number(raw.maxVideoReferences) : DEFAULTS.maxVideoReferences)),
+    maxFirstLastFrames: Math.max(0, Math.min(2, Number.isInteger(Number(raw.maxFirstLastFrames)) ? Number(raw.maxFirstLastFrames) : DEFAULTS.maxFirstLastFrames)),
+    maxTotalReferences: Math.max(0, Math.min(50, Number.isInteger(Number(raw.maxTotalReferences)) ? Number(raw.maxTotalReferences) : DEFAULTS.maxTotalReferences)),
+    faceSupported: typeof raw.faceSupported === 'boolean' ? raw.faceSupported : DEFAULTS.faceSupported,
+    requiresPublicReferenceUrls: raw.requiresPublicReferenceUrls === true,
     supportsAutoDuration: raw.supportsAutoDuration === true,
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
@@ -165,15 +181,19 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   const audioAssetIds = assetIds(options.audioAssetIds)
   const referenceImages = inlineMediaList(options.referenceImages, 'image')
   const referenceAudios = inlineMediaList(options.referenceAudios, 'audio')
-  const referenceVideoUrls = Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls.map(String).map(value => value.trim()).filter(Boolean) : []
-  const referenceCount = referenceAssetIds.length + referenceImages.length
-  const audioCount = audioAssetIds.length + referenceAudios.length
+  const referenceImageUrls = publicHttpsUrls(options.referenceImageUrls, '参考图')
+  const referenceAudioUrls = publicHttpsUrls(options.referenceAudioUrls, '参考音频')
+  const referenceVideoUrls = publicHttpsUrls(options.referenceVideoUrls, '参考视频')
+  const referenceCount = referenceAssetIds.length + referenceImages.length + referenceImageUrls.length
+  const audioCount = audioAssetIds.length + referenceAudios.length + referenceAudioUrls.length
+  const imageRole = options.imageRole === 'first_frame' || options.imageRole === 'last_frame' || options.imageRole === 'first_last_frame' ? options.imageRole : 'reference_image'
+  const frameCount = imageRole === 'first_last_frame' ? 2 : imageRole === 'reference_image' ? 0 : 1
   if (!capabilities.resolutions.includes(resolution)) throw new BadRequestException('当前视频模型不支持该分辨率')
   if (!(duration === -1 && capabilities.supportsAutoDuration) && (!Number.isInteger(duration) || duration < capabilities.minDuration || duration > capabilities.maxDuration)) {
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
-  if (referenceCount > capabilities.maxReferences) {
+  if (imageRole === 'reference_image' && referenceCount > capabilities.maxReferences) {
     throw new BadRequestException(capabilities.maxReferences
       ? `当前视频模型最多支持 ${capabilities.maxReferences} 张参考图`
       : '当前视频模型不支持参考图')
@@ -184,14 +204,12 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
       : '当前视频模型不支持参考音频')
   }
   if (referenceVideoUrls.length > capabilities.maxVideoReferences) throw new BadRequestException(`当前视频模型最多支持 ${capabilities.maxVideoReferences} 段参考视频`)
-  for (const source of referenceVideoUrls) {
-    let url: URL
-    try { url = new URL(source) } catch { throw new BadRequestException('参考视频需要可访问的 HTTPS 地址') }
-    if (url.protocol !== 'https:') throw new BadRequestException('参考视频需要可访问的 HTTPS 地址')
-  }
+  if (capabilities.maxTotalReferences && referenceCount + audioCount + referenceVideoUrls.length > capabilities.maxTotalReferences) throw new BadRequestException(`当前视频模型最多支持 ${capabilities.maxTotalReferences} 个参考素材`)
+  if (capabilities.requiresPublicReferenceUrls && (referenceAssetIds.length || audioAssetIds.length || referenceImages.length || referenceAudios.length)) throw new BadRequestException('当前视频模型的参考图和参考音频需要使用公开 HTTPS 地址')
   if (audioCount && capabilities.audioRequiresVisualReference && !referenceCount && !referenceVideoUrls.length) throw new BadRequestException('参考音频必须搭配至少一张参考图或参考视频')
-  const imageRole = options.imageRole === 'first_frame' || options.imageRole === 'first_last_frame' ? options.imageRole : 'reference_image'
-  if (imageRole !== 'reference_image' && (referenceCount !== (imageRole === 'first_frame' ? 1 : 2) || audioCount || referenceVideoUrls.length)) throw new BadRequestException('首帧需要一张图片，首尾帧需要两张图片，且不能混用参考音频或视频')
+  if (frameCount > capabilities.maxFirstLastFrames) throw new BadRequestException('当前视频模型不支持所选首尾帧模式')
+  if (imageRole !== 'reference_image' && (referenceCount !== frameCount || audioCount || referenceVideoUrls.length)) throw new BadRequestException('首帧或尾帧需要一张图片，首尾帧需要两张图片，且不能混用参考音频或视频')
+  if (options.faceRequired === true && capabilities.faceSupported !== true) throw new BadRequestException('当前渠道未声明人脸参考支持')
   const videoTaskType = options.videoTaskType as NormalizedVideoOptions['videoTaskType']
   if (videoTaskType !== undefined && !['auto', 'reference', 'edit', 'extend'].includes(videoTaskType)) throw new BadRequestException('视频生成模式无效')
   if (videoTaskType && !capabilities.supportsVideoEditing) throw new BadRequestException('当前模型不支持视频编辑模式')
@@ -199,7 +217,8 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   if (capabilities.supportsVideoEditing && imageRole !== 'reference_image' && aspectRatio !== 'adaptive') throw new BadRequestException('当前模型的首帧和首尾帧需要 adaptive 比例')
   const videoFormat = options.videoFormat as NormalizedVideoOptions['videoFormat']
   if (videoFormat !== undefined && (!capabilities.supportsVideoEditing || !['mp4', 'mov'].includes(videoFormat))) throw new BadRequestException('当前模型不支持该视频格式')
-  return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds, referenceImages, referenceAudios, referenceVideoUrls, imageRole,
+  return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds, referenceImages, referenceAudios, referenceImageUrls, referenceAudioUrls, referenceVideoUrls, imageRole,
+    ...(typeof options.faceRequired === 'boolean' ? { faceRequired: options.faceRequired } : {}),
     ...(typeof options.generateAudio === 'boolean' ? { generateAudio: options.generateAudio } : {}),
     ...(typeof options.watermark === 'boolean' ? { watermark: options.watermark } : {}),
     ...(typeof options.returnLastFrame === 'boolean' ? { returnLastFrame: options.returnLastFrame } : {}),
@@ -223,6 +242,16 @@ function assetIds(value: unknown) {
   return Array.isArray(value)
     ? [...new Set(value.map(String).filter((item) => /^[A-Za-z0-9_-]{1,100}$/.test(item)))]
     : []
+}
+
+function publicHttpsUrls(value: unknown, label: string) {
+  if (!Array.isArray(value)) return []
+  return value.map(String).map((item) => item.trim()).filter(Boolean).map((source) => {
+    let url: URL
+    try { url = new URL(source) } catch { throw new BadRequestException(`${label}需要可访问的 HTTPS 地址`) }
+    if (url.protocol !== 'https:') throw new BadRequestException(`${label}需要可访问的 HTTPS 地址`)
+    return source
+  })
 }
 
 export function videoCreditCost(options: NormalizedVideoOptions, configuredCapabilities: unknown, fallback: number) {

@@ -43,14 +43,14 @@ export class VideoGenerationRunner implements GenerationRunner {
     try {
       response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
-    if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON' && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`Seedance 创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
+    if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON' && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     try { return await response.json() as ProviderPayload }
     catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`原生视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -75,11 +75,20 @@ export class VideoGenerationRunner implements GenerationRunner {
   }
 
   private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO', execute: (provider: ResolvedProvider) => Promise<T>) {
-    const { referenceImages: _images, referenceAudios: _audios, ...options } = task.options as Record<string, unknown>
-    const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, options)
+    const rawOptions = task.options as Record<string, unknown>
+    const { referenceImages: _images, referenceAudios: _audios, ...options } = rawOptions
+    const imageRole = String(rawOptions.imageRole || 'reference_image')
+    const requirements = {
+      ...options,
+      referenceCount: imageRole === 'reference_image' ? [rawOptions.referenceAssetIds, rawOptions.referenceImages, rawOptions.referenceImageUrls].reduce<number>((total, value) => total + (Array.isArray(value) ? value.length : 0), 0) : 0,
+      referenceAudioCount: [rawOptions.audioAssetIds, rawOptions.referenceAudios, rawOptions.referenceAudioUrls].reduce<number>((total, value) => total + (Array.isArray(value) ? value.length : 0), 0),
+      referenceVideoCount: Array.isArray(rawOptions.referenceVideoUrls) ? rawOptions.referenceVideoUrls.length : 0,
+      firstLastFrames: imageRole === 'first_last_frame' ? 2 : imageRole === 'first_frame' || imageRole === 'last_frame' ? 1 : 0,
+    }
+    const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, requirements)
     const nativeTask = task.providerJobId && (candidates.some(candidate => videoCapabilities(candidate.videoCapabilities).referenceMode === 'CONTENT_JSON') || /seedance/i.test(task.model))
     const runnable = nativeTask ? candidates.filter(candidate => (task.providerChannelId || undefined) === candidate.providerId && (task.userCredentialId || undefined) === candidate.credentialId) : candidates
-    if (nativeTask && !runnable.length) throw new ReconciliationRequiredError(`Seedance 任务 ${task.providerJobId} 的原渠道不可用，请核对原任务`)
+    if (nativeTask && !runnable.length) throw new ReconciliationRequiredError(`视频任务 ${task.providerJobId} 的原渠道不可用，请核对原任务`)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
     let lastError: unknown
     for (const candidate of runnable) {
@@ -133,10 +142,12 @@ export class VideoGenerationRunner implements GenerationRunner {
         }
         if (capabilities.referenceMode === 'CONTENT_JSON') {
           const images = [
+            ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
           const audios = [
+            ...normalized.referenceAudioUrls,
             ...normalized.referenceAudios.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
@@ -148,6 +159,7 @@ export class VideoGenerationRunner implements GenerationRunner {
           ]
           payload = await this.provider(resolved, capabilities.createPath, {
             model: resolved.model, content, duration: normalized.duration, resolution: normalized.resolution, ratio: normalized.aspectRatio,
+            ...(normalized.faceRequired !== undefined ? { face_required: normalized.faceRequired } : {}),
             ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
             ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
             ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
@@ -158,10 +170,12 @@ export class VideoGenerationRunner implements GenerationRunner {
           // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
           // 本机参考素材（浏览器直发）排在前，与界面 @参考图 / @参考音频 编号一致。
           const images = [
+            ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
           const audios = [
+            ...normalized.referenceAudioUrls,
             ...normalized.referenceAudios.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
@@ -184,7 +198,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (immediateUrl) return { resolved, payload, url: immediateUrl }
         providerJobId = this.videoJobId(payload)
         if (!providerJobId) {
-          if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError('Seedance 未返回任务 ID，请核对原请求，禁止自动重发')
+          if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError('原生视频接口未返回任务 ID，请核对原请求，禁止自动重发')
           throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
         }
         await this.updateRunningTask(task, { providerJobId, providerChannelId: resolved.providerId || null, userCredentialId: resolved.credentialId || null, userModelRouteId: resolved.source === 'user' ? resolved.routeId || null : null, updatedAt: new Date() }, true)
@@ -203,7 +217,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         catch (error) {
           if (capabilities.referenceMode !== 'CONTENT_JSON') throw error
           if (error instanceof ProviderRequestError && (error.status === undefined || [408, 429, 502, 503, 504].includes(error.status))) continue
-          throw new ReconciliationRequiredError(`Seedance 任务 ${providerJobId} 查询失败：${error instanceof Error ? error.message : String(error)}`)
+          throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 查询失败：${error instanceof Error ? error.message : String(error)}`)
         }
         const status = this.videoStatus(payload)
         const resultUrl = this.videoResultUrl(payload)
@@ -219,7 +233,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
       }
-      if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 任务 ${providerJobId} 等待超时，请继续查询原任务`)
+      if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
       throw new ProviderRequestError('视频生成等待超时', 504)
     })
 
@@ -228,7 +242,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     let result: { bytes: Uint8Array; mimeType: string }
     try { result = await this.videoBytes(url, resolved) }
     catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`Seedance 已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
+      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`视频任务已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
     await this.assertNotCancelled(task.id)

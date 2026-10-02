@@ -253,6 +253,11 @@ type VideoCapabilities = {
   resolutions: string[]
   durations: number[]
   aspectRatios: string[]
+  maxReferences: number
+  maxFirstLastFrames: number
+  maxVideoReferences: number
+  maxAudioReferences: number
+  faceSupported: boolean | null
 }
 
 type VideoCapabilityRoute = {
@@ -498,6 +503,11 @@ export class ProvidersService implements OnModuleInit {
       resolutions: [...new Set(resolutions)],
       durations: [...new Set(durations)].sort((a, b) => a - b),
       aspectRatios: [...new Set(aspectRatios)],
+      maxReferences: value?.maxReferences === undefined ? 1 : Math.max(0, Number(value.maxReferences) || 0),
+      maxFirstLastFrames: Math.max(0, Number(value?.maxFirstLastFrames) || 0),
+      maxVideoReferences: Math.max(0, Number(value?.maxVideoReferences) || 0),
+      maxAudioReferences: Math.max(0, Number(value?.maxAudioReferences) || 0),
+      faceSupported: typeof value?.faceSupported === 'boolean' ? value.faceSupported : null,
     }
   }
 
@@ -524,7 +534,12 @@ export class ProvidersService implements OnModuleInit {
       resolutions: [...new Set([...union.resolutions, ...route.resolutions])],
       durations: [...new Set([...union.durations, ...route.durations])].sort((a, b) => a - b),
       aspectRatios: [...new Set([...union.aspectRatios, ...route.aspectRatios])],
-    }), { resolutions: [], durations: [], aspectRatios: [] })
+      maxReferences: Math.max(union.maxReferences, route.maxReferences),
+      maxFirstLastFrames: Math.max(union.maxFirstLastFrames, route.maxFirstLastFrames),
+      maxVideoReferences: Math.max(union.maxVideoReferences, route.maxVideoReferences),
+      maxAudioReferences: Math.max(union.maxAudioReferences, route.maxAudioReferences),
+      faceSupported: union.faceSupported === true || route.faceSupported === true ? true : union.faceSupported === false || route.faceSupported === false ? false : null,
+    }), { resolutions: [], durations: [], aspectRatios: [], maxReferences: 0, maxFirstLastFrames: 0, maxVideoReferences: 0, maxAudioReferences: 0, faceSupported: null })
     const intersect = <T extends string | number>(configured: T[], supported: T[]) => configured.length
       ? configured.filter((item) => supported.includes(item))
       : supported
@@ -545,6 +560,11 @@ export class ProvidersService implements OnModuleInit {
       defaultResolution: resolutions.includes(String(rawGlobal.defaultResolution || '').toLowerCase()) ? String(rawGlobal.defaultResolution).toLowerCase() : resolutions[0],
       defaultDuration: durations.includes(Number(rawGlobal.defaultDuration)) ? Number(rawGlobal.defaultDuration) : durations[0],
       defaultAspectRatio: aspectRatios.includes(String(rawGlobal.defaultAspectRatio || '')) ? String(rawGlobal.defaultAspectRatio) : aspectRatios[0],
+      maxReferences: available.maxReferences,
+      maxFirstLastFrames: available.maxFirstLastFrames,
+      maxVideoReferences: available.maxVideoReferences,
+      maxAudioReferences: available.maxAudioReferences,
+      faceSupported: available.faceSupported,
       pricing,
     }
     return options
@@ -573,6 +593,11 @@ export class ProvidersService implements OnModuleInit {
         || Number(requirements.duration) >= Number(capabilities.minDuration) && Number(requirements.duration) <= Number(capabilities.maxDuration)
         || supports('durations', requirements.duration, Number))
       && supports('aspectRatios', requirements.aspectRatio, (item) => String(item).trim())
+      && Number(requirements.referenceCount || 0) <= Number(capabilities.maxReferences ?? Number.MAX_SAFE_INTEGER)
+      && Number(requirements.firstLastFrames || 0) <= Number(capabilities.maxFirstLastFrames ?? Number.MAX_SAFE_INTEGER)
+      && Number(requirements.referenceVideoCount || 0) <= Number(capabilities.maxVideoReferences ?? Number.MAX_SAFE_INTEGER)
+      && Number(requirements.referenceAudioCount || 0) <= Number(capabilities.maxAudioReferences ?? Number.MAX_SAFE_INTEGER)
+      && (requirements.faceRequired !== true || capabilities.faceSupported === true)
   }
 
   private routeVideoCapabilities(value: Prisma.JsonValue | null | undefined, fallback: Record<string, unknown> | undefined) {
@@ -595,6 +620,41 @@ export class ProvidersService implements OnModuleInit {
     if (host.includes('dashscope.aliyuncs.com')) return 'qwen'
     if (host.includes('volces.com')) return 'doubao'
     return undefined
+  }
+
+  private async attachNewApiVideoCapabilities(baseUrl: string, headers: Record<string, string>, candidates: DiscoveredModel[]) {
+    const url = new URL(baseUrl)
+    url.pathname = '/api/pricing'
+    url.search = ''
+    const response = await fetchPublicNoRedirect(url, { headers, signal: AbortSignal.timeout(30_000) })
+    const raw = await response.text()
+    if (!response.ok) throw new Error(`NewAPI 能力目录返回 HTTP ${response.status}: ${raw.slice(0, 300)}`)
+    const payload = JSON.parse(raw) as { data?: Array<Record<string, unknown>> }
+    const configured = new Map<string, Record<string, unknown>>()
+    for (const item of payload.data || []) {
+      const modelName = String(item.model_name || '').trim()
+      const channels = Array.isArray(item.channel_video_capabilities) ? item.channel_video_capabilities : []
+      if (!modelName || !channels.length) continue
+      let faceSupported: boolean | null = null
+      const aggregate = { maxReferences: 0, maxFirstLastFrames: 0, maxVideoReferences: 0, maxAudioReferences: 0 }
+      for (const entry of channels) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+        const capabilities = (entry as Record<string, unknown>).capabilities
+        if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) continue
+        const row = capabilities as Record<string, unknown>
+        aggregate.maxReferences = Math.max(aggregate.maxReferences, Math.max(0, Number(row.reference_images) || 0))
+        aggregate.maxFirstLastFrames = Math.max(aggregate.maxFirstLastFrames, Math.max(0, Number(row.first_last_frames) || 0))
+        aggregate.maxVideoReferences = Math.max(aggregate.maxVideoReferences, Math.max(0, Number(row.reference_videos) || 0))
+        aggregate.maxAudioReferences = Math.max(aggregate.maxAudioReferences, Math.max(0, Number(row.reference_audios) || 0))
+        if (row.face_supported === true) faceSupported = true
+        else if (row.face_supported === false && faceSupported === null) faceSupported = false
+      }
+      configured.set(modelName.toLowerCase(), { ...aggregate, faceSupported })
+    }
+    for (const candidate of candidates) {
+      const capabilities = configured.get(candidate.id.toLowerCase())
+      if (capabilities) candidate.raw = { ...candidate.raw, videoCapabilities: capabilities }
+    }
   }
 
   publicProvider<T extends { encryptedApiKey: string }>(provider: T) {
@@ -798,11 +858,13 @@ export class ProvidersService implements OnModuleInit {
         const candidates = await this.describeDiscoveredModels(parsed)
         return { models, candidates: await this.adminDiscoveryStatus(id, candidates), latencyMs: Date.now() - startedAt }
       }
-      const response = await fetchPublicNoRedirect(`${baseUrl}/models`, { headers: this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey), signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
+      const requestHeaders = this.applyAuth(this.headers(provider.customHeaders), provider.authType, apiKey)
+      const response = await fetchPublicNoRedirect(`${baseUrl}/models`, { headers: requestHeaders, signal: AbortSignal.timeout(Math.min(provider.timeoutMs, 30_000)) })
       const raw = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
       const parsed = JSON.parse(raw) as unknown
       const candidates = await this.describeDiscoveredModels(parsed)
+      if (provider.type === ProviderType.NEW_API) await this.attachNewApiVideoCapabilities(baseUrl, requestHeaders, candidates)
       const models = candidates.map((item) => item.id)
       if (!models.length) throw new Error('渠道未返回可识别的模型列表')
       await this.prisma.providerChannel.update({ where: { id }, data: { lastHealthStatus: 'healthy', lastHealthMessage: `发现 ${models.length} 个模型，${Date.now() - startedAt}ms`, lastHealthAt: new Date() } })
@@ -871,13 +933,25 @@ export class ProvidersService implements OnModuleInit {
       }
     }
     if (candidate.capability === ModelCapability.VIDEO) {
+      const discoveredCapabilities = candidate.raw && candidate.raw.videoCapabilities && typeof candidate.raw.videoCapabilities === 'object' && !Array.isArray(candidate.raw.videoCapabilities)
+        ? candidate.raw.videoCapabilities as Record<string, unknown>
+        : {}
+      const channelLimit = (key: string, nativeLimit: number) => discoveredCapabilities[key] === undefined
+        ? nativeLimit
+        : Math.min(nativeLimit, Math.max(0, Number(discoveredCapabilities[key]) || 0))
       const seedance = seedanceVideoCapabilities(candidate.id)
-      if (seedance) return { apiProtocol, discovery, videoCapabilities: seedance }
+      if (seedance) return { apiProtocol, discovery, videoCapabilities: {
+        ...seedance,
+        maxReferences: channelLimit('maxReferences', seedance.maxReferences),
+        maxFirstLastFrames: channelLimit('maxFirstLastFrames', seedance.maxFirstLastFrames),
+        maxVideoReferences: channelLimit('maxVideoReferences', seedance.maxVideoReferences),
+        maxAudioReferences: channelLimit('maxAudioReferences', seedance.maxAudioReferences),
+        faceSupported: typeof discoveredCapabilities.faceSupported === 'boolean' ? discoveredCapabilities.faceSupported : seedance.faceSupported,
+      } }
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
-      // MiniMax H3：分辨率由模型名绑定，支持 5–15 秒与 9 张参考图 + 3 段参考音频（见上游文档）。
-      const h3 = /minimaxh3/i.test(candidate.id)
-      const resolution = candidate.id.match(/minimaxh3-(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
-      const durations = h3 ? [5, 10, 15] : [5, 10]
+      const h3 = /minimax[-_ ]?h3/i.test(candidate.id)
+      const resolution = h3 ? '768p' : candidate.id.match(/(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
+      const durations = h3 ? [1, 5, 10, 15] : [5, 10]
       return {
         apiProtocol,
         discovery,
@@ -894,7 +968,20 @@ export class ProvidersService implements OnModuleInit {
           contentPath: '/videos/{id}/content',
           pollIntervalMs: 3000,
           maxPollSeconds: 0,
-          ...(h3 ? { maxReferences: 9, maxAudioReferences: 3, referenceMode: 'DATA_URL_JSON' as const, minDuration: 5, maxDuration: 15, resolutionLocked: true } : {}),
+          ...(h3 ? {
+            maxReferences: channelLimit('maxReferences', 9),
+            maxFirstLastFrames: channelLimit('maxFirstLastFrames', 2),
+            maxVideoReferences: channelLimit('maxVideoReferences', 3),
+            maxAudioReferences: channelLimit('maxAudioReferences', 3),
+            maxTotalReferences: 12,
+            faceSupported: typeof discoveredCapabilities.faceSupported === 'boolean' ? discoveredCapabilities.faceSupported : null,
+            referenceMode: 'CONTENT_JSON' as const,
+            minDuration: 1,
+            maxDuration: 15,
+            resolutionLocked: true,
+            requiresPublicReferenceUrls: true,
+            audioRequiresVisualReference: false,
+          } : {}),
         },
       }
     }
@@ -939,7 +1026,10 @@ export class ProvidersService implements OnModuleInit {
     if (!selected.size) throw new BadRequestException('请选择需要导入的模型')
     const candidates = input.markupPercent === undefined
       ? discovered.candidates
-      : await this.describeDiscoveredModels(discovered.candidates.map((item) => ({ id: item.id })), input.markupPercent)
+      : (await this.describeDiscoveredModels(discovered.candidates.map((item) => ({ id: item.id })), input.markupPercent)).map((candidate) => ({
+        ...candidate,
+        raw: { ...candidate.raw, ...discovered.candidates.find((item) => item.id === candidate.id)?.raw },
+      }))
     const importable = candidates.filter((item) => selected.has(item.id) && item.importable && item.capability)
     if (!importable.length) throw new BadRequestException('选择的模型不属于当前可导入能力')
     const result = await this.applyProviderImport(provider, importable, { overwritePricing: input.overwritePricing })
@@ -1564,14 +1654,16 @@ export class ProvidersService implements OnModuleInit {
     try {
       const apiKey = this.crypto.decrypt(credential.encryptedApiKey)
       const baseUrl = await this.assertUserProviderUrl(credential.baseUrl)
+      const requestHeaders = this.applyAuth(this.headers(credential.customHeaders), credential.authType, apiKey)
       const response = await fetchPublicNoRedirect(`${baseUrl}/models`, {
-        headers: this.applyAuth(this.headers(credential.customHeaders), credential.authType, apiKey),
+        headers: requestHeaders,
         signal: AbortSignal.timeout(30_000),
       })
       const raw = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`)
       const parsed = JSON.parse(raw) as unknown
       const candidates = await this.describeDiscoveredModels(parsed)
+      if (credential.providerType === ProviderType.NEW_API) await this.attachNewApiVideoCapabilities(baseUrl, requestHeaders, candidates)
       const models = candidates.map((item) => item.id)
       if (!models.length) throw new Error('渠道未返回可识别的模型列表')
       const latencyMs = Date.now() - startedAt
@@ -1740,10 +1832,9 @@ export class ProvidersService implements OnModuleInit {
       const existing = await this.prisma.userModel.findFirst({ where: { userId, capability, routes: { some: { upstreamModel: candidate.id } } } })
       if (existing) {
         await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
-        const seedance = seedanceVideoCapabilities(candidate.id)
-        const current = this.videoRouteCapabilities(existing.options)
-        if (seedance && current?.referenceMode !== 'CONTENT_JSON') {
-          await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: { ...current, ...seedance } } as Prisma.InputJsonValue } })
+        if (capability === ModelCapability.VIDEO) {
+          const discovered = this.discoveredModelOptions(candidate, apiProtocol).videoCapabilities as Record<string, unknown>
+          await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: discovered } as Prisma.InputJsonValue } })
         }
       }
       const model = existing || await this.prisma.userModel.create({ data: {

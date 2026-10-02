@@ -8,8 +8,43 @@
         <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
         <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
-          <div class="creation-prompt-row">
-            <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
+          <div class="creation-content">
+            <button
+              v-if="activeMode === 'videos'"
+              class="creation-reference-entry"
+              type="button"
+              :disabled="uploading || creationAttachments.length >= imageReferenceLimit"
+              :title="creationAttachments.length >= imageReferenceLimit ? `最多添加 ${imageReferenceLimit} 个参考素材` : '添加参考素材'"
+              aria-label="添加参考素材"
+              @click="openCreationAttachmentPicker('image')"
+            >
+              <span class="creation-reference-entry__sheet"><Plus :size="19" /></span>
+              <span>{{ creationAttachments.length ? `${creationAttachments.length} 个素材` : '参考素材' }}</span>
+            </button>
+            <div class="creation-prompt-row">
+              <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="activeMode === 'videos' ? '上传参考素材，输入文字或参考内容，自由组合图片、文字、音频与视频元素，描述画面、动作和镜头。可输入 @ 引用素材' : creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
+            </div>
+            <div v-if="creationAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
+              <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
+                <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
+                <div v-else class="attachment-file-copy">
+                  <span class="attachment-file-icon"><FileText :size="18" /></span>
+                  <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
+                </div>
+                <span class="attachment-index-label">参考图{{ index }}</span>
+                <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeReference(index)"><X :size="13" /></button>
+              </article>
+              <article v-for="(asset, index) in audioAttachments" :key="asset.id" class="attachment-card attachment-card--audio">
+                <span class="attachment-audio-icon"><AudioLines :size="18" /></span>
+                <span class="attachment-index-label">参考音频{{ index }}</span>
+                <button class="attachment-remove" type="button" :aria-label="`移除参考音频 ${asset.title}`" title="移除参考音频" @click="removeAudio(index)"><X :size="13" /></button>
+              </article>
+              <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
+                <button type="button" class="attachment-mask-preview" :aria-label="regionEditAvailable ? '重新编辑蒙版区域' : `蒙版：${maskAttachment.title}`" :title="regionEditAvailable ? '重新编辑蒙版区域' : maskAttachment.title" :disabled="!regionEditAvailable" @click="openRegionEditor"><img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" /></button>
+                <span class="attachment-mask-label">蒙版</span>
+                <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="removeMask()"><X :size="13" /></button>
+              </article>
+            </div>
           </div>
           <Teleport to="body">
             <div v-if="mentionOpen" ref="mentionMenu" class="creation-mention-menu creation-mention-menu--floating" :style="mentionStyle" role="listbox" aria-label="插入参考素材">
@@ -22,43 +57,25 @@
               <p v-if="!filteredMentions.length" class="creation-mention-empty">{{ referenceMentions.length ? '没有匹配的参考素材' : '还没有参考素材，点输入框左侧的 + 上传参考图或参考音频' }}</p>
             </div>
           </Teleport>
-          <div v-if="creationAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
-            <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
-              <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
-              <div v-else class="attachment-file-copy">
-                <span class="attachment-file-icon"><FileText :size="18" /></span>
-                <span><strong :title="asset.title">{{ asset.title }}</strong><small>{{ attachmentMeta(asset) }}</small></span>
-              </div>
-              <span class="attachment-index-label">参考图{{ index }}</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeReference(index)"><X :size="13" /></button>
-            </article>
-            <article v-for="(asset, index) in audioAttachments" :key="asset.id" class="attachment-card attachment-card--audio">
-              <span class="attachment-audio-icon"><AudioLines :size="18" /></span>
-              <span class="attachment-index-label">参考音频{{ index }}</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除参考音频 ${asset.title}`" title="移除参考音频" @click="removeAudio(index)"><X :size="13" /></button>
-            </article>
-            <article v-if="maskAttachment" class="attachment-card attachment-card--image attachment-card--mask">
-              <button type="button" class="attachment-mask-preview" :aria-label="regionEditAvailable ? '重新编辑蒙版区域' : `蒙版：${maskAttachment.title}`" :title="regionEditAvailable ? '重新编辑蒙版区域' : maskAttachment.title" :disabled="!regionEditAvailable" @click="openRegionEditor"><img :src="maskAttachment.contentUrl" :alt="`蒙版：${maskAttachment.title}`" /></button>
-              <span class="attachment-mask-label">蒙版</span>
-              <button class="attachment-remove" type="button" :aria-label="`移除蒙版 ${maskAttachment.title}`" title="移除蒙版" @click="removeMask()"><X :size="13" /></button>
-            </article>
-          </div>
           <details v-if="activeMode === 'videos' && nativeVideo" class="seedance-settings">
             <summary>视频参考与生成设置</summary>
             <div class="seedance-settings__fields">
-              <label>图片用途<select v-model="videoSettings.imageRole" aria-label="图片用途"><option value="reference_image">参考图片</option><option value="first_frame">首帧</option><option value="first_last_frame">首尾帧（按图片顺序）</option></select></label>
+              <label>图片用途<select v-model="videoSettings.imageRole" aria-label="图片用途"><option value="reference_image">参考图片</option><option v-if="videoFrameLimit >= 1" value="first_frame">首帧</option><option v-if="videoFrameLimit >= 1" value="last_frame">尾帧</option><option v-if="videoFrameLimit >= 2" value="first_last_frame">首尾帧（按图片顺序）</option></select></label>
               <label v-if="videoEditing">生成模式<select v-model="videoSettings.videoTaskType" aria-label="生成模式"><option :value="undefined">模型默认</option><option value="auto">自动</option><option value="reference">参考生成</option><option value="edit">编辑视频</option><option value="extend">延长视频</option></select></label>
               <label v-if="videoEditing">输出格式<select v-model="videoSettings.videoFormat" aria-label="输出格式"><option :value="undefined">模型默认</option><option value="mp4">MP4</option><option value="mov">MOV</option></select></label>
               <label><input v-model="videoSettings.generateAudio" type="checkbox" />生成音频</label>
               <label><input v-model="videoSettings.watermark" type="checkbox" />水印</label>
               <label><input v-model="videoSettings.returnLastFrame" type="checkbox" />返回尾帧链接</label>
+              <label v-if="videoFaceSupported"><input v-model="videoSettings.faceRequired" type="checkbox" />需要人脸参考支持</label>
+              <label v-if="imageReferenceLimit > 0" class="seedance-settings__urls">参考图（最多 {{ imageReferenceLimit }} 张，每行一个公开 HTTPS 地址）<textarea v-model="referenceImageText" rows="2" aria-label="参考图地址" placeholder="https://example.com/image.jpg" /></label>
               <label class="seedance-settings__urls">参考视频（最多 {{ videoReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceVideoText" rows="2" aria-label="参考视频地址" placeholder="https://example.com/video.mp4" /></label>
-              <p>首帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
+              <label v-if="audioReferenceLimit > 0" class="seedance-settings__urls">参考音频（最多 {{ audioReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceAudioText" rows="2" aria-label="参考音频地址" placeholder="https://example.com/audio.mp3" /></label>
+              <p>{{ publicReferenceUrls ? '当前模型的参考素材必须使用公开 HTTPS 地址。' : '' }}首帧、尾帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
             </div>
           </details>
           <div class="creation-controls">
             <div class="creation-control-track">
-              <button class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
+              <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
               <button v-if="activeMode === 'videos' && audioReferenceLimit > 0" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
@@ -68,8 +85,8 @@
               <div class="creation-option-buttons">
                 <button type="button" :class="{ 'is-open': creationMenu === 'model' }" :disabled="!activeCreationModels.length" :aria-label="`模型 ${activeCreationModelLabel}`" :title="activeCreationModels.length ? '选择模型' : '暂无可用模型'" @click.stop="toggleCreationMenu('model', $event)"><ModelBadge v-if="activeCreationModelOption" :model="activeCreationModelOption" size="sm" /><Sparkles v-else :size="16" />{{ activeCreationModelLabel }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button v-if="activeMode === 'commerce'" type="button" :class="{ 'is-open': creationMenu === 'type' }" @click.stop="toggleCreationMenu('type', $event)"><Images :size="16" /><span class="creation-control-label">类型</span>{{ creationType }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><SlidersHorizontal :size="16" /><span class="creation-control-label">{{ activeMode === 'commerce' ? '平台' : '比例' }}</span>{{ activeMode === 'videos' ? videoAspectRatio : activeMode === 'commerce' ? commercePlatform : autoMode }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules') }" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span><template v-if="activeMode === 'images'">{{ imageStyle }}</template><template v-else-if="activeMode === 'videos'">{{ videoResolution }}</template><template v-else>{{ commerceModules }} 模块</template><ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform') }" :aria-label="activeMode === 'videos' ? `比例 ${videoAspectRatio}` : undefined" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'size' : activeMode === 'videos' ? 'aspect' : 'platform', $event)"><SlidersHorizontal :size="16" /><span class="creation-control-label">{{ activeMode === 'commerce' ? '平台' : '比例' }}</span>{{ activeMode === 'videos' ? videoAspectRatio : activeMode === 'commerce' ? commercePlatform : autoMode }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
+                <button type="button" :class="{ 'is-open': creationMenu === (activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules') }" :aria-label="activeMode === 'videos' ? `画质 ${videoResolution}` : undefined" @click.stop="toggleCreationMenu(activeMode === 'images' ? 'style' : activeMode === 'videos' ? 'resolution' : 'modules', $event)"><Blend :size="16" /><span class="creation-control-label">{{ activeMode === 'videos' ? '画质' : '风格' }}</span><template v-if="activeMode === 'images'">{{ imageStyle }}</template><template v-else-if="activeMode === 'videos'">{{ videoResolution }}</template><template v-else>{{ commerceModules }} 模块</template><ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="选择要编辑的区域" @click.stop="openRegionEditor()"><Brush :size="16" />区域编辑</button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" @click.stop="openCreationAttachmentPicker('mask')"><Blend :size="16" />上传蒙版</button>
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
@@ -229,6 +246,9 @@ const props = defineProps<{
   nativeVideo: boolean
   videoEditing: boolean
   videoReferenceLimit: number
+  videoFrameLimit: number
+  videoFaceSupported: boolean
+  publicReferenceUrls: boolean
   setCustomVideoDuration: (value: string) => void
   commerceModules: number
   imageResolution: string
@@ -288,8 +308,11 @@ const props = defineProps<{
   refreshModelCatalog: () => void
 }>()
 const generationPrompt = defineModel<string>('generationPrompt', { required: true })
-const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceVideoUrls'>>('videoSettings', { required: true })
-const referenceVideoText = computed({ get: () => (videoSettings.value.referenceVideoUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceVideoUrls = text.split('\n') } })
+const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceImageUrls' | 'referenceAudioUrls' | 'referenceVideoUrls' | 'faceRequired'>>('videoSettings', { required: true })
+const splitReferenceUrls = (text: string) => text.split('\n').map((item) => item.trim()).filter(Boolean)
+const referenceImageText = computed({ get: () => (videoSettings.value.referenceImageUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceImageUrls = splitReferenceUrls(text) } })
+const referenceAudioText = computed({ get: () => (videoSettings.value.referenceAudioUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceAudioUrls = splitReferenceUrls(text) } })
+const referenceVideoText = computed({ get: () => (videoSettings.value.referenceVideoUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceVideoUrls = splitReferenceUrls(text) } })
 const audioAttachments = computed(() => props.audioAttachments)
 const maskAttachment = computed(() => props.maskAttachment)
 function removeReference(index: number) { void props.removeReference(index) }
