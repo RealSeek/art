@@ -1698,6 +1698,37 @@ export class ProvidersService implements OnModuleInit {
     return { discovered: discovered.models.length, availableModels: discovered.models, selected: selected.size, imported: models.length, models }
   }
 
+  private async refreshExistingCredentialVideoCapabilities(
+    userId: string,
+    credential: {
+      id: string
+      name: string
+      priority: number
+      weight: number
+      providerType: ProviderType
+      baseUrl: string
+      encryptedApiKey: string
+      authType: ProviderAuthType
+      customHeaders: Prisma.JsonValue | null
+      template: { apiProtocol: string } | null
+    },
+  ) {
+    const routes = await this.prisma.userModelRoute.findMany({
+      where: { credentialId: credential.id, userModel: { userId, capability: ModelCapability.VIDEO } },
+      select: { upstreamModel: true },
+    })
+    const modelIds = [...new Set(routes.map((route) => route.upstreamModel))]
+    if (!modelIds.length) return []
+    const candidates = await this.describeDiscoveredModels(modelIds.map((id) => ({ id })))
+    const baseUrl = await this.assertUserProviderUrl(credential.baseUrl)
+    const headers = this.applyAuth(this.headers(credential.customHeaders), credential.authType, this.crypto.decrypt(credential.encryptedApiKey))
+    await this.attachNewApiVideoCapabilities(baseUrl, headers, candidates)
+    const configured = candidates.filter((candidate) => candidate.capability === ModelCapability.VIDEO && candidate.raw.videoCapabilities && typeof candidate.raw.videoCapabilities === 'object')
+    if (!configured.length) return []
+    await this.applyCredentialCandidates(userId, credential, configured, await this.defaultUserModelCapabilities(userId), { reactivateRoutes: false })
+    return configured
+  }
+
   /** 上游模型自动同步：新增上游新模型，并删除已下线的路由与孤立模型。 */
   async syncCredentialModels(userId: string, credentialId: string) {
     return this.withModelSyncLock(`credential:${credentialId}`, async () => {
@@ -1707,6 +1738,19 @@ export class ProvidersService implements OnModuleInit {
       try {
         discovered = await this.discoverCredentialModels(userId, credentialId)
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (credential.providerType === ProviderType.NEW_API && /HTTP (?:401|403):/.test(message)) {
+          const refreshed = await this.refreshExistingCredentialVideoCapabilities(userId, credential)
+          if (refreshed.length) {
+            await this.prisma.userApiCredential.update({ where: { id: credentialId }, data: {
+              lastModelSyncAt: new Date(),
+              lastHealthStatus: null,
+              lastHealthMessage: `模型列表无权访问；已从公开能力目录刷新 ${refreshed.length} 个既有视频模型`,
+              lastHealthAt: new Date(),
+            } })
+            return { discovered: refreshed.length, availableModels: refreshed.map((item) => item.id), imported: 0, removed: 0, capabilityOnly: true }
+          }
+        }
         // 同步失败同样推进时间戳，避免定时任务对同一凭据反复重试。
         await this.prisma.userApiCredential.update({ where: { id: credentialId }, data: { lastModelSyncAt: new Date() } })
         throw error

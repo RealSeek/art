@@ -53,6 +53,29 @@ test('已有 Seedance 模型同步升级原生能力并保留售价和原路由'
   assert.deepEqual(updated?.options.discovery, { vendorKey: 'doubao' })
 })
 
+test('NewAPI 模型列表无权限时只从公开目录刷新既有视频能力', async () => {
+  const credential = { id: 'credential-1', userId: 'user-1', name: '视频', priority: 0, weight: 100, providerType: 'NEW_API', template: null, suppressedModels: [] }
+  const updates: Array<Record<string, unknown>> = []
+  const prisma = {
+    userApiCredential: {
+      findFirst: async () => credential,
+      update: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return credential },
+    },
+  }
+  const providers = service(prisma)
+  providers.discoverCredentialModels = async () => { throw new Error('HTTP 403: 无权访问视频分组') }
+  const refreshed = candidate('MiniMax-Hailuo-2.3', 'VIDEO')
+  refreshed.raw.videoCapabilities = { maxReferences: 9 }
+  ;(providers as unknown as { refreshExistingCredentialVideoCapabilities: () => Promise<DiscoveredModel[]> }).refreshExistingCredentialVideoCapabilities = async () => [refreshed]
+
+  const result = await providers.syncCredentialModels('user-1', 'credential-1')
+
+  assert.deepEqual(result, { discovered: 1, availableModels: ['MiniMax-Hailuo-2.3'], imported: 0, removed: 0, capabilityOnly: true })
+  assert.equal(updates.length, 1)
+  assert.equal(updates[0].lastHealthStatus, null)
+  assert.match(String(updates[0].lastHealthMessage), /公开能力目录刷新 1 个/)
+})
+
 test('个人模型同步会新增上游新模型并删除已下线模型，且不复活手动删除的模型', async () => {
   const credential = {
     id: 'credential-1', userId: 'user-1', name: 'onlyart-codex', priority: 0, weight: 100,
