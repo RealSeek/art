@@ -1106,6 +1106,15 @@ export class ProvidersService implements OnModuleInit {
         model = await this.overwriteImportedPricing(model.id, candidate)
         action = 'updated'
       }
+      if (capability === ModelCapability.VIDEO) {
+        const current = this.videoRouteCapabilities(model.options)
+        const discovered = (this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai')) as Record<string, unknown>).videoCapabilities as Record<string, unknown>
+        const videoCapabilities = { ...current, ...discovered, ...(current?.pricing ? { pricing: current.pricing } : {}) }
+        model = await this.prisma.modelPreset.update({
+          where: { id: model.id },
+          data: { options: { ...this.jsonObject(model.options), videoCapabilities } as Prisma.InputJsonValue },
+        })
+      }
       const routeOptions = candidate.capability === ModelCapability.VIDEO
         ? { videoCapabilities: (this.discoveredModelOptions(candidate) as Record<string, unknown>).videoCapabilities } as Prisma.InputJsonValue
         : undefined
@@ -1833,8 +1842,9 @@ export class ProvidersService implements OnModuleInit {
       if (existing) {
         await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
         if (capability === ModelCapability.VIDEO) {
+          const current = this.videoRouteCapabilities(existing.options)
           const discovered = this.discoveredModelOptions(candidate, apiProtocol).videoCapabilities as Record<string, unknown>
-          await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: discovered } as Prisma.InputJsonValue } })
+          await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: { ...current, ...discovered, ...(current?.pricing ? { pricing: current.pricing } : {}) } } as Prisma.InputJsonValue } })
         }
       }
       const model = existing || await this.prisma.userModel.create({ data: {
