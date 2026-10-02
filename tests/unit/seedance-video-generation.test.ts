@@ -12,7 +12,7 @@ test('Seedance 2.0 / 2.5 自动导入原生协议和完整创作规格', () => {
   for (const [id, maxDuration, imageLimit, audioLimit] of [['[c]Seedance-2.0-fast', 15, 9, 3], ['doubao-seedance-2-5-pro', 30, 30, 10]] as const) {
     const raw = discover.discoveredModelOptions({ id, capability: 'VIDEO', flatCreditCost: 1 }).videoCapabilities
     const caps = videoCapabilities(raw)
-    assert.equal(caps.referenceMode, 'CONTENT_JSON')
+    assert.equal(caps.referenceMode, 'REFERENCES_JSON')
     assert.equal(caps.maxDuration, maxDuration)
     assert.equal(caps.maxReferences, imageLimit)
     assert.equal(caps.maxAudioReferences, audioLimit)
@@ -68,13 +68,12 @@ test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', as
       referenceVideoUrls: ['https://cdn.example/input.mp4?signature=input'], generateAudio: false, watermark: false, returnLastFrame: true,
     } } as never)
     assert.deepEqual(created, {
-      model: 'Seedance-2.0', content: [
-        { type: 'text', text: '保持主体外观' },
-        { type: 'image_url', image_url: { url: 'data:image/png;base64,bG9jYWw=' }, role: 'reference_image' },
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${Buffer.from('saved-image').toString('base64')}` }, role: 'reference_image' },
-        { type: 'video_url', video_url: { url: 'https://cdn.example/input.mp4?signature=input' }, role: 'reference_video' },
-        { type: 'audio_url', audio_url: { url: 'data:audio/wav;base64,YQ==' }, role: 'reference_audio' },
-      ], duration: 6, resolution: '720p', ratio: '16:9', generate_audio: false, watermark: false, return_last_frame: true,
+      model: 'Seedance-2.0', prompt: '保持主体外观', references: [
+        { type: 'image', role: 'reference_image', source: 'data:image/png;base64,bG9jYWw=' },
+        { type: 'image', role: 'reference_image', source: `data:image/png;base64,${Buffer.from('saved-image').toString('base64')}` },
+        { type: 'video', role: 'reference_video', source: 'https://cdn.example/input.mp4?signature=input' },
+        { type: 'audio', role: 'reference_audio', source: 'data:audio/wav;base64,YQ==' },
+      ], duration: 6, resolution: '720p', ratio: '16:9', options: { generate_audio: false, watermark: false, return_last_frame: true },
     })
     assert.equal(polls, 2)
     assert.ok(updates.some(update => update.providerJobId === 'public-task' && update.userCredentialId === 'credential-1'))

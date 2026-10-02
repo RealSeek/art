@@ -64,7 +64,7 @@ export type CatalogModel = {
       maxTotalReferences?: number
       faceSupported?: boolean | null
       requiresPublicReferenceUrls?: boolean
-      referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
+      referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'REFERENCES_JSON' | 'CONTENT_JSON'
       maxVideoReferences?: number
       supportsAutoDuration?: boolean
       audioRequiresVisualReference?: boolean

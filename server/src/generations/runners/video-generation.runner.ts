@@ -11,7 +11,7 @@ import { fetchNoRedirect, fetchPublicNoRedirect, fetchPublicManualRedirect } fro
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
-import { MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities } from '../video-options'
+import { isNativeVideoReferenceMode, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities } from '../video-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 
@@ -43,14 +43,14 @@ export class VideoGenerationRunner implements GenerationRunner {
     try {
       response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
+      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
-    if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON' && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
+    if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode) && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     try { return await response.json() as ProviderPayload }
     catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`原生视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
+      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -86,7 +86,7 @@ export class VideoGenerationRunner implements GenerationRunner {
       firstLastFrames: imageRole === 'first_last_frame' ? 2 : imageRole === 'first_frame' || imageRole === 'last_frame' ? 1 : 0,
     }
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, requirements)
-    const nativeTask = task.providerJobId && (candidates.some(candidate => videoCapabilities(candidate.videoCapabilities).referenceMode === 'CONTENT_JSON') || /seedance/i.test(task.model))
+    const nativeTask = task.providerJobId && candidates.some(candidate => isNativeVideoReferenceMode(videoCapabilities(candidate.videoCapabilities).referenceMode))
     const runnable = nativeTask ? candidates.filter(candidate => (task.providerChannelId || undefined) === candidate.providerId && (task.userCredentialId || undefined) === candidate.credentialId) : candidates
     if (nativeTask && !runnable.length) throw new ReconciliationRequiredError(`视频任务 ${task.providerJobId} 的原渠道不可用，请核对原任务`)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
@@ -140,7 +140,39 @@ export class VideoGenerationRunner implements GenerationRunner {
             seconds: String(normalized.duration),
           }),
         }
-        if (capabilities.referenceMode === 'CONTENT_JSON') {
+        if (capabilities.referenceMode === 'REFERENCES_JSON') {
+          const images = [
+            ...normalized.referenceImageUrls,
+            ...normalized.referenceImages.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
+          ]
+          const audios = [
+            ...normalized.referenceAudioUrls,
+            ...normalized.referenceAudios.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
+          ]
+          const references = [
+            ...images.map((source, index) => ({ type: 'image', role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole, source })),
+            ...normalized.referenceVideoUrls.map((source) => ({ type: 'video', role: 'reference_video', source })),
+            ...audios.map((source) => ({ type: 'audio', role: 'reference_audio', source })),
+          ]
+          const requestOptions = {
+            ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
+            ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
+            ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
+            ...(normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
+            ...(normalized.videoFormat ? { video_format: normalized.videoFormat } : {}),
+          }
+          payload = await this.provider(resolved, capabilities.createPath, {
+            model: resolved.model,
+            prompt,
+            duration: normalized.duration,
+            resolution: normalized.resolution,
+            ratio: normalized.aspectRatio,
+            ...(references.length ? { references } : {}),
+            ...(Object.keys(requestOptions).length ? { options: requestOptions } : {}),
+          })
+        } else if (capabilities.referenceMode === 'CONTENT_JSON') {
           const images = [
             ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
@@ -198,7 +230,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (immediateUrl) return { resolved, payload, url: immediateUrl }
         providerJobId = this.videoJobId(payload)
         if (!providerJobId) {
-          if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError('原生视频接口未返回任务 ID，请核对原请求，禁止自动重发')
+          if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError('原生视频接口未返回任务 ID，请核对原请求，禁止自动重发')
           throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
         }
         await this.updateRunningTask(task, { providerJobId, providerChannelId: resolved.providerId || null, userCredentialId: resolved.credentialId || null, userModelRouteId: resolved.source === 'user' ? resolved.routeId || null : null, updatedAt: new Date() }, true)
@@ -215,7 +247,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         await this.assertNotCancelled(task.id)
         try { payload = await this.providerGet(resolved, this.videoPath(capabilities.statusPath, providerJobId)) }
         catch (error) {
-          if (capabilities.referenceMode !== 'CONTENT_JSON') throw error
+          if (!isNativeVideoReferenceMode(capabilities.referenceMode)) throw error
           if (error instanceof ProviderRequestError && (error.status === undefined || [408, 429, 502, 503, 504].includes(error.status))) continue
           throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 查询失败：${error instanceof Error ? error.message : String(error)}`)
         }
@@ -233,7 +265,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (resultUrl) return { resolved, payload, url: resultUrl }
         if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
       }
-      if (capabilities.referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
+      if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
       throw new ProviderRequestError('视频生成等待超时', 504)
     })
 
@@ -242,7 +274,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     let result: { bytes: Uint8Array; mimeType: string }
     try { result = await this.videoBytes(url, resolved) }
     catch (error) {
-      if (videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON') throw new ReconciliationRequiredError(`视频任务已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
+      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`视频任务已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
     await this.assertNotCancelled(task.id)
@@ -374,7 +406,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     // Only explicitly allowlisted local workers may bypass the public DNS
     // dispatcher. Admin-managed public Providers must use the dispatcher even
     // for same-origin result URLs so DNS rebinding cannot reach a private IP.
-    const native = videoCapabilities(resolved.videoCapabilities).referenceMode === 'CONTENT_JSON'
+    const native = isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)
     const standardRequest = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
     const request = native && resolved.type !== ProviderType.LOCAL_WORKER ? fetchPublicManualRedirect : standardRequest
     let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content')) ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })

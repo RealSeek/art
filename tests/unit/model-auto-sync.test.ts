@@ -47,7 +47,7 @@ test('已有 Seedance 模型同步升级原生能力并保留售价和原路由'
   const providers = service(prisma)
   providers.discoverCredentialModels = async () => ({ models: ['Seedance-2.5'], candidates: [candidate('Seedance-2.5', 'VIDEO')], latencyMs: 1 })
   await providers.syncCredentialModels('user-1', 'credential-1')
-  assert.equal(updated?.options.videoCapabilities.referenceMode, 'CONTENT_JSON')
+  assert.equal(updated?.options.videoCapabilities.referenceMode, 'REFERENCES_JSON')
   assert.equal(updated?.options.videoCapabilities.maxDuration, 30)
   assert.deepEqual(updated?.options.videoCapabilities.pricing, { '720p:5': 12 })
   assert.deepEqual(updated?.options.discovery, { vendorKey: 'doubao' })
