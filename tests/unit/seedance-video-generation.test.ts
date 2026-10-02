@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { VideoGenerationRunner } from '../../server/src/generations/runners/video-generation.runner'
-import { normalizeVideoOptions, seedanceVideoCapabilities, videoCapabilities } from '../../server/src/generations/video-options'
+import { normalizeVideoOptions, sdgoVideoCapabilities, seedanceVideoCapabilities, videoCapabilities } from '../../server/src/generations/video-options'
 import { ProvidersService, type ResolvedProvider } from '../../server/src/providers/providers.service'
 import { ReconciliationRequiredError, TerminalProviderJobError } from '../../server/src/generations/generation-provider-errors'
 
@@ -22,6 +22,41 @@ test('Seedance 2.0 / 2.5 自动导入原生协议和完整创作规格', () => {
   assert.equal(normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.0')).resolution, '4k')
   assert.throws(() => normalizeVideoOptions({ duration: 3 }, seedanceVideoCapabilities('seedance-2.0')), /between 4 and 15/)
   assert.throws(() => normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.5')), /不支持该分辨率/)
+})
+
+test('SDGO 特惠模型导入准确的规格，并限制未开放的功能', () => {
+  const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
+  for (const [id, durations, images] of [['[c]seedance-2.0', [5, 10, 15], 9], ['[c]seedance-2.5', [30], 30]] as const) {
+    const caps = videoCapabilities(discover.discoveredModelOptions({ id, capability: 'VIDEO' }).videoCapabilities)
+    assert.equal(caps.providerProtocol, 'SDGO')
+    assert.deepEqual(caps.durations, durations)
+    assert.equal(caps.maxReferences, images)
+    assert.equal(caps.maxVideoReferences, 0)
+    assert.equal(caps.maxFirstLastFrames, 0)
+    assert.equal(normalizeVideoOptions({}, caps).duration, durations[0])
+    assert.throws(() => normalizeVideoOptions({ duration: 7 }, caps))
+    assert.throws(() => normalizeVideoOptions({ duration: -1 }, caps))
+    assert.throws(() => normalizeVideoOptions({ resolution: '1080p' }, caps))
+    assert.throws(() => normalizeVideoOptions({ faceRequired: true }, caps), /至少一张参考图/)
+  }
+})
+
+test('SDGO 通过标准网关协议发送固定时长、参考素材及稳定幂等键', async () => {
+  const sent: Array<{ body: Record<string, unknown>; key?: string }> = []
+  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const internals = runner as unknown as {
+    withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
+    provider: (provider: unknown, path: string, body: Record<string, unknown>, timeout: number, key: string) => Promise<unknown>
+  }
+  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: '[c]seedance-2.5', timeoutMs: 1000, videoCapabilities: sdgoVideoCapabilities('[c]seedance-2.5') })
+  internals.provider = async (_provider, _path, body, _timeout, key) => { sent.push({ body, key }); return { status: 'failed', error: { message: 'test stopped after submission' } } }
+  const task = { id: 'sdgo-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], faceRequired: true, generateAudio: true, watermark: false, returnLastFrame: true } }
+  for (let i = 0; i < 2; i++) await assert.rejects(runner.run(task as never), /test stopped after submission/)
+  assert.equal(sent[0].key, 'art-video-sdgo-job')
+  assert.deepEqual(sent[0], sent[1])
+  assert.equal(sent[0].body.duration, 30)
+  assert.deepEqual(sent[0].body.options, { native_face: true })
+  assert.deepEqual(sent[0].body.references, [{ type: 'image', role: 'reference_image', source: 'data:image/png;base64,YQ==' }])
 })
 
 test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', async () => {

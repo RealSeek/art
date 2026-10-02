@@ -57,6 +57,7 @@ export type VideoCapabilityConfig = {
   supportsAutoDuration: boolean
   audioRequiresVisualReference: boolean
   supportsVideoEditing: boolean
+  providerProtocol: 'SDGO' | null
   referenceMode: VideoReferenceMode
   minDuration: number
   maxDuration: number
@@ -93,10 +94,31 @@ const DEFAULTS: VideoCapabilityConfig = {
   supportsAutoDuration: false,
   audioRequiresVisualReference: true,
   supportsVideoEditing: false,
+  providerProtocol: null,
   referenceMode: 'INPUT_REFERENCE',
   minDuration: MIN_VIDEO_DURATION_SECONDS,
   maxDuration: MAX_VIDEO_DURATION_SECONDS,
   resolutionLocked: false,
+}
+
+/** SDGO 标准模型及本部署的特惠别名；不是完整版 Seedance 协议。 */
+export function sdgoVideoCapabilities(model: string) {
+  const version = /^(?:\[c\]seedance-2\.|seedance2\.)([05])$/i.exec(model)?.[1]
+  if (!version) return undefined
+  const v25 = version === '5'
+  return {
+    providerProtocol: 'SDGO' as const,
+    resolutions: ['720p'], durations: v25 ? [30] : [5, 10, 15],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    defaultResolution: '720p', defaultDuration: v25 ? 30 : 5, defaultAspectRatio: '16:9',
+    minDuration: v25 ? 30 : 5, maxDuration: v25 ? 30 : 15,
+    maxReferences: v25 ? 30 : 9, maxAudioReferences: 3, maxVideoReferences: 0,
+    maxFirstLastFrames: 0, maxTotalReferences: 0, faceSupported: true, requiresPublicReferenceUrls: false,
+    referenceMode: 'REFERENCES_JSON' as const, supportsAutoDuration: false,
+    audioRequiresVisualReference: false, supportsVideoEditing: false,
+    createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content',
+    pollIntervalMs: 5000, maxPollSeconds: 0,
+  }
 }
 
 /** OnlyCode Seedance 原生协议，规格来自 https://api.mai-token.com/docs（2026-10-01）。 */
@@ -170,8 +192,9 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     supportsAutoDuration: raw.supportsAutoDuration === true,
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
+    providerProtocol: raw.providerProtocol === 'SDGO' ? 'SDGO' : null,
     referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'REFERENCES_JSON' || raw.referenceMode === 'DATA_URL_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
-    minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(MAX_VIDEO_DURATION_SECONDS, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
+    minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
     maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
     resolutionLocked: raw.resolutionLocked === true,
   }
@@ -198,6 +221,11 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
+  if (capabilities.providerProtocol === 'SDGO') {
+    if (!capabilities.durations.includes(duration)) throw new BadRequestException(`SDGO 当前模型只支持 ${capabilities.durations.join('/')} 秒`)
+    if (referenceAudioUrls.length) throw new BadRequestException('SDGO 参考音频请上传本地文件，不支持音频地址')
+    if (options.faceRequired === true && !referenceCount) throw new BadRequestException('人脸参考需要至少一张参考图')
+  }
   if (imageRole === 'reference_image' && referenceCount > capabilities.maxReferences) {
     throw new BadRequestException(capabilities.maxReferences
       ? `当前视频模型最多支持 ${capabilities.maxReferences} 张参考图`

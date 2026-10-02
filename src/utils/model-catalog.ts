@@ -51,6 +51,7 @@ export type CatalogModel = {
       resolutionPricing?: Record<string, number>
     }
     videoCapabilities?: {
+      providerProtocol?: 'SDGO' | null
       resolutions?: string[]
       durations?: number[]
       aspectRatios?: string[]

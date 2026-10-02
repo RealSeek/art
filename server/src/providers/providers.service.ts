@@ -20,7 +20,7 @@ import {
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { isGeminiImageModel } from '../generations/image-options'
-import { seedanceVideoCapabilities } from '../generations/video-options'
+import { sdgoVideoCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
 
 type ProviderInput = {
@@ -939,7 +939,7 @@ export class ProvidersService implements OnModuleInit {
       const channelLimit = (key: string, nativeLimit: number) => discoveredCapabilities[key] === undefined
         ? nativeLimit
         : Math.min(nativeLimit, Math.max(0, Number(discoveredCapabilities[key]) || 0))
-      const seedance = seedanceVideoCapabilities(candidate.id)
+      const seedance = sdgoVideoCapabilities(candidate.id) || seedanceVideoCapabilities(candidate.id)
       if (seedance) return { apiProtocol, discovery, videoCapabilities: {
         ...seedance,
         maxReferences: channelLimit('maxReferences', seedance.maxReferences),

@@ -37,17 +37,21 @@ export class VideoGenerationRunner implements GenerationRunner {
     private readonly settlement: GenerationSettlementService,
   ) {}
 
-  private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs) {
+  private async provider(resolved: ResolvedProvider, path: string, body: unknown, timeoutMs = resolved.timeoutMs, idempotencyKey?: string) {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved), body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
       if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
     if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode) && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
-    if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
+    if (!response.ok) {
+      const message = `Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`
+      if ([400, 422].includes(response.status)) throw new TerminalProviderJobError(message, response.status)
+      throw new ProviderRequestError(message, response.status)
+    }
     try { return await response.json() as ProviderPayload }
     catch (error) {
       if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
@@ -156,7 +160,9 @@ export class VideoGenerationRunner implements GenerationRunner {
             ...normalized.referenceVideoUrls.map((source) => ({ type: 'video', role: 'reference_video', source })),
             ...audios.map((source) => ({ type: 'audio', role: 'reference_audio', source })),
           ]
-          const requestOptions = {
+          const requestOptions = capabilities.providerProtocol === 'SDGO' ? {
+            ...(normalized.faceRequired !== undefined ? { native_face: normalized.faceRequired } : {}),
+          } : {
             ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
             ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
             ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
@@ -171,7 +177,7 @@ export class VideoGenerationRunner implements GenerationRunner {
             ratio: normalized.aspectRatio,
             ...(references.length ? { references } : {}),
             ...(Object.keys(requestOptions).length ? { options: requestOptions } : {}),
-          })
+          }, resolved.timeoutMs, capabilities.providerProtocol === 'SDGO' ? `art-video-${task.id}` : undefined)
         } else if (capabilities.referenceMode === 'CONTENT_JSON') {
           const images = [
             ...normalized.referenceImageUrls,
