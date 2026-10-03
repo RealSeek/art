@@ -114,7 +114,7 @@ export function seedanceChannelCapabilities(model: string) {
   return {
     requestFormat: 'seedance' as const,
     resolutions: v25 ? ['480p', '720p', '1080p'] : compact ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'],
-    durations: fixedDuration ? [30] : v25 ? [5, 10, 15, 20, 25, 30] : [4, 5, 10, 15],
+    durations: fixedDuration ? [30] : Array.from({ length: (v25 ? 30 : 15) - 4 + 1 }, (_, index) => index + 4),
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
     defaultResolution: '720p', defaultDuration: fixedDuration ? 30 : 5, defaultAspectRatio: '16:9',
     minDuration: fixedDuration ? 30 : 4, maxDuration: v25 ? 30 : 15,
@@ -151,7 +151,7 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
   const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   const raw = root.videoCapabilities && typeof root.videoCapabilities === 'object' && !Array.isArray(root.videoCapabilities) ? root.videoCapabilities as Record<string, unknown> : root
   const resolutions = Array.isArray(raw.resolutions) ? [...new Set(raw.resolutions.map(String).map((item) => item.trim().toLowerCase()).filter((item) => /^(\d{3,4}p|2k(?:-pro)?|4k)$/.test(item)))].slice(0, 10) : DEFAULTS.resolutions
-  const durations = Array.isArray(raw.durations) ? [...new Set(raw.durations.map(Number).filter((item) => Number.isInteger(item) && item >= 1 && item <= 300))].sort((a, b) => a - b).slice(0, 20) : DEFAULTS.durations
+  const durations = Array.isArray(raw.durations) ? [...new Set(raw.durations.map(Number).filter((item) => Number.isInteger(item) && item >= 1 && item <= 300))].sort((a, b) => a - b).slice(0, 300) : DEFAULTS.durations
   const aspectRatios = Array.isArray(raw.aspectRatios) ? [...new Set(raw.aspectRatios.map(String).filter((item) => /^(\d{1,2}:\d{1,2}|adaptive)$/.test(item)))].slice(0, 10) : DEFAULTS.aspectRatios
   const safeResolutions = resolutions.length ? resolutions : DEFAULTS.resolutions
   const safeDurations = durations.length ? durations : DEFAULTS.durations
