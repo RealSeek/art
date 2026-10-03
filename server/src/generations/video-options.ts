@@ -17,6 +17,10 @@ export type NormalizedVideoOptions = {
   generateAudio?: boolean
   watermark?: boolean
   returnLastFrame?: boolean
+  priority?: number
+  executionExpiresAfter?: number
+  safetyIdentifier?: string
+  tools?: Array<Record<string, unknown>>
   videoTaskType?: 'auto' | 'reference' | 'edit' | 'extend'
   videoFormat?: 'mp4' | 'mov'
 }
@@ -214,6 +218,15 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   if (capabilities.requestFormat === 'minimax-h3' && (options.generateAudio !== undefined || options.watermark !== undefined || options.videoFormat !== undefined || options.videoTaskType !== undefined)) {
     throw new BadRequestException('MiniMax H3 官方视频请求不接受 generateAudio、watermark 或 videoFormat 参数')
   }
+  const priority = options.priority === undefined ? undefined : Number(options.priority)
+  const executionExpiresAfter = options.executionExpiresAfter === undefined ? undefined : Number(options.executionExpiresAfter)
+  const safetyIdentifier = options.safetyIdentifier === undefined ? undefined : String(options.safetyIdentifier)
+  const tools = Array.isArray(options.tools) ? options.tools.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : undefined
+  if (priority !== undefined && (!Number.isInteger(priority) || priority < 0 || priority > 9)) throw new BadRequestException('priority must be between 0 and 9')
+  if (executionExpiresAfter !== undefined && (!Number.isInteger(executionExpiresAfter) || executionExpiresAfter < 3600 || executionExpiresAfter > 259200)) throw new BadRequestException('executionExpiresAfter must be between 3600 and 259200 seconds')
+  if (safetyIdentifier !== undefined && (!safetyIdentifier || safetyIdentifier.length > 64 || /[^\x20-\x7e]/.test(safetyIdentifier))) throw new BadRequestException('safetyIdentifier must be printable ASCII up to 64 characters')
+  if (options.tools !== undefined && (!tools || tools.length !== 1 || tools[0].type !== 'web_search')) throw new BadRequestException('tools only supports one web_search item')
+  if (capabilities.requestFormat !== 'seedance' && (priority !== undefined || executionExpiresAfter !== undefined || safetyIdentifier !== undefined || tools !== undefined)) throw new BadRequestException('当前模型不支持该高级视频选项')
   if (imageRole === 'reference_image' && referenceCount > capabilities.maxReferences) {
     throw new BadRequestException(capabilities.maxReferences
       ? `当前视频模型最多支持 ${capabilities.maxReferences} 张参考图`
@@ -242,6 +255,8 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     ...(typeof options.generateAudio === 'boolean' ? { generateAudio: options.generateAudio } : {}),
     ...(typeof options.watermark === 'boolean' ? { watermark: options.watermark } : {}),
     ...(typeof options.returnLastFrame === 'boolean' ? { returnLastFrame: options.returnLastFrame } : {}),
+    ...(priority !== undefined ? { priority } : {}), ...(executionExpiresAfter !== undefined ? { executionExpiresAfter } : {}),
+    ...(safetyIdentifier !== undefined ? { safetyIdentifier } : {}), ...(tools ? { tools } : {}),
     ...(videoTaskType ? { videoTaskType } : {}), ...(videoFormat ? { videoFormat } : {}),
   }
 }
