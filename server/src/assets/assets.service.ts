@@ -1,11 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
-import { AssetKind, Prisma } from '@prisma/client'
-import { createHash, randomUUID } from 'node:crypto'
+import { Asset, AssetKind, GenerationJob, Prisma } from '@prisma/client'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { extname, join } from 'node:path'
 import { PrismaService } from '../prisma/prisma.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { ObjectStorageService, type StorageLocation } from './object-storage.service'
 import type sharpFactory from 'sharp'
+import { publicHttpUrl } from '../common/public-endpoint-policy.service'
 
 const sharp = require('sharp') as typeof sharpFactory
 
@@ -45,6 +46,12 @@ const mediaKinds = new Set<AssetKind>([AssetKind.IMAGE, AssetKind.VIDEO, AssetKi
 /** 媒体保留天数：默认 1 天，本地优先工作流下服务器只做临时中转。 */
 const RETENTION_DAY_OPTIONS: Array<1 | 7 | 30> = [1, 7, 30]
 const permanentPurposes = new Set(['chat-home-banner', 'tool-icon', 'inspiration-cover', 'inspiration-preview-video', 'inspiration-preview-image'])
+const VIDEO_REFERENCE_PURPOSE = 'temporary-video-reference'
+
+function videoReferencesFinished(job: Pick<GenerationJob, 'status' | 'errorCode'>) {
+  return job.status === 'SUCCEEDED' || ['FAILED', 'CANCELLED'].includes(job.status)
+    && !['SETTLEMENT_RECONCILING', 'SETTLEMENT_RECONCILIATION_FAILED'].includes(job.errorCode || '')
+}
 
 export function resolveRasterImageMime(name: string, suppliedMimeType: string) {
   return rasterMimeByExtension[extname(name).toLowerCase()] || (rasterMimeTypes.has(suppliedMimeType.toLowerCase()) ? suppliedMimeType.toLowerCase() : null)
@@ -152,6 +159,70 @@ export class AssetsService {
     const asset = await this.prisma.asset.findFirst({ where: { id, deletedAt: null } })
     if (!asset) throw new NotFoundException('文件不存在')
     return this.readAsset(asset)
+  }
+
+  async publishVideoReference(job: Pick<GenerationJob, 'id' | 'userId'>, slot: string, dataUrl: string) {
+    const base = process.env.PUBLIC_BASE_URL?.trim() || process.env.WEB_ORIGIN?.split(',')[0]?.trim() || ''
+    const url = publicHttpUrl(base)
+    if (url.protocol !== 'https:') throw new BadRequestException('视频临时参考素材需要配置公开 HTTPS PUBLIC_BASE_URL')
+    const existing = await this.prisma.asset.findFirst({
+      where: { userId: job.userId, deletedAt: null, AND: [
+        { metadata: { path: ['purpose'], equals: VIDEO_REFERENCE_PURPOSE } },
+        { metadata: { path: ['jobId'], equals: job.id } },
+        { metadata: { path: ['slot'], equals: slot } },
+      ] },
+    })
+    if (existing) return new URL(`/v1/assets/video-references/${existing.id}`, url).toString()
+    const match = /^data:([^;,]+);base64,([\s\S]+)$/.exec(dataUrl)
+    if (!match || !rasterMimeTypes.has(match[1]) && !audioMimeTypes.has(match[1])) throw new BadRequestException('视频参考素材格式无效')
+    const [, mimeType, encoded] = match
+    const bytes = Buffer.from(encoded, 'base64')
+    const maxBytes = mimeType.startsWith('image/') ? 30 * 1024 * 1024 : 15 * 1024 * 1024
+    if (!bytes.length || bytes.length > maxBytes) throw new BadRequestException('视频参考素材内容为空或超过文件上限')
+    const id = `vref_${randomBytes(32).toString('hex')}`
+    const objectKey = `users/${job.userId}/video-references/${job.id}/${id}`
+    const location = this.storage.activeLocation()
+    try {
+      const stored = await this.storage.putBytes(objectKey, bytes, mimeType)
+      await this.prisma.asset.create({ data: {
+        id, userId: job.userId, objectKey, storageDriver: location.driver, storageBucket: location.bucket,
+        name: slot, mimeType, kind: mimeType.startsWith('image/') ? AssetKind.IMAGE : AssetKind.AUDIO,
+        size: BigInt(stored.size), checksum: stored.checksum, retentionExempt: true,
+        metadata: { purpose: VIDEO_REFERENCE_PURPOSE, jobId: job.id, slot },
+      } })
+    } catch (error) {
+      await this.storage.delete(location, objectKey).catch(() => undefined)
+      throw error
+    }
+    return new URL(`/v1/assets/video-references/${id}`, url).toString()
+  }
+
+  async readVideoReference(id: string) {
+    if (!/^vref_[a-f0-9]{64}$/.test(id)) throw new NotFoundException('临时参考素材不存在')
+    const asset = await this.prisma.asset.findFirst({ where: { id, deletedAt: null, metadata: { path: ['purpose'], equals: VIDEO_REFERENCE_PURPOSE } } })
+    if (!asset) throw new NotFoundException('临时参考素材不存在')
+    const metadata = asset.metadata as { jobId: string }
+    const job = await this.prisma.generationJob.findFirst({ where: { id: metadata.jobId, userId: asset.userId, kind: 'VIDEO' }, select: { status: true, errorCode: true } })
+    if (!job || videoReferencesFinished(job)) throw new NotFoundException('临时参考素材已失效')
+    return this.readAsset(asset)
+  }
+
+  async cleanupVideoReferences(limit = 500) {
+    // Select by task state, not age: a long-running video must retain its inputs.
+    const rows = await this.prisma.$queryRaw<Asset[]>`
+      SELECT a.* FROM "Asset" a LEFT JOIN "GenerationJob" g ON g.id = a.metadata->>'jobId'
+      WHERE a."deletedAt" IS NULL AND a.metadata->>'purpose' = ${VIDEO_REFERENCE_PURPOSE}
+        AND (g.id IS NULL OR g.status = 'SUCCEEDED' OR (g.status IN ('FAILED', 'CANCELLED')
+          AND COALESCE(g."errorCode", '') NOT IN ('SETTLEMENT_RECONCILING', 'SETTLEMENT_RECONCILIATION_FAILED')))
+      ORDER BY a."createdAt" ASC LIMIT ${limit}
+    `
+    let removed = 0
+    const failures: Array<{ id: string; error: string }> = []
+    for (const row of rows) {
+      try { await this.removeStoredAsset(row); removed++ }
+      catch (error) { failures.push({ id: row.id, error: error instanceof Error ? error.message : '临时参考素材清理失败' }) }
+    }
+    return { scanned: rows.length, removed, failures }
   }
 
   async readPublicChatHomeImage(id: string) {

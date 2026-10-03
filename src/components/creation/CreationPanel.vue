@@ -69,13 +69,13 @@
               <label v-if="imageReferenceLimit > 0" class="seedance-settings__urls">参考图（最多 {{ imageReferenceLimit }} 张，每行一个公开 HTTPS 地址）<textarea v-model="referenceImageText" rows="2" aria-label="参考图地址" placeholder="https://example.com/image.jpg" /></label>
               <label v-if="videoReferenceLimit > 0" class="seedance-settings__urls">参考视频（最多 {{ videoReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceVideoText" rows="2" aria-label="参考视频地址" placeholder="https://example.com/video.mp4" /></label>
               <label v-if="audioReferenceLimit > 0" class="seedance-settings__urls">参考音频（最多 {{ audioReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceAudioText" rows="2" aria-label="参考音频地址" placeholder="https://example.com/audio.mp3" /></label>
-              <p v-else>{{ publicReferenceUrls ? '当前模型的参考素材必须使用公开 HTTPS 地址。' : '' }}首帧、尾帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
+              <p v-else>首帧、尾帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
             </div>
           </details>
           <div class="creation-controls">
             <div class="creation-control-track">
               <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
-              <button v-if="activeMode === 'videos' && audioReferenceLimit > 0 && !publicReferenceUrls" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
+              <button v-if="activeMode === 'videos' && audioReferenceLimit > 0" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
                 <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>

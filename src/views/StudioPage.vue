@@ -411,14 +411,12 @@ function openCreationAttachmentPicker(kind: 'image' | 'audio' | 'mask') {
     return
   }
   if (kind === 'audio') {
-    if (activeVideoCapabilities.value.requiresPublicReferenceUrls) { store.lastError = '当前视频模型请在生成设置中填写公开 HTTPS 参考音频地址'; return }
     if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
     if (localInputs.audios.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
     if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !videoSettings.value.referenceImageUrls?.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
     localAudioInput.value?.click()
     return
   }
-  if (activeMode.value === 'videos' && activeVideoCapabilities.value.requiresPublicReferenceUrls) { store.lastError = '当前视频模型请在生成设置中填写公开 HTTPS 参考图地址'; return }
   if (composerReferences.value.length >= imageReferenceLimit.value) {
     store.lastError = imageReferenceLimit.value ? `当前模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前模型不支持参考图'
     return

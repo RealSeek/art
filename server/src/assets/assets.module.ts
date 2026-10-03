@@ -4,6 +4,7 @@ import { AssetsController } from './assets.controller'
 import { AssetsService } from './assets.service'
 import { ObjectStorageService } from './object-storage.service'
 import { AssetsProcessor } from './assets.processor'
+import { VideoReferencesController } from './video-references.controller'
 
-@Module({ imports: [BullModule.registerQueue({ name: 'asset-maintenance' })], controllers: [AssetsController], providers: [AssetsService, ObjectStorageService, AssetsProcessor], exports: [AssetsService, ObjectStorageService] })
+@Module({ imports: [BullModule.registerQueue({ name: 'asset-maintenance' })], controllers: [AssetsController, VideoReferencesController], providers: [AssetsService, ObjectStorageService, AssetsProcessor], exports: [AssetsService, ObjectStorageService] })
 export class AssetsModule {}

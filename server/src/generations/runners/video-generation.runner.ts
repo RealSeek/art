@@ -145,16 +145,22 @@ export class VideoGenerationRunner implements GenerationRunner {
           }),
         }
         if (capabilities.referenceMode === 'CONTENT_JSON') {
-          const images = [
+          let images = [
             ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
-          const audios = [
+          let audios = [
             ...normalized.referenceAudioUrls,
             ...normalized.referenceAudios.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
+          if (capabilities.requiresPublicReferenceUrls) {
+            images = await Promise.all(images.map((source, index) => source.startsWith('data:')
+              ? this.assets.publishVideoReference(task, `image-${index}`, source) : source))
+            audios = await Promise.all(audios.map((source, index) => source.startsWith('data:')
+              ? this.assets.publishVideoReference(task, `audio-${index}`, source) : source))
+          }
           const content = [
             { type: 'text', text: prompt },
             ...images.map((url, index) => ({ type: 'image_url', image_url: { url }, role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole })),

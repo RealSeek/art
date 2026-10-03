@@ -6,7 +6,7 @@ export type NormalizedVideoOptions = {
   aspectRatio: string
   referenceAssetIds: string[]
   audioAssetIds: string[]
-  /** 浏览器本地持有的参考图/音频（Data URL），不经过服务器存储。 */
+  /** 浏览器本地素材；仅要求公网 URL 的模型会在任务期间临时托管。 */
   referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
   referenceAudios: Array<{ name: string; mimeType: string; dataUrl: string }>
   referenceImageUrls: string[]
@@ -225,7 +225,6 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   }
   if (referenceVideoUrls.length > capabilities.maxVideoReferences) throw new BadRequestException(`当前视频模型最多支持 ${capabilities.maxVideoReferences} 段参考视频`)
   if (capabilities.maxTotalReferences && referenceCount + audioCount + referenceVideoUrls.length > capabilities.maxTotalReferences) throw new BadRequestException(`当前视频模型最多支持 ${capabilities.maxTotalReferences} 个参考素材`)
-  if (capabilities.requiresPublicReferenceUrls && (referenceAssetIds.length || audioAssetIds.length || referenceImages.length || referenceAudios.length)) throw new BadRequestException('当前视频模型的参考图和参考音频需要使用公开 HTTPS 地址')
   if (audioCount && capabilities.audioRequiresVisualReference && !referenceCount && !referenceVideoUrls.length) throw new BadRequestException('参考音频必须搭配至少一张参考图或参考视频')
   if (frameCount > capabilities.maxFirstLastFrames) throw new BadRequestException('当前视频模型不支持所选首尾帧模式')
   if (imageRole !== 'reference_image' && (referenceCount !== frameCount || audioCount || referenceVideoUrls.length)) throw new BadRequestException('首帧或尾帧需要一张图片，首尾帧需要两张图片，且不能混用参考音频或视频')

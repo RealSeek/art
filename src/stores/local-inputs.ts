@@ -27,7 +27,7 @@ async function imageDimensions(blob: Blob) {
 
 /**
  * 生成用的本机素材：参考图 / 参考音频 / 蒙版都存在浏览器里，
- * 提交生成时以 Data URL 直发上游，服务器不再保存这些素材。
+ * 提交生成时使用 Data URL；要求公网 URL 的视频模型由服务器临时托管。
  */
 export const useLocalInputsStore = defineStore('local-inputs', {
   state: (): LocalInputsState => ({ records: [], hydrated: false, loading: false }),

@@ -1,7 +1,7 @@
 /**
  * 生成任务的本地参考素材（gpt-image-studio 式本地优先）：
  * 参考图与蒙版只存在当前浏览器，提交生成时以 base64 Data URL 随请求发给上游，
- * 服务器不落库、不占存储，也不受媒体保留期影响。
+ * 普通生成直接传输；要求公开 URL 的视频模型仅在任务期间临时托管。
  */
 export type LocalInputKind = 'reference' | 'audio' | 'mask'
 

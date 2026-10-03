@@ -48,7 +48,7 @@ test('H3 公开 HTTPS 参考素材按模型上限校验，音频可单独使用'
   assert.throws(() => normalizeVideoOptions({ duration: 10, referenceImageUrls: images, referenceAudioUrls: [...audios, 'https://cdn.example/audio-3.mp3'] }, h3Capabilities), /最多支持 3 段参考音频/)
   assert.equal(normalizeVideoOptions({ duration: 1, referenceAudioUrls: audios }, h3Capabilities).duration, 1)
   assert.throws(() => normalizeVideoOptions({ duration: 16 }, h3Capabilities), /1 and 15/)
-  assert.throws(() => normalizeVideoOptions({ duration: 5, referenceAssetIds: ['asset'] }, h3Capabilities), /公开 HTTPS 地址/)
+  assert.deepEqual(normalizeVideoOptions({ duration: 5, referenceAssetIds: ['asset'] }, h3Capabilities).referenceAssetIds, ['asset'])
   assert.equal(normalizeVideoOptions({ duration: 5, imageRole: 'last_frame', referenceImageUrls: ['https://cdn.example/last.jpg'], aspectRatio: 'adaptive' }, h3Capabilities).imageRole, 'last_frame')
 })
 

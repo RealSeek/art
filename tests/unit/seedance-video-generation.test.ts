@@ -52,7 +52,7 @@ test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', (
   assert.throws(() => normalizeVideoOptions({ duration: 31 }, seedanceVideoCapabilities('seedance-2.5')), /between 4 and 30/)
 })
 
-test('MiniMax H3 使用官方请求格式并拒绝不支持的本地媒体', () => {
+test('MiniMax H3 使用官方请求格式并接受待临时托管的本地媒体', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
   const caps = videoCapabilities(discover.discoveredModelOptions({ id: 'MiniMax-H3', capability: 'VIDEO' }).videoCapabilities)
   assert.equal(caps.requestFormat, 'minimax-h3')
@@ -63,7 +63,7 @@ test('MiniMax H3 使用官方请求格式并拒绝不支持的本地媒体', () 
   assert.equal(caps.maxAudioReferences, 3)
   assert.equal(caps.maxTotalReferences, 12)
   assert.equal(normalizeVideoOptions({ duration: 7 }, caps).duration, 7)
-  assert.throws(() => normalizeVideoOptions({ referenceImages: [{ name: 'image.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }] }, caps), /公开 HTTPS 地址/)
+  assert.equal(normalizeVideoOptions({ referenceImages: [{ name: 'image.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }] }, caps).referenceImages.length, 1)
 })
 
 test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
@@ -107,6 +107,34 @@ test('MiniMax H3 使用官方 768P content[] body，不携带 Seedance 参数', 
       { type: 'image_url', image_url: { url: 'https://cdn.example/image.png' }, role: 'reference_image' },
     ], duration: 5, resolution: '768P', ratio: '16:9',
   })
+})
+
+test('MiniMax H3 将本地图片和音频临时托管，保留公开 URL 和首帧角色', async () => {
+  const hosted: Array<{ slot: string; source: string }> = []
+  let sent: Record<string, any> | undefined
+  const runner = new VideoGenerationRunner({} as never, {
+    publishVideoReference: async (job: { id: string }, slot: string, source: string) => {
+      assert.equal(job.id, 'temporary-job')
+      hosted.push({ slot, source })
+      return `https://art.example/v1/assets/video-references/${slot}`
+    },
+  } as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const internals = runner as unknown as {
+    withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
+    provider: (provider: unknown, path: string, body: Record<string, unknown>) => Promise<unknown>
+  }
+  const caps = { requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON', resolutions: ['768p'], maxReferences: 9, maxAudioReferences: 3, maxFirstLastFrames: 2, requiresPublicReferenceUrls: true }
+  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'MiniMax-H3', timeoutMs: 1000, videoCapabilities: caps })
+  internals.provider = async (_provider, _path, body) => { sent = body; return { status: 'failed', error: { message: 'stop after submit' } } }
+  const reference = { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }
+  const audio = { name: 'a.mp3', mimeType: 'audio/mpeg', dataUrl: 'data:audio/mpeg;base64,Yg==' }
+  await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], referenceAudios: [audio], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
+  assert.deepEqual(hosted, [{ slot: 'image-1', source: reference.dataUrl }, { slot: 'audio-0', source: audio.dataUrl }])
+  assert.deepEqual(sent!.content.map((item: Record<string, any>) => item.image_url?.url || item.audio_url?.url).filter(Boolean), [
+    'https://cdn.example/a.png', 'https://art.example/v1/assets/video-references/image-1', 'https://art.example/v1/assets/video-references/audio-0',
+  ])
+  await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], imageRole: 'first_frame' } } as never), /stop after submit/)
+  assert.equal(sent!.content[1].role, 'first_frame')
 })
 
 test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', async () => {
