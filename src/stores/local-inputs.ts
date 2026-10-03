@@ -32,10 +32,10 @@ async function imageDimensions(blob: Blob) {
 export const useLocalInputsStore = defineStore('local-inputs', {
   state: (): LocalInputsState => ({ records: [], hydrated: false, loading: false }),
   getters: {
-    references: (state) => state.records.filter((record) => record.kind === 'reference'),
-    audios: (state) => state.records.filter((record) => record.kind === 'audio'),
-    mask: (state) => state.records.find((record) => record.kind === 'mask') || null,
-    images: (state) => state.records.filter((record) => record.kind === 'reference' && record.mimeType.startsWith('image/')),
+    references: (state) => state.records.filter((record) => record.kind === 'reference' && !record.submittedAt),
+    audios: (state) => state.records.filter((record) => record.kind === 'audio' && !record.submittedAt),
+    mask: (state) => state.records.find((record) => record.kind === 'mask' && !record.submittedAt) || null,
+    images: (state) => state.records.filter((record) => record.kind === 'reference' && record.mimeType.startsWith('image/') && !record.submittedAt),
   },
   actions: {
     async hydrate() {
@@ -108,6 +108,18 @@ export const useLocalInputsStore = defineStore('local-inputs', {
       for (const record of this.records) releaseLocalInput(record.id)
       this.records = []
       this.hydrated = true
+    },
+    async markSubmitted(ids: { referenceIds: string[]; audioIds: string[]; maskId?: string }) {
+      const submittedIds = new Set([...ids.referenceIds, ...ids.audioIds, ...(ids.maskId ? [ids.maskId] : [])])
+      if (!submittedIds.size) return
+      const submittedAt = Date.now()
+      this.records = await Promise.all(this.records.map(async (record) => {
+        if (!submittedIds.has(record.id)) return record
+        const submitted = { ...record, submittedAt }
+        await saveLocalInput(submitted)
+        releaseLocalInput(record.id)
+        return submitted
+      }))
     },
     previewUrl(record: LocalInputRecord) {
       return localInputPreviewUrl(record)

@@ -57,21 +57,6 @@
               <p v-if="!filteredMentions.length" class="creation-mention-empty">{{ referenceMentions.length ? '没有匹配的参考素材' : '还没有参考素材，点输入框左侧的 + 上传参考图或参考音频' }}</p>
             </div>
           </Teleport>
-          <details v-if="activeMode === 'videos' && nativeVideo" class="seedance-settings">
-            <summary>视频参考与生成设置</summary>
-            <div class="seedance-settings__fields">
-              <label>图片用途<select v-model="videoSettings.imageRole" aria-label="图片用途"><option value="reference_image">参考图片</option><option v-if="videoFrameLimit >= 1" value="first_frame">首帧</option><option v-if="videoFrameLimit >= 1" value="last_frame">尾帧</option><option v-if="videoFrameLimit >= 2" value="first_last_frame">首尾帧（按图片顺序）</option></select></label>
-              <label v-if="videoEditing">生成模式<select v-model="videoSettings.videoTaskType" aria-label="生成模式"><option :value="undefined">模型默认</option><option value="auto">自动</option><option value="reference">参考生成</option><option value="edit">编辑视频</option><option value="extend">延长视频</option></select></label>
-              <label v-if="videoEditing">输出格式<select v-model="videoSettings.videoFormat" aria-label="输出格式"><option :value="undefined">模型默认</option><option value="mp4">MP4</option><option value="mov">MOV</option></select></label>
-              <label v-if="nativeVideo === 'seedance'"><input v-model="videoSettings.generateAudio" type="checkbox" />生成音频</label>
-              <label v-if="nativeVideo === 'seedance'"><input v-model="videoSettings.watermark" type="checkbox" />水印</label>
-              <label v-if="videoFaceSupported"><input v-model="videoSettings.faceRequired" type="checkbox" />启用人脸参考</label>
-              <label v-if="imageReferenceLimit > 0" class="seedance-settings__urls">参考图（最多 {{ imageReferenceLimit }} 张，每行一个公开 HTTPS 地址）<textarea v-model="referenceImageText" rows="2" aria-label="参考图地址" placeholder="https://example.com/image.jpg" /></label>
-              <label v-if="videoReferenceLimit > 0" class="seedance-settings__urls">参考视频（最多 {{ videoReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceVideoText" rows="2" aria-label="参考视频地址" placeholder="https://example.com/video.mp4" /></label>
-              <label v-if="audioReferenceLimit > 0" class="seedance-settings__urls">参考音频（最多 {{ audioReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceAudioText" rows="2" aria-label="参考音频地址" placeholder="https://example.com/audio.mp3" /></label>
-              <p v-else>首帧、尾帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
-            </div>
-          </details>
           <div class="creation-controls">
             <div class="creation-control-track">
               <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
@@ -308,10 +293,7 @@ const props = defineProps<{
 }>()
 const generationPrompt = defineModel<string>('generationPrompt', { required: true })
 const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceImageUrls' | 'referenceAudioUrls' | 'referenceVideoUrls' | 'faceRequired'>>('videoSettings', { required: true })
-const splitReferenceUrls = (text: string) => text.split('\n').map((item) => item.trim()).filter(Boolean)
-const referenceImageText = computed({ get: () => (videoSettings.value.referenceImageUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceImageUrls = splitReferenceUrls(text) } })
-const referenceAudioText = computed({ get: () => (videoSettings.value.referenceAudioUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceAudioUrls = splitReferenceUrls(text) } })
-const referenceVideoText = computed({ get: () => (videoSettings.value.referenceVideoUrls || []).join('\n'), set: (text: string) => { videoSettings.value.referenceVideoUrls = splitReferenceUrls(text) } })
+void videoSettings
 const audioAttachments = computed(() => props.audioAttachments)
 const maskAttachment = computed(() => props.maskAttachment)
 function removeReference(index: number) { void props.removeReference(index) }
@@ -480,13 +462,3 @@ defineExpose({
   syncInspirationNavigation,
 })
 </script>
-
-<style scoped>
-.seedance-settings { margin: 0 16px 12px; font-size: 13px; }
-.seedance-settings summary { cursor: pointer; padding: 8px 0; }
-.seedance-settings__fields { display: flex; flex-wrap: wrap; gap: 12px 18px; padding: 8px 0; }
-.seedance-settings__fields label { display: flex; align-items: center; gap: 8px; }
-.seedance-settings__fields select, .seedance-settings__fields textarea { padding: 6px; border: 1px solid var(--border-color, #8884); border-radius: 6px; background: transparent; color: inherit; }
-.seedance-settings__fields .seedance-settings__urls { flex-basis: 100%; align-items: stretch; flex-direction: column; }
-.seedance-settings__fields p { margin: 0; opacity: .7; line-height: 1.6; }
-</style>

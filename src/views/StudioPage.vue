@@ -1111,6 +1111,15 @@ async function submitGeneration() {
   try {
     const inline = await localInputs.payload()
     jobId = (await store.startGeneration({ mode: activeMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: activeMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: activeMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: activeMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, ...(activeMode.value === 'videos' && activeVideoCapabilities.value.native ? videoSettings.value : {}), pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, undefined, false, activeCreationModel.value)).id
+    await localInputs.markSubmitted({
+      referenceIds: inline.references.map((item) => item.id),
+      audioIds: inline.audios.map((item) => item.id),
+      ...(inline.mask?.id ? { maskId: inline.mask.id } : {}),
+    })
+    maskReferenceId.value = ''
+    videoSettings.value.referenceImageUrls = []
+    videoSettings.value.referenceAudioUrls = []
+    videoSettings.value.referenceVideoUrls = []
   } catch {
     // 任务没有建成功时把输入还给用户；服务端错误已由 Store 展示在页面上。
     generationPrompt.value = prompt; creationAttachments.value = pendingAttachments; selectedImageToolId.value = pendingToolId

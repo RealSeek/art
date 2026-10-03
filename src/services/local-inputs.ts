@@ -15,6 +15,8 @@ export type LocalInputRecord = {
   width: number
   height: number
   createdAt: number
+  /** 已随生成任务提交，仅供该任务重试，不再作为当前输入展示。 */
+  submittedAt?: number
   blob: Blob
 }
 
