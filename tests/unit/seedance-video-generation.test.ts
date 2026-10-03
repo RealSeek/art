@@ -3,16 +3,17 @@ import test from 'node:test'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { VideoGenerationRunner } from '../../server/src/generations/runners/video-generation.runner'
-import { normalizeVideoOptions, sdgoVideoCapabilities, seedanceVideoCapabilities, videoCapabilities } from '../../server/src/generations/video-options'
+import { normalizeVideoOptions, seedanceVideoCapabilities, videoCapabilities } from '../../server/src/generations/video-options'
 import { ProvidersService, type ResolvedProvider } from '../../server/src/providers/providers.service'
 import { ReconciliationRequiredError, TerminalProviderJobError } from '../../server/src/generations/generation-provider-errors'
 
-test('Seedance 2.0 / 2.5 自动导入原生协议和完整创作规格', () => {
+test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
-  for (const [id, maxDuration, imageLimit, audioLimit] of [['[c]Seedance-2.0-fast', 15, 9, 3], ['doubao-seedance-2-5-pro', 30, 30, 10]] as const) {
+  for (const [id, maxDuration, imageLimit, audioLimit] of [['[c]Seedance-2.0-fast', 15, 9, 3], ['doubao-seedance-2-5-260628', 30, 30, 10]] as const) {
     const raw = discover.discoveredModelOptions({ id, capability: 'VIDEO', flatCreditCost: 1 }).videoCapabilities
     const caps = videoCapabilities(raw)
-    assert.equal(caps.referenceMode, 'REFERENCES_JSON')
+    assert.equal(caps.requestFormat, 'seedance')
+    assert.equal(caps.referenceMode, 'CONTENT_JSON')
     assert.equal(caps.maxDuration, maxDuration)
     assert.equal(caps.maxReferences, imageLimit)
     assert.equal(caps.maxAudioReferences, audioLimit)
@@ -20,43 +21,66 @@ test('Seedance 2.0 / 2.5 自动导入原生协议和完整创作规格', () => {
     assert.equal(normalizeVideoOptions({ duration: maxDuration }, caps).duration, maxDuration)
   }
   assert.equal(normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.0')).resolution, '4k')
-  assert.throws(() => normalizeVideoOptions({ duration: 3 }, seedanceVideoCapabilities('seedance-2.0')), /between 4 and 15/)
   assert.throws(() => normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.5')), /不支持该分辨率/)
+  assert.throws(() => normalizeVideoOptions({ duration: 3 }, seedanceVideoCapabilities('seedance-2.0')), /between 4 and 15/)
+  assert.throws(() => normalizeVideoOptions({ duration: 31 }, seedanceVideoCapabilities('seedance-2.5')), /between 4 and 30/)
 })
 
-test('SDGO 特惠模型导入准确的规格，并限制未开放的功能', () => {
+test('MiniMax H3 使用官方请求格式并拒绝不支持的本地媒体', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
-  for (const [id, durations, images] of [['[c]seedance-2.0', [5, 10, 15], 9], ['[c]seedance-2.5', [30], 30]] as const) {
-    const caps = videoCapabilities(discover.discoveredModelOptions({ id, capability: 'VIDEO' }).videoCapabilities)
-    assert.equal(caps.providerProtocol, 'SDGO')
-    assert.deepEqual(caps.durations, durations)
-    assert.equal(caps.maxReferences, images)
-    assert.equal(caps.maxVideoReferences, 0)
-    assert.equal(caps.maxFirstLastFrames, 0)
-    assert.equal(normalizeVideoOptions({}, caps).duration, durations[0])
-    assert.throws(() => normalizeVideoOptions({ duration: 7 }, caps))
-    assert.throws(() => normalizeVideoOptions({ duration: -1 }, caps))
-    assert.throws(() => normalizeVideoOptions({ resolution: '1080p' }, caps))
-    assert.throws(() => normalizeVideoOptions({ faceRequired: true }, caps), /至少一张参考图/)
-  }
+  const caps = videoCapabilities(discover.discoveredModelOptions({ id: 'MiniMax-H3', capability: 'VIDEO' }).videoCapabilities)
+  assert.equal(caps.requestFormat, 'minimax-h3')
+  assert.equal(caps.referenceMode, 'CONTENT_JSON')
+  assert.deepEqual(caps.durations, Array.from({ length: 15 }, (_, index) => index + 1))
+  assert.equal(caps.maxReferences, 9)
+  assert.equal(caps.maxVideoReferences, 3)
+  assert.equal(caps.maxAudioReferences, 3)
+  assert.equal(caps.maxTotalReferences, 12)
+  assert.equal(normalizeVideoOptions({ duration: 7 }, caps).duration, 7)
+  assert.throws(() => normalizeVideoOptions({ referenceImages: [{ name: 'image.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }] }, caps), /公开 HTTPS 地址/)
 })
 
-test('SDGO 通过标准网关协议发送固定时长、参考素材及稳定幂等键', async () => {
+test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   const sent: Array<{ body: Record<string, unknown>; key?: string }> = []
   const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
   const internals = runner as unknown as {
     withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
     provider: (provider: unknown, path: string, body: Record<string, unknown>, timeout: number, key: string) => Promise<unknown>
   }
-  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: '[c]seedance-2.5', timeoutMs: 1000, videoCapabilities: sdgoVideoCapabilities('[c]seedance-2.5') })
+  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'doubao-seedance-2-5-260628', timeoutMs: 1000, videoCapabilities: seedanceVideoCapabilities('doubao-seedance-2-5-260628') })
   internals.provider = async (_provider, _path, body, _timeout, key) => { sent.push({ body, key }); return { status: 'failed', error: { message: 'test stopped after submission' } } }
-  const task = { id: 'sdgo-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], faceRequired: true, generateAudio: true, watermark: false, returnLastFrame: true } }
+  const task = { id: 'seedance-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false } }
   for (let i = 0; i < 2; i++) await assert.rejects(runner.run(task as never), /test stopped after submission/)
-  assert.equal(sent[0].key, 'art-video-sdgo-job')
+  assert.equal(sent[0].key, 'art-video-seedance-job')
   assert.deepEqual(sent[0], sent[1])
-  assert.equal(sent[0].body.duration, 30)
-  assert.deepEqual(sent[0].body.options, { native_face: true })
-  assert.deepEqual(sent[0].body.references, [{ type: 'image', role: 'reference_image', source: 'data:image/png;base64,YQ==' }])
+  assert.equal(sent[0].body.duration, 5)
+  assert.deepEqual(sent[0].body.content, [
+    { type: 'text', text: '生成视频' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' }, role: 'reference_image' },
+  ])
+  assert.equal(sent[0].body.ratio, '16:9')
+  assert.equal(sent[0].body.generate_audio, true)
+  assert.equal(sent[0].body.watermark, false)
+  assert.equal(sent[0].body.references, undefined)
+})
+
+test('MiniMax H3 使用官方 768P content[] body，不携带 Seedance 参数', async () => {
+  let sent: Record<string, unknown> | undefined
+  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const internals = runner as unknown as {
+    withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
+    provider: (provider: unknown, path: string, body: Record<string, unknown>) => Promise<unknown>
+  }
+  const capabilities = { requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON', resolutions: ['768p'], durations: [5], aspectRatios: ['16:9'], defaultResolution: '768p', defaultDuration: 5, defaultAspectRatio: '16:9', minDuration: 1, maxDuration: 15, maxReferences: 9, maxAudioReferences: 3, maxVideoReferences: 3, maxFirstLastFrames: 2, maxTotalReferences: 12, resolutionLocked: true, requiresPublicReferenceUrls: true }
+  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'MiniMax-H3', timeoutMs: 1000, videoCapabilities: capabilities })
+  internals.provider = async (_provider, path, body) => { assert.equal(path, '/videos'); sent = body; return { status: 'failed', error: { message: 'test stopped after submission' } } }
+  await assert.rejects(runner.run({ id: 'minimax-job', prompt: 'a wave', options: { duration: 5, referenceImageUrls: ['https://cdn.example/image.png'] } } as never), /test stopped after submission/)
+  assert.deepEqual(sent, {
+    model: 'MiniMax-H3', content: [
+      { type: 'text', text: 'a wave' },
+      { type: 'image_url', image_url: { url: 'https://cdn.example/image.png' }, role: 'reference_image' },
+    ], duration: 5, resolution: '768P', ratio: '16:9',
+  })
 })
 
 test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', async () => {
@@ -100,15 +124,16 @@ test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', as
     await runner.run({ id: 'job-1', userId: 'user-1', prompt: '保持主体外观', options: {
       duration: 6, referenceImages: [{ name: 'local.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,bG9jYWw=' }], referenceAssetIds: ['saved-image'],
       referenceAudios: [{ name: 'sound.wav', mimeType: 'audio/wav', dataUrl: 'data:audio/wav;base64,YQ==' }],
-      referenceVideoUrls: ['https://cdn.example/input.mp4?signature=input'], generateAudio: false, watermark: false, returnLastFrame: true,
+      referenceVideoUrls: ['https://cdn.example/input.mp4?signature=input'], generateAudio: false, watermark: false,
     } } as never)
     assert.deepEqual(created, {
-      model: 'Seedance-2.0', prompt: '保持主体外观', references: [
-        { type: 'image', role: 'reference_image', source: 'data:image/png;base64,bG9jYWw=' },
-        { type: 'image', role: 'reference_image', source: `data:image/png;base64,${Buffer.from('saved-image').toString('base64')}` },
-        { type: 'video', role: 'reference_video', source: 'https://cdn.example/input.mp4?signature=input' },
-        { type: 'audio', role: 'reference_audio', source: 'data:audio/wav;base64,YQ==' },
-      ], duration: 6, resolution: '720p', ratio: '16:9', options: { generate_audio: false, watermark: false, return_last_frame: true },
+      model: 'Seedance-2.0', content: [
+        { type: 'text', text: '保持主体外观' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,bG9jYWw=' }, role: 'reference_image' },
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${Buffer.from('saved-image').toString('base64')}` }, role: 'reference_image' },
+        { type: 'video_url', video_url: { url: 'https://cdn.example/input.mp4?signature=input' }, role: 'reference_video' },
+        { type: 'audio_url', audio_url: { url: 'data:audio/wav;base64,YQ==' }, role: 'reference_audio' },
+      ], duration: 6, resolution: '720p', ratio: '16:9', generate_audio: false, watermark: false,
     })
     assert.equal(polls, 2)
     assert.ok(updates.some(update => update.providerJobId === 'public-task' && update.userCredentialId === 'credential-1'))

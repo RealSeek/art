@@ -63,21 +63,19 @@
               <label>图片用途<select v-model="videoSettings.imageRole" aria-label="图片用途"><option value="reference_image">参考图片</option><option v-if="videoFrameLimit >= 1" value="first_frame">首帧</option><option v-if="videoFrameLimit >= 1" value="last_frame">尾帧</option><option v-if="videoFrameLimit >= 2" value="first_last_frame">首尾帧（按图片顺序）</option></select></label>
               <label v-if="videoEditing">生成模式<select v-model="videoSettings.videoTaskType" aria-label="生成模式"><option :value="undefined">模型默认</option><option value="auto">自动</option><option value="reference">参考生成</option><option value="edit">编辑视频</option><option value="extend">延长视频</option></select></label>
               <label v-if="videoEditing">输出格式<select v-model="videoSettings.videoFormat" aria-label="输出格式"><option :value="undefined">模型默认</option><option value="mp4">MP4</option><option value="mov">MOV</option></select></label>
-              <label v-if="!sdgoVideo"><input v-model="videoSettings.generateAudio" type="checkbox" />生成音频</label>
-              <label v-if="!sdgoVideo"><input v-model="videoSettings.watermark" type="checkbox" />水印</label>
-              <label v-if="!sdgoVideo"><input v-model="videoSettings.returnLastFrame" type="checkbox" />返回尾帧链接</label>
-              <label v-if="videoFaceSupported"><input v-model="videoSettings.faceRequired" type="checkbox" />需要人脸参考支持</label>
+              <label v-if="nativeVideo === 'seedance'"><input v-model="videoSettings.generateAudio" type="checkbox" />生成音频</label>
+              <label v-if="nativeVideo === 'seedance'"><input v-model="videoSettings.watermark" type="checkbox" />水印</label>
+              <label v-if="videoFaceSupported"><input v-model="videoSettings.faceRequired" type="checkbox" />启用人脸参考</label>
               <label v-if="imageReferenceLimit > 0" class="seedance-settings__urls">参考图（最多 {{ imageReferenceLimit }} 张，每行一个公开 HTTPS 地址）<textarea v-model="referenceImageText" rows="2" aria-label="参考图地址" placeholder="https://example.com/image.jpg" /></label>
               <label v-if="videoReferenceLimit > 0" class="seedance-settings__urls">参考视频（最多 {{ videoReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceVideoText" rows="2" aria-label="参考视频地址" placeholder="https://example.com/video.mp4" /></label>
-              <label v-if="audioReferenceLimit > 0 && !sdgoVideo" class="seedance-settings__urls">参考音频（最多 {{ audioReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceAudioText" rows="2" aria-label="参考音频地址" placeholder="https://example.com/audio.mp3" /></label>
-              <p v-if="sdgoVideo">SDGO 仅支持所列时长和 720p；参考音频请使用本地上传。人脸参考需搭配参考图，可能产生额外费用。</p>
+              <label v-if="audioReferenceLimit > 0" class="seedance-settings__urls">参考音频（最多 {{ audioReferenceLimit }} 段，每行一个公开 HTTPS 地址）<textarea v-model="referenceAudioText" rows="2" aria-label="参考音频地址" placeholder="https://example.com/audio.mp3" /></label>
               <p v-else>{{ publicReferenceUrls ? '当前模型的参考素材必须使用公开 HTTPS 地址。' : '' }}首帧、尾帧、首尾帧不与参考视频或音频混用。2.5 首帧、编辑、延长请选择 adaptive 比例；编辑使用自动时长。参考视频总时长最多 {{ videoEditing ? 30 : 15 }} 秒。</p>
             </div>
           </details>
           <div class="creation-controls">
             <div class="creation-control-track">
               <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
-              <button v-if="activeMode === 'videos' && audioReferenceLimit > 0" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
+              <button v-if="activeMode === 'videos' && audioReferenceLimit > 0 && !publicReferenceUrls" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
                 <button type="button" :class="{ 'is-active': activeMode === 'images' }" :aria-pressed="activeMode === 'images'" @click="switchCreationMode('images')">图片</button>
@@ -118,8 +116,8 @@
               </div>
               <div v-else-if="creationMenu === 'duration'" class="creation-duration-menu">
                 <button v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
-                <label v-if="!sdgoVideo" class="creation-duration-custom"><span>自定义</span><input type="number" :min="videoDurationMin" :max="videoDurationLimit" step="1" :value="videoDuration === -1 ? '' : videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒</span></label>
-                <p v-if="!sdgoVideo" class="creation-duration-hint">支持 {{ videoDurationMin }}–{{ videoDurationLimit }} 秒，超出会自动调整。</p>
+                <label class="creation-duration-custom"><span>自定义</span><input type="number" :min="videoDurationMin" :max="videoDurationLimit" step="1" :value="videoDuration === -1 ? '' : videoDuration" aria-label="自定义视频秒数" @change="setCustomVideoDuration(($event.target as HTMLInputElement).value)" /><span>秒</span></label>
+                <p class="creation-duration-hint">支持 {{ videoDurationMin }}–{{ videoDurationLimit }} 秒，超出会自动调整。</p>
               </div>
               <button v-else-if="creationMenu !== 'model'" v-for="option in creationMenuOptions" :key="option" type="button" :class="{ 'is-active': isCreationOptionActive(option) }" @click="selectCreationOption(option)"><img v-if="creationMenu === 'style'" class="creation-style-thumb" :src="styleThumbnail(option)" alt="" /><span>{{ creationOptionLabel(option) }}</span><Check v-if="isCreationOptionActive(option)" :size="15" /></button>
             </div>
@@ -244,8 +242,7 @@ const props = defineProps<{
   videoDuration: number
   videoDurationLimit: number
   videoDurationMin: number
-  nativeVideo: boolean
-  sdgoVideo: boolean
+  nativeVideo: boolean | 'seedance' | 'minimax-h3'
   videoEditing: boolean
   videoReferenceLimit: number
   videoFrameLimit: number

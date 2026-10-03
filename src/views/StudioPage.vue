@@ -350,7 +350,7 @@ const activeImageCapabilities = computed(() => {
 const activeVideoCapabilities = computed(() => {
   const model = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
   const raw = model?.options?.videoCapabilities || {}
-  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {}, maxReferences: Math.max(0, raw.maxReferences ?? 1), maxAudioReferences: Math.max(0, raw.maxAudioReferences || 0), minDuration: Math.max(1, raw.minDuration || 1), maxDuration: raw.maxDuration || MAX_VIDEO_DURATION_SECONDS, sdgo: raw.providerProtocol === "SDGO", native: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'REFERENCES_JSON', maxVideoReferences: raw.maxVideoReferences || 0, maxFirstLastFrames: Math.max(0, raw.maxFirstLastFrames || 0), faceSupported: raw.faceSupported === true, requiresPublicReferenceUrls: raw.requiresPublicReferenceUrls === true, supportsAutoDuration: raw.supportsAutoDuration === true, audioRequiresVisualReference: raw.audioRequiresVisualReference !== false, supportsVideoEditing: raw.supportsVideoEditing === true }
+  return { resolutions: raw.resolutions?.length ? raw.resolutions : ['480p', '720p'], durations: raw.durations?.length ? raw.durations : [5, 10], aspectRatios: raw.aspectRatios?.length ? raw.aspectRatios : ['16:9', '9:16', '1:1'], defaultResolution: raw.defaultResolution || raw.resolutions?.[0] || '720p', defaultDuration: raw.defaultDuration || raw.durations?.[0] || 5, defaultAspectRatio: raw.defaultAspectRatio || raw.aspectRatios?.[0] || '16:9', pricing: raw.pricing || {}, maxReferences: Math.max(0, raw.maxReferences ?? 1), maxAudioReferences: Math.max(0, raw.maxAudioReferences || 0), minDuration: Math.max(1, raw.minDuration || 1), maxDuration: raw.maxDuration || MAX_VIDEO_DURATION_SECONDS, sdgo: false, native: raw.requestFormat || raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'REFERENCES_JSON', maxVideoReferences: raw.maxVideoReferences || 0, maxFirstLastFrames: Math.max(0, raw.maxFirstLastFrames || 0), faceSupported: raw.faceSupported === true, requiresPublicReferenceUrls: raw.requiresPublicReferenceUrls === true, supportsAutoDuration: raw.supportsAutoDuration === true, audioRequiresVisualReference: raw.audioRequiresVisualReference !== false, supportsVideoEditing: raw.supportsVideoEditing === true }
 })
 function backgroundLabel(value: string) { return value === 'transparent' ? '透明背景' : value === 'opaque' ? '不透明背景' : '自动背景' }
 /** 画质档位由模型尺寸清单推导，模型只支持 1K 时就只展示 1K。 */
@@ -366,14 +366,22 @@ function syncResolutionFromSize(size: unknown) {
   const tier = imageResolutionTier(size)
   if (availableResolutionTiers.value.includes(tier)) imageResolution.value = tier
 }
-function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!(videoDuration.value === -1 && caps.supportsAutoDuration) && (caps.sdgo && !caps.durations.includes(videoDuration.value) || !Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio; if (!caps.maxFirstLastFrames && videoSettings.value.imageRole !== 'reference_image') videoSettings.value.imageRole = 'reference_image'; if (!caps.faceSupported) delete videoSettings.value.faceRequired }
+function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!(videoDuration.value === -1 && caps.supportsAutoDuration) && (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio; if (!caps.maxFirstLastFrames && videoSettings.value.imageRole !== 'reference_image') videoSettings.value.imageRole = 'reference_image'; if (!caps.maxAudioReferences) videoSettings.value.referenceAudioUrls = []; if (!caps.faceSupported) delete videoSettings.value.faceRequired }
 /** 视频时长档位：模型声明时长 ∪ 5/10/15，限制在该模型允许的区间内。 */
 const videoDurationPresets = computed(() => videoDurationOptions(activeVideoCapabilities.value.durations, activeVideoCapabilities.value.minDuration, activeVideoCapabilities.value.maxDuration))
 const videoDurationLimit = computed(() => activeVideoCapabilities.value.maxDuration)
 watch(videoModel, () => {
-  if (!activeVideoCapabilities.value.maxVideoReferences) videoSettings.value.referenceVideoUrls = []
-  if (activeVideoCapabilities.value.sdgo) videoSettings.value.referenceAudioUrls = []
-  if (!activeVideoCapabilities.value.supportsVideoEditing) {
+  const caps = activeVideoCapabilities.value
+  if (!caps.maxVideoReferences) videoSettings.value.referenceVideoUrls = []
+  if (!caps.maxAudioReferences) videoSettings.value.referenceAudioUrls = []
+  if (caps.native === 'minimax-h3') {
+    delete videoSettings.value.generateAudio
+    delete videoSettings.value.watermark
+    delete videoSettings.value.videoTaskType
+    delete videoSettings.value.videoFormat
+    delete videoSettings.value.returnLastFrame
+  }
+  if (!caps.supportsVideoEditing) {
     delete videoSettings.value.videoTaskType
     delete videoSettings.value.videoFormat
   }
@@ -381,7 +389,6 @@ watch(videoModel, () => {
 function setCustomVideoDuration(value: string) {
   const caps = activeVideoCapabilities.value
   videoDuration.value = clampVideoDuration(value, caps.defaultDuration, caps.minDuration, caps.maxDuration)
-  if (caps.sdgo && !caps.durations.includes(videoDuration.value)) videoDuration.value = caps.defaultDuration
 }
 
 /** 参考素材上限与 @ 引用列表。 */

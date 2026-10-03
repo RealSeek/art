@@ -70,7 +70,7 @@ test('H3 模型自动导入时带上分辨率、时长区间与参考能力', ()
     assert.equal(result.videoCapabilities.maxVideoReferences, 3)
     assert.equal(result.videoCapabilities.referenceMode, 'CONTENT_JSON')
     assert.equal(result.videoCapabilities.resolutionLocked, true)
-    assert.deepEqual(result.videoCapabilities.durations, [1, 5, 10, 15])
+    assert.deepEqual(result.videoCapabilities.durations, Array.from({ length: 15 }, (_, index) => index + 1))
     assert.equal((result.videoCapabilities.pricing as Record<string, number>)['768p:15'], 30)
   }
 })

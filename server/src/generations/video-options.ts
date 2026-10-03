@@ -57,7 +57,7 @@ export type VideoCapabilityConfig = {
   supportsAutoDuration: boolean
   audioRequiresVisualReference: boolean
   supportsVideoEditing: boolean
-  providerProtocol: 'SDGO' | null
+  requestFormat: 'seedance' | 'minimax-h3' | null
   referenceMode: VideoReferenceMode
   minDuration: number
   maxDuration: number
@@ -94,51 +94,38 @@ const DEFAULTS: VideoCapabilityConfig = {
   supportsAutoDuration: false,
   audioRequiresVisualReference: true,
   supportsVideoEditing: false,
-  providerProtocol: null,
+  requestFormat: null,
   referenceMode: 'INPUT_REFERENCE',
   minDuration: MIN_VIDEO_DURATION_SECONDS,
   maxDuration: MAX_VIDEO_DURATION_SECONDS,
   resolutionLocked: false,
 }
 
-/** SDGO 标准模型及本部署的特惠别名；不是完整版 Seedance 协议。 */
-export function sdgoVideoCapabilities(model: string) {
-  const version = /^(?:\[c\]seedance-2\.|seedance2\.)([05])$/i.exec(model)?.[1]
+/** Capability defaults for the official Seedance content[] request format. */
+export function seedanceChannelCapabilities(model: string) {
+  const version = /seedance[-_ ]?2[-_.]?([05])(?:\D|$)/i.exec(model)?.[1]
   if (!version) return undefined
   const v25 = version === '5'
+  const compact = /(?:fast|mini)/i.test(model)
   return {
-    providerProtocol: 'SDGO' as const,
-    resolutions: ['720p'], durations: v25 ? [30] : [5, 10, 15],
-    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
-    defaultResolution: '720p', defaultDuration: v25 ? 30 : 5, defaultAspectRatio: '16:9',
-    minDuration: v25 ? 30 : 5, maxDuration: v25 ? 30 : 15,
-    maxReferences: v25 ? 30 : 9, maxAudioReferences: 3, maxVideoReferences: 0,
-    maxFirstLastFrames: 0, maxTotalReferences: 0, faceSupported: true, requiresPublicReferenceUrls: false,
-    referenceMode: 'REFERENCES_JSON' as const, supportsAutoDuration: false,
-    audioRequiresVisualReference: false, supportsVideoEditing: false,
+    requestFormat: 'seedance' as const,
+    resolutions: v25 ? ['480p', '720p', '1080p'] : compact ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'],
+    durations: v25 ? [5, 10, 15, 20, 25, 30] : [4, 5, 10, 15],
+    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
+    defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9',
+    minDuration: 4, maxDuration: v25 ? 30 : 15,
+    maxReferences: v25 ? 30 : 9, maxAudioReferences: v25 ? 10 : 3, maxVideoReferences: v25 ? 10 : 3,
+    maxFirstLastFrames: 2, maxTotalReferences: v25 ? 50 : 15, faceSupported: null, requiresPublicReferenceUrls: false,
+    referenceMode: 'CONTENT_JSON' as const, supportsAutoDuration: true,
+    audioRequiresVisualReference: !v25, supportsVideoEditing: v25,
     createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content',
     pollIntervalMs: 5000, maxPollSeconds: 0,
   }
 }
 
-/** OnlyCode Seedance 原生协议，规格来自 https://api.mai-token.com/docs（2026-10-01）。 */
+/** Official Seedance content[] request capabilities for user-managed channels. */
 export function seedanceVideoCapabilities(model: string) {
-  const version = /seedance[-_\s]*2[._-]([05])(?:\D|$)/i.exec(model)?.[1]
-  if (!version) return undefined
-  const v25 = version === '5'
-  return {
-    resolutions: v25 ? ['480p', '720p', '1080p'] : ['480p', '720p', '1080p', '4k'],
-    durations: v25 ? [4, 5, 10, 15, 20, 30] : [4, 5, 10, 15],
-    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-    defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9',
-    minDuration: 4, maxDuration: v25 ? 30 : 15,
-    maxReferences: v25 ? 30 : 9, maxAudioReferences: v25 ? 10 : 3, maxVideoReferences: v25 ? 10 : 3,
-    maxFirstLastFrames: 2, maxTotalReferences: 0, faceSupported: null, requiresPublicReferenceUrls: false,
-    referenceMode: 'REFERENCES_JSON' as const, supportsAutoDuration: true,
-    audioRequiresVisualReference: !v25, supportsVideoEditing: v25,
-    createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content',
-    pollIntervalMs: 5000, maxPollSeconds: 0,
-  }
+  return seedanceChannelCapabilities(model)
 }
 
 function safePath(value: unknown, fallback: string) {
@@ -159,7 +146,7 @@ function pricingMap(value: unknown) {
 export function videoCapabilities(value: unknown): VideoCapabilityConfig {
   const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   const raw = root.videoCapabilities && typeof root.videoCapabilities === 'object' && !Array.isArray(root.videoCapabilities) ? root.videoCapabilities as Record<string, unknown> : root
-  const resolutions = Array.isArray(raw.resolutions) ? [...new Set(raw.resolutions.map(String).map((item) => item.trim().toLowerCase()).filter((item) => /^(\d{3,4}p|4k)$/.test(item)))].slice(0, 10) : DEFAULTS.resolutions
+  const resolutions = Array.isArray(raw.resolutions) ? [...new Set(raw.resolutions.map(String).map((item) => item.trim().toLowerCase()).filter((item) => /^(\d{3,4}p|2k|4k)$/.test(item)))].slice(0, 10) : DEFAULTS.resolutions
   const durations = Array.isArray(raw.durations) ? [...new Set(raw.durations.map(Number).filter((item) => Number.isInteger(item) && item >= 1 && item <= 300))].sort((a, b) => a - b).slice(0, 20) : DEFAULTS.durations
   const aspectRatios = Array.isArray(raw.aspectRatios) ? [...new Set(raw.aspectRatios.map(String).filter((item) => /^(\d{1,2}:\d{1,2}|adaptive)$/.test(item)))].slice(0, 10) : DEFAULTS.aspectRatios
   const safeResolutions = resolutions.length ? resolutions : DEFAULTS.resolutions
@@ -192,7 +179,7 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     supportsAutoDuration: raw.supportsAutoDuration === true,
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
-    providerProtocol: raw.providerProtocol === 'SDGO' ? 'SDGO' : null,
+    requestFormat: raw.requestFormat === 'seedance' || raw.requestFormat === 'minimax-h3' ? raw.requestFormat : null,
     referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'REFERENCES_JSON' || raw.referenceMode === 'DATA_URL_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
     minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
     maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
@@ -221,10 +208,11 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
-  if (capabilities.providerProtocol === 'SDGO') {
-    if (!capabilities.durations.includes(duration)) throw new BadRequestException(`SDGO 当前模型只支持 ${capabilities.durations.join('/')} 秒`)
-    if (referenceAudioUrls.length) throw new BadRequestException('SDGO 参考音频请上传本地文件，不支持音频地址')
-    if (options.faceRequired === true && !referenceCount) throw new BadRequestException('人脸参考需要至少一张参考图')
+  if (capabilities.requestFormat && options.returnLastFrame === true) {
+    throw new BadRequestException('当前官方 Seedance/MiniMax 请求格式不支持 returnLastFrame')
+  }
+  if (capabilities.requestFormat === 'minimax-h3' && (options.generateAudio !== undefined || options.watermark !== undefined || options.videoFormat !== undefined || options.videoTaskType !== undefined)) {
+    throw new BadRequestException('MiniMax H3 官方视频请求不接受 generateAudio、watermark 或 videoFormat 参数')
   }
   if (imageRole === 'reference_image' && referenceCount > capabilities.maxReferences) {
     throw new BadRequestException(capabilities.maxReferences
@@ -251,7 +239,7 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   const videoFormat = options.videoFormat as NormalizedVideoOptions['videoFormat']
   if (videoFormat !== undefined && (!capabilities.supportsVideoEditing || !['mp4', 'mov'].includes(videoFormat))) throw new BadRequestException('当前模型不支持该视频格式')
   return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds, referenceImages, referenceAudios, referenceImageUrls, referenceAudioUrls, referenceVideoUrls, imageRole,
-    ...(typeof options.faceRequired === 'boolean' ? { faceRequired: options.faceRequired } : {}),
+    ...(options.faceRequired === true ? { faceRequired: true } : {}),
     ...(typeof options.generateAudio === 'boolean' ? { generateAudio: options.generateAudio } : {}),
     ...(typeof options.watermark === 'boolean' ? { watermark: options.watermark } : {}),
     ...(typeof options.returnLastFrame === 'boolean' ? { returnLastFrame: options.returnLastFrame } : {}),

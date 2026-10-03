@@ -144,41 +144,7 @@ export class VideoGenerationRunner implements GenerationRunner {
             seconds: String(normalized.duration),
           }),
         }
-        if (capabilities.referenceMode === 'REFERENCES_JSON') {
-          const images = [
-            ...normalized.referenceImageUrls,
-            ...normalized.referenceImages.map((item) => item.dataUrl),
-            ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
-          ]
-          const audios = [
-            ...normalized.referenceAudioUrls,
-            ...normalized.referenceAudios.map((item) => item.dataUrl),
-            ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
-          ]
-          const references = [
-            ...images.map((source, index) => ({ type: 'image', role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole, source })),
-            ...normalized.referenceVideoUrls.map((source) => ({ type: 'video', role: 'reference_video', source })),
-            ...audios.map((source) => ({ type: 'audio', role: 'reference_audio', source })),
-          ]
-          const requestOptions = capabilities.providerProtocol === 'SDGO' ? {
-            ...(normalized.faceRequired !== undefined ? { native_face: normalized.faceRequired } : {}),
-          } : {
-            ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
-            ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
-            ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
-            ...(normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
-            ...(normalized.videoFormat ? { video_format: normalized.videoFormat } : {}),
-          }
-          payload = await this.provider(resolved, capabilities.createPath, {
-            model: resolved.model,
-            prompt,
-            duration: normalized.duration,
-            resolution: normalized.resolution,
-            ratio: normalized.aspectRatio,
-            ...(references.length ? { references } : {}),
-            ...(Object.keys(requestOptions).length ? { options: requestOptions } : {}),
-          }, resolved.timeoutMs, capabilities.providerProtocol === 'SDGO' ? `art-video-${task.id}` : undefined)
-        } else if (capabilities.referenceMode === 'CONTENT_JSON') {
+        if (capabilities.referenceMode === 'CONTENT_JSON') {
           const images = [
             ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
@@ -196,14 +162,17 @@ export class VideoGenerationRunner implements GenerationRunner {
             ...audios.map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })),
           ]
           payload = await this.provider(resolved, capabilities.createPath, {
-            model: resolved.model, content, duration: normalized.duration, resolution: normalized.resolution, ratio: normalized.aspectRatio,
-            ...(normalized.faceRequired !== undefined ? { face_required: normalized.faceRequired } : {}),
-            ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
-            ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
-            ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
-            ...(normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
-            ...(normalized.videoFormat ? { video_format: normalized.videoFormat } : {}),
-          })
+            model: resolved.model,
+            content,
+            duration: normalized.duration,
+            resolution: capabilities.requestFormat === 'minimax-h3' ? normalized.resolution.toUpperCase() : normalized.resolution,
+            ratio: normalized.aspectRatio,
+            ...(capabilities.requestFormat === 'seedance' && normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
+            ...(capabilities.requestFormat === 'seedance' && normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
+            ...(capabilities.requestFormat === 'seedance' && normalized.videoFormat ? { output_format: normalized.videoFormat } : {}),
+            ...(capabilities.requestFormat === 'seedance' && normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
+            ...(normalized.faceRequired ? { face_required: true } : {}),
+          }, resolved.timeoutMs, `art-video-${task.id}`)
         } else if (capabilities.referenceMode === 'DATA_URL_JSON') {
           // 上游文档：images/audios 可直接使用 base64 Data URL（图片 30 MB、音频 15 MB）。
           // 本机参考素材（浏览器直发）排在前，与界面 @参考图 / @参考音频 编号一致。

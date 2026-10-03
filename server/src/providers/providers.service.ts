@@ -20,7 +20,7 @@ import {
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { isGeminiImageModel } from '../generations/image-options'
-import { sdgoVideoCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
+import { seedanceChannelCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
 
 type ProviderInput = {
@@ -939,7 +939,7 @@ export class ProvidersService implements OnModuleInit {
       const channelLimit = (key: string, nativeLimit: number) => discoveredCapabilities[key] === undefined
         ? nativeLimit
         : Math.min(nativeLimit, Math.max(0, Number(discoveredCapabilities[key]) || 0))
-      const seedance = sdgoVideoCapabilities(candidate.id) || seedanceVideoCapabilities(candidate.id)
+      const seedance = seedanceChannelCapabilities(candidate.id) || seedanceVideoCapabilities(candidate.id)
       if (seedance) return { apiProtocol, discovery, videoCapabilities: {
         ...seedance,
         maxReferences: channelLimit('maxReferences', seedance.maxReferences),
@@ -950,15 +950,15 @@ export class ProvidersService implements OnModuleInit {
       } }
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
       const h3 = /minimax[-_ ]?h3/i.test(candidate.id)
-      const resolution = h3 ? '768p' : candidate.id.match(/(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
-      const durations = h3 ? [1, 5, 10, 15] : [5, 10]
+      const resolution = h3 ? candidate.id.match(/(2k|768p)(?:-|$)/i)?.[1].toLowerCase() || '768p' : candidate.id.match(/(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
+      const durations = h3 ? Array.from({ length: 15 }, (_, index) => index + 1) : [5, 10]
       return {
         apiProtocol,
         discovery,
         videoCapabilities: {
           resolutions: [resolution],
           durations,
-          aspectRatios: h3 ? ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] : ['16:9', '9:16', '1:1'],
+          aspectRatios: h3 ? ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'] : ['16:9', '9:16', '1:1'],
           defaultResolution: resolution,
           defaultDuration: 5,
           defaultAspectRatio: '16:9',
@@ -969,6 +969,7 @@ export class ProvidersService implements OnModuleInit {
           pollIntervalMs: 3000,
           maxPollSeconds: 0,
           ...(h3 ? {
+            requestFormat: 'minimax-h3' as const,
             maxReferences: channelLimit('maxReferences', 9),
             maxFirstLastFrames: channelLimit('maxFirstLastFrames', 2),
             maxVideoReferences: channelLimit('maxVideoReferences', 3),
