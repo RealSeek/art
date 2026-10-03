@@ -208,8 +208,8 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
-  if (capabilities.requestFormat && options.returnLastFrame === true) {
-    throw new BadRequestException('当前官方 Seedance/MiniMax 请求格式不支持 returnLastFrame')
+  if (capabilities.requestFormat === 'minimax-h3' && options.returnLastFrame === true) {
+    throw new BadRequestException('当前 MiniMax H3 请求格式不支持 returnLastFrame')
   }
   if (capabilities.requestFormat === 'minimax-h3' && (options.generateAudio !== undefined || options.watermark !== undefined || options.videoFormat !== undefined || options.videoTaskType !== undefined)) {
     throw new BadRequestException('MiniMax H3 官方视频请求不接受 generateAudio、watermark 或 videoFormat 参数')

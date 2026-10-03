@@ -175,6 +175,7 @@ export class VideoGenerationRunner implements GenerationRunner {
             ratio: normalized.aspectRatio,
             ...(capabilities.requestFormat === 'seedance' && normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
             ...(capabilities.requestFormat === 'seedance' && normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
+            ...(capabilities.requestFormat === 'seedance' && normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
             ...(capabilities.requestFormat === 'seedance' && normalized.videoFormat ? { output_format: normalized.videoFormat } : {}),
             ...(capabilities.requestFormat === 'seedance' && normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
             ...(normalized.faceRequired ? { face_required: true } : {}),

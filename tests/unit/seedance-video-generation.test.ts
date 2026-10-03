@@ -92,7 +92,7 @@ test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   }
   internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'doubao-seedance-2-5-260628', timeoutMs: 1000, videoCapabilities: seedanceVideoCapabilities('doubao-seedance-2-5-260628') })
   internals.provider = async (_provider, _path, body, _timeout, key) => { sent.push({ body, key }); return { status: 'failed', error: { message: 'test stopped after submission' } } }
-  const task = { id: 'seedance-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false } }
+  const task = { id: 'seedance-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false, returnLastFrame: true } }
   for (let i = 0; i < 2; i++) await assert.rejects(runner.run(task as never), /test stopped after submission/)
   assert.equal(sent[0].key, 'art-video-seedance-job')
   assert.deepEqual(sent[0], sent[1])
@@ -104,6 +104,7 @@ test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   assert.equal(sent[0].body.ratio, '16:9')
   assert.equal(sent[0].body.generate_audio, true)
   assert.equal(sent[0].body.watermark, false)
+  assert.equal(sent[0].body.return_last_frame, true)
   assert.equal(sent[0].body.references, undefined)
 })
 
