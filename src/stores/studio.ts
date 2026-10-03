@@ -600,12 +600,13 @@ export const useStudioStore = defineStore('studio', {
         replaceMessage(this.messages, optimisticMessage.id, { id: userMessage.id, role: 'user', content: messageContent, createdAt: Date.parse(userMessage.createdAt), attachmentIds: options.referenceAssetIds })
         const job = await api<ServerJob>('/generations', { method: 'POST', body: JSON.stringify({
           kind, prompt: options.prompt, model: options.model.trim() || safeConversationModel, projectId: this.currentProjectId || undefined, conversationId: targetConversationId,
-          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, maskReferenceId: options.maskReferenceId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, referenceImageUrls: options.referenceImageUrls, referenceAudioUrls: options.referenceAudioUrls, referenceVideoUrls: options.referenceVideoUrls, imageRole: options.imageRole, faceRequired: options.faceRequired, generateAudio: options.generateAudio, watermark: options.watermark, returnLastFrame: options.returnLastFrame, videoTaskType: options.videoTaskType, videoFormat: options.videoFormat, pluginId: options.pluginId, creationToolId: options.creationToolId },
+          options: { size: options.ratio, quality: options.quality || 'medium', style: options.style, count: options.count, modules: options.modules, creationType: options.creationType, platform: options.platform, referenceAssetIds: options.referenceAssetIds || [], referenceImages: options.referenceImages || [], referenceVideos: options.referenceVideos || [], referenceAudios: options.referenceAudios || [], maskImage: options.maskImage, audioAssetIds: options.audioAssetIds || [], maskAssetId: options.maskAssetId, maskReferenceId: options.maskReferenceId, outputFormat: options.outputFormat, background: options.background, outputCompression: options.outputCompression, resolution: options.resolution, duration: options.duration, aspectRatio: options.aspectRatio, referenceImageUrls: options.referenceImageUrls, referenceAudioUrls: options.referenceAudioUrls, referenceVideoUrls: options.referenceVideoUrls, imageRole: options.imageRole, faceRequired: options.faceRequired, generateAudio: options.generateAudio, watermark: options.watermark, returnLastFrame: options.returnLastFrame, videoTaskType: options.videoTaskType, videoFormat: options.videoFormat, pluginId: options.pluginId, creationToolId: options.creationToolId },
           idempotencyKey: idempotencyKey(kind.toLowerCase()),
         }) })
         // 本机素材（参考图/音频/蒙版）不落库，记住它们的 id 才能让“重新生成”用回同一批素材。
         rememberGenerationInputIds(job.id, {
           referenceIds: (options.referenceImages || []).map((item) => item.id),
+          videoIds: (options.referenceVideos || []).map((item) => item.id),
           audioIds: (options.referenceAudios || []).map((item) => item.id),
           ...(options.maskImage?.id ? { maskId: options.maskImage.id } : {}),
         })
@@ -653,10 +654,10 @@ export const useStudioStore = defineStore('studio', {
       // 从服务端重读任务（刷新页、切换对话）后重试时，按提交时记住的素材 id 还原，
       // 否则“重新生成”会静默变成一个没有参考素材的新任务。
       const remembered = generationLocalInputIds(current.id)
-      if (remembered && !request.referenceImages?.length && !request.referenceAudios?.length && !request.maskImage) {
+      if (remembered && !request.referenceImages?.length && !request.referenceVideos?.length && !request.referenceAudios?.length && !request.maskImage) {
         const payload = await useLocalInputsStore().payloadForIds(remembered)
         if (!payload) throw new Error('原任务的参考素材只保存在发起任务的浏览器里，当前浏览器已找不到这份素材，请重新添加参考素材后再试')
-        request = { ...request, referenceImages: payload.references, referenceAudios: payload.audios, maskImage: payload.mask }
+        request = { ...request, referenceImages: payload.references, referenceVideos: payload.videos, referenceAudios: payload.audios, maskImage: payload.mask }
       }
       return this.startGeneration(request, current.conversationId, true)
     },

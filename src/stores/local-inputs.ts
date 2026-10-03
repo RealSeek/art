@@ -10,6 +10,7 @@ type LocalInputsState = {
 
 export type GenerationInputPayload = {
   references: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
+  videos: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
   audios: Array<{ id: string; name: string; mimeType: string; dataUrl: string }>
   mask?: { id?: string; name: string; mimeType: string; dataUrl: string }
 }
@@ -34,6 +35,7 @@ export const useLocalInputsStore = defineStore('local-inputs', {
   getters: {
     references: (state) => state.records.filter((record) => record.kind === 'reference' && !record.submittedAt),
     audios: (state) => state.records.filter((record) => record.kind === 'audio' && !record.submittedAt),
+    videos: (state) => state.records.filter((record) => record.kind === 'video' && !record.submittedAt),
     mask: (state) => state.records.find((record) => record.kind === 'mask' && !record.submittedAt) || null,
     images: (state) => state.records.filter((record) => record.kind === 'reference' && record.mimeType.startsWith('image/') && !record.submittedAt),
   },
@@ -52,7 +54,7 @@ export const useLocalInputsStore = defineStore('local-inputs', {
       await this.hydrate()
       const added: LocalInputRecord[] = []
       for (const file of files) {
-        const prepared = kind === 'mask' ? file : await compressImageForUpload(file)
+        const prepared = kind === 'mask' || kind === 'video' ? file : await compressImageForUpload(file)
         const dimensions = prepared.type.startsWith('image/') ? await imageDimensions(prepared) : { width: 0, height: 0 }
         const record: LocalInputRecord = {
           id: `local:${crypto.randomUUID()}`,
@@ -109,8 +111,8 @@ export const useLocalInputsStore = defineStore('local-inputs', {
       this.records = []
       this.hydrated = true
     },
-    async markSubmitted(ids: { referenceIds: string[]; audioIds: string[]; maskId?: string }) {
-      const submittedIds = new Set([...ids.referenceIds, ...ids.audioIds, ...(ids.maskId ? [ids.maskId] : [])])
+    async markSubmitted(ids: { referenceIds: string[]; videoIds?: string[]; audioIds: string[]; maskId?: string }) {
+      const submittedIds = new Set([...ids.referenceIds, ...(ids.videoIds || []), ...ids.audioIds, ...(ids.maskId ? [ids.maskId] : [])])
       if (!submittedIds.size) return
       const submittedAt = Date.now()
       this.records = await Promise.all(this.records.map(async (record) => {
@@ -128,21 +130,23 @@ export const useLocalInputsStore = defineStore('local-inputs', {
     mentionOptions() {
       return [
         ...this.images.map((record, index) => ({ token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const, thumbnail: localInputPreviewUrl(record), title: record.name })),
+        ...this.videos.map((record, index) => ({ token: `@参考视频${index}`, label: `参考视频${index}`, kind: 'video' as const, thumbnail: localInputPreviewUrl(record), title: record.name })),
         ...this.records.filter((record) => record.kind === 'audio').map((record, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: '', title: record.name })),
       ]
     },
     /** 提交生成时的内联素材（顺序与界面编号一致）。 */
     async payload(): Promise<GenerationInputPayload> {
       const references = await Promise.all(this.images.map(async (record) => ({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })))
+      const videos = await Promise.all(this.videos.map(async (record) => ({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })))
       const audios = await Promise.all(this.records.filter((record) => record.kind === 'audio').map(async (record) => ({ id: record.id, name: record.name, mimeType: record.mimeType, dataUrl: await localInputDataUrl(record) })))
       const mask = this.mask
-      return { references, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
+      return { references, videos, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
     },
     /**
      * 按提交时的素材 id 还原内联素材（重试路径）：任务记录里没有本机素材的数据，只有这份 id。
      * 任一素材已被清理就返回 null，让上层给出可溯源的提示，而不是静默换成别的素材。
      */
-    async payloadForIds(ids: { referenceIds: string[]; audioIds: string[]; maskId?: string }): Promise<GenerationInputPayload | null> {
+    async payloadForIds(ids: { referenceIds: string[]; videoIds?: string[]; audioIds: string[]; maskId?: string }): Promise<GenerationInputPayload | null> {
       await this.hydrate()
       const byId = new Map(this.records.map((record) => [record.id, record]))
       const readList = async (recordIds: string[], kind: LocalInputKind) => {
@@ -155,10 +159,11 @@ export const useLocalInputsStore = defineStore('local-inputs', {
         return items
       }
       const references = await readList(ids.referenceIds, 'reference')
+      const videos = await readList(ids.videoIds || [], 'video')
       const audios = await readList(ids.audioIds, 'audio')
       const mask = ids.maskId ? byId.get(ids.maskId) : undefined
-      if (!references || !audios || (ids.maskId && mask?.kind !== 'mask')) return null
-      return { references, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
+      if (!references || !videos || !audios || (ids.maskId && mask?.kind !== 'mask')) return null
+      return { references, videos, audios, ...(mask ? { mask: { id: mask.id, name: mask.name, mimeType: mask.mimeType, dataUrl: await localInputDataUrl(mask) } } : {}) }
     },
   },
 })

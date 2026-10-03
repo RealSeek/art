@@ -24,7 +24,7 @@
             <div class="creation-prompt-row">
               <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="activeMode === 'videos' ? '上传参考素材，输入文字或参考内容，自由组合图片、文字、音频与视频元素，描述画面、动作和镜头。可输入 @ 引用素材' : creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
             </div>
-            <div v-if="creationAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
+            <div v-if="creationAttachments.length || videoAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
               <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
                 <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
                 <div v-else class="attachment-file-copy">
@@ -33,6 +33,11 @@
                 </div>
                 <span class="attachment-index-label">参考图{{ index }}</span>
                 <button class="attachment-remove" type="button" :aria-label="`移除参考图片 ${asset.title}`" title="移除参考图片" @click="removeReference(index)"><X :size="13" /></button>
+              </article>
+              <article v-for="(asset, index) in videoAttachments" :key="asset.id" class="attachment-card attachment-card--file">
+                <span class="attachment-audio-icon"><Play :size="18" /></span>
+                <span class="attachment-index-label">参考视频{{ index }}</span>
+                <button class="attachment-remove" type="button" :aria-label="`移除参考视频 ${asset.title}`" title="移除参考视频" @click="removeVideo(index)"><X :size="13" /></button>
               </article>
               <article v-for="(asset, index) in audioAttachments" :key="asset.id" class="attachment-card attachment-card--audio">
                 <span class="attachment-audio-icon"><AudioLines :size="18" /></span>
@@ -50,7 +55,7 @@
             <div v-if="mentionOpen" ref="mentionMenu" class="creation-mention-menu creation-mention-menu--floating" :style="mentionStyle" role="listbox" aria-label="插入参考素材">
               <button v-for="(item, index) in filteredMentions" :key="item.token" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex }" @mousedown.prevent="insertMention(item)">
                 <img v-if="item.thumbnail" :src="item.thumbnail" alt="" />
-                <component :is="item.kind === 'audio' ? Music : ImageIcon" v-else :size="16" aria-hidden="true" />
+                <component :is="item.kind === 'audio' ? Music : item.kind === 'video' ? Play : ImageIcon" v-else :size="16" aria-hidden="true" />
                 <strong>{{ item.label }}</strong>
                 <small>{{ item.title }}</small>
               </button>
@@ -60,6 +65,7 @@
           <div class="creation-controls">
             <div class="creation-control-track">
               <button v-if="activeMode !== 'videos'" class="creation-add" type="button" aria-label="添加参考素材" title="添加参考素材" :disabled="uploading" @click="openCreationAttachmentPicker('image')"><Plus :size="20" /></button>
+              <button v-if="activeMode === 'videos' && videoReferenceLimit > 0" class="creation-add" type="button" aria-label="添加参考视频" title="添加参考视频" :disabled="uploading" @click="openCreationAttachmentPicker('video')"><Play :size="18" /></button>
               <button v-if="activeMode === 'videos' && audioReferenceLimit > 0" class="creation-add creation-add--audio" type="button" aria-label="添加参考音频" title="添加参考音频" :disabled="uploading" @click="openCreationAttachmentPicker('audio')"><AudioLines :size="18" /></button>
               <i class="creation-control-divider" aria-hidden="true" />
               <div v-if="activeMode !== 'commerce'" class="creation-mode-switch" role="group" aria-label="创作类型">
@@ -241,14 +247,16 @@ const props = defineProps<{
   imageBackground: string
   creationAttachments: StudioAsset[]
   audioAttachments: StudioAsset[]
+  videoAttachments: StudioAsset[]
   maskAttachment: StudioAsset | null
   removeReference: (index: number) => unknown
   removeAudio: (index: number) => unknown
+  removeVideo: (index: number) => unknown
   removeMask: () => unknown
   localSavedIds: string[]
   saveAssetLocally: (asset: StudioAsset) => void
   removeLocalCopy: (asset: StudioAsset) => void
-  referenceMentions: Array<{ token: string; label: string; kind: 'image' | 'audio'; thumbnail: string; title: string }>
+  referenceMentions: Array<{ token: string; label: string; kind: 'image' | 'audio' | 'video'; thumbnail: string; title: string }>
   audioReferenceLimit: number
   imageReferenceLimit: number
   imageTools: ImageTool[]
@@ -265,7 +273,7 @@ const props = defineProps<{
   resizeGenerationInput: () => void
   collapseWorkspacePopovers: () => void
   openFilePicker: (purpose: 'chat-file' | 'creation' | 'library') => void
-  openCreationAttachmentPicker: (kind: 'image' | 'audio' | 'mask') => void
+  openCreationAttachmentPicker: (kind: 'image' | 'video' | 'audio' | 'mask') => void
   openRegionEditor: () => void
   openRegionEditorForAsset: (asset: StudioAsset) => void
   switchCreationMode: (mode: 'images' | 'videos') => void
@@ -295,9 +303,11 @@ const generationPrompt = defineModel<string>('generationPrompt', { required: tru
 const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceImageUrls' | 'referenceAudioUrls' | 'referenceVideoUrls' | 'faceRequired'>>('videoSettings', { required: true })
 void videoSettings
 const audioAttachments = computed(() => props.audioAttachments)
+const videoAttachments = computed(() => props.videoAttachments)
 const maskAttachment = computed(() => props.maskAttachment)
 function removeReference(index: number) { void props.removeReference(index) }
 function removeAudio(index: number) { void props.removeAudio(index) }
+function removeVideo(index: number) { void props.removeVideo(index) }
 function removeMask() { void props.removeMask() }
 void renumberReferenceMentions
 const creationPluginId = defineModel<string>('creationPluginId', { required: true })

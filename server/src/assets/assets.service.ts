@@ -174,10 +174,10 @@ export class AssetsService {
     })
     if (existing) return new URL(`/v1/assets/video-references/${existing.id}`, url).toString()
     const match = /^data:([^;,]+);base64,([\s\S]+)$/.exec(dataUrl)
-    if (!match || !rasterMimeTypes.has(match[1]) && !audioMimeTypes.has(match[1])) throw new BadRequestException('视频参考素材格式无效')
+    if (!match || !rasterMimeTypes.has(match[1]) && !audioMimeTypes.has(match[1]) && !videoMimeTypes.has(match[1])) throw new BadRequestException('视频参考素材格式无效')
     const [, mimeType, encoded] = match
     const bytes = Buffer.from(encoded, 'base64')
-    const maxBytes = mimeType.startsWith('image/') ? 30 * 1024 * 1024 : 15 * 1024 * 1024
+    const maxBytes = mimeType.startsWith('image/') ? 30 * 1024 * 1024 : mimeType.startsWith('video/') ? 50 * 1024 * 1024 : 15 * 1024 * 1024
     if (!bytes.length || bytes.length > maxBytes) throw new BadRequestException('视频参考素材内容为空或超过文件上限')
     const id = `vref_${randomBytes(32).toString('hex')}`
     const objectKey = `users/${job.userId}/video-references/${job.id}/${id}`
@@ -186,7 +186,7 @@ export class AssetsService {
       const stored = await this.storage.putBytes(objectKey, bytes, mimeType)
       await this.prisma.asset.create({ data: {
         id, userId: job.userId, objectKey, storageDriver: location.driver, storageBucket: location.bucket,
-        name: slot, mimeType, kind: mimeType.startsWith('image/') ? AssetKind.IMAGE : AssetKind.AUDIO,
+        name: slot, mimeType, kind: mimeType.startsWith('image/') ? AssetKind.IMAGE : mimeType.startsWith('video/') ? AssetKind.VIDEO : AssetKind.AUDIO,
         size: BigInt(stored.size), checksum: stored.checksum, retentionExempt: true,
         metadata: { purpose: VIDEO_REFERENCE_PURPOSE, jobId: job.id, slot },
       } })

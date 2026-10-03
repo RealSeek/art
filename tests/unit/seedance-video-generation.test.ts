@@ -147,15 +147,16 @@ test('MiniMax H3 将本地图片和音频临时托管，保留公开 URL 和首�
     withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
     provider: (provider: unknown, path: string, body: Record<string, unknown>) => Promise<unknown>
   }
-  const caps = { requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON', resolutions: ['768p'], maxReferences: 9, maxAudioReferences: 3, maxFirstLastFrames: 2, requiresPublicReferenceUrls: true }
+  const caps = { requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON', resolutions: ['768p'], maxReferences: 9, maxAudioReferences: 3, maxVideoReferences: 3, maxFirstLastFrames: 2, requiresPublicReferenceUrls: true }
   internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'MiniMax-H3', timeoutMs: 1000, videoCapabilities: caps })
   internals.provider = async (_provider, _path, body) => { sent = body; return { status: 'failed', error: { message: 'stop after submit' } } }
   const reference = { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }
   const audio = { name: 'a.mp3', mimeType: 'audio/mpeg', dataUrl: 'data:audio/mpeg;base64,Yg==' }
-  await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], referenceAudios: [audio], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
-  assert.deepEqual(hosted, [{ slot: 'image-1', source: reference.dataUrl }, { slot: 'audio-0', source: audio.dataUrl }])
-  assert.deepEqual(sent!.content.map((item: Record<string, any>) => item.image_url?.url || item.audio_url?.url).filter(Boolean), [
-    'https://cdn.example/a.png', 'https://art.example/v1/assets/video-references/image-1', 'https://art.example/v1/assets/video-references/audio-0',
+  const video = { name: 'a.mp4', mimeType: 'video/mp4', dataUrl: 'data:video/mp4;base64,Yw==' }
+  await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], referenceAudios: [audio], referenceVideos: [video], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
+  assert.deepEqual(hosted, [{ slot: 'image-1', source: reference.dataUrl }, { slot: 'audio-0', source: audio.dataUrl }, { slot: 'video-0', source: video.dataUrl }])
+  assert.deepEqual(sent!.content.map((item: Record<string, any>) => item.image_url?.url || item.video_url?.url || item.audio_url?.url).filter(Boolean), [
+    'https://cdn.example/a.png', 'https://art.example/v1/assets/video-references/image-1', 'https://art.example/v1/assets/video-references/video-0', 'https://art.example/v1/assets/video-references/audio-0',
   ])
   await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], imageRole: 'first_frame' } } as never), /stop after submit/)
   assert.equal(sent!.content[1].role, 'first_frame')

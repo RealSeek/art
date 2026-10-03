@@ -24,24 +24,26 @@ import { GenerationReconciliationService } from './generation-reconciliation.ser
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
-/** 图片参考单文件上限 30 MB、音频 15 MB（base64 体积约为明文 4/3）。 */
+/** 图片参考单文件上限 30 MB、音频 15 MB、视频 50 MB（base64 体积约为明文 4/3）。 */
 const MAX_INLINE_IMAGE_DATA_URL = 40_000_000
 const MAX_INLINE_AUDIO_DATA_URL = 20_000_000
+const MAX_INLINE_VIDEO_DATA_URL = 70_000_000
 
 const MAX_INLINE_REFERENCES = 30
 export type InlineGenerationInputs = {
   referenceImages?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
   referenceAudios?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
+  referenceVideos?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
   maskImage?: { name?: string; mimeType?: string; dataUrl?: string }
 }
 
-function inlineItems(value: unknown, limit: number, maxLength: number, label: string, kind: 'image' | 'audio' = 'image') {
+function inlineItems(value: unknown, limit: number, maxLength: number, label: string, kind: 'image' | 'audio' | 'video' = 'image') {
   if (!Array.isArray(value) || !value.length) return []
   if (value.length > limit) throw new BadRequestException(`${label}最多 ${limit} 个`)
   return value.map((item) => {
     const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
     const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-    const pattern = kind === 'image' ? /^data:image\/(png|jpe?g|webp|avif);base64,/i : /^data:audio\/[a-z0-9.+-]+;base64,/i
+    const pattern = kind === 'image' ? /^data:image\/(png|jpe?g|webp|avif);base64,/i : kind === 'audio' ? /^data:audio\/[a-z0-9.+-]+;base64,/i : /^data:video\/(mp4|webm|quicktime);base64,/i
     if (!pattern.test(dataUrl) || dataUrl.length > maxLength) throw new BadRequestException(`${label}格式不支持或文件过大`)
     return { id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : label, mimeType: typeof row.mimeType === 'string' ? row.mimeType : dataUrl.slice(5, dataUrl.indexOf(';')), dataUrl }
   })
@@ -54,13 +56,16 @@ function inlineItems(value: unknown, limit: number, maxLength: number, label: st
 function extractInlineInputs(options: Record<string, unknown>): InlineGenerationInputs | null {
   const rawImages = options.referenceImages
   const rawAudios = options.referenceAudios
+  const rawVideos = options.referenceVideos
   const rawMask = options.maskImage
   delete options.referenceImages
   delete options.referenceAudios
+  delete options.referenceVideos
   delete options.maskImage
-  if (rawImages === undefined && rawAudios === undefined && rawMask === undefined) return null
+  if (rawImages === undefined && rawAudios === undefined && rawVideos === undefined && rawMask === undefined) return null
   const referenceImages = inlineItems(rawImages, MAX_INLINE_REFERENCES, MAX_INLINE_IMAGE_DATA_URL, '参考图')
   const referenceAudios = inlineItems(rawAudios, 10, MAX_INLINE_AUDIO_DATA_URL, '参考音频', 'audio')
+  const referenceVideos = inlineItems(rawVideos, 10, MAX_INLINE_VIDEO_DATA_URL, '参考视频', 'video')
   let maskImage: InlineGenerationInputs['maskImage']
   if (rawMask && typeof rawMask === 'object' && !Array.isArray(rawMask)) {
     const row = rawMask as Record<string, unknown>
@@ -69,10 +74,11 @@ function extractInlineInputs(options: Record<string, unknown>): InlineGeneration
     maskImage = { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: 'image/png', dataUrl }
   }
   // 任务记录只留计数标记，供运维与重试路径判断素材是否缺失。
-  options.inlineInputs = { references: referenceImages.length, audios: referenceAudios.length, mask: Boolean(maskImage) }
+  options.inlineInputs = { references: referenceImages.length, audios: referenceAudios.length, videos: referenceVideos.length, mask: Boolean(maskImage) }
   return {
     ...(referenceImages.length ? { referenceImages } : {}),
     ...(referenceAudios.length ? { referenceAudios } : {}),
+    ...(referenceVideos.length ? { referenceVideos } : {}),
     ...(maskImage ? { maskImage } : {}),
   }
 }

@@ -80,13 +80,13 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private async withProviderFailover<T>(task: GenerationJob, capability: 'CHAT' | 'IMAGE' | 'VIDEO', execute: (provider: ResolvedProvider) => Promise<T>) {
     const rawOptions = task.options as Record<string, unknown>
-    const { referenceImages: _images, referenceAudios: _audios, ...options } = rawOptions
+    const { referenceImages: _images, referenceAudios: _audios, referenceVideos: _videos, ...options } = rawOptions
     const imageRole = String(rawOptions.imageRole || 'reference_image')
     const requirements = {
       ...options,
       referenceCount: imageRole === 'reference_image' ? [rawOptions.referenceAssetIds, rawOptions.referenceImages, rawOptions.referenceImageUrls].reduce<number>((total, value) => total + (Array.isArray(value) ? value.length : 0), 0) : 0,
       referenceAudioCount: [rawOptions.audioAssetIds, rawOptions.referenceAudios, rawOptions.referenceAudioUrls].reduce<number>((total, value) => total + (Array.isArray(value) ? value.length : 0), 0),
-      referenceVideoCount: Array.isArray(rawOptions.referenceVideoUrls) ? rawOptions.referenceVideoUrls.length : 0,
+      referenceVideoCount: [rawOptions.referenceVideos, rawOptions.referenceVideoUrls].reduce<number>((total, value) => total + (Array.isArray(value) ? value.length : 0), 0),
       firstLastFrames: imageRole === 'first_last_frame' ? 2 : imageRole === 'first_frame' || imageRole === 'last_frame' ? 1 : 0,
     }
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, requirements)
@@ -125,7 +125,7 @@ export class VideoGenerationRunner implements GenerationRunner {
   async run(task: GenerationJob) {
     await this.outputs.cleanup(task, { requireActiveLease: true })
     const options = task.options as Record<string, unknown>
-    const { referenceImages: _images, referenceAudios: _audios, ...storedOptions } = options
+    const { referenceImages: _images, referenceAudios: _audios, referenceVideos: _videos, ...storedOptions } = options
     const prompt = await this.pluginPrompt(task, PluginCapability.VIDEO)
     const execution = await this.withProviderFailover(task, 'VIDEO', async (resolved) => {
       const capabilities = videoCapabilities(resolved.videoCapabilities)
@@ -155,16 +155,22 @@ export class VideoGenerationRunner implements GenerationRunner {
             ...normalized.referenceAudios.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
-          if (capabilities.requiresPublicReferenceUrls) {
+          let videos = [
+            ...normalized.referenceVideos.map((item) => item.dataUrl),
+          ]
+          // 上游原生 content[] 接口不接受视频 Data URL；视频文件始终在任务期间临时托管。
+          if (capabilities.requiresPublicReferenceUrls || videos.some((source) => source.startsWith('data:'))) {
             images = await Promise.all(images.map((source, index) => source.startsWith('data:')
               ? this.assets.publishVideoReference(task, `image-${index}`, source) : source))
             audios = await Promise.all(audios.map((source, index) => source.startsWith('data:')
               ? this.assets.publishVideoReference(task, `audio-${index}`, source) : source))
+            videos = await Promise.all(videos.map((source, index) => source.startsWith('data:')
+              ? this.assets.publishVideoReference(task, `video-${index}`, source) : source))
           }
           const content = [
             { type: 'text', text: prompt },
             ...images.map((url, index) => ({ type: 'image_url', image_url: { url }, role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole })),
-            ...normalized.referenceVideoUrls.map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })),
+            ...[...videos, ...normalized.referenceVideoUrls].map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })),
             ...audios.map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })),
           ]
           payload = await this.provider(resolved, capabilities.createPath, {
@@ -197,8 +203,10 @@ export class VideoGenerationRunner implements GenerationRunner {
             ...normalized.referenceAudios.map((item) => item.dataUrl),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
+          const videos = normalized.referenceVideos.map((item) => item.dataUrl)
           if (images.length) fields.images = images
           if (audios.length) fields.audios = audios
+          if (videos.length) fields.videos = videos
           payload = await this.provider(resolved, capabilities.createPath, fields)
         } else if (normalized.referenceAssetIds.length || normalized.referenceImages.length) {
           const reference = normalized.referenceImages[0]
@@ -266,7 +274,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     await this.assertNotCancelled(task.id)
     const extension = result.mimeType.includes('webm') ? 'webm' : result.mimeType.includes('quicktime') ? 'mov' : 'mp4'
     const normalized = normalizeVideoOptions(options, resolved.videoCapabilities)
-    const { referenceImages: _outputImages, referenceAudios: _outputAudios, ...outputOptions } = normalized
+    const { referenceImages: _outputImages, referenceAudios: _outputAudios, referenceVideos: _outputVideos, ...outputOptions } = normalized
     const asset = await this.outputs.storeAndLink(task, {
       data: result.bytes,
       projectId: task.projectId || undefined,
@@ -316,11 +324,11 @@ export class VideoGenerationRunner implements GenerationRunner {
   }
 
   /** 将本地参考素材转成上游接受的 base64 Data URL，并在服务端提前拦截超大文件。 */
-  private async referenceDataUrls(userId: string, assetIds: string[], kind: 'image' | 'audio', maxBytes: number, label: string) {
+  private async referenceDataUrls(userId: string, assetIds: string[], kind: 'image' | 'audio' | 'video', maxBytes: number, label: string) {
     const values: string[] = []
     for (const assetId of assetIds) {
       const asset = await this.assets.readForUser(userId, assetId)
-      if (kind === 'audio' && !asset.mimeType.startsWith('audio/')) throw new ProviderRequestError(`${label} ${asset.name} 不是音频文件`, 422)
+      if (!asset.mimeType.startsWith(`${kind}/`)) throw new ProviderRequestError(`${label} ${asset.name} 不是${kind === 'image' ? '图片' : kind === 'audio' ? '音频' : '视频'}文件`, 422)
       if (asset.file.length > maxBytes) throw new ProviderRequestError(`${label} ${asset.name} 超过 ${Math.round(maxBytes / 1024 / 1024)} MB`, 413)
       values.push(`data:${asset.mimeType};base64,${Buffer.from(asset.file).toString('base64')}`)
     }

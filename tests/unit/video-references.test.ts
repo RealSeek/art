@@ -52,6 +52,13 @@ test('H3 公开 HTTPS 参考素材按模型上限校验，音频可单独使用'
   assert.equal(normalizeVideoOptions({ duration: 5, imageRole: 'last_frame', referenceImageUrls: ['https://cdn.example/last.jpg'], aspectRatio: 'adaptive' }, h3Capabilities).imageRole, 'last_frame')
 })
 
+test('H3 内联参考视频计入视频上限和总素材上限', () => {
+  const video = { name: 'reference.mp4', mimeType: 'video/mp4', dataUrl: 'data:video/mp4;base64,YQ==' }
+  const accepted = normalizeVideoOptions({ duration: 5, referenceVideos: [video] }, h3Capabilities)
+  assert.equal(accepted.referenceVideos.length, 1)
+  assert.throws(() => normalizeVideoOptions({ duration: 5, referenceVideoUrls: ['https://cdn.example/a.mp4', 'https://cdn.example/b.mp4', 'https://cdn.example/c.mp4'], referenceVideos: [video] }, h3Capabilities), /最多支持 3 段参考视频/)
+})
+
 test('未声明参考能力的模型仍按单张参考图处理且拒绝音频', () => {
   const options = normalizeVideoOptions({ duration: 5, referenceAssetIds: ['image-0'] }, {})
   assert.deepEqual(options.referenceAssetIds, ['image-0'])

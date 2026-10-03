@@ -3,7 +3,7 @@
  * 参考图与蒙版只存在当前浏览器，提交生成时以 base64 Data URL 随请求发给上游，
  * 普通生成直接传输；要求公开 URL 的视频模型仅在任务期间临时托管。
  */
-export type LocalInputKind = 'reference' | 'audio' | 'mask'
+export type LocalInputKind = 'reference' | 'video' | 'audio' | 'mask'
 
 export type LocalInputRecord = {
   id: string
@@ -120,6 +120,7 @@ export function releaseLocalInput(id: string) {
 
 export type GenerationLocalInputIds = {
   referenceIds: string[]
+  videoIds?: string[]
   audioIds: string[]
   maskId?: string
 }
@@ -142,7 +143,7 @@ function readGenerationInputIds(): Record<string, GenerationLocalInputIds> {
  * 所以重试必须靠这份 id 从浏览器还原参考图/参考音频/蒙版。
  */
 export function rememberGenerationInputIds(jobId: string, ids: GenerationLocalInputIds) {
-  if (!ids.referenceIds.length && !ids.audioIds.length && !ids.maskId) return
+  if (!ids.referenceIds.length && !(ids.videoIds || []).length && !ids.audioIds.length && !ids.maskId) return
   const stored = readGenerationInputIds()
   delete stored[jobId]
   stored[jobId] = ids
