@@ -48,6 +48,33 @@ test('MiniMax H3 导入配置固定使用 768P', () => {
   assert.equal(options.videoCapabilities.pricing['768p:10'], 20)
 })
 
+test('特价 MiniMax 别名提交选择的画质档位，不改写为满血版 768P', async () => {
+  const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (candidate: unknown) => { videoCapabilities: Record<string, unknown> } }
+  const capabilities = discover.discoveredModelOptions({ id: '[c]MiniMaxH3', capability: 'VIDEO' }).videoCapabilities
+  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const internals = runner as unknown as {
+    withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
+    provider: (provider: unknown, path: string, body: Record<string, unknown>, timeout: number, key: string) => Promise<unknown>
+  }
+  internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: '[c]MiniMaxH3', timeoutMs: 1000, videoCapabilities: capabilities })
+  for (const resolution of ['480p', '720p', '2k', '2k-pro']) {
+    internals.provider = async (_provider, path, body, _timeout, key) => {
+      assert.equal(path, '/videos')
+      assert.equal(body.model, '[c]MiniMaxH3')
+      assert.equal(body.resolution, resolution)
+      assert.equal(key, 'art-video-discount-job')
+      assert.deepEqual(body.content, [
+        { type: 'text', text: '测试画质选择' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' }, role: 'reference_image' },
+      ])
+      throw new Error('已捕获请求')
+    }
+    await assert.rejects(runner.run({ id: 'discount-job', prompt: '测试画质选择', options: {
+      duration: 5, resolution, referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }],
+    } } as never), /已捕获请求/)
+  }
+})
+
 test('视频时长按模型协议发送，MiniMax 不附加 Sora 专用字段', async () => {
   for (const [type, model, expectedSeconds] of [['NEW_API', 'sora-2', '5'], ['SUB2API', 'video', undefined], ['NEW_API', 'MiniMax-H3', undefined], ['NEW_API', 'MiniMax-Hailuo-02', undefined]]) {
     const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)

@@ -60,7 +60,7 @@ test('未声明参考能力的模型仍按单张参考图处理且拒绝音频',
 })
 
 test('H3 模型自动导入时带上分辨率、时长区间与参考能力', () => {
-  for (const id of ['MiniMax-H3', 'MiniMaxH3']) {
+  for (const id of ['MiniMax-H3']) {
     const result = (ProvidersService.prototype as never as { discoveredModelOptions: (candidate: unknown, apiProtocol?: string) => { videoCapabilities: Record<string, unknown> } }).discoveredModelOptions({ id, capability: 'VIDEO', flatCreditCost: 2 }, 'openai')
     assert.deepEqual(result.videoCapabilities.resolutions, ['768p'])
     assert.equal(result.videoCapabilities.defaultResolution, '768p')
@@ -72,6 +72,26 @@ test('H3 模型自动导入时带上分辨率、时长区间与参考能力', ()
     assert.equal(result.videoCapabilities.resolutionLocked, true)
     assert.deepEqual(result.videoCapabilities.durations, Array.from({ length: 15 }, (_, index) => index + 1))
     assert.equal((result.videoCapabilities.pricing as Record<string, number>)['768p:15'], 30)
+  }
+})
+
+test('MiniMaxH3 网关别名开放四档画质，变体保留各自档位而非满血版 768p', () => {
+  const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (candidate: unknown) => { videoCapabilities: Record<string, unknown> }; normalizeVideoCapabilities: (value: Record<string, unknown>) => { resolutions: string[] } }
+  for (const prefix of ['', '[c]']) {
+    const caps = discover.discoveredModelOptions({ id: `${prefix}MiniMaxH3`, capability: 'VIDEO', flatCreditCost: 2 }).videoCapabilities
+    assert.deepEqual(caps.resolutions, ['480p', '720p', '2k', '2k-pro'])
+    assert.equal(caps.defaultResolution, '720p')
+    assert.equal(caps.resolutionLocked, false)
+    assert.equal(caps.requestFormat, null)
+    assert.equal(caps.requiresPublicReferenceUrls, false)
+    assert.deepEqual(discover.normalizeVideoCapabilities(caps).resolutions, caps.resolutions)
+    for (const resolution of ['480p', '720p', '2k', '2k-pro']) {
+      assert.equal(normalizeVideoOptions({ resolution }, caps).resolution, resolution)
+      const variant = discover.discoveredModelOptions({ id: `${prefix}MiniMaxH3-${resolution}`, capability: 'VIDEO' }).videoCapabilities
+      assert.deepEqual(variant.resolutions, [resolution])
+      assert.equal(variant.resolutionLocked, true)
+    }
+    assert.throws(() => normalizeVideoOptions({ resolution: '768p' }, caps), /不支持该分辨率/)
   }
 })
 

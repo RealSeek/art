@@ -328,9 +328,10 @@ const videoDuration = ref(5)
 const videoSettings = ref<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceImageUrls' | 'referenceAudioUrls' | 'referenceVideoUrls' | 'faceRequired'>>({ imageRole: 'reference_image', generateAudio: true, watermark: false, returnLastFrame: false, referenceImageUrls: [], referenceAudioUrls: [], referenceVideoUrls: [] })
 const videoAspectRatio = ref('16:9')
 const activeVideoVariants = computed(() => videoModelVariants(catalogModels.value, videoModel.value))
+const videoQualityLabels: Record<string, string> = { '2k': '2K', '2k-pro': '2K Pro' }
 const videoQuality = computed(() => {
   const selected = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
-  return selected && videoModelVariant(selected)?.quality || videoResolution.value
+  return selected && videoModelVariant(selected)?.quality || videoQualityLabels[videoResolution.value] || videoResolution.value
 })
 const autoMode = ref('自动')
 const imageResolution = ref<ImageResolutionTier>('1K')
@@ -732,6 +733,7 @@ const creationMenuOptions = computed(() => {
 })
 function creationOptionLabel(option: string) {
   if (creationMenu.value === 'model') return catalogModelLabel(catalogModels.value, option, activeCreationCapability.value)
+  if (creationMenu.value === 'resolution') return videoQualityLabels[option] || option
   if (creationMenu.value === 'imageResolution') return resolutionOptionLabel(option)
   if (creationMenu.value === 'size' && option === '自动' && activeReferenceRatio.value) {
     const followed = imageSizeForReferenceRatio(activeReferenceRatio.value, imageResolution.value)
@@ -1039,7 +1041,7 @@ function isCreationOptionActive(option: string) {
   if (creationMenu.value === 'type') return creationType.value === option
   if (creationMenu.value === 'size') return autoMode.value === option
   if (creationMenu.value === 'platform') return commercePlatform.value === option
-  if (creationMenu.value === 'resolution') return videoQuality.value === option
+  if (creationMenu.value === 'resolution') return (activeVideoVariants.value.length ? videoQuality.value : videoResolution.value) === option
   if (creationMenu.value === 'duration') return (videoDuration.value === -1 ? '自动' : `${videoDuration.value} 秒`) === option
   if (creationMenu.value === 'aspect') return videoAspectRatio.value === option
   if (creationMenu.value === 'style') return imageStyle.value === option

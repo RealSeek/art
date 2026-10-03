@@ -1,6 +1,55 @@
 import { expect, test } from '@playwright/test'
 import { assertNoPageOverflow } from './helpers'
 
+test('特价 MiniMax 别名选择四档画质，满血版只显示 768p', async ({ page }, testInfo) => {
+  const models = [
+    { key: 'private:discount', upstreamModel: '[c]MiniMaxH3', displayName: '[C]MiniMaxH3', capability: 'VIDEO', source: 'USER', isDefault: true, availability: 'AVAILABLE', options: { videoCapabilities: { resolutions: ['480p', '720p', '2k', '2k-pro'], defaultResolution: '720p', durations: [5, 10, 15] } } },
+    { key: 'private:full', upstreamModel: 'MiniMax-H3', displayName: 'MiniMax-H3', capability: 'VIDEO', source: 'USER', availability: 'AVAILABLE', options: { videoCapabilities: { resolutions: ['768p'], defaultResolution: '768p', durations: [5, 10, 15] } } },
+  ]
+  let submitted: { model: string; options: { resolution: string } } | undefined
+  await page.route('**/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    let body: unknown = []
+    if (path === '/v1/auth/session') body = { user: { id: 'video-user', email: 'video@example.test', displayName: '视频测试', authMethod: 'password' } }
+    else if (path === '/v1/auth/setup/status') body = { required: false }
+    else if (path === '/v1/catalog/settings') body = {}
+    else if (path.endsWith('/models')) body = models
+    else if (path === '/v1/conversations' && route.request().method() === 'POST') body = { id: 'video-conversation', title: '测试视频', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }
+    else if (path.endsWith('/messages') && route.request().method() === 'POST') body = { id: 'video-message', createdAt: new Date().toISOString() }
+    else if (path === '/v1/generations' && route.request().method() === 'POST') {
+      submitted = route.request().postDataJSON()
+      await route.fulfill({ status: 400, json: { message: '已截获测试请求' } })
+      return
+    }
+    await route.fulfill({ json: body })
+  })
+  await page.goto('/video')
+  await page.getByRole('button', { name: '画质 720p', exact: true }).click()
+  for (const quality of ['480p', '720p', '2K', '2K Pro']) await expect(page.getByRole('button', { name: quality, exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '768p', exact: true })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('discount-quality-desktop.png') })
+  await page.getByRole('button', { name: '2K Pro', exact: true }).click()
+  await page.getByRole('textbox', { name: '创作描述' }).fill('测试特价版画质选择')
+  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await expect.poll(() => submitted?.options.resolution).toBe('2k-pro')
+  expect(submitted?.model).toBe('private:discount')
+  await page.getByRole('button', { name: /模型.*\[C\]MiniMaxH3/ }).click()
+  await page.getByRole('option', { name: /^MiniMax-H3 / }).click()
+  await page.getByRole('button', { name: '画质 768p', exact: true }).click()
+  await expect(page.getByRole('button', { name: '768p', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '720p', exact: true })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('full-quality-desktop.png') })
+  await page.getByRole('button', { name: '768p', exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.locator('.workspace-sidebar').evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
+  await page.getByRole('button', { name: '模型 MiniMax-H3', exact: true }).click()
+  await page.getByRole('option', { name: /^\[C\]MiniMaxH3 / }).click()
+  await page.getByRole('button', { name: '画质 720p', exact: true }).click()
+  for (const quality of ['480p', '720p', '2K', '2K Pro']) await expect(page.getByRole('button', { name: quality, exact: true })).toBeVisible()
+  await assertNoPageOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('discount-quality-mobile.png') })
+})
+
 test('MiniMax 画质切换提交对应型号并保留系列', async ({ page }, testInfo) => {
   const models = ['', '[c]'].flatMap(prefix => ['480p', '720p', '2k', '2k-pro'].map(quality => ({
     key: `private:${prefix}${quality}`, upstreamModel: `${prefix}MiniMaxH3-${quality}`, displayName: `${prefix}MiniMaxH3 ${quality}`, capability: 'VIDEO', source: 'USER', isDefault: !prefix && quality === '480p', availability: 'AVAILABLE', vendor: { key: 'minimax', name: 'MiniMax' },

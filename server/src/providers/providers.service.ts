@@ -488,7 +488,7 @@ export class ProvidersService implements OnModuleInit {
   private normalizeVideoCapabilities(value: Record<string, unknown> | undefined): VideoCapabilities {
     const resolutions = Array.isArray(value?.resolutions)
       ? value.resolutions.map((item) => String(item).trim().toLowerCase()).filter((item) => {
-        if (item === '4k') return true
+        if (['2k', '2k-pro', '4k'].includes(item)) return true
         const match = /^(\d{3,4})p$/.exec(item)
         return Boolean(match && Number(match[1]) >= 144 && Number(match[1]) <= 4320)
       })
@@ -950,37 +950,41 @@ export class ProvidersService implements OnModuleInit {
       } }
       const perSecond = Math.max(1, candidate.flatCreditCost || 1)
       const h3 = /minimax[-_ ]?h3/i.test(candidate.id)
-      const resolution = h3 ? candidate.id.match(/(2k|768p)(?:-|$)/i)?.[1].toLowerCase() || '768p' : candidate.id.match(/(2k|\d{3,4}p)(?:-|$)/i)?.[1].toLowerCase() || '720p'
-      const durations = h3 ? Array.from({ length: 15 }, (_, index) => index + 1) : [5, 10]
+      // MiniMax-H3 is the full native model; MiniMaxH3 aliases select a gateway quality tier.
+      const nativeH3 = /^minimax[-_ ]h3$/i.test(candidate.id)
+      const h3Alias = /^(?:\[c\])?minimaxh3$/i.test(candidate.id)
+      const resolution = nativeH3 ? '768p' : candidate.id.match(/(2k-pro|2k|\d{3,4}p)$/i)?.[1].toLowerCase() || '720p'
+      const resolutions = h3Alias ? ['480p', '720p', '2k', '2k-pro'] : [resolution]
+      const durations = nativeH3 ? Array.from({ length: 15 }, (_, index) => index + 1) : h3 ? [5, 10, 15] : [5, 10]
       return {
         apiProtocol,
         discovery,
         videoCapabilities: {
-          resolutions: [resolution],
+          resolutions,
           durations,
           aspectRatios: h3 ? ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'] : ['16:9', '9:16', '1:1'],
           defaultResolution: resolution,
           defaultDuration: 5,
           defaultAspectRatio: '16:9',
-          pricing: Object.fromEntries(durations.map((seconds) => [`${resolution}:${seconds}`, perSecond * seconds])),
+          pricing: Object.fromEntries(resolutions.flatMap((tier) => durations.map((seconds) => [`${tier}:${seconds}`, perSecond * seconds]))),
           createPath: '/videos',
           statusPath: '/videos/{id}',
           contentPath: '/videos/{id}/content',
           pollIntervalMs: 3000,
           maxPollSeconds: 0,
           ...(h3 ? {
-            requestFormat: 'minimax-h3' as const,
+            requestFormat: nativeH3 ? 'minimax-h3' as const : null,
             maxReferences: channelLimit('maxReferences', 9),
-            maxFirstLastFrames: channelLimit('maxFirstLastFrames', 2),
-            maxVideoReferences: channelLimit('maxVideoReferences', 3),
+            maxFirstLastFrames: channelLimit('maxFirstLastFrames', nativeH3 ? 2 : 0),
+            maxVideoReferences: channelLimit('maxVideoReferences', nativeH3 ? 3 : 0),
             maxAudioReferences: channelLimit('maxAudioReferences', 3),
             maxTotalReferences: 12,
             faceSupported: typeof discoveredCapabilities.faceSupported === 'boolean' ? discoveredCapabilities.faceSupported : null,
             referenceMode: 'CONTENT_JSON' as const,
-            minDuration: 1,
+            minDuration: nativeH3 ? 1 : 5,
             maxDuration: 15,
-            resolutionLocked: true,
-            requiresPublicReferenceUrls: true,
+            resolutionLocked: !h3Alias,
+            requiresPublicReferenceUrls: nativeH3,
             audioRequiresVisualReference: false,
           } : {}),
         },

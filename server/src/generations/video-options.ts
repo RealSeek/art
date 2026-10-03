@@ -145,7 +145,7 @@ function pricingMap(value: unknown) {
 export function videoCapabilities(value: unknown): VideoCapabilityConfig {
   const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   const raw = root.videoCapabilities && typeof root.videoCapabilities === 'object' && !Array.isArray(root.videoCapabilities) ? root.videoCapabilities as Record<string, unknown> : root
-  const resolutions = Array.isArray(raw.resolutions) ? [...new Set(raw.resolutions.map(String).map((item) => item.trim().toLowerCase()).filter((item) => /^(\d{3,4}p|2k|4k)$/.test(item)))].slice(0, 10) : DEFAULTS.resolutions
+  const resolutions = Array.isArray(raw.resolutions) ? [...new Set(raw.resolutions.map(String).map((item) => item.trim().toLowerCase()).filter((item) => /^(\d{3,4}p|2k(?:-pro)?|4k)$/.test(item)))].slice(0, 10) : DEFAULTS.resolutions
   const durations = Array.isArray(raw.durations) ? [...new Set(raw.durations.map(Number).filter((item) => Number.isInteger(item) && item >= 1 && item <= 300))].sort((a, b) => a - b).slice(0, 20) : DEFAULTS.durations
   const aspectRatios = Array.isArray(raw.aspectRatios) ? [...new Set(raw.aspectRatios.map(String).filter((item) => /^(\d{1,2}:\d{1,2}|adaptive)$/.test(item)))].slice(0, 10) : DEFAULTS.aspectRatios
   const safeResolutions = resolutions.length ? resolutions : DEFAULTS.resolutions
