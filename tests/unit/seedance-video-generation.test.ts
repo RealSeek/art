@@ -43,10 +43,13 @@ test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', (
     assert.equal(caps.maxDuration, maxDuration)
     assert.equal(caps.maxReferences, imageLimit)
     assert.equal(caps.maxAudioReferences, audioLimit)
+    assert.equal(caps.maxFirstLastFrames, 2)
     assert.equal(normalizeVideoOptions({ duration: -1, aspectRatio: 'adaptive' }, caps).duration, -1)
     assert.equal(normalizeVideoOptions({ duration: maxDuration }, caps).duration, maxDuration)
   }
   assert.equal(normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.0')).resolution, '4k')
+  const fullFrames = normalizeVideoOptions({ imageRole: 'first_last_frame', referenceImageUrls: ['https://cdn.example/start.png', 'https://cdn.example/end.png'] }, seedanceVideoCapabilities('seedance-2.0'))
+  assert.equal(fullFrames.imageRole, 'first_last_frame')
   assert.throws(() => normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.5')), /不支持该分辨率/)
   assert.throws(() => normalizeVideoOptions({ duration: 3 }, seedanceVideoCapabilities('seedance-2.0')), /between 4 and 15/)
   assert.throws(() => normalizeVideoOptions({ duration: 31 }, seedanceVideoCapabilities('seedance-2.5')), /between 4 and 30/)
