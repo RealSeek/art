@@ -1105,7 +1105,7 @@ export class ChatGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', null), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }

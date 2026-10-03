@@ -5,7 +5,7 @@ test('Seedance 2.5 自动时长、参考视频和编辑设置随生成请求提�
   let submitted: Record<string, any> | undefined
   const models = [{ key: 'private:seedance-2.5', upstreamModel: 'Seedance-2.5', displayName: 'Seedance 2.5', capability: 'VIDEO', source: 'USER', isDefault: true, availability: 'AVAILABLE', vendor: { key: 'doubao', name: 'Doubao' }, options: { videoCapabilities: {
     resolutions: ['480p', '720p', '1080p'], durations: [4, 5, 10, 15, 20, 30], aspectRatios: ['16:9', 'adaptive'], defaultResolution: '720p', minDuration: 4, maxDuration: 30,
-    maxReferences: 30, maxAudioReferences: 10, maxVideoReferences: 10, referenceMode: 'REFERENCES_JSON', supportsAutoDuration: true, supportsVideoEditing: true, audioRequiresVisualReference: false,
+    maxReferences: 30, maxAudioReferences: 10, maxVideoReferences: 10, referenceMode: 'CONTENT_JSON', supportsAutoDuration: true, supportsVideoEditing: true, audioRequiresVisualReference: false,
   } } }]
   await page.route('**/v1/**', async route => {
     const path = new URL(route.request().url()).pathname

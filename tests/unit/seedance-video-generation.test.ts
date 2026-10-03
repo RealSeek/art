@@ -7,6 +7,32 @@ import { normalizeVideoOptions, seedanceVideoCapabilities, videoCapabilities } f
 import { ProvidersService, type ResolvedProvider } from '../../server/src/providers/providers.service'
 import { ReconciliationRequiredError, TerminalProviderJobError } from '../../server/src/generations/generation-provider-errors'
 
+test('multipart 视频请求由传输层设置 Content-Type 和 boundary，而不是 JSON', async () => {
+  const headers = ProvidersService.prototype as unknown as { buildRequestHeaders: (provider: unknown, protocol: string, contentType: string | null) => Record<string, string> }
+  const providers = {
+    applyAuth: () => undefined,
+    buildRequestHeaders: headers.buildRequestHeaders,
+  }
+  assert.equal(providers.buildRequestHeaders({ headers: {} }, 'openai', 'application/json')['Content-Type'], 'application/json')
+  const runner = new VideoGenerationRunner({} as never, {} as never, providers as never, {} as never, {} as never, {} as never, {} as never)
+  const internals = runner as unknown as {
+    providerForm: (provider: unknown, path: string, form: FormData) => Promise<unknown>
+    providerFetch: (provider: unknown, url: string, init: RequestInit) => Promise<Response>
+  }
+  internals.providerFetch = async (_provider, url, init) => {
+    const request = new Request(url, init)
+    assert.match(request.headers.get('Content-Type')!, /^multipart\/form-data; boundary=/)
+    const form = await request.formData()
+    assert.equal(form.get('model'), 'test-video')
+    assert.equal((form.get('input_reference') as File).name, 'image.png')
+    return Response.json({ id: 'test-task' })
+  }
+  const form = new FormData()
+  form.append('model', 'test-video')
+  form.append('input_reference', new Blob(['image'], { type: 'image/png' }), 'image.png')
+  await internals.providerForm({ apiKey: 'test-key', headers: { 'Content-Type': 'application/json', 'content-type': 'application/json' }, baseUrl: 'https://api.example/v1', timeoutMs: 1000 }, '/videos', form)
+})
+
 test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
   for (const [id, maxDuration, imageLimit, audioLimit] of [['[c]Seedance-2.0-fast', 15, 9, 3], ['doubao-seedance-2-5-260628', 30, 30, 10]] as const) {

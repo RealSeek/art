@@ -25,13 +25,12 @@ export type NormalizedVideoOptions = {
  * 参考素材传输方式：
  * - INPUT_REFERENCE：multipart 的 input_reference 字段，单张参考图（旧行为）；
  * - DATA_URL_JSON：JSON 的 images/audios 数组，使用 base64 Data URL。
- * - REFERENCES_JSON：标准 references + options 结构，提示词使用顶层 prompt。
  * - CONTENT_JSON：原生 content 数组，明确指定媒体类型和角色。
  */
-export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'REFERENCES_JSON' | 'CONTENT_JSON'
+export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
 
 export function isNativeVideoReferenceMode(mode: VideoReferenceMode) {
-  return mode === 'REFERENCES_JSON' || mode === 'CONTENT_JSON'
+  return mode === 'CONTENT_JSON'
 }
 
 export type VideoCapabilityConfig = {
@@ -180,7 +179,7 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
     requestFormat: raw.requestFormat === 'seedance' || raw.requestFormat === 'minimax-h3' ? raw.requestFormat : null,
-    referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'REFERENCES_JSON' || raw.referenceMode === 'DATA_URL_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
+    referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'DATA_URL_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
     minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
     maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
     resolutionLocked: raw.resolutionLocked === true,

@@ -73,7 +73,7 @@ export class ImageGenerationRunner implements GenerationRunner {
         const height = Number.isInteger(rawHeight) ? rawHeight : 1024
         const requestPollinations = async (singlePrompt: string) => {
           const url = this.providers.buildPollinationsImageUrl(resolved.baseUrl, singlePrompt, { model: resolved.model || 'flux', width, height, seed: Math.floor(Math.random() * 2_147_483_647) })
-          const response = await this.providerFetch(resolved, url, { headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), signal: AbortSignal.timeout(resolved.timeoutMs) })
+          const response = await this.providerFetch(resolved, url, { headers: this.providers.buildRequestHeaders(resolved, 'openai', null), signal: AbortSignal.timeout(resolved.timeoutMs) })
           const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
           const declaredSize = Number(response.headers.get('content-length') || 0)
           if (!response.ok) throw new ImageProviderError(`Pollinations 返回 ${response.status}: ${(await response.text()).slice(0, 300)}`, response.status)
@@ -212,7 +212,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     if (imageOptions.maskAssetId) { const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId); form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name) }
     else if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
     let response: Response
-    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', undefined), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', null), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(`本地 Worker 连接失败：${error instanceof Error ? error.message : '网络错误'}`, 503) }
     const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() || ''
     const declaredSize = Number(response.headers.get('content-length') || 0)
@@ -312,7 +312,7 @@ export class ImageGenerationRunner implements GenerationRunner {
   private async providerForm(resolved: ResolvedProvider, path: string, form: FormData) {
     if (!resolved.apiKey) throw new ImageProviderError('AI provider is not configured')
     let response: Response
-    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', null), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ImageProviderError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
@@ -359,7 +359,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     // dispatcher. Admin-managed public Providers must use the dispatcher even
     // for same-origin result URLs so DNS rebinding cannot reach a private IP.
     const request = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
-    const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
+    const response = await request(url, { headers: url.origin === providerOrigin ? this.providers.buildRequestHeaders(resolved, 'openai', null) : undefined, signal: AbortSignal.timeout(resolved.timeoutMs) })
     if (!response.ok) throw new ImageProviderError(`Provider image download returned ${response.status}`, response.status)
     let bytes: Uint8Array
     try { bytes = await readResponseBytes(response, MAX_GENERATED_IMAGE_BYTES, 'Provider 图片') }

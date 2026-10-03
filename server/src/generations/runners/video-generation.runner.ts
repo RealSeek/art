@@ -63,7 +63,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
+      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', null), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
@@ -367,7 +367,7 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private async providerGet(resolved: ResolvedProvider, path: string) {
     let response: Response
-    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { headers: this.providers.buildRequestHeaders(resolved, 'openai', undefined), signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { headers: this.providers.buildRequestHeaders(resolved, 'openai', null), signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>
@@ -384,7 +384,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     const native = isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)
     const standardRequest = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
     const request = native && resolved.type !== ProviderType.LOCAL_WORKER ? fetchPublicManualRedirect : standardRequest
-    let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content')) ? this.providers.buildRequestHeaders(resolved, 'openai', undefined) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content')) ? this.providers.buildRequestHeaders(resolved, 'openai', null) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
     for (let hop = 0; native && [301, 302, 303, 307, 308].includes(response.status) && hop < 3; hop += 1) {
       const location = response.headers.get('location')
       await response.body?.cancel()

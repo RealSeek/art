@@ -2213,7 +2213,7 @@ export class ProvidersService implements OnModuleInit {
     return this.prisma.userApiCredential.updateMany({ where: { id: credentialId }, data: { inputTokens: { increment: BigInt(Math.max(0, inputTokens)) }, outputTokens: { increment: BigInt(Math.max(0, outputTokens)) }, lastUsedAt: new Date() } }).then(() => undefined)
   }
 
-  buildRequestHeaders(provider: ResolvedProvider, protocol: 'openai' | 'claude' | 'gemini' = 'openai', contentType: string | undefined = 'application/json') {
+  buildRequestHeaders(provider: ResolvedProvider, protocol: 'openai' | 'claude' | 'gemini' = 'openai', contentType: string | null = 'application/json') {
     const headers: Record<string, string> = { ...provider.headers }
     if (contentType) headers['Content-Type'] = contentType
     else { delete headers['Content-Type']; delete headers['content-type'] }
