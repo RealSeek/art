@@ -105,17 +105,18 @@ export function seedanceChannelCapabilities(model: string) {
   const version = /seedance[-_ ]?2[-_.]?([05])(?:\D|$)/i.exec(model)?.[1]
   if (!version) return undefined
   const v25 = version === '5'
+  const fixedDuration = /^\[c\]seedance[-_ ]?2[-_.]5$/i.test(model.trim())
   const compact = /(?:fast|mini)/i.test(model)
   return {
     requestFormat: 'seedance' as const,
     resolutions: v25 ? ['480p', '720p', '1080p'] : compact ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'],
-    durations: v25 ? [5, 10, 15, 20, 25, 30] : [4, 5, 10, 15],
+    durations: fixedDuration ? [30] : v25 ? [5, 10, 15, 20, 25, 30] : [4, 5, 10, 15],
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-    defaultResolution: '720p', defaultDuration: 5, defaultAspectRatio: '16:9',
-    minDuration: 4, maxDuration: v25 ? 30 : 15,
+    defaultResolution: '720p', defaultDuration: fixedDuration ? 30 : 5, defaultAspectRatio: '16:9',
+    minDuration: fixedDuration ? 30 : 4, maxDuration: v25 ? 30 : 15,
     maxReferences: v25 ? 30 : 9, maxAudioReferences: v25 ? 10 : 3, maxVideoReferences: v25 ? 10 : 3,
     maxFirstLastFrames: 2, maxTotalReferences: v25 ? 50 : 15, faceSupported: null, requiresPublicReferenceUrls: false,
-    referenceMode: 'CONTENT_JSON' as const, supportsAutoDuration: true,
+    referenceMode: 'CONTENT_JSON' as const, supportsAutoDuration: !fixedDuration,
     audioRequiresVisualReference: !v25, supportsVideoEditing: v25,
     createPath: '/videos', statusPath: '/videos/{id}', contentPath: '/videos/{id}/content',
     pollIntervalMs: 5000, maxPollSeconds: 0,

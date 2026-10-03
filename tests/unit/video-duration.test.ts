@@ -28,6 +28,8 @@ test('模型自带时长区间时档位与自定义输入都收在该区间内',
   assert.equal(clampVideoDuration('4', 5, 5, 15), 5)
   assert.equal(clampVideoDuration('99', 5, 5, 15), 15)
   assert.equal(clampVideoDuration('12', 5, 5, 15), 12)
+  assert.deepEqual(videoDurationOptions([30], 30, 30), [30])
+  assert.equal(clampVideoDuration('5', 30, 30, 30), 30)
 })
 
 test('服务端接受自定义时长并拒绝超过 15 秒', () => {

@@ -52,6 +52,23 @@ test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', (
   assert.throws(() => normalizeVideoOptions({ duration: 31 }, seedanceVideoCapabilities('seedance-2.5')), /between 4 and 30/)
 })
 
+test('[C]Seedance 2.5 渠道别名只接受固定 30 秒，不支持自动时长', () => {
+  const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
+  for (const id of ['[C]Seedance 2.5', '[c]Seedance-2.5']) {
+    const caps = videoCapabilities(discover.discoveredModelOptions({ id, capability: 'VIDEO' }).videoCapabilities)
+    assert.deepEqual(caps.durations, [30])
+    assert.equal(caps.defaultDuration, 30)
+    assert.equal(caps.minDuration, 30)
+    assert.equal(caps.maxDuration, 30)
+    assert.equal(caps.supportsAutoDuration, false)
+    assert.equal(normalizeVideoOptions({}, caps).duration, 30)
+    assert.equal(normalizeVideoOptions({ duration: 30 }, caps).duration, 30)
+    for (const duration of [-1, 5, 15, 29, 31]) {
+      assert.throws(() => normalizeVideoOptions({ duration }, caps), /between 30 and 30/)
+    }
+  }
+})
+
 test('MiniMax H3 使用官方请求格式并接受待临时托管的本地媒体', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
   const caps = videoCapabilities(discover.discoveredModelOptions({ id: 'MiniMax-H3', capability: 'VIDEO' }).videoCapabilities)
