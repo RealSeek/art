@@ -63,6 +63,7 @@ function localApiBase() {
 }
 
 export function apiUrl(path: string) {
+  if (/^(?:https?:|blob:|data:)/i.test(path)) return path
   const normalizedPath = path.startsWith('/v1') ? path : `/v1${path.startsWith('/') ? path : `/${path}`}`
   const base = configuredApiBase || localApiBase()
   return base ? `${base}${normalizedPath}` : normalizedPath
