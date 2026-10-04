@@ -13,6 +13,14 @@ export interface Inspiration {
 }
 export interface ImageTool extends Inspiration { enabled?: boolean; options?: ImageToolOptions | null }
 
+export interface ReferenceMention {
+  token: string
+  label: string
+  kind: 'image' | 'audio' | 'video'
+  thumbnail: string
+  title: string
+}
+
 export type CreationMenu = 'model' | 'type' | 'size' | 'style' | 'resolution' | 'duration' | 'aspect' | 'platform' | 'imageResolution' | 'modules' | 'count' | 'format' | 'background' | null
 
 export function hasImagePreview(asset: StudioAsset) {

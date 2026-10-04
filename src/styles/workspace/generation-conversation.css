@@ -1,0 +1,11 @@
+.generation-conversation-composer { align-self: center; flex: 0 0 auto; margin-bottom: 20px; width: min(var(--chat-thread-content-width), calc(100% - 64px)); }
+.generation-conversation-composer .studio-create-page--composer { background: transparent; min-height: 0; }
+.studio-create-page--composer > .create-page-inner { padding-top: 0; width: 100%; }
+.generation-conversation-composer .creation-composer { box-sizing: border-box; margin: 0; width: 100%; }
+.chat-page.has-messages.is-generation-conversation .chat-thread { padding-bottom: 24px; scroll-padding-bottom: 24px; }
+
+@media (max-width: 640px) {
+  .chat-page.is-generation-conversation .chat-center--thread { top: 66px; }
+  .generation-conversation-composer { margin-bottom: 8px; width: calc(100% - 20px); }
+  .chat-page.has-messages.is-generation-conversation .chat-thread { padding-bottom: 16px; scroll-padding-bottom: 16px; }
+}

@@ -1,7 +1,9 @@
 @import './workspace/foundation.css';
 @import './workspace/auth.css';
 @import './workspace/shell.css';
+@import './workspace/video-composer.css';
 @import './workspace/settings.css';
 @import './workspace/chat.css';
 @import './workspace/onboarding.css';
 @import './workspace/polish.css';
+@import './workspace/generation-conversation.css';

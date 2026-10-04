@@ -1,30 +1,20 @@
 <template>
-    <section class="studio-create-page">
+    <section class="studio-create-page" :class="{ 'studio-create-page--composer': composerOnly }">
       <div class="create-page-inner">
-        <div class="creation-heading">
+        <div v-if="!composerOnly" class="creation-heading">
           <h1>{{ activeMode === 'commerce' ? t('studio.commerce') : t('workspace.creation') }}</h1>
           <p>{{ activeMode === 'commerce' ? '从商品参考图到成套营销素材' : '让创作随灵感而生' }}</p>
         </div>
-        <div v-if="store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
+        <div v-if="!composerOnly && store.lastError" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ store.lastError }}</span><button type="button" aria-label="关闭提示" @click="store.clearError"><X :size="15" /></button></div>
         <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-content">
-            <button
-              v-if="activeMode === 'videos'"
-              class="creation-reference-entry"
-              type="button"
-              :disabled="uploading || creationAttachments.length >= imageReferenceLimit"
-              :title="creationAttachments.length >= imageReferenceLimit ? `最多添加 ${imageReferenceLimit} 个参考素材` : '添加参考素材'"
-              aria-label="添加参考素材"
-              @click="openCreationAttachmentPicker('image')"
-            >
-              <span class="creation-reference-entry__sheet"><Plus :size="19" /></span>
-              <span>{{ creationAttachments.length ? `${creationAttachments.length} 个素材` : '参考素材' }}</span>
-            </button>
+            <VideoReferenceStack v-if="activeMode === 'videos'" :references="referenceMentions" :can-add-images="creationAttachments.length < imageReferenceLimit" :uploading="uploading" @add="openCreationAttachmentPicker" @quote="videoPrompt?.insertReference($event)" @remove="removeVideoReference" />
             <div class="creation-prompt-row">
-              <textarea ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="activeMode === 'videos' ? '上传参考素材，输入文字或参考内容，自由组合图片、文字、音频与视频元素，描述画面、动作和镜头。可输入 @ 引用素材' : creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
+              <VideoPromptInput v-if="activeMode === 'videos'" ref="videoPrompt" v-model="generationPrompt" :references="referenceMentions" :can-add-images="creationAttachments.length < imageReferenceLimit" @focus="collapseWorkspacePopovers" @upload="openCreationAttachmentPicker('image')" />
+              <textarea v-else ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
             </div>
-            <div v-if="creationAttachments.length || videoAttachments.length || audioAttachments.length || maskAttachment" class="creation-attachments" aria-label="参考素材">
+            <div v-if="activeMode !== 'videos' && (creationAttachments.length || videoAttachments.length || audioAttachments.length || maskAttachment)" class="creation-attachments" aria-label="参考素材">
               <article v-for="(asset, index) in creationAttachments" :key="asset.id" class="attachment-card" :class="hasImagePreview(asset) ? 'attachment-card--image' : 'attachment-card--file'">
                 <img v-if="hasImagePreview(asset)" :src="asset.contentUrl" :alt="asset.title" />
                 <div v-else class="attachment-file-copy">
@@ -59,7 +49,7 @@
                 <strong>{{ item.label }}</strong>
                 <small>{{ item.title }}</small>
               </button>
-              <p v-if="!filteredMentions.length" class="creation-mention-empty">{{ referenceMentions.length ? '没有匹配的参考素材' : '还没有参考素材，点输入框左侧的 + 上传参考图或参考音频' }}</p>
+              <p v-if="!filteredMentions.length" class="creation-mention-empty">{{ referenceMentions.length ? '没有匹配的参考素材' : '暂无参考素材' }}</p>
             </div>
           </Teleport>
           <div class="creation-controls">
@@ -82,6 +72,7 @@
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
                 <button v-if="activeMode === 'videos'" type="button" :disabled="videoDurationMin === videoDurationLimit" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration === -1 ? '自动' : `${videoDuration} 秒`}`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration === -1 ? '自动' : `${videoDuration} 秒` }}<ChevronDown v-if="videoDurationMin !== videoDurationLimit" class="creation-control-chevron" :size="14" /></button>
               </div>
+              <button v-if="activeMode === 'videos'" type="button" class="creation-reference-mention" aria-label="引用参考内容" title="引用参考内容" @mousedown.prevent @click="videoPrompt?.openMentions($event.currentTarget as HTMLElement)"><AtSign :size="16" /></button>
               <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
               <div v-if="activeMode !== 'videos'" class="creation-more-wrap">
                 <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
@@ -115,13 +106,13 @@
           </Teleport>
         </form>
 
-        <section v-if="activeMode === 'images'" class="creation-tools" aria-label="图片快捷工具">
+        <section v-if="!composerOnly && activeMode === 'images'" class="creation-tools" aria-label="图片快捷工具">
           <button v-for="tool in imageTools" :key="tool.id" type="button" :class="{ 'is-active': selectedImageToolId === tool.id }" :aria-pressed="selectedImageToolId === tool.id" @click="selectImageTool(tool)">
             <span>{{ tool.title }}</span><img v-if="tool.imageUrl" :src="tool.imageUrl" :alt="`${tool.title}示例`" /><span v-else class="creation-tool-fallback-icon" aria-hidden="true"><component :is="imageToolIcon(tool)" :size="22" /></span>
           </button>
         </section>
 
-        <section class="inspiration-section">
+        <section v-if="!composerOnly" class="inspiration-section">
           <header>
             <h2>{{ activeMode === 'images' || activeMode === 'videos' ? '灵感中心' : t('studio.inspiration') }}</h2>
             <div class="inspiration-header-actions">
@@ -148,7 +139,7 @@
           </div>
         </section>
 
-        <section class="creation-output">
+        <section v-if="!composerOnly" class="creation-output">
           <h2>{{ activeMode === 'images' ? t('studio.myImages') : activeMode === 'videos' ? t('studio.myVideos') : t('studio.myCommerce') }}</h2>
           <template v-if="activeMode === 'videos'">
             <div v-if="pendingVideoRuns.length" class="video-runs video-runs--pending">
@@ -189,7 +180,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowRight, ArrowUp, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Music, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
+  ArrowRight, ArrowUp, AtSign, AudioLines, BadgeCheck, Blend, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileText, FileType2, Image as ImageIcon, Images, Layers3, LoaderCircle, Music, Play, Plus, RefreshCw, Settings2, SlidersHorizontal, Sparkles, Square, X,
 } from 'lucide-vue-next'
 import AssetGrid from '../AssetGrid.vue'
 import ModelCatalogPicker from '../ModelCatalogPicker.vue'
@@ -200,9 +191,12 @@ import type { GenerationOptions, GenerationRun, PluginCapability, StudioAsset, S
 import { findCatalogModel, type CatalogModel } from '../../utils/model-catalog'
 import { resolveGenerationRunState } from '../../utils/generation-run-state'
 import ModelBadge from '../common/ModelBadge.vue'
-import { attachmentMeta, hasImagePreview, type CreationMenu, type ImageTool, type Inspiration } from './creation-shared'
+import VideoReferenceStack from './VideoReferenceStack.vue'
+import VideoPromptInput from './VideoPromptInput.vue'
+import { attachmentMeta, hasImagePreview, type CreationMenu, type ImageTool, type Inspiration, type ReferenceMention } from './creation-shared'
 
 const props = defineProps<{
+  composerOnly?: boolean
   activeMode: StudioMode
   modelCatalogError: string
   activeCreationModels: CatalogModel[]
@@ -256,7 +250,7 @@ const props = defineProps<{
   localSavedIds: string[]
   saveAssetLocally: (asset: StudioAsset) => void
   removeLocalCopy: (asset: StudioAsset) => void
-  referenceMentions: Array<{ token: string; label: string; kind: 'image' | 'audio' | 'video'; thumbnail: string; title: string }>
+  referenceMentions: ReferenceMention[]
   audioReferenceLimit: number
   imageReferenceLimit: number
   imageTools: ImageTool[]
@@ -321,11 +315,19 @@ const auth = useAuthStore()
 const { t } = useI18n()
 const creationComposer = ref<HTMLFormElement | null>(null)
 const generationInput = ref<HTMLTextAreaElement | null>(null)
+const videoPrompt = ref<InstanceType<typeof VideoPromptInput> | null>(null)
 const activeCreationModelOption = computed(() => findCatalogModel(props.activeCreationModels, props.activeCreationModel))
 const creationMoreTrigger = ref<HTMLButtonElement | null>(null)
 const creationMorePanel = ref<HTMLElement | null>(null)
 const creationOptionsMenu = ref<HTMLElement | null>(null)
 const inspirationRail = ref<HTMLElement | null>(null)
+
+function removeVideoReference(item: ReferenceMention) {
+  const index = props.referenceMentions.filter((reference) => reference.kind === item.kind).findIndex((reference) => reference.token === item.token)
+  if (item.kind === 'image') void props.removeReference(index)
+  else if (item.kind === 'video') void props.removeVideo(index)
+  else void props.removeAudio(index)
+}
 
 onMounted(() => {
   window.addEventListener('resize', repositionMentionMenu)
@@ -465,7 +467,7 @@ function scrollInspiration(direction: number) {
 
 defineExpose({
   creationComposerEl: () => creationComposer.value,
-  generationInputEl: () => generationInput.value,
+  generationInputEl: () => videoPrompt.value?.element() ?? generationInput.value,
   creationMoreTriggerEl: () => creationMoreTrigger.value,
   creationMorePanelEl: () => creationMorePanel.value,
   creationOptionsMenuEl: () => creationOptionsMenu.value,
