@@ -838,6 +838,7 @@ button {
 }
 
 .region-editor__surface {
+  flex: 0 0 auto;
   line-height: 0;
   position: relative;
 }
