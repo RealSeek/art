@@ -23,10 +23,13 @@ class CreateJobDto {
 export class GenerationsController {
   constructor(private readonly generations: GenerationsService, private readonly generationEvents: GenerationEventsService) {}
   @Post() create(@CurrentUser() user: AuthenticatedUser, @Req() request: AuthenticatedRequest, @Body() body: CreateJobDto) { return this.generations.create(user.id, body, { requestId: request.requestId, traceId: request.traceId }) }
-  @Get() list(@CurrentUser() user: AuthenticatedUser, @Query('kind') kind?: JobKind) {
+  @Get('image-prompt/models') imagePromptModels(@CurrentUser() user: AuthenticatedUser) { return this.generations.imagePromptModels(user.id) }
+  @Get() list(@CurrentUser() user: AuthenticatedUser, @Query('kind') kind?: JobKind, @Query('taskType') taskType?: 'IMAGE_PROMPT_EXTRACTION') {
     if (kind && !Object.values(JobKind).includes(kind)) throw new BadRequestException('任务类型无效')
-    return this.generations.list(user.id, kind)
+    if (taskType && (taskType !== 'IMAGE_PROMPT_EXTRACTION' || (kind && kind !== JobKind.CHAT))) throw new BadRequestException('任务类型无效')
+    return this.generations.list(user.id, kind, taskType)
   }
+  @Post(':id/conversation') continueImagePrompt(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.generations.continueImagePrompt(user.id, id) }
   @Get(':id') get(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.generations.get(user.id, id) }
   @Get(':id/events/history') history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.generations.events(user.id, id) }
   @Post(':id/cancel') cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.generations.cancel(user.id, id) }

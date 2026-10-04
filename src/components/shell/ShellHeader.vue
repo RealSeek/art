@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Archive, Menu, MoreHorizontal, Pin, PinOff, Share2, Trash2 } from 'lucide-vue-next'
 import type { ConversationSummary, StudioMode } from '../../types'
@@ -44,8 +45,9 @@ const chatActionsOpen = defineModel<boolean>('chatActionsOpen', { required: true
 const auth = useAuthStore()
 const studio = useStudioStore()
 const { t } = useI18n()
+const route = useRoute()
 
-const mobileTitle = computed(() => ({ chat: 'OnlyArt', images: t('workspace.creation'), videos: t('workspace.creation'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins'), workspace: '工作空间' } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
+const mobileTitle = computed(() => props.activeMode === 'workspace' ? String(route.meta.title) : ({ chat: 'OnlyArt', images: t('workspace.creation'), videos: t('workspace.creation'), commerce: t('studio.commerce'), office: t('workspace.office'), prompts: t('workspace.prompts'), plugins: t('workspace.plugins') } as Partial<Record<StudioMode, string>>)[props.activeMode] || '')
 const currentConversation = computed(() => studio.conversations.find((item) => item.id === studio.currentConversationId) || null)
 
 async function shareCurrentConversation() {

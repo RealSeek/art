@@ -13,7 +13,6 @@
           <button type="button" aria-label="添加文件等" title="添加文件等" :class="{ 'is-open': attachmentOpen }" :disabled="uploading" @click="toggleAttachmentMenu"><Plus :size="20" /></button>
           <textarea ref="composerInput" v-model="draft" rows="1" aria-label="消息" :placeholder="chatComposerPlaceholder" @focus="collapseWorkspacePopovers" @input="resizeComposer" @keydown="handleComposerKeydown" />
           <nav v-if="showChatComposerShortcutBar" class="chat-home-shortcuts chat-home-shortcuts--in-composer" :aria-label="`${chatUiLabel}快捷入口`" @wheel="scrollShortcutRail">
-            <button v-if="chatComposerControls.modeEnabled" class="chat-home-mode-trigger" :class="{ 'is-open': chatModeMenuOpen }" type="button" :aria-expanded="chatModeMenuOpen" @click="toggleChatModeMenu"><component :is="activeChatModeIcon" :size="16" /><span>{{ activeChatMode }}</span><small v-if="chatUiPreset === 'doubao' && activeChatMode === '快速'">新</small><ChevronDown :size="12" /></button>
             <button v-if="chatUiPreset === 'doubao' && chatComposerControls.modelSelectorEnabled" ref="modelAnchor" class="chat-home-inline-model" :class="{ 'is-open': modelOpen }" type="button" :aria-expanded="modelOpen" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" @click="toggleModelMenu"><ModelBadge v-if="activeCapabilityModelOption" :model="activeCapabilityModelOption" size="sm" /><span v-else aria-hidden="true">#</span><strong>{{ activeCapabilityModelLabel }}</strong><ChevronDown :size="12" /></button>
             <button v-for="item in visibleChatShortcuts" :key="item.id" type="button" @click="executeChatQuickAction(item)">
               <component :is="quickActionIcon(item.icon)" :size="16" /><span>{{ item.label }}</span>
@@ -21,7 +20,6 @@
             <button v-if="chatComposerControls.moreEnabled && chatMoreShortcuts.length" class="chat-home-more-trigger" :class="{ 'is-open': chatMoreMenuOpen }" type="button" :aria-expanded="chatMoreMenuOpen" @click="toggleChatMoreMenu"><LayoutGrid :size="16" /><span>更多</span></button>
             <CapabilitySelector v-if="auth.isAuthenticated && ['doubao', 'qianwen'].includes(chatUiPreset)" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
           </nav>
-          <div v-if="!hasChatThread && chatUiPreset === 'kimi' && chatComposerControls.modeEnabled" class="chat-kimi-modes" aria-label="回答模式"><button type="button" :class="{ 'is-active': activeChatMode === '快速' }" @click="activeChatMode = '快速'">快速</button><button type="button" :class="{ 'is-active': activeChatMode === '进阶' }" @click="activeChatMode = '进阶'">进阶</button><ChevronDown :size="14" /></div>
           <CapabilitySelector v-if="auth.isAuthenticated && (!['doubao', 'qianwen'].includes(chatUiPreset) || !showChatComposerShortcutBar)" v-model:assistant-id="assistantId" v-model:skill-id="chatPluginId" capability="CHAT" />
           <div v-if="chatComposerControls.modelSelectorEnabled" class="composer-control composer-model">
             <button v-if="chatUiPreset !== 'doubao'" ref="modelAnchor" type="button" :aria-label="`选择模型，当前为${activeCapabilityModelLabel}`" :title="`模型：${activeCapabilityModelLabel}`" @click="toggleModelMenu">
@@ -35,7 +33,6 @@
           </div>
           <button class="composer-voice" :class="{ 'is-listening': voiceListening && voiceTarget === 'chat' }" type="button" :aria-label="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '开始语音输入'" :aria-pressed="voiceListening && voiceTarget === 'chat'" :title="voiceListening && voiceTarget === 'chat' ? '停止语音输入' : '语音输入'" @click="toggleVoice('chat')"><Mic :size="17" /></button>
           <button class="chat-composer-submit composer-send" :class="{ 'is-voice-entry': showChatVoiceEntry, 'is-generating': store.isGenerating }" :type="store.isGenerating || showChatVoiceEntry ? 'button' : 'submit'" :aria-label="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : capabilityModelAvailable ? '发送' : '暂无可用模型'" :title="store.isGenerating ? '停止生成' : showChatVoiceEntry ? '开始语音输入' : capabilityModelAvailable ? '发送，Enter' : '暂无可用模型，请联系管理员或添加个人 API 密钥'" :disabled="!store.isGenerating && !showChatVoiceEntry && (!draft.trim() && !attachments.length || !capabilityModelAvailable)" @click="handleChatSubmitAction"><Square v-if="store.isGenerating" :size="14" fill="currentColor" /><AudioLines v-else-if="showChatVoiceEntry" :size="18" /><ArrowUp v-else :size="20" /></button>
-          <Transition name="composer-menu"><div v-if="chatModeMenuOpen" class="chat-home-floating-menu chat-home-mode-menu" role="menu"><button v-for="option in chatModeOptions" :key="option.label" type="button" role="menuitemradio" :aria-checked="activeChatMode === option.label" @click="selectChatMode(option.label)"><component :is="option.icon" :size="17" /><span><strong>{{ option.label }}</strong><small v-if="option.note">{{ option.note }}</small></span><em v-if="option.badge">{{ option.badge }}</em><Check v-if="activeChatMode === option.label" :size="15" /></button></div></Transition>
           <Transition name="composer-menu">
             <div v-if="chatMoreMenuOpen" class="chat-home-floating-menu chat-home-more-menu" role="menu">
               <button v-for="item in chatMoreShortcuts" :key="item.id" type="button" role="menuitem" @click="executeChatQuickAction(item)"><component :is="quickActionIcon(item.icon)" :size="17" /><span><strong>{{ item.label }}</strong></span></button>
@@ -79,7 +76,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ArrowUp, AudioLines, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, FileText, Folder, Globe2, Image as ImageIcon, Languages, LayoutGrid, LibraryBig, LoaderCircle, Mic, MousePointer2, Music2, Paperclip, Plus, Presentation, ScanSearch, Search, Sparkles, Square, Table2, Video, WandSparkles, X, Zap,
+  ArrowUp, AudioLines, BriefcaseBusiness, ChevronDown, ChevronRight, Code2, FileText, Folder, Globe2, Image as ImageIcon, Languages, LayoutGrid, LibraryBig, LoaderCircle, Mic, Music2, Paperclip, Plus, Presentation, Search, Sparkles, Square, Table2, Video, WandSparkles, X,
 } from 'lucide-vue-next'
 import CapabilitySelector from '../CapabilitySelector.vue'
 import ModelCatalogPicker from '../ModelCatalogPicker.vue'
@@ -127,7 +124,6 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'load-models'): void }>()
 const draft = defineModel<string>('draft', { required: true })
 const attachments = defineModel<StudioAsset[]>('attachments', { required: true })
-const activeChatMode = defineModel<string>('activeChatMode', { required: true })
 const assistantId = defineModel<string>('assistantId', { required: true })
 const chatPluginId = defineModel<string>('chatPluginId', { required: true })
 const qianwenBannerIndex = defineModel<number>('qianwenBannerIndex', { required: true })
@@ -181,26 +177,14 @@ const showChatComposerShortcutBar = computed(() => {
   if (!['doubao', 'qianwen'].includes(chatUiPreset.value)) return false
   if (chatUiPreset.value === 'qianwen' && props.hasChatThread) return false
   const controls = chatComposerControls.value
-  return Boolean(visibleChatShortcuts.value.length || controls.modeEnabled || (controls.moreEnabled && (chatMoreShortcuts.value.length || controls.modelSelectorEnabled)))
+  return Boolean(visibleChatShortcuts.value.length || controls.modelSelectorEnabled || (controls.moreEnabled && chatMoreShortcuts.value.length))
 })
-const chatModeOptions = computed<Array<{ label: string; icon: typeof Sparkles; note: string; badge?: string }>>(() => chatUiPreset.value === 'qianwen'
-  ? [
-      { label: '快速', icon: Sparkles, note: '快速直接地回答' },
-      { label: '思考研究', icon: Search, note: '深度推理、多轮搜索' },
-    ]
-  : [
-      { label: '快速', icon: Zap, note: '' },
-      { label: '专家', icon: ScanSearch, note: '' },
-      { label: '工作任务', icon: MousePointer2, note: '' },
-    ])
-const activeChatModeIcon = computed(() => chatModeOptions.value.find((item) => item.label === activeChatMode.value)?.icon || Sparkles)
 const composerInput = ref<HTMLTextAreaElement | null>(null)
 const modelAnchor = ref<HTMLElement | null>(null)
 const modelPopover = ref<HTMLElement | null>(null)
 const modelPopoverStyle = ref<Record<string, string>>({})
 const attachmentOpen = ref(false)
 const modelOpen = ref(false)
-const chatModeMenuOpen = ref(false)
 const chatMoreMenuOpen = ref(false)
 const promptTemplatesOpen = ref(false)
 const promptTemplatesLoading = ref(false)
@@ -213,29 +197,17 @@ const filteredPromptTemplates = computed(() => promptTemplates.value.filter((ite
   return (!promptTemplateCategory.value || item.category === promptTemplateCategory.value) && (!promptTemplateQuery.value || haystack.includes(promptTemplateQuery.value.toLowerCase()))
 }))
 
-function toggleChatModeMenu() {
-  chatModeMenuOpen.value = !chatModeMenuOpen.value
-  chatMoreMenuOpen.value = false
-  attachmentOpen.value = false
-  modelOpen.value = false
-}
 function toggleChatMoreMenu() {
   const willOpen = !chatMoreMenuOpen.value
   chatMoreMenuOpen.value = willOpen
-  chatModeMenuOpen.value = false
   attachmentOpen.value = false
   modelOpen.value = false
 }
-function selectChatMode(label: string) {
-  chatModeMenuOpen.value = false
-  if (label === '工作任务') { void router.push('/office?mode=agent'); return }
-  activeChatMode.value = label
-}
-function toggleAttachmentMenu() { attachmentOpen.value = !attachmentOpen.value; modelOpen.value = false; promptTemplatesOpen.value = false; chatModeMenuOpen.value = false; chatMoreMenuOpen.value = false }
+
+function toggleAttachmentMenu() { attachmentOpen.value = !attachmentOpen.value; modelOpen.value = false; promptTemplatesOpen.value = false; chatMoreMenuOpen.value = false }
 function toggleModelMenu() {
   modelOpen.value = !modelOpen.value
   attachmentOpen.value = false
-  chatModeMenuOpen.value = false
   chatMoreMenuOpen.value = false
   if (modelOpen.value) {
     emit('load-models')
@@ -343,7 +315,6 @@ function openConfiguredDestination(target: string) {
   void router.push(target.startsWith('/') ? target : `/${target}`)
 }
 async function executeChatQuickAction(item: ChatQuickAction) {
-  chatModeMenuOpen.value = false
   chatMoreMenuOpen.value = false
   store.clearError()
   if (!await props.applyQuickActionModel(item)) return
@@ -382,19 +353,16 @@ function closePopovers() {
   attachmentOpen.value = false
   modelOpen.value = false
   promptTemplatesOpen.value = false
-  chatModeMenuOpen.value = false
   chatMoreMenuOpen.value = false
 }
 function closeChatComposerPopoversOnOutside(event: PointerEvent) {
   const target = event.target as HTMLElement | null
-  if (target?.closest('.chat-home-floating-menu, .chat-home-mode-trigger, .chat-home-more-trigger, .chat-home-inline-model, .model-popover, .composer-model')) return
-  chatModeMenuOpen.value = false
+  if (target?.closest('.chat-home-floating-menu, .chat-home-more-trigger, .chat-home-inline-model, .model-popover, .composer-model')) return
   chatMoreMenuOpen.value = false
   modelOpen.value = false
 }
 function closeChatComposerPopoversOnEscape(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || (!chatModeMenuOpen.value && !chatMoreMenuOpen.value && !modelOpen.value)) return
-  chatModeMenuOpen.value = false
+  if (event.key !== 'Escape' || (!chatMoreMenuOpen.value && !modelOpen.value)) return
   chatMoreMenuOpen.value = false
   modelOpen.value = false
 }

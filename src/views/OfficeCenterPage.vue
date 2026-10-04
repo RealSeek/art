@@ -64,7 +64,7 @@
       <div class="office-result__inner">
         <article v-if="submittedPrompt" class="office-user-message">{{ submittedPrompt }}</article>
         <article class="office-assistant-message">
-          <header><span><component :is="selectedSkill.icon" :size="17" :style="{ color: selectedSkill.color }" /></span><strong>{{ selectedSkill.name }}</strong><small>{{ modeLabel }}</small></header>
+          <header><span><component :is="selectedSkill.icon" :size="17" :style="{ color: selectedSkill.color }" /></span><strong>{{ selectedSkill.name }}</strong></header>
           <nav v-if="activeAgentTask && !generating" class="office-result-actions"><button v-if="['FAILED', 'CANCELLED', 'SUCCEEDED', 'PARTIAL'].includes(activeAgentTask.status)" type="button" @click="retryTask(activeAgentTask)"><RotateCcw :size="14" />重新执行</button><button type="button" @click="duplicateTask(activeAgentTask)"><Copy :size="14" />创建副本</button><button type="button" @click="setTaskArchived(activeAgentTask, true)"><Archive :size="14" />归档</button></nav>
           <div v-if="taskMode === 'agent' && activeAgentTask" class="office-agent-runtime" aria-label="任务执行状态">
             <span><Bot :size="14" /><strong>{{ activeAgentTask.model || selectedModelLabel }}</strong></span>
@@ -134,14 +134,6 @@
           <div>
             <button type="button" aria-label="添加文件" title="添加文件" :disabled="uploading" @click="openFilePicker"><LoaderCircle v-if="uploading" class="office-spin" :size="18" /><Plus v-else :size="20" /></button>
             <span class="office-control-anchor">
-              <button class="office-mode-button" type="button" :aria-expanded="modeMenuOpen" @click="toggleModeMenu"><Zap v-if="taskMode === 'fast'" :size="15" /><BrainCircuit v-else-if="taskMode === 'expert'" :size="15" /><Bot v-else :size="15" />{{ modeLabel }}<ChevronDown :size="13" /></button>
-              <div v-if="modeMenuOpen" class="office-mode-menu">
-                <button type="button" :class="{ active: taskMode === 'fast' }" @click="selectTaskMode('fast')"><Zap :size="16" /><span><strong>快速</strong><small>直接输出可用结果</small></span><Check v-if="taskMode === 'fast'" :size="15" /></button>
-                <button type="button" :class="{ active: taskMode === 'expert' }" @click="selectTaskMode('expert')"><BrainCircuit :size="16" /><span><strong>专家</strong><small>先分析再交付完整方案</small></span><Check v-if="taskMode === 'expert'" :size="15" /></button>
-                <button type="button" :class="{ active: taskMode === 'agent' }" @click="selectTaskMode('agent')"><Bot :size="16" /><span><strong>任务</strong><small>自主规划、执行并交付成品</small></span><Check v-if="taskMode === 'agent'" :size="15" /></button>
-              </div>
-            </span>
-            <span class="office-control-anchor">
               <button class="office-model-button" type="button" :aria-expanded="modelMenuOpen" :disabled="!selectableModels.length" @click="toggleModelMenu"><ModelBadge v-if="selectedModelOption" :model="selectedModelOption" size="sm" /><Sparkles v-else :size="15" />{{ selectedModelLabel || '暂无可用模型' }}<ChevronDown :size="13" /></button>
               <div v-if="modelMenuOpen" class="office-model-menu office-model-menu--catalog">
                 <ModelCatalogPicker :models="selectableModels" :model-value="model" :title="taskMode === 'agent' ? '选择 Agent 模型' : '选择办公模型'" :description-mode="taskMode === 'agent' ? 'agent' : 'default'" @select="selectOfficeModel" />
@@ -171,9 +163,9 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Activity, ArrowUp, AudioLines, BarChart3, Bot, BrainCircuit, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
+  Activity, ArrowUp, AudioLines, BarChart3, Bot, BriefcaseBusiness, Check, ChevronDown, ChevronRight, Code2, Copy, Download,
   FileSpreadsheet, FileText, Layers3, Lightbulb, ListChecks, LoaderCircle, Mail, MessageSquareText,
-  LayoutGrid, Mic, PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, Zap, History,
+  LayoutGrid, Mic, PenLine, Plus, Presentation, Search, ShieldCheck, Sparkles, Square, SquarePen, Table2, X, History,
   Archive, ArchiveRestore, CalendarClock, CalendarPlus, ExternalLink, Globe2, MoreHorizontal, Pause, Play, RotateCcw, Trash2,
   type LucideIcon,
 } from 'lucide-vue-next'
@@ -256,7 +248,6 @@ const taskMode = ref<TaskMode>('fast')
 const exportFormat = ref<OfficeExportFormat>('auto')
 const selectedSkill = ref<OfficeSkill>(builtInSkills[0])
 const skillPanelOpen = ref(false)
-const modeMenuOpen = ref(false)
 const modelMenuOpen = ref(false)
 const formatMenuOpen = ref(false)
 const skillQuery = ref('')
@@ -290,12 +281,10 @@ const filteredSkills = computed(() => allSkills.value.filter((skill) => {
   const query = skillQuery.value.trim().toLowerCase()
   return categoryMatches && (!query || `${skill.name} ${skill.description}`.toLowerCase().includes(query))
 }))
-const modeLabel = computed(() => taskMode.value === 'fast' ? '快速' : taskMode.value === 'expert' ? '专家' : '任务')
 const agentNodeLabel = computed(() => ({ prepare: '准备任务', plan: '制定计划', tools: '调用工具', draft: '整理结果', verify: '校验结果', replan: '调整计划', deliver: '生成交付物', done: '已完成' }[activeAgentTask.value?.agentRun?.currentNode || 'prepare'] || '执行中'))
 
 function selectTaskMode(nextMode: TaskMode) {
   taskMode.value = nextMode
-  modeMenuOpen.value = false
   const candidates = nextMode === 'agent' ? chatModels.value.filter(isAgentModelEligible) : chatModels.value
   if (!candidates.some((item) => item.key === model.value)) model.value = (candidates.find((item) => item.isDefault) || candidates[0])?.key || ''
   if (nextMode === 'agent' && !candidates.length) error.value = '当前没有可用的 Agent 模型，请先配置 OnlyCode API 密钥'
@@ -341,17 +330,9 @@ function selectSkill(skill: OfficeSkill) {
   if (wasGeneratedPrefix) prompt.value = ''
   void nextTick(() => taskInput.value?.focus())
 }
-function toggleModeMenu() {
-  document.dispatchEvent(new Event('xinyue:close-popovers'))
-  modeMenuOpen.value = !modeMenuOpen.value
-  modelMenuOpen.value = false
-  formatMenuOpen.value = false
-  skillPanelOpen.value = false
-}
 function toggleModelMenu() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
   modelMenuOpen.value = !modelMenuOpen.value
-  modeMenuOpen.value = false
   formatMenuOpen.value = false
   skillPanelOpen.value = false
 }
@@ -362,19 +343,16 @@ function selectOfficeModel(value: string) {
 function toggleFormatMenu() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
   formatMenuOpen.value = !formatMenuOpen.value
-  modeMenuOpen.value = false
   modelMenuOpen.value = false
   skillPanelOpen.value = false
 }
 function toggleSkillPanel() {
   document.dispatchEvent(new Event('xinyue:close-popovers'))
   skillPanelOpen.value = !skillPanelOpen.value
-  modeMenuOpen.value = false
   modelMenuOpen.value = false
   formatMenuOpen.value = false
 }
 function closeOfficePopovers() {
-  modeMenuOpen.value = false
   modelMenuOpen.value = false
   formatMenuOpen.value = false
   skillPanelOpen.value = false
@@ -461,7 +439,7 @@ async function submitTask() {
   deliverable.value = null
   canceling.value = false
   let accepted = false
-  skillPanelOpen.value = false; modeMenuOpen.value = false; modelMenuOpen.value = false
+  skillPanelOpen.value = false; modelMenuOpen.value = false
   try {
     if (taskMode.value === 'agent') {
       const draft = activeAgentTask.value?.status === 'DRAFT' ? activeAgentTask.value : null

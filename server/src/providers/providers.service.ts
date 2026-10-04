@@ -22,6 +22,7 @@ import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { isGeminiImageModel } from '../generations/image-options'
 import { seedanceChannelCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
+import { supportsImageInput } from './model-vision'
 
 type ProviderInput = {
   name: string
@@ -2131,7 +2132,12 @@ export class ProvidersService implements OnModuleInit {
     // 指定个人模型时保留选择；平台模型使用 BYOK 时仍沿用个人默认模型。
     const privateModel = requiredSource === 'user' && !requestedModel?.trim().startsWith('private:') ? undefined : requestedModel
     const privateCandidates = requiredSource === 'platform' ? null : await this.resolvePrivateCandidates(userId, privateModel, capability)
-    if (privateCandidates) return privateCandidates
+    if (privateCandidates) {
+      if (requirements.taskType !== 'IMAGE_PROMPT_EXTRACTION') return privateCandidates
+      const visionCandidates = privateCandidates.filter((candidate) => supportsImageInput(candidate.options))
+      if (!visionCandidates.length) throw new BadRequestException('当前模型未标记为支持图片输入，请选择视觉模型')
+      return visionCandidates
+    }
     const { preset, model, creditCost, policy, settings } = await this.resolvePreset(userId, requestedModel, capability)
     const candidates: ResolvedProvider[] = []
     const presetOptions = preset?.options && typeof preset.options === 'object' && !Array.isArray(preset.options) ? preset.options as Record<string, unknown> : {}
@@ -2197,6 +2203,11 @@ export class ProvidersService implements OnModuleInit {
     if (!candidates.length && requiredSource === 'user') throw new ServiceUnavailableException('图片反推当前由用户 BYOK 承担费用，请先在设置中添加可用的个人 API 密钥和聊天模型')
     if (!candidates.length && requiredSource === 'platform') throw new ServiceUnavailableException('图片反推尚未绑定可用的平台视觉模型渠道')
     if (!candidates.length) throw new ServiceUnavailableException('模型未绑定可用渠道，请在管理端配置并通过渠道检测，或在设置中添加可用的个人 API 密钥')
+    if (requirements.taskType === 'IMAGE_PROMPT_EXTRACTION') {
+      const visionCandidates = candidates.filter((candidate) => supportsImageInput(candidate.options))
+      if (!visionCandidates.length) throw new BadRequestException('当前模型未标记为支持图片输入，请选择视觉模型')
+      return visionCandidates
+    }
     return candidates
   }
 

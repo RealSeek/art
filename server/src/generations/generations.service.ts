@@ -21,6 +21,7 @@ import { TokenQuotaService, type QuotaReservation } from '../billing/token-quota
 import { ChatContextService } from './chat-context.service'
 import { publicGenerationDetailSelect, publicGenerationListSelect, toPublicGeneration, toPublicGenerationEvent, type PublicGenerationDto, type PublicGenerationEventDto } from './public-generation.dto'
 import { GenerationReconciliationService } from './generation-reconciliation.service'
+import { supportsImageInput } from '../providers/model-vision'
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
@@ -111,7 +112,8 @@ export class GenerationsService {
       if (asset.size > BigInt(20 * 1024 * 1024)) throw new BadRequestException('图片不能超过 20 MB')
       const billingMode = 'USER_BYOK'
       input.prompt = '分析图片并生成可复用的图像生成提示词'
-      input.model = settings.imagePromptModelKey.trim() || undefined
+      input.model = input.model?.trim() || (await this.imagePromptModels(userId)).defaultModel
+      if (!input.model) throw new BadRequestException('没有可用的视觉模型，请先配置支持图片输入的个人聊天模型')
       input.options = {
         taskType: 'IMAGE_PROMPT_EXTRACTION',
         assetId,
@@ -169,6 +171,7 @@ export class GenerationsService {
     }
     const requestedModel = creationToolUsesWorker ? creationTool?.model || input.model : input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
     const resolved = await this.providers.resolve(userId, requestedModel, modelCapability, creationToolUsesWorker ? input.options : { ...input.options, providerSource: 'user' })
+    if (imagePromptTask && resolved.presetKey !== requestedModel) throw new BadRequestException('请选择个人视觉模型，不能使用默认聊天模型替代')
     if (creationToolUsesWorker && resolved.type !== 'LOCAL_WORKER') throw new BadRequestException('图片工具必须绑定本地 Worker 渠道')
     const priceVersion = resolved.presetKey && !resolved.presetKey.startsWith('private:')
       ? await this.prisma.modelPriceVersion.findFirst({ where: { modelPreset: { key: resolved.presetKey } }, orderBy: { version: 'desc' } })
@@ -371,8 +374,48 @@ export class GenerationsService {
       idempotencyKey: `retry:${id}:${randomUUID()}`,
     }, trace)
   }
-  async list(userId: string, kind?: JobKind): Promise<PublicGenerationDto[]> {
-    const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind }, orderBy: { createdAt: 'desc' }, take: 100, select: publicGenerationListSelect })
+  async imagePromptModels(userId: string) {
+    const [catalog, settings] = await Promise.all([
+      this.providers.listModelsForUser(userId, 'CHAT'),
+      this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { imagePromptModelKey: true } }),
+    ])
+    const models = catalog.filter((model) => model.source === 'USER' && model.availability !== 'UNCONFIGURED' && supportsImageInput(model.options))
+    const configured = settings?.imagePromptModelKey.trim()
+    const preferred = models.find((model) => configured && [model.key, model.upstreamModel, model.displayName].includes(configured))
+      || models.find((model) => model.isDefault) || models[0]
+    return { models, defaultModel: preferred?.key || '' }
+  }
+
+  async continueImagePrompt(userId: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.generationJob.findFirst({ where: { id, userId }, select: { kind: true, status: true, options: true, model: true, conversationId: true } })
+      if (!job) throw new NotFoundException('任务不存在')
+      const options = job.options as Record<string, unknown>
+      const result = options.imagePromptResult as { prompt?: string; negativePrompt?: string; summary?: string } | undefined
+      if (job.kind !== 'CHAT' || options.taskType !== 'IMAGE_PROMPT_EXTRACTION' || job.status !== 'SUCCEEDED' || !result?.prompt) throw new BadRequestException('只有成功的图片反推任务可以继续对话')
+      if (job.conversationId && await tx.conversation.findFirst({ where: { id: job.conversationId, userId }, select: { id: true } })) return { id: job.conversationId }
+      const assetId = String(options.assetId)
+      const asset = await tx.asset.findFirst({ where: { id: assetId, deletedAt: null, ...this.access.assetWhere(userId) }, select: { id: true } })
+      if (!asset) throw new NotFoundException('原图已删除或无法访问，不能继续对话')
+      const [settings, userSettings] = await Promise.all([
+        tx.systemSetting.findUnique({ where: { id: 'global' }, select: { temporaryChatRetentionHours: true } }),
+        tx.userSettings.findUnique({ where: { userId }, select: { temporaryChatDefault: true, chatHistoryEnabled: true } }),
+      ])
+      const temporary = userSettings ? userSettings.temporaryChatDefault || !userSettings.chatHistoryEnabled : false
+      const conversation = await tx.conversation.create({ data: {
+        userId, title: (result.summary || '图片反推').slice(0, 120), model: String(options.requestedModel || job.model), temporary,
+        expiresAt: temporary ? new Date(Date.now() + Math.max(1, settings?.temporaryChatRetentionHours || 24) * 3_600_000) : null,
+      }, select: { id: true } })
+      const source = await tx.message.create({ data: { conversationId: conversation.id, authorId: userId, role: 'USER', content: '分析这张图片并生成可复用的图像生成提示词。', attachments: { create: { assetId } } }, select: { id: true } })
+      const answer = await tx.message.create({ data: { conversationId: conversation.id, role: 'ASSISTANT', model: job.model, parentId: source.id, content: result.prompt + (result.negativePrompt ? `\n\n负向提示词：\n${result.negativePrompt}` : ''), metadata: { jobId: id } }, select: { id: true } })
+      await tx.conversation.update({ where: { id: conversation.id }, data: { activeLeafId: answer.id } })
+      await tx.generationJob.update({ where: { id }, data: { conversationId: conversation.id } })
+      return conversation
+    })
+  }
+
+  async list(userId: string, kind?: JobKind, taskType?: 'IMAGE_PROMPT_EXTRACTION'): Promise<PublicGenerationDto[]> {
+    const jobs = await this.prisma.generationJob.findMany({ where: { userId, kind, ...(taskType ? { options: { path: ['taskType'], equals: taskType } } : {}) }, orderBy: { createdAt: 'desc' }, take: 100, select: publicGenerationListSelect })
     return jobs.map((job) => toPublicGeneration(job))
   }
   async cancel(userId: string, id: string): Promise<PublicGenerationDto> {

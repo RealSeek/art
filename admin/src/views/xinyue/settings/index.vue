@@ -62,16 +62,16 @@
             ><ToggleRow
               v-model="settings.imagePromptEnabled"
               :title="xt('开放图片反推')"
-              :note="xt('在工作空间画布后展示图片反推入口')" /></div
+              :note="xt('在 AI 创作下方展示图片反推入口')" /></div
           ><ElRow :gutter="16" class="number-row"
             ><ElCol :xs="24" :sm="12"
-              ><ElFormItem :label="xt('视觉模型')"
+              ><ElFormItem :label="xt('默认视觉模型')"
                 ><ElSelect
                   v-model="settings.imagePromptModelKey"
                   clearable
                   filterable
                   class="wide"
-                  :placeholder="xt('跟随默认聊天模型')"
+                  :placeholder="xt('自动选择可用视觉模型')"
                   ><ElOption
                     v-for="item in chatModels"
                     :key="item.id"

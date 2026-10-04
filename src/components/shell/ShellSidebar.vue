@@ -27,7 +27,7 @@
         :target="item.external && item.openNewTab ? '_blank' : undefined"
         :rel="item.external && item.openNewTab ? 'noreferrer' : undefined"
         class="workspace-menu__item"
-        :class="{ 'is-active': !item.external && (item.activeModes || [item.mode]).includes(activeMode) && (item.mode !== 'chat' || !studio.currentConversationId) }"
+        :class="{ 'is-active': !item.external && (item.activeRoutes ? item.activeRoutes.includes(String(route.name)) : (item.activeModes || [item.mode]).includes(activeMode)) && (item.mode !== 'chat' || !studio.currentConversationId) }"
         :title="!sidebarOpen ? item.label : undefined"
         @click="handleNavLink($event, item)"
       >
@@ -102,7 +102,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   Blocks,
@@ -125,9 +125,11 @@ import {
   Pencil,
   Pin,
   Search,
+  ScanText,
   Settings,
   ShoppingBag,
   SquarePen,
+  Spline,
   Users,
   WalletCards,
   Webhook,
@@ -177,6 +179,7 @@ const auth = useAuthStore()
 const catalog = useCatalogStore()
 const studio = useStudioStore()
 const router = useRouter()
+const route = useRoute()
 const { t, locale } = useI18n()
 
 const formattedOnlyCodeBalance = computed(() => {
@@ -224,12 +227,16 @@ watch(conversationSearch, () => { recentVisibleCount.value = recentConversationP
 const externalIconMap: Record<string, Component> = { code: Code2, 'book-open': BookOpen, webhook: Webhook, 'key-round': KeyRound, 'life-buoy': LifeBuoy, 'external-link': ExternalLink }
 const navItems = computed<WorkspaceNavItem[]>(() => [
   { key: 'chat', mode: 'chat', label: t('workspace.newChat'), icon: SquarePen, to: '/chat', external: false, openNewTab: false },
-  ...(props.publicSettings.sidebarCreationEnabled ? [{ key: 'creation', mode: 'images' as const, activeModes: ['images', 'videos'] as StudioMode[], label: t('workspace.creation'), icon: ImageIcon, to: '/image', external: false, openNewTab: false }] : []),
+  ...(props.publicSettings.sidebarCreationEnabled ? [
+    { key: 'creation', mode: 'images' as const, activeModes: ['images', 'videos'] as StudioMode[], label: t('workspace.creation'), icon: ImageIcon, to: '/image', external: false, openNewTab: false },
+    { key: 'canvases', mode: 'workspace' as const, activeRoutes: ['canvases', 'canvas'], label: '画布', icon: Spline, to: '/canvases', external: false, openNewTab: false },
+    { key: 'image-prompt', mode: 'workspace' as const, activeRoutes: ['image-prompt'], label: '图片反推', icon: ScanText, to: '/image-prompt', external: false, openNewTab: false },
+  ] : []),
   ...(props.publicSettings.sidebarCommerceEnabled ? [{ key: 'commerce', mode: 'commerce' as const, label: t('workspace.commerce'), icon: ShoppingBag, to: '/commerce', external: false, openNewTab: false }] : []),
   ...(props.publicSettings.sidebarOfficeEnabled ? [{ key: 'office', mode: 'office' as const, label: t('workspace.office'), icon: BriefcaseBusiness, to: '/office', external: false, openNewTab: false }] : []),
   ...(props.publicSettings.sidebarPromptsEnabled ? [{ key: 'prompts', mode: 'prompts' as const, label: t('workspace.prompts'), icon: LibraryBig, to: '/prompts', external: false, openNewTab: false }] : []),
   ...(props.publicSettings.sidebarPluginsEnabled ? [{ key: 'plugins', mode: 'plugins' as const, label: '能力中心', icon: Blocks, to: '/capabilities', external: false, openNewTab: false }] : []),
-  ...(props.publicSettings.sidebarProjectsEnabled || props.publicSettings.sidebarAssetsEnabled ? [{ key: 'workspace', mode: 'workspace' as const, label: '工作空间', icon: FolderKanban, to: '/workspace', external: false, openNewTab: false }] : []),
+  ...(props.publicSettings.sidebarProjectsEnabled || props.publicSettings.sidebarAssetsEnabled ? [{ key: 'workspace', mode: 'workspace' as const, activeRoutes: ['workspace'], label: '工作空间', icon: FolderKanban, to: '/workspace', external: false, openNewTab: false }] : []),
   ...props.externalLinks.map((item) => ({ key: `external-${item.key}`, mode: 'api' as const, label: item.name, icon: externalIconMap[item.icon] || ExternalLink, to: item.url, external: true, openNewTab: item.openNewTab })),
 ])
 

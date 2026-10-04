@@ -13,7 +13,7 @@
           <button v-for="suggestion in doubaoRecommendations" :key="suggestion.title" type="button" @click="useChatSuggestion(suggestion)">{{ suggestion.title }}</button>
         </section>
 
-        <ChatComposer v-if="!generationConversationMode" ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:active-chat-mode="activeChatMode" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="isConversationView" :chat-ui-preset="chatUiPreset" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
+        <ChatComposer v-if="!generationConversationMode" ref="chatComposer" v-model:draft="draft" v-model:attachments="attachments" v-model:assistant-id="assistantId" v-model:chat-plugin-id="chatPluginId" v-model:qianwen-banner-index="qianwenBannerIndex" v-model:active-capability="activeCapability" :model="model" :chat-models="chatModels" :capability-models="capabilityModels" :active-capability-model="activeCapabilityModel" :active-capability-model-label="activeCapabilityModelLabel" :capability-model-available="capabilityModelAvailable" :select-capability-model="selectCapabilityModel" :active-chat-model-label="activeChatModelLabel" :chat-model-available="chatModelAvailable" :has-chat-thread="isConversationView" :chat-ui-preset="chatUiPreset" :uploading="uploading" :voice-listening="voiceListening" :voice-target="voiceTarget" :submit-message="submitMessage" :toggle-voice="toggleVoice" :select-model="selectModel" :open-file-picker="openFilePicker" :collapse-workspace-popovers="collapseWorkspacePopovers" :apply-quick-action-model="applyQuickActionModel" @load-models="void loadModelCatalog({ force: true })" />
         <div v-else id="generation-conversation-composer" class="generation-conversation-composer" />
       </div>
 
@@ -156,8 +156,7 @@ const doubaoRecommendations = computed(() => catalog.settings.chatHomeContent.do
 const qianwenBanners = computed(() => catalog.settings.chatHomeContent.qianwenBanners)
 const qianwenBannerIndex = ref(0)
 let qianwenBannerTimer = 0
-const activeChatMode = ref('快速')
-const activeChatResponseMode = computed<'fast' | 'expert'>(() => ['专家', '进阶', '思考研究'].includes(activeChatMode.value) ? 'expert' : 'fast')
+const activeChatResponseMode = computed(() => 'fast' as const)
 const pendingRecommendationSource = ref<{ prompt: string; source: WebSearchSource } | null>(null)
 const draft = ref('')
 const chatThread = ref<InstanceType<typeof ChatThread> | null>(null)

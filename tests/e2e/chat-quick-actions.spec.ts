@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
       kimiProject: { label: '选择项目', targetUrl: '/workspace?tab=projects' },
       composerControls: {
         gpt: { modeEnabled: false, modelSelectorEnabled: true, moreEnabled: false },
-        doubao: { modeEnabled: false, modelSelectorEnabled: true, moreEnabled: true },
+        doubao: { modeEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
         qianwen: { modeEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
         kimi: { modeEnabled: true, modelSelectorEnabled: true, moreEnabled: true },
       },
@@ -62,6 +62,7 @@ test('办公快捷能力会选中工具、模型和真实交付格式', async ({
 
 test('输入框底栏可切换模型并显示当前选中项', async ({ page }) => {
   await page.goto('/chat')
+  await expect(page.locator('.chat-home-mode-trigger, .chat-kimi-modes')).toHaveCount(0)
   const modelTrigger = page.getByRole('button', { name: /选择模型，当前为/ })
   await modelTrigger.click()
 

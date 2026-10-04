@@ -63,7 +63,7 @@ export interface KnowledgeBaseAsset { assetId: string; chunkCount: number; asset
 export interface KnowledgeBase { id: string; name: string; description: string; status: string; documentCount: number; chunkCount: number; teamId?: string | null; team?: { id: string; name: string } | null; creator?: { id: string; displayName: string }; assets: KnowledgeBaseAsset[] }
 export interface TeamResources { projects: Array<{ id: string; name: string; workflowStatus: string; _count: { assets: number; conversations: number } }>; assets: Array<{ id: string; name: string; kind: string }>; knowledgeBases: Array<{ id: string; name: string; documentCount: number }> }
 export interface AssistantToolBinding { key: string; assistant: { id: string; name: string }; tool: { id: string; key: string; name: string; description: string; requiresApproval: boolean }; approval?: { id: string; status: string; expiresAt?: string | null } }
-export interface WorkspaceNavItem { key: string; mode: StudioMode; activeModes?: StudioMode[]; label: string; icon: Component; to: string; external: boolean; openNewTab: boolean }
+export interface WorkspaceNavItem { key: string; mode: StudioMode; activeModes?: StudioMode[]; activeRoutes?: string[]; label: string; icon: Component; to: string; external: boolean; openNewTab: boolean }
 export interface ToolApproval { id: string; assistant?: { id: string; name: string } | null; tool: { id: string; key: string; name: string; description: string; requiresApproval: boolean }; status: string; expiresAt?: string | null }
 export interface WorkspaceAssistant { id: string; name: string; tools: { toolId: string }[] }
 export interface TeamDraft { name: string; description: string }

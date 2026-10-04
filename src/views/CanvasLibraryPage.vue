@@ -1,8 +1,6 @@
 <template>
   <section class="studio-index-page canvas-page canvas-library-page">
     <div class="index-page-inner">
-      <WorkspaceSectionTabs active="canvases" />
-
       <header class="index-page-header canvas-library-header">
         <div class="index-page-title"><h1>画布</h1><p>组织提示词、素材、生成结果和完整创作流程。</p></div>
         <div class="canvas-library-actions">
@@ -78,7 +76,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Archive, ArchiveRestore, Clapperboard, Copy, LoaderCircle, MoreHorizontal, MousePointer2, Plus, Search, Trash2, Upload, X } from 'lucide-vue-next'
-import WorkspaceSectionTabs from '../components/WorkspaceSectionTabs.vue'
 import { api } from '../services/api'
 import type { CanvasCapabilities, CanvasDocumentPayload, CanvasKind, CanvasProjectSummary, CanvasRecord, CanvasSummary } from '../types/canvas'
 

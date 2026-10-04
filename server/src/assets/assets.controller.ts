@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, StreamableFile, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, Req, StreamableFile, UseGuards } from '@nestjs/common'
 import { AssetKind } from '@prisma/client'
 import { IsOptional, IsString } from 'class-validator'
 import type { FastifyRequest } from 'fastify'
@@ -52,6 +52,13 @@ export class AssetsController {
       throw new BadRequestException('请选择 MP3、M4A、WAV、AAC、OGG、Opus 或 FLAC 音频')
     }
     const asset = await this.assets.storeUpload(user.id, { stream: part.file, name: part.filename, mimeType: imageMimeType || videoMimeType || audioMimeType || part.mimetype || 'application/octet-stream', kind, projectId, metadata: { purpose } })
+    return toPublicAsset(asset)
+  }
+
+  @Get(':id')
+  async get(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    const asset = await this.prisma.asset.findFirst({ where: { id, deletedAt: null, ...this.access.assetWhere(user.id) }, select: publicAssetSelect })
+    if (!asset) throw new NotFoundException('图片不存在或你没有访问权限')
     return toPublicAsset(asset)
   }
 

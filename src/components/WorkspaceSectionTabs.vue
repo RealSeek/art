@@ -8,22 +8,14 @@
       <Files :size="17" />
       <span>文件</span>
     </RouterLink>
-    <RouterLink to="/canvases" :class="{ 'is-active': active === 'canvases' }">
-      <Spline :size="17" />
-      <span>画布</span>
-    </RouterLink>
-    <RouterLink to="/image-prompt" :class="{ 'is-active': active === 'image-prompts' }">
-      <ScanText :size="17" />
-      <span>图片反推</span>
-    </RouterLink>
   </nav>
 </template>
 
 <script setup lang="ts">
-import { Files, FolderKanban, ScanText, Spline } from 'lucide-vue-next'
+import { Files, FolderKanban } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 
-defineProps<{ active: 'projects' | 'files' | 'canvases' | 'image-prompts' }>()
+defineProps<{ active: 'projects' | 'files' }>()
 </script>
 
 <style scoped>
