@@ -325,7 +325,8 @@ function paintAction(maskContext: CanvasRenderingContext2D, overlayContext: Canv
     maskContext.globalCompositeOperation = erase ? 'destination-out' : 'source-over'
     for (const point of points) stamp(maskContext, 'rgba(255,255,255,1)', 'rgba(255,255,255,0)', point)
     maskContext.restore()
-    for (const point of points) stamp(overlayContext, erase ? 'rgba(34,197,94,.6)' : 'rgba(0,0,0,.6)', erase ? 'rgba(34,197,94,0)' : 'rgba(0,0,0,0)', point)
+    // 预览层用不透明色绘制，透明度由 CSS 统一控制，避免逐个笔触叠加后越来越深
+    for (const point of points) stamp(overlayContext, erase ? 'rgba(34,197,94,1)' : 'rgba(0,0,0,1)', erase ? 'rgba(34,197,94,0)' : 'rgba(0,0,0,0)', point)
     return
   }
   const left = Math.min(action.from.x, action.to.x)
@@ -340,7 +341,7 @@ function paintAction(maskContext: CanvasRenderingContext2D, overlayContext: Canv
   else maskContext.rect(left, top, width, height)
   maskContext.fill()
   maskContext.restore()
-  overlayContext.fillStyle = 'rgba(0,0,0,.6)'
+  overlayContext.fillStyle = 'rgba(0,0,0,1)'
   overlayContext.beginPath()
   if (action.tool === 'ellipse') overlayContext.ellipse(left + width / 2, top + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2)
   else overlayContext.rect(left, top, width, height)

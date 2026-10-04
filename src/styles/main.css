@@ -867,6 +867,14 @@ button {
   position: absolute;
 }
 
+.region-editor__surface > img {
+  z-index: 0;
+}
+
+.region-editor__overlay {
+  z-index: 1;
+}
+
 .region-editor__overlay,
 .region-editor__mask {
   height: 100%;
