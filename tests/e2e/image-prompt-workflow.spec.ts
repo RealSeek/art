@@ -55,7 +55,7 @@ test('image prompt selects models, restores history and continues in chat', asyn
 
   await page.goto('/image-prompt')
   await page.getByRole('button', { name: 'vision-one', exact: true }).click()
-  const picker = page.getByRole('dialog', { name: '选择视觉模型' })
+  const picker = page.getByRole('dialog', { name: '选择对话模型' })
   await assertNoPageOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('image-prompt-model-desktop.png') })
   await picker.getByRole('option', { name: /vision-two/ }).click()

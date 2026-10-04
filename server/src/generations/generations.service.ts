@@ -21,7 +21,6 @@ import { TokenQuotaService, type QuotaReservation } from '../billing/token-quota
 import { ChatContextService } from './chat-context.service'
 import { publicGenerationDetailSelect, publicGenerationListSelect, toPublicGeneration, toPublicGenerationEvent, type PublicGenerationDto, type PublicGenerationEventDto } from './public-generation.dto'
 import { GenerationReconciliationService } from './generation-reconciliation.service'
-import { supportsImageInput } from '../providers/model-vision'
 
 interface CreateJobInput { kind: JobKind; prompt: string; model?: string; projectId?: string; conversationId?: string; options: Record<string, unknown>; idempotencyKey?: string }
 interface RequestTrace { requestId?: string; traceId?: string }
@@ -113,7 +112,7 @@ export class GenerationsService {
       const billingMode = 'USER_BYOK'
       input.prompt = '分析图片并生成可复用的图像生成提示词'
       input.model = input.model?.trim() || (await this.imagePromptModels(userId)).defaultModel
-      if (!input.model) throw new BadRequestException('没有可用的视觉模型，请先配置支持图片输入的个人聊天模型')
+      if (!input.model) throw new BadRequestException('没有可用的对话模型，请先接入对话 API 密钥')
       input.options = {
         taskType: 'IMAGE_PROMPT_EXTRACTION',
         assetId,
@@ -171,7 +170,7 @@ export class GenerationsService {
     }
     const requestedModel = creationToolUsesWorker ? creationTool?.model || input.model : input.model || assistant?.defaultModel || plugin?.recommendedModel || undefined
     const resolved = await this.providers.resolve(userId, requestedModel, modelCapability, creationToolUsesWorker ? input.options : { ...input.options, providerSource: 'user' })
-    if (imagePromptTask && resolved.presetKey !== requestedModel) throw new BadRequestException('请选择个人视觉模型，不能使用默认聊天模型替代')
+    if (imagePromptTask && resolved.presetKey !== requestedModel) throw new BadRequestException('请选择已接入的个人对话模型，不能使用默认聊天模型替代')
     if (creationToolUsesWorker && resolved.type !== 'LOCAL_WORKER') throw new BadRequestException('图片工具必须绑定本地 Worker 渠道')
     const priceVersion = resolved.presetKey && !resolved.presetKey.startsWith('private:')
       ? await this.prisma.modelPriceVersion.findFirst({ where: { modelPreset: { key: resolved.presetKey } }, orderBy: { version: 'desc' } })
@@ -375,14 +374,9 @@ export class GenerationsService {
     }, trace)
   }
   async imagePromptModels(userId: string) {
-    const [catalog, settings] = await Promise.all([
-      this.providers.listModelsForUser(userId, 'CHAT'),
-      this.prisma.systemSetting.findUnique({ where: { id: 'global' }, select: { imagePromptModelKey: true } }),
-    ])
-    const models = catalog.filter((model) => model.source === 'USER' && model.availability !== 'UNCONFIGURED' && supportsImageInput(model.options))
-    const configured = settings?.imagePromptModelKey.trim()
-    const preferred = models.find((model) => configured && [model.key, model.upstreamModel, model.displayName].includes(configured))
-      || models.find((model) => model.isDefault) || models[0]
+    const catalog = await this.providers.listModelsForUser(userId, 'CHAT')
+    const models = catalog.filter((model) => model.source === 'USER' && model.availability !== 'UNCONFIGURED')
+    const preferred = models.find((model) => model.isDefault) || models[0]
     return { models, defaultModel: preferred?.key || '' }
   }
 

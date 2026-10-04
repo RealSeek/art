@@ -3,7 +3,6 @@ import test from 'node:test'
 import { GenerationsService } from '../../server/src/generations/generations.service'
 import { ProvidersService } from '../../server/src/providers/providers.service'
 import { providerSourceRequirement } from '../../server/src/providers/provider-routing'
-import { supportsImageInput } from '../../server/src/providers/model-vision'
 import { AssetsController } from '../../server/src/assets/assets.controller'
 
 function harness() {
@@ -52,29 +51,38 @@ function harness() {
   return { service, models, job, resolveCalls, messages, conversations, getListQuery: () => listQuery }
 }
 
-test('image prompt catalog excludes text models and uses configured vision model as default', async () => {
-  const { service } = harness()
+test('image prompt reuses chat models without requiring vision metadata or separate defaults', async () => {
+  const { service, models } = harness()
+  models[1].options = {}
+  models.push({ ...models[1], key: 'private:unconfigured', availability: 'UNCONFIGURED' })
+  models.push({ ...models[1], key: 'platform:vision', source: 'PLATFORM' })
   const catalog = await service.imagePromptModels('user')
-  assert.deepEqual(catalog.models.map((model) => model.key), ['private:vision', 'private:other'])
-  assert.equal(catalog.defaultModel, 'private:vision')
-  assert.equal(supportsImageInput({ discovery: { features: ['tools'] } }), false)
+  assert.deepEqual(catalog.models.map((model) => model.key), ['private:text', 'private:vision', 'private:other'])
+  assert.equal(catalog.defaultModel, 'private:text')
 })
 
-test('explicit image prompt model is preserved while omitted model uses the vision default', async () => {
+test('explicit image prompt model is preserved while omitted model uses the chat default', async () => {
   const { service, resolveCalls } = harness()
   for (const model of ['private:other', undefined]) {
     await service.create('user', { kind: 'CHAT', model, prompt: 'extract', options: { taskType: 'IMAGE_PROMPT_EXTRACTION', assetId: 'asset' } })
   }
-  assert.deepEqual(resolveCalls.map((call) => call.model), ['private:other', 'private:vision'])
+  assert.deepEqual(resolveCalls.map((call) => call.model), ['private:other', 'private:text'])
   assert.equal((resolveCalls[0].options as Record<string, unknown>).providerSource, 'user')
 })
 
-test('provider resolution rejects a text model for extraction without affecting normal chat', async () => {
+test('extraction resolves the same chat model and credential without a vision metadata gate', async () => {
   const service = new ProvidersService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, { sourceRequirement: providerSourceRequirement } as never, {} as never)
-  const internal = service as unknown as { resolvePrivateCandidates: () => Promise<object[]> }
-  internal.resolvePrivateCandidates = async () => [{ model: 'text', options: { agentCapabilities: { supportsVision: false } } }]
-  await assert.rejects(service.resolveCandidates('user', 'private:text', 'CHAT', { taskType: 'IMAGE_PROMPT_EXTRACTION', providerSource: 'user' }), /支持图片输入/)
-  assert.equal((await service.resolveCandidates('user', 'private:text', 'CHAT', { providerSource: 'user' })).length, 1)
+  const internal = service as unknown as { resolvePrivateCandidates: (_userId: string, model: string, capability: string) => Promise<object[]> }
+  const selected = { model: 'chat-model', credentialId: 'chat-key', options: { agentCapabilities: { supportsVision: false } } }
+  internal.resolvePrivateCandidates = async (_userId, model, capability) => {
+    assert.equal(model, 'private:chat-model')
+    assert.equal(capability, 'CHAT')
+    return [selected]
+  }
+  const extraction = await service.resolveCandidates('user', 'private:chat-model', 'CHAT', { taskType: 'IMAGE_PROMPT_EXTRACTION', providerSource: 'user' })
+  const chat = await service.resolveCandidates('user', 'private:chat-model', 'CHAT', { providerSource: 'user' })
+  assert.equal(extraction[0], chat[0])
+  assert.equal(extraction[0].credentialId, 'chat-key')
 })
 
 test('extraction history filters task type in the database before applying the 100 row limit', async () => {

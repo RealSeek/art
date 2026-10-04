@@ -5,7 +5,7 @@
         <div class="index-page-title"><h1>图片反推</h1><p>从参考图片提取可直接用于生成的提示词。</p></div>
         <div class="image-prompt-header-actions">
           <button class="image-prompt-model-button" type="button" :disabled="modelsLoading || running || submitting || restoring" :aria-expanded="modelPickerOpen" @click="modelPickerOpen = !modelPickerOpen">
-            <ModelBadge v-if="activeModel" :model="activeModel" size="sm" /><span>{{ activeModel?.displayName || (modelsLoading ? '加载视觉模型' : '选择视觉模型') }}</span><ChevronDown :size="14" />
+            <ModelBadge v-if="activeModel" :model="activeModel" size="sm" /><span>{{ activeModel?.displayName || (modelsLoading ? '加载对话模型' : '选择对话模型') }}</span><ChevronDown :size="14" />
           </button>
           <button class="image-prompt-guide-button" type="button" :aria-expanded="historyOpen" @click="toggleHistory"><History :size="15" />反推历史</button>
         </div>
@@ -99,7 +99,7 @@
     <CanvasMediaDialog v-if="libraryOpen" kind="IMAGE" @close="libraryOpen = false" @select="chooseAsset" />
     <Teleport to="body">
       <div v-if="modelPickerOpen" class="canvas-modal-backdrop" @click.self="modelPickerOpen = false" @keydown.esc="modelPickerOpen = false">
-        <div class="image-prompt-model-dialog"><button type="button" class="image-prompt-dialog-close" aria-label="关闭模型选择" @click="modelPickerOpen = false"><X :size="18" /></button><ModelCatalogPicker :models="visionModels" :model-value="selectedModel" title="选择视觉模型" @select="selectModel" @configure-api-key="configureModels" /></div>
+        <div class="image-prompt-model-dialog"><button type="button" class="image-prompt-dialog-close" aria-label="关闭模型选择" @click="modelPickerOpen = false"><X :size="18" /></button><ModelCatalogPicker :models="chatModels" :model-value="selectedModel" title="选择对话模型" @select="selectModel" @configure-api-key="configureModels" /></div>
       </div>
       <div v-if="historyOpen" class="canvas-modal-backdrop" @click.self="historyOpen = false" @keydown.esc="historyOpen = false">
         <section class="image-prompt-history-dialog" role="dialog" aria-modal="true" aria-label="反推历史">
@@ -149,7 +149,7 @@ const history = ref<ExtractionJob[]>([])
 const historyLoading = ref(false)
 const historyError = ref('')
 const restoring = ref(false)
-const visionModels = ref<CatalogModel[]>([])
+const chatModels = ref<CatalogModel[]>([])
 const selectedModel = ref('')
 const modelsLoading = ref(false)
 const modelError = ref('')
@@ -180,7 +180,7 @@ const modes: Array<{ value: ExtractionMode; label: string; note: string; icon: C
 ]
 const structuredLabels: Record<string, string> = { subject: '主体', environment: '环境', visualStyle: '视觉风格', lighting: '光影', composition: '构图', camera: '镜头', colorPalette: '色彩', materials: '材质', details: '细节' }
 const running = computed(() => status.value === 'QUEUED' || status.value === 'RUNNING')
-const activeModel = computed(() => visionModels.value.find((item) => item.key === selectedModel.value))
+const activeModel = computed(() => chatModels.value.find((item) => item.key === selectedModel.value))
 const resultModelLabel = computed(() => activeJob.value ? modelLabel(activeJob.value) : '')
 const statusLabels: Record<ExtractionJob['status'], string> = { QUEUED: '排队中', RUNNING: '分析中', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消' }
 const structuredEntries = computed(() => Object.entries(result.value?.structured || {}).filter(([, value]) => value !== '' && (!Array.isArray(value) || value.length)))
@@ -201,15 +201,15 @@ async function loadModels() {
   modelsLoading.value = true; modelError.value = ''
   try {
     const catalog = await api<{ models: CatalogModel[]; defaultModel: string }>('/generations/image-prompt/models')
-    visionModels.value = catalog.models
+    chatModels.value = catalog.models
     if (!catalog.models.some((item) => item.key === selectedModel.value)) selectedModel.value = catalog.defaultModel
-    if (!catalog.models.length) modelError.value = '没有可用的视觉模型，请配置支持图片输入的个人聊天模型'
-  } catch (reason) { modelError.value = reason instanceof Error ? reason.message : '视觉模型加载失败' }
+    if (!catalog.models.length) modelError.value = '没有可用的对话模型，请先接入对话 API 密钥'
+  } catch (reason) { modelError.value = reason instanceof Error ? reason.message : '对话模型加载失败' }
   finally { modelsLoading.value = false }
 }
 function selectModel(value: string) { selectedModel.value = value; modelPickerOpen.value = false }
 function configureModels() { modelPickerOpen.value = false; void router.push({ path: '/chat', query: { settings: 'api' } }) }
-function modelLabel(job: ExtractionJob) { return visionModels.value.find((item) => item.key === job.options.requestedModel)?.displayName || job.model }
+function modelLabel(job: ExtractionJob) { return chatModels.value.find((item) => item.key === job.options.requestedModel)?.displayName || job.model }
 function formatHistoryDate(value: string) { return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
 function toggleHistory() { historyOpen.value = !historyOpen.value; if (historyOpen.value) void loadHistory() }
 async function loadHistory() {
