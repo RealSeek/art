@@ -97,6 +97,14 @@ export class ImageGenerationRunner implements GenerationRunner {
           if (n !== 1) throw new ImageProviderError('Gemini 生图单次仅支持 1 张图片', 400)
           return this.geminiImage(task, resolved, singlePrompt, imageOptions)
         }
+        if (/seedream/i.test(resolved.model)) {
+          if (imageOptions.maskAssetId || imageOptions.maskImage) throw new ImageProviderError('Seedream 不支持蒙版编辑', 400)
+          const images = (await this.referenceParts(task, imageOptions)).map((reference) => `data:${reference.mimeType};base64,${Buffer.from(reference.bytes).toString('base64')}`)
+          return this.normalizeImagePayload(await this.provider(resolved, '/images/generations', {
+            model: resolved.model, prompt: singlePrompt, n, size: imageOptions.size, response_format: 'url',
+            ...(images.length ? { image: images.length === 1 ? images[0] : images } : {}),
+          }, Math.max(resolved.timeoutMs, 300_000)))
+        }
         const fields = { model: resolved.model, prompt: singlePrompt, n, size: imageOptions.size, quality: imageOptions.quality, output_format: imageOptions.outputFormat, background: imageOptions.background, ...(imageOptions.outputCompression === undefined ? {} : { output_compression: imageOptions.outputCompression }) }
         const maskedSize = await this.maskedEditSize(task, imageOptions)
         if (maskedSize) fields.size = maskedSize
