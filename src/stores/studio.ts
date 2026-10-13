@@ -570,11 +570,11 @@ export const useStudioStore = defineStore('studio', {
       if (result?.status === 'FAILED' || result?.status === 'CANCELLED') throw new Error(result.error || '生成任务失败')
       return result
     },
-    async startGeneration(options: GenerationOptions, conversationId?: string, retry = false, conversationModel = 'gpt-5.5') {
+    async startGeneration(options: GenerationOptions, conversationId?: string, retry = false, conversationModel = 'gpt-5.5', messageContentOverride?: string) {
       this.lastError = ''
       const kind = options.mode === 'commerce' ? 'COMMERCE' : options.mode === 'videos' ? 'VIDEO' : 'IMAGE'
       const safeConversationModel = conversationModel.trim() || options.model.trim() || 'gpt-5.5'
-      const messageContent = retry ? `按原方案重试「${options.mode === 'videos' ? '视频生成' : '图片生成'}」` : options.prompt
+      const messageContent = messageContentOverride ?? (retry ? `按原方案重试「${options.mode === 'videos' ? '视频生成' : '图片生成'}」` : options.prompt)
       // 本地回显：创建会话/消息/任务三个往返完成前先渲染占位任务，用户不会误判成没提交而重复点击。
       const optimisticId = `pending:${createClientId()}`
       const optimisticMessage: Message = { id: `pending-message:${optimisticId}`, role: 'user', content: messageContent, createdAt: Date.now(), attachmentIds: options.referenceAssetIds }

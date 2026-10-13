@@ -1191,7 +1191,19 @@ async function submitGeneration() {
   let jobId = ''
   try {
     const inline = await localInputs.payload()
-    jobId = (await store.startGeneration({ mode: creationMode.value, prompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: creationMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: creationMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: creationMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: referenceAssetIds, referenceImages: inline.references, referenceVideos: inline.videos, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, ...(creationMode.value === 'videos' && activeVideoCapabilities.value.native ? videoSettings.value : {}), pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, conversationId, false, activeCreationModel.value)).id
+    const previousImage = creationMode.value === 'images' && conversationId
+      ? store.generations
+        .filter((generation) => generation.conversationId === conversationId && generation.mode === 'images' && generation.status === 'SUCCEEDED')
+        .reduce<GenerationRun | null>((latest, generation) => !latest || generation.createdAt > latest.createdAt ? generation : latest, null)
+      : null
+    const hasNewImageReference = referenceAssetIds.length > 0 || inline.references.length > 0
+    const previousImageAssetIds = previousImage && !hasNewImageReference
+      ? previousImage.assets.filter((asset) => asset.kind === 'image').map((asset) => asset.id)
+      : []
+    const generationPrompt = previousImage
+      ? `${previousImage.prompt}\n\n后续修改要求：${prompt}`
+      : prompt
+    jobId = (await store.startGeneration({ mode: creationMode.value, prompt: generationPrompt, model: activeCreationModel.value, ratio: imageSizeForSelection(), quality: activeImageCapabilities.value.defaultQuality, style: creationMode.value === 'images' && imageStyle.value ? imageStyle.value : undefined, count: creationMode.value === 'images' ? imageCount.value : 1, modules: commerceModules.value, creationType: creationType.value, platform: creationMode.value === 'commerce' ? commercePlatform.value : undefined, referenceAssetIds: [...referenceAssetIds, ...previousImageAssetIds], referenceImages: inline.references, referenceVideos: inline.videos, referenceAudios: inline.audios, maskImage: inline.mask, maskReferenceId: inline.mask ? maskReferenceId.value || undefined : undefined, outputFormat: providerOutputFormat(outputFormat.value), background: providerBackground(imageBackground.value), outputCompression: outputFormat.value === 'PNG' ? undefined : 90, resolution: videoResolution.value, duration: videoDuration.value, aspectRatio: videoAspectRatio.value, ...(creationMode.value === 'videos' && activeVideoCapabilities.value.native ? videoSettings.value : {}), pluginId: creationPluginId.value || undefined, creationToolId: creationToolId }, conversationId, false, activeCreationModel.value, prompt)).id
     await localInputs.markSubmitted({
       referenceIds: inline.references.map((item) => item.id),
       videoIds: inline.videos.map((item) => item.id),

@@ -62,8 +62,14 @@ for (const kind of ['VIDEO', 'IMAGE'] as const) {
     await input.fill('Continue this creation')
     await page.getByRole('button', { name: '开始生成', exact: true }).click()
     await expect.poll(() => requests.length).toBe(1)
-    expect(requests[0]).toMatchObject({ kind, conversationId: 'creation-conversation', model: kind === 'VIDEO' ? 'video-model' : 'image-model', prompt: 'Continue this creation' })
-    expect(requests[0].options).toMatchObject(kind === 'VIDEO' ? { resolution: '1080p', duration: 10, aspectRatio: '9:16' } : { size: '2048x2048', count: 2 })
+    expect(requests[0]).toMatchObject({ kind, conversationId: 'creation-conversation', model: kind === 'VIDEO' ? 'video-model' : 'image-model' })
+    if (kind === 'IMAGE') {
+      expect(requests[0].prompt).toBe('Original creation\n\n后续修改要求：Continue this creation')
+      expect(requests[0].options).toMatchObject({ size: '2048x2048', count: 2, referenceAssetIds: ['result'] })
+    } else {
+      expect(requests[0].prompt).toBe('Continue this creation')
+      expect(requests[0].options).toMatchObject({ resolution: '1080p', duration: 10, aspectRatio: '9:16' })
+    }
     expect(createdConversations).toBe(0)
     await expect(page).toHaveURL(/generation=follow-up-1/)
     await expect(input).toBeEmpty()
