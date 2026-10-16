@@ -1,6 +1,51 @@
 import { expect, test } from '@playwright/test'
 import { assertNoPageOverflow } from './helpers'
 
+test('Seedream 4.5 only offers 2K/4K and submits a valid landscape size with a reference', async ({ page }) => {
+  const requests: Array<{ options: { size: string } }> = []
+  const createdAt = new Date().toISOString()
+  const model = { key: 'private:seedream', upstreamModel: 'seedream-4.5', displayName: 'Seedream 4.5', capability: 'IMAGE', source: 'USER', isDefault: true, availability: 'AVAILABLE', options: { imageCapabilities: {
+    sizes: ['2048x2048', '2560x1440', '1440x2560', '2880x2880', '3840x2160'], defaultSize: '2048x2048', minPixels: 3_686_400, qualities: ['medium'], outputFormats: ['png'], backgrounds: ['opaque'], maxCount: 1, supportsReference: true,
+  } } }
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    let body: unknown = []
+    if (path === '/v1/auth/session') body = { user: { id: 'seedream-user', email: 'seedream@example.test', displayName: 'Seedream test', authMethod: 'password' } }
+    else if (path === '/v1/auth/setup/status') body = { required: false }
+    else if (path === '/v1/catalog/settings') body = {}
+    else if (path.endsWith('/models')) body = [model]
+    else if (path === '/v1/conversations' && route.request().method() === 'POST') body = { id: 'seedream-conversation', model: model.key, createdAt, updatedAt: createdAt, messages: [] }
+    else if (path.endsWith('/messages') && route.request().method() === 'POST') body = { id: 'seedream-message', createdAt }
+    else if (path === '/v1/generations' && route.request().method() === 'POST') {
+      const request = route.request().postDataJSON()
+      requests.push(request)
+      body = { ...request, id: 'seedream-job', status: 'QUEUED', createdAt }
+    }
+    else if (path === '/v1/generations/seedream-job') body = { id: 'seedream-job', status: 'QUEUED', kind: 'IMAGE', createdAt }
+    await route.fulfill({ json: body })
+  })
+  await page.goto('/image')
+  await page.getByRole('button', { name: '图片分辨率，当前为 2K', exact: true }).click()
+  await expect(page.getByRole('button', { name: '1K', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '4K', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '2K', exact: true }).click()
+  await page.getByRole('button', { name: '比例 自动', exact: true }).click()
+  await page.getByRole('button', { name: '16:9', exact: true }).click()
+  const reference = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 160
+    canvas.height = 90
+    canvas.getContext('2d')!.fillRect(0, 0, 160, 90)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  await page.locator('input[type="file"][accept="image/*"][multiple]').setInputFiles({ name: 'reference.png', mimeType: 'image/png', buffer: Buffer.from(reference, 'base64') })
+  await expect(page.getByRole('button', { name: '移除参考图片 reference.png', exact: true })).toBeVisible()
+  await page.getByRole('textbox', { name: '创作描述' }).fill('保留参考图构图')
+  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0].options.size).toBe('2560x1440')
+})
+
 for (const kind of ['VIDEO', 'IMAGE'] as const) {
   test(`${kind} history reuses the creation composer and continues in the same conversation`, async ({ page }, testInfo) => {
     const requests: Array<{ kind: string; model: string; conversationId: string; prompt: string; options: Record<string, unknown> }> = []

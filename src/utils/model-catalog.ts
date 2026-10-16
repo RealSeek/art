@@ -40,6 +40,7 @@ export type CatalogModel = {
     }
     imageCapabilities?: {
       sizes?: string[]
+      minPixels?: number
       qualities?: string[]
       outputFormats?: string[]
       backgrounds?: string[]

@@ -372,7 +372,7 @@ const selectedCommerceRun = ref<GenerationRun | null>(null)
 const activeImageCapabilities = computed(() => {
   const model = findCatalogModel(catalogModels.value, imageModel.value, 'IMAGE')
   const raw = model?.options?.imageCapabilities || {}
-  return { sizes: raw.sizes?.length ? raw.sizes : ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096'], qualities: raw.qualities?.length ? raw.qualities : ['low', 'medium', 'high'], outputFormats: raw.outputFormats?.length ? raw.outputFormats : ['png', 'jpeg', 'webp'], backgrounds: raw.backgrounds?.length ? raw.backgrounds : ['auto', 'opaque', 'transparent'], maxCount: Math.max(1, Math.min(10, raw.maxCount || 4)), defaultSize: raw.defaultSize || '1024x1024', defaultQuality: raw.defaultQuality || 'medium', supportsReference: raw.supportsReference !== false, supportsMask: raw.supportsMask === true, resolutionPricing: raw.resolutionPricing || {} }
+  return { sizes: raw.sizes?.length ? raw.sizes : ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096'], minPixels: raw.minPixels, qualities: raw.qualities?.length ? raw.qualities : ['low', 'medium', 'high'], outputFormats: raw.outputFormats?.length ? raw.outputFormats : ['png', 'jpeg', 'webp'], backgrounds: raw.backgrounds?.length ? raw.backgrounds : ['auto', 'opaque', 'transparent'], maxCount: Math.max(1, Math.min(10, raw.maxCount || 4)), defaultSize: raw.defaultSize || '1024x1024', defaultQuality: raw.defaultQuality || 'medium', supportsReference: raw.supportsReference !== false, supportsMask: raw.supportsMask === true, resolutionPricing: raw.resolutionPricing || {} }
 })
 const activeVideoCapabilities = computed(() => {
   const model = findCatalogModel(catalogModels.value, videoModel.value, 'VIDEO')
@@ -782,7 +782,7 @@ function creationOptionLabel(option: string) {
   if (creationMenu.value === 'resolution') return videoQualityLabels[option] || option
   if (creationMenu.value === 'imageResolution') return resolutionOptionLabel(option)
   if (creationMenu.value === 'size' && option === '自动' && activeReferenceRatio.value) {
-    const followed = imageSizeForReferenceRatio(activeReferenceRatio.value, imageResolution.value)
+    const followed = imageSizeForReferenceRatio(activeReferenceRatio.value, imageResolution.value, activeImageCapabilities.value.minPixels)
     if (followed) return `自动 · 跟随参考图 ${followed}`
   }
   return option
@@ -1474,7 +1474,7 @@ function imageSizeForSelection() {
   // 自动比例 + 参考图：输出尺寸跟随参考图宽高比（上游 size 决定输出比例），档位仍由用户选择。
   const ratio = activeReferenceRatio.value
   if (autoMode.value === '自动' && ratio && caps.supportsReference) {
-    const followed = imageSizeForReferenceRatio(ratio, imageResolution.value)
+    const followed = imageSizeForReferenceRatio(ratio, imageResolution.value, caps.minPixels)
     if (followed) return followed
   }
   return pickImageSize(caps.sizes, imageResolution.value, autoMode.value, caps.defaultSize)

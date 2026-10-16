@@ -178,7 +178,7 @@ export class GenerationsService {
     const projectSkillSnapshot = input.kind === 'CHAT' && project?.activeSkillVersion?.enabled ? { id: project.activeSkillVersion.id, version: project.activeSkillVersion.version, name: project.activeSkillVersion.name, content: project.activeSkillVersion.content } : undefined
     const projectInstructions = input.kind === 'CHAT' ? project?.instructions.trim() || undefined : undefined
     const normalizedOptions: Record<string, unknown> = input.kind === 'IMAGE' || input.kind === 'COMMERCE'
-      ? { ...input.options, ...(creationTool ? { creationTool: { id: creationTool.id, title: creationTool.title, instruction: creationTool.prompt, options: creationTool.options, executionMode: creationToolUsesWorker ? 'WORKER' : 'GENERIC' } } : {}), ...normalizeImageOptions(input.options, resolved.imageCapabilities) }
+      ? { ...input.options, ...(creationTool ? { creationTool: { id: creationTool.id, title: creationTool.title, instruction: creationTool.prompt, options: creationTool.options, executionMode: creationToolUsesWorker ? 'WORKER' : 'GENERIC' } } : {}), ...normalizeImageOptions(input.options, resolved.imageCapabilities, resolved.model) }
       : input.kind === 'VIDEO'
         ? { ...input.options, ...normalizeVideoOptions(input.options, resolved.videoCapabilities) }
         : { ...input.options, ...(resolved.options?.contextWindow ? { contextWindow: resolved.options.contextWindow } : {}), ...(projectSkillSnapshot ? { projectSkill: projectSkillSnapshot } : {}), ...(projectInstructions ? { projectInstructions } : {}) }

@@ -7,6 +7,17 @@ export function isGeminiImageModel(model: string) {
   return /^gemini-[\w.-]*image(?:-|$)/i.test(model)
 }
 
+export function isSeedream45ImageModel(model: string) {
+  return /(?:^|[-_])seedream[-_.]4[-_.]5(?:[-_.]|$)/i.test(model)
+}
+
+// Seedream 4.5 至少需要 3686400 像素，通用尺寸表中的 1K 和部分 2K 尺寸不适用。
+const SEEDREAM_45_MIN_PIXELS = 3_686_400
+const SEEDREAM_45_SIZES = [
+  '2048x2048', '2560x1440', '1440x2560', '2496x1664', '1664x2496', '2304x1728', '1728x2304',
+  '2880x2880', '3840x2160', '2160x3840', '3520x2352', '2352x3520', '3200x2400', '2400x3200',
+]
+
 export type NormalizedImageOptions = {
   size: string
   quality: string
@@ -44,6 +55,7 @@ function inlineMaskImage(value: unknown) {
 
 export type ImageCapabilityConfig = {
   sizes: string[]
+  minPixels?: number
   qualities: string[]
   outputFormats: ImageOutputFormat[]
   backgrounds: ImageBackground[]
@@ -97,17 +109,18 @@ function pricingMap(value: unknown) {
   return result
 }
 
-export function imageCapabilities(value: unknown): ImageCapabilityConfig {
+export function imageCapabilities(value: unknown, model = ''): ImageCapabilityConfig {
   const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   const raw = root.imageCapabilities && typeof root.imageCapabilities === 'object' && !Array.isArray(root.imageCapabilities) ? root.imageCapabilities as Record<string, unknown> : root
-  const sizes = Array.isArray(raw.sizes) ? raw.sizes.map(String).filter((item) => /^\d{3,5}x\d{3,5}$/.test(item)).slice(0, 30) : DEFAULT_CAPABILITIES.sizes
+  const seedream45 = isSeedream45ImageModel(model)
+  const sizes = seedream45 ? SEEDREAM_45_SIZES : Array.isArray(raw.sizes) ? raw.sizes.map(String).filter((item) => /^\d{3,5}x\d{3,5}$/.test(item)).slice(0, 30) : DEFAULT_CAPABILITIES.sizes
   const qualities = Array.isArray(raw.qualities) ? raw.qualities.map(String).filter((item) => ['low', 'medium', 'high'].includes(item)).slice(0, 3) : DEFAULT_CAPABILITIES.qualities
   const outputFormats = Array.isArray(raw.outputFormats) ? raw.outputFormats.map((item) => String(item).toLowerCase().replace('jpg', 'jpeg') as ImageOutputFormat).filter((item): item is ImageOutputFormat => OUTPUT_FORMATS.has(item)).slice(0, 3) : DEFAULT_CAPABILITIES.outputFormats
   const backgrounds = Array.isArray(raw.backgrounds) ? raw.backgrounds.map(String).filter((item): item is ImageBackground => BACKGROUNDS.has(item as ImageBackground)).slice(0, 3) : DEFAULT_CAPABILITIES.backgrounds
   const maxCount = Number.isInteger(Number(raw.maxCount)) ? Math.max(1, Math.min(10, Number(raw.maxCount))) : DEFAULT_CAPABILITIES.maxCount
   const defaultSize = sizes.includes(String(raw.defaultSize)) ? String(raw.defaultSize) : sizes[0] || DEFAULT_CAPABILITIES.defaultSize
   const defaultQuality = qualities.includes(String(raw.defaultQuality)) ? String(raw.defaultQuality) : qualities[0] || DEFAULT_CAPABILITIES.defaultQuality
-  return { sizes: sizes.length ? sizes : DEFAULT_CAPABILITIES.sizes, qualities: qualities.length ? qualities : DEFAULT_CAPABILITIES.qualities, outputFormats: outputFormats.length ? outputFormats : DEFAULT_CAPABILITIES.outputFormats, backgrounds: backgrounds.length ? backgrounds : DEFAULT_CAPABILITIES.backgrounds, maxCount, defaultSize, defaultQuality, supportsReference: raw.supportsReference === undefined ? DEFAULT_CAPABILITIES.supportsReference : Boolean(raw.supportsReference), supportsMask: raw.supportsMask === undefined ? DEFAULT_CAPABILITIES.supportsMask : Boolean(raw.supportsMask), resolutionPricing: pricingMap(raw.resolutionPricing) }
+  return { sizes: sizes.length ? sizes : DEFAULT_CAPABILITIES.sizes, ...(seedream45 ? { minPixels: SEEDREAM_45_MIN_PIXELS } : {}), qualities: qualities.length ? qualities : DEFAULT_CAPABILITIES.qualities, outputFormats: outputFormats.length ? outputFormats : DEFAULT_CAPABILITIES.outputFormats, backgrounds: backgrounds.length ? backgrounds : DEFAULT_CAPABILITIES.backgrounds, maxCount, defaultSize, defaultQuality, supportsReference: raw.supportsReference === undefined ? DEFAULT_CAPABILITIES.supportsReference : Boolean(raw.supportsReference), supportsMask: raw.supportsMask === undefined ? DEFAULT_CAPABILITIES.supportsMask : Boolean(raw.supportsMask), resolutionPricing: pricingMap(raw.resolutionPricing) }
 }
 
 export function imageCreditCost(size: string, configuredCapabilities: unknown, fallback: number) {
@@ -117,9 +130,11 @@ export function imageCreditCost(size: string, configuredCapabilities: unknown, f
   return Math.max(0, fallback) * (tier === '4K' ? 4 : tier === '2K' ? 2 : 1)
 }
 
-export function normalizeImageOptions(options: Record<string, unknown>, configuredCapabilities?: unknown): NormalizedImageOptions {
-  const capabilities = imageCapabilities(configuredCapabilities)
+export function normalizeImageOptions(options: Record<string, unknown>, configuredCapabilities?: unknown, model = ''): NormalizedImageOptions {
+  const capabilities = imageCapabilities(configuredCapabilities, model)
   const requestedSize = String(options.size || capabilities.defaultSize)
+  const [width, height] = requestedSize.split('x').map(Number)
+  if (capabilities.minPixels && width * height < capabilities.minPixels) throw new BadRequestException('Seedream 4.5 图片总像素至少为 3686400，请选择 2K 或 4K 尺寸')
   const quality = String(options.quality || capabilities.defaultQuality).toLowerCase()
   const count = Math.max(1, Math.min(10, Number(options.count || 1)))
   const referenceAssetIds = Array.isArray(options.referenceAssetIds) ? [...new Set(options.referenceAssetIds.map(String).filter((item) => /^[a-zA-Z0-9_-]{1,100}$/.test(item)))].slice(0, 4) : []

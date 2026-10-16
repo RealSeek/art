@@ -59,7 +59,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     const prompt = selectedStyle ? `${promptedByTool}\n\n视觉风格：${selectedStyle}。保持主体和用户要求不变，将该风格自然应用到构图、光影、色彩与材质。` : promptedByTool
     const count = task.kind === 'COMMERCE' ? Math.max(1, Math.min(Number(options.modules || 8), 12)) : Math.max(1, Math.min(Number(options.count || 1), 10))
     const execution = await this.withProviderFailover(task, async (resolved) => {
-      const imageOptions = normalizeImageOptions(options, resolved.imageCapabilities)
+      const imageOptions = normalizeImageOptions(options, resolved.imageCapabilities, resolved.model)
       if (resolved.type === ProviderType.LOCAL_WORKER) {
         if (task.kind === 'COMMERCE') throw new ImageProviderError('本地图片工具不能作为商品视觉多图模型使用', 400)
         if (count > 1) throw new ImageProviderError('本地图片工具每个任务只返回 1 张图片', 400)
@@ -136,7 +136,7 @@ export class ImageGenerationRunner implements GenerationRunner {
     const { resolved, payload } = execution.result
     if (!Array.isArray(payload.data) || !payload.data.length) throw new ImageProviderError('Provider returned no images', 502)
     if (payload.data.length !== count) throw new ReconciliationRequiredError(`Provider 图片数量不完整：期望 ${count} 张，实际 ${payload.data.length} 张`)
-    const imageOptions = normalizeImageOptions(options, resolved.imageCapabilities)
+    const imageOptions = normalizeImageOptions(options, resolved.imageCapabilities, resolved.model)
     for (const [position, item] of payload.data.entries()) {
       await this.assertNotCancelled(task.id)
       const bytes = await this.imageBytes(item, resolved)

@@ -19,7 +19,7 @@ import {
 } from './provider-routing'
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
-import { isGeminiImageModel } from '../generations/image-options'
+import { imageCapabilities, isGeminiImageModel, isSeedream45ImageModel } from '../generations/image-options'
 import { seedanceChannelCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
 
@@ -914,7 +914,7 @@ export class ProvidersService implements OnModuleInit {
       return {
         apiProtocol,
         discovery,
-        imageCapabilities: {
+        imageCapabilities: imageCapabilities({
           // 多档家族开放 1K/2K/4K 尺寸；分档定价与服务端 imageResolutionTier 的分档保持一致。
           sizes: tiered ? IMAGE_RESOLUTION_SIZES : ['1024x1024'],
           qualities: ['medium'],
@@ -929,7 +929,7 @@ export class ProvidersService implements OnModuleInit {
           resolutionPricing: tiered
             ? { '1K': creditCost, '2K': creditCost * 2, '4K': creditCost * 4 }
             : { '1K': creditCost },
-        },
+        }, candidate.id),
       }
     }
     if (candidate.capability === ModelCapability.VIDEO) {
@@ -1214,7 +1214,9 @@ export class ProvidersService implements OnModuleInit {
         availability: healthyRouteCount ? 'AVAILABLE' : 'DEGRADED',
         healthyRouteCount,
         routeCount,
-        options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider) : model.options,
+        options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider)
+          : model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(model.upstreamModel)
+            ? { ...this.jsonObject(model.options), imageCapabilities: imageCapabilities(model.options, model.upstreamModel) } : model.options,
         provider: provider ? this.publicProvider(provider) : null,
         providerRoutes: providerRoutes.map(({ provider: routeProvider, ...route }) => ({ ...route, provider: this.publicProvider(routeProvider) })),
       }
@@ -1253,6 +1255,7 @@ export class ProvidersService implements OnModuleInit {
       const healthyRouteCount = Number(this.providerHealthy(model.provider)) + model.providerRoutes.filter((route) => this.providerHealthy(route.provider)).length
       const options = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? structuredClone(model.options) as Record<string, unknown> : {}
       if (model.capability === ModelCapability.VIDEO) Object.assign(options, this.effectiveVideoOptions(model.options, model.providerRoutes, model.provider))
+      if (model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(model.upstreamModel)) options.imageCapabilities = imageCapabilities(options, model.upstreamModel)
       const image = options.imageCapabilities && typeof options.imageCapabilities === 'object' && !Array.isArray(options.imageCapabilities) ? options.imageCapabilities as Record<string, unknown> : undefined
       if (image) {
         const raw = image.resolutionPricing && typeof image.resolutionPricing === 'object' && !Array.isArray(image.resolutionPricing) ? image.resolutionPricing as Record<string, unknown> : {}
@@ -1285,6 +1288,8 @@ export class ProvidersService implements OnModuleInit {
         ...model,
         source: 'USER',
         upstreamModel: routes[0]?.upstreamModel || '',
+        options: model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(routes[0]?.upstreamModel || '')
+          ? { ...this.jsonObject(model.options), imageCapabilities: imageCapabilities(model.options, routes[0].upstreamModel) } : model.options,
         flatCreditCost: 0,
         effectiveCreditCost: 0,
         inputCreditsPerMillion: 0,

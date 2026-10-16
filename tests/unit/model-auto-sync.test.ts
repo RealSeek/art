@@ -234,11 +234,12 @@ test('导入与同步只为真正的编辑类图片模型开启蒙版能力', as
   }
   const providers = service(prisma)
   providers.discoverCredentialModels = async () => ({
-    models: ['gpt-image-2.5', 'grok-imagine-image-2.0', 'gemini-3-pro-image-preview'],
+    models: ['gpt-image-2.5', 'grok-imagine-image-2.0', 'gemini-3-pro-image-preview', 'seedream-4.5'],
     candidates: [
       candidate('gpt-image-2.5', 'IMAGE' as ModelCapability),
       candidate('grok-imagine-image-2.0', 'IMAGE' as ModelCapability),
       candidate('gemini-3-pro-image-preview', 'IMAGE' as ModelCapability),
+      candidate('seedream-4.5', 'IMAGE' as ModelCapability),
     ],
     latencyMs: 5,
   })
@@ -246,11 +247,34 @@ test('导入与同步只为真正的编辑类图片模型开启蒙版能力', as
   await providers.syncCredentialModels('user-1', 'credential-1')
 
   const capabilities = created.map((row) => (row.options as { imageCapabilities: Record<string, unknown> }).imageCapabilities)
-  assert.deepEqual(capabilities.map((item) => item.supportsMask), [true, false, false])
-  assert.deepEqual(capabilities.map((item) => item.supportsReference), [true, true, true])
+  assert.deepEqual(capabilities.map((item) => item.supportsMask), [true, false, false, false])
+  assert.deepEqual(capabilities.map((item) => item.supportsReference), [true, true, true, true])
   // 多档家族（gpt-image / gemini）开放 1K/2K/4K 尺寸与分档定价，其余保持单档。
-  assert.deepEqual(capabilities.map((item) => (item.sizes as string[]).length), [15, 1, 15])
-  assert.deepEqual(capabilities.map((item) => (item.resolutionPricing as Record<string, number>)['2K'] || 0), [2, 0, 2])
+  assert.deepEqual(capabilities.map((item) => (item.sizes as string[]).length), [15, 1, 15, 14])
+  assert.deepEqual(capabilities.map((item) => (item.resolutionPricing as Record<string, number>)['2K'] || 0), [2, 0, 2, 2])
+  assert.equal(capabilities[3].defaultSize, '2048x2048')
+  assert.equal(capabilities[3].minPixels, 3_686_400)
+})
+
+test('已有个人和平台 Seedream 4.5 模型目录直接应用尺寸限制，无需用户重新导入', async () => {
+  const legacyOptions = { imageCapabilities: { sizes: ['1024x1024', '2048x1152'], defaultSize: '1024x1024' } }
+  const provider = { enabled: true, encryptedApiKey: 'configured', lastHealthStatus: 'healthy', cooldownUntil: null }
+  const prisma = {
+    modelPreset: { findMany: async () => [{ id: 'platform', upstreamModel: 'seedream-4.5', capability: 'IMAGE', flatCreditCost: 0, options: legacyOptions, provider, providerRoutes: [] }] },
+    userModel: { findMany: async () => [{ id: 'private', capability: 'IMAGE', options: legacyOptions, routes: [{ upstreamModel: 'seedream-4.5', credential: { enabled: true } }] }] },
+  }
+  const providers = service(prisma)
+  providers.syncStaleUserModels = async () => {}
+  providers.userPolicy = async () => ({ restrictModels: false, allowedModelIds: [], costOverrides: new Map(), creditRatePercent: 100 }) as never
+  const models = await providers.listModelsForUser('user-1', 'IMAGE')
+  assert.equal(models.length, 2)
+  for (const model of models) {
+    const caps = (model.options as { imageCapabilities: { sizes: string[]; defaultSize: string; minPixels: number } }).imageCapabilities
+    assert.equal(caps.defaultSize, '2048x2048')
+    assert.equal(caps.minPixels, 3_686_400)
+    assert.ok(!caps.sizes.includes('1024x1024'))
+    assert.ok(!caps.sizes.includes('2048x1152'))
+  }
 })
 
 test('同步会把已有图片模型升级到新的蒙版与参考图能力', async () => {

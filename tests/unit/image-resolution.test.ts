@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { availableImageTiers, imageResolutionTier, imageSizeForReferenceRatio, pickImageSize } from '../../src/utils/image-resolution.ts'
-import { imageResolutionTier as serverResolutionTier } from '../../server/src/generations/image-options'
+import { imageCapabilities, imageResolutionTier as serverResolutionTier, normalizeImageOptions } from '../../server/src/generations/image-options'
 
 const sizes = ['1024x1024', '1536x1024', '1024x1536', '2048x2048', '4096x4096']
 
@@ -54,4 +54,38 @@ test('按比例与档位挑选尺寸，自动比例沿用默认尺寸', () => {
 test('档位没有匹配尺寸时退回完整清单，避免选中不可用尺寸', () => {
   assert.equal(pickImageSize(['1024x1024', '1536x1024'], '4K', '16:9', '1024x1024'), '1536x1024')
   assert.equal(pickImageSize([], '1K', '1:1', '1024x1024'), '1024x1024')
+})
+
+test('Seedream 4.5 覆盖旧的 1K 配置，默认 2K 且所有尺寸满足上游像素门槛', () => {
+  for (const model of ['seedream-4.5', 'doubao-seedream-4-5-251128']) {
+    const caps = imageCapabilities({ sizes: ['1024x1024'], defaultSize: '1024x1024' }, model)
+    assert.equal(caps.defaultSize, '2048x2048')
+    assert.deepEqual(availableImageTiers(caps.sizes), ['2K', '4K'])
+    for (const size of caps.sizes) {
+      const [width, height] = size.split('x').map(Number)
+      assert.ok(width * height >= 3_686_400)
+      assert.equal(normalizeImageOptions({ size }, caps, model).size, size)
+    }
+    assert.equal(pickImageSize(caps.sizes, '2K', '16:9', caps.defaultSize), '2560x1440')
+    assert.equal(normalizeImageOptions({}, caps, model).size, '2048x2048')
+    for (const size of ['1024x1024', '2048x1152', '2016x1344']) {
+      assert.throws(() => normalizeImageOptions({ size, referenceAssetIds: ['reference'] }, caps, model), /图片总像素至少为 3686400/)
+    }
+  }
+  assert.equal(normalizeImageOptions({ size: '1024x1024' }, undefined, 'gpt-image-2').size, '1024x1024')
+  assert.equal(normalizeImageOptions({ size: '1024x1024' }, undefined, 'seedream-5.0-lite').size, '1024x1024')
+})
+
+test('Seedream 4.5 带参考图时自动比例输出满足最低像素要求，服务端接受自定义尺寸', () => {
+  const caps = imageCapabilities(undefined, 'seedream-4.5')
+  for (const ratio of [1, 16 / 9, 9 / 16, 3 / 2, 3 / 4, 2.2]) {
+    for (const tier of availableImageTiers(caps.sizes)) {
+      const size = imageSizeForReferenceRatio(ratio, tier, caps.minPixels)
+      assert.ok(size)
+      const [width, height] = size.split('x').map(Number)
+      assert.ok(width * height >= 3_686_400)
+      assert.ok(Math.abs(width / height - ratio) / ratio < 0.02)
+      assert.equal(normalizeImageOptions({ size, referenceAssetIds: ['reference'] }, caps, 'seedream-4.5').size, size)
+    }
+  }
 })

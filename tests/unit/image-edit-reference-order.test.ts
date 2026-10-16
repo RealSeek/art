@@ -85,12 +85,19 @@ test('蒙版底图是本机素材时保持本机在前', async () => {
 test('Seedream 各版本文生图都使用 JSON generations，不发送 GPT 专有参数', async () => {
   for (const model of ['seedream-4.5', 'seedream-5.0-lite', 'seedream-5-0-pro', 'doubao-seedream-4-5-251128']) {
     const h = harness(model)
-    await h.run({ size: '1024x1024', outputFormat: 'png', outputCompression: 90 })
+    const size = /seedream[-_.]4[-_.]5/i.test(model) ? '2048x2048' : '1024x1024'
+    await h.run({ size, outputFormat: 'png', outputCompression: 90 })
     assert.equal(h.requests.length, 1)
     assert.equal(h.requests[0].url, 'https://ai.example/proxy/v1/images/generations')
     assert.equal(h.requests[0].headers.get('content-type'), 'application/json')
-    assert.deepEqual(h.requests[0].body, { model, prompt: '把这张图的文字去掉', n: 1, size: '1024x1024', response_format: 'url' })
+    assert.deepEqual(h.requests[0].body, { model, prompt: '把这张图的文字去掉', n: 1, size, response_format: 'url' })
   }
+})
+
+test('Seedream 4.5 队列任务尺寸不足时不向上游发请求', async () => {
+  const h = harness('seedream-4.5')
+  await assert.rejects(() => h.run({ size: '1024x1024' }), /图片总像素至少为 3686400/)
+  assert.equal(h.requests.length, 0)
 })
 
 test('Seedream 单张参考图通过 generations 的 image 字段发送', async () => {

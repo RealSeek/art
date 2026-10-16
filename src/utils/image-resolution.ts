@@ -28,26 +28,31 @@ export function imageResolutionTier(size: string): ImageResolutionTier {
  * 档位仍由用户选择；比例接近标准比例时直接用上游尺寸表里的常用尺寸，
  * 否则按上游限制（边长 256–3840、16 的倍数、65.5万–829万像素）换算。
  */
-export function imageSizeForReferenceRatio(ratio: number, tier: ImageResolutionTier): string | null {
+export function imageSizeForReferenceRatio(ratio: number, tier: ImageResolutionTier, minPixels = 655_360): string | null {
   if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 3 || ratio < 1 / 3) return null
   const standard = Object.entries(REFERENCE_SIZE_TABLE).find(([key]) => {
     const [width, height] = key.split(':').map(Number)
     return Math.abs(width / height - ratio) / ratio <= 0.04
   })
-  if (standard) return standard[1][tier]
-  const base = tier === '4K' ? 2880 : tier === '2K' ? 2048 : 1280
-  let width = ratio >= 1 ? base : Math.round(base * ratio)
-  let height = ratio >= 1 ? Math.round(base / ratio) : base
-  const pixels = width * height
-  if (pixels < 655_360 || pixels > 8_294_400) {
-    const scale = Math.sqrt((pixels < 655_360 ? 655_360 : 8_294_400) / pixels)
-    width = Math.round(width * scale)
-    height = Math.round(height * scale)
+  if (standard) {
+    const [width, height] = standard[1][tier].split('x').map(Number)
+    if (width * height >= minPixels) return standard[1][tier]
   }
-  width = Math.round(width / 16) * 16
-  height = Math.round(height / 16) * 16
+  const base = tier === '4K' ? 2880 : tier === '2K' ? 2048 : 1280
+  const standardSize = standard?.[1][tier].split('x').map(Number)
+  let width = standardSize?.[0] ?? (ratio >= 1 ? base : Math.round(base * ratio))
+  let height = standardSize?.[1] ?? (ratio >= 1 ? Math.round(base / ratio) : base)
+  const pixels = width * height
+  if (pixels < minPixels || pixels > 8_294_400) {
+    const scale = Math.sqrt((pixels < minPixels ? minPixels : 8_294_400) / pixels)
+    width *= scale
+    height *= scale
+  }
+  const round = pixels < minPixels ? Math.ceil : Math.round
+  width = round(width / 16) * 16
+  height = round(height / 16) * 16
   if (Math.min(width, height) < 256 || Math.max(width, height) > 3840) return null
-  if (width * height < 655_360 || width * height > 8_294_400) return null
+  if (width * height < minPixels || width * height > 8_294_400) return null
   if (Math.max(width, height) / Math.min(width, height) > 3) return null
   return `${width}x${height}`
 }
