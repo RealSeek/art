@@ -96,8 +96,8 @@ const VENDORS = [
 ]
 
 const UNSUPPORTED_PATTERN = /embedding|embed-|rerank|moderation|guard|classifier|whisper|transcri|speech|tts|audio|realtime|search-query|reward|ocr/i
-const VIDEO_PATTERN = /video|sora|veo(?:-|$)|kling|hailuo|minimax[-_\s]?h3(?:[-_\s]|$)|minimax.*video|wan(?:\d|[-_]).*video|seedance|vidu|luma.*ray/i
-const IMAGE_PATTERN = /image|dall-e|gpt-image|flux|recraft|ideogram|imagen|seedream|nano[-_ ]?banana|stable[-_ ]?diffusion|sdxl/i
+const VIDEO_PATTERN = /video|sora|veo(?:-|$)|kling|hailuo|minimax[-_\s]?h3(?:[-_\s]|$)|minimax.*video|wanx?\d[\w.-]*-(?:video|t2v|i2v|kf2v|s2v)|seedance|vidu|luma.*ray/i
+const IMAGE_PATTERN = /image|dall-e|gpt-image|flux|recraft|ideogram|imagen|seedream|nano[-_ ]?banana|stable[-_ ]?diffusion|sdxl|wanx?\d[\w.-]*-(?:t2i|i2i)/i
 
 export function inferModelCapability(value: string): ModelCapability | null {
   if (UNSUPPORTED_PATTERN.test(value)) return null

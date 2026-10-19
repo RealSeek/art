@@ -11,7 +11,7 @@ import { fetchNoRedirect, fetchPublicNoRedirect, fetchPublicManualRedirect } fro
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
-import { isNativeVideoReferenceMode, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities } from '../video-options'
+import { isNativeVideoReferenceMode, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities, videoProviderUrl, wanVideoRequest } from '../video-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 
@@ -41,7 +41,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
+      response = await this.providerFetch(resolved, videoProviderUrl(resolved.baseUrl, path), { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved), ...(videoCapabilities(resolved.videoCapabilities).requestFormat === 'wan' ? { 'X-DashScope-Async': 'enable' } : {}), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
       if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
@@ -63,7 +63,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     if (!resolved.apiKey) throw new ProviderRequestError('AI provider is not configured')
     let response: Response
     try {
-      response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', null), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
+      response = await this.providerFetch(resolved, videoProviderUrl(resolved.baseUrl, path), { method: 'POST', headers: this.providers.buildRequestHeaders(resolved, 'openai', null), body: form, signal: AbortSignal.timeout(resolved.timeoutMs) })
     } catch (error) {
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
@@ -130,6 +130,19 @@ export class VideoGenerationRunner implements GenerationRunner {
     const execution = await this.withProviderFailover(task, 'VIDEO', async (resolved) => {
       const capabilities = videoCapabilities(resolved.videoCapabilities)
       const normalized = normalizeVideoOptions(options, resolved.videoCapabilities)
+      if (capabilities.requestFormat === 'kling' && normalized.referenceImages.length + normalized.referenceAssetIds.length + normalized.referenceImageUrls.length) {
+        capabilities.createPath = capabilities.createPath.replace('/text2video', '/image2video')
+        capabilities.statusPath = capabilities.statusPath.replace('/text2video', '/image2video')
+      }
+      // 任务绑定创建时的查询路径；切换模型协议不改变已有付费任务的入口。
+      if (task.providerJobId) {
+        const paths = options.videoPaths as { statusPath: string; contentPath: string } | undefined
+        if (paths) Object.assign(capabilities, paths)
+        else if (resolved.type === ProviderType.NEW_API && /^\/(?:doubao|ali|hailuo|kling)\//.test(capabilities.createPath)) {
+          capabilities.statusPath = '/videos/{id}'
+          capabilities.contentPath = '/videos/{id}/content'
+        }
+      }
       let payload: ProviderPayload = {}
       let providerJobId = task.providerJobId && (task.providerChannelId || undefined) === resolved.providerId && (task.userCredentialId || undefined) === resolved.credentialId ? task.providerJobId : undefined
       if (!providerJobId) {
@@ -144,7 +157,7 @@ export class VideoGenerationRunner implements GenerationRunner {
             seconds: String(normalized.duration),
           }),
         }
-        if (capabilities.referenceMode === 'CONTENT_JSON') {
+        if (capabilities.referenceMode === 'CONTENT_JSON' || capabilities.referenceMode === 'WAN_JSON' || capabilities.referenceMode === 'KLING_JSON') {
           let images = [
             ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
@@ -173,7 +186,13 @@ export class VideoGenerationRunner implements GenerationRunner {
             ...[...videos, ...normalized.referenceVideoUrls].map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })),
             ...audios.map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })),
           ]
-          payload = await this.provider(resolved, capabilities.createPath, {
+          payload = await this.provider(resolved, capabilities.createPath, capabilities.referenceMode === 'WAN_JSON'
+            ? wanVideoRequest(resolved.model, prompt, normalized, images, [...videos, ...normalized.referenceVideoUrls], audios)
+            : capabilities.referenceMode === 'KLING_JSON' ? {
+              model_name: resolved.model, prompt, duration: String(normalized.duration), aspect_ratio: normalized.aspectRatio,
+              mode: normalized.resolution === '1080p' || resolved.model.toLowerCase() === 'kling-v2-master' ? 'pro' : 'std',
+              ...(images[0] ? { image: images[0] } : {}), ...(images[1] ? { image_tail: images[1] } : {}),
+            } : {
             model: resolved.model,
             content,
             duration: normalized.duration,
@@ -220,14 +239,15 @@ export class VideoGenerationRunner implements GenerationRunner {
           payload = await this.provider(resolved, capabilities.createPath, fields)
         }
         const immediateUrl = this.videoResultUrl(payload)
-        if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(this.videoStatus(payload))) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
+        if (['failed', 'error', 'cancelled', 'canceled', 'rejected', 'unknown'].includes(this.videoStatus(payload))) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
         if (immediateUrl) return { resolved, payload, url: immediateUrl }
         providerJobId = this.videoJobId(payload)
         if (!providerJobId) {
           if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError('原生视频接口未返回任务 ID，请核对原请求，禁止自动重发')
           throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
         }
-        await this.updateRunningTask(task, { providerJobId, providerChannelId: resolved.providerId || null, userCredentialId: resolved.credentialId || null, userModelRouteId: resolved.source === 'user' ? resolved.routeId || null : null, updatedAt: new Date() }, true)
+        options.videoPaths = storedOptions.videoPaths = { statusPath: capabilities.statusPath, contentPath: capabilities.contentPath }
+        await this.updateRunningTask(task, { providerJobId, providerChannelId: resolved.providerId || null, userCredentialId: resolved.credentialId || null, userModelRouteId: resolved.source === 'user' ? resolved.routeId || null : null, options: storedOptions as Prisma.InputJsonValue, updatedAt: new Date() }, true)
       }
       // 上游视频任务常见耗时数分钟到数十分钟（参考图/音频任务更慢），不再使用固定超时：
       // 只在任务终态、取消或部署方显式配置 maxPollSeconds 上限时结束轮询。
@@ -255,9 +275,12 @@ export class VideoGenerationRunner implements GenerationRunner {
         } else {
           await this.updateRunningTask(task, { updatedAt: new Date() }, true)
         }
-        if (['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(status)) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
+        if (['failed', 'error', 'cancelled', 'canceled', 'rejected', 'unknown'].includes(status)) throw new TerminalProviderJobError(this.videoError(payload) || '视频上游生成失败', 502)
         if (resultUrl) return { resolved, payload, url: resultUrl }
-        if (['completed', 'succeeded', 'success', 'done'].includes(status)) return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
+        if (['completed', 'succeeded', 'succeed', 'success', 'done'].includes(status)) {
+          if (/^\/(?:doubao|ali|hailuo|kling)\//.test(capabilities.createPath) && capabilities.statusPath !== '/videos/{id}') throw new ReconciliationRequiredError(`原生视频任务 ${providerJobId} 已成功但未返回成片地址，请查询原任务`)
+          return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
+        }
       }
       if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
       throw new ProviderRequestError('视频生成等待超时', 504)
@@ -341,20 +364,28 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private videoJobId(payload: ProviderPayload) {
     const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data as Record<string, unknown> : {}
-    return [payload.task_id, payload.id, payload.request_id, payload.requestId, payload.taskId, data.task_id, data.id, data.request_id, data.requestId, data.taskId]
+    const output = payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output) ? payload.output as Record<string, unknown> : {}
+    return [payload.task_id, payload.id, payload.taskId, data.task_id, data.id, data.taskId, output.task_id, payload.request_id, payload.requestId, data.request_id, data.requestId]
       .find((value): value is string => typeof value === 'string' && value.length > 0)
   }
 
   private videoStatus(payload: ProviderPayload) {
     const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data as Record<string, unknown> : {}
-    return String(payload.status || payload.state || data.status || data.state || '').toLowerCase()
+    const output = payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output) ? payload.output as Record<string, unknown> : {}
+    const task = payload.task && typeof payload.task === 'object' && !Array.isArray(payload.task) ? payload.task as Record<string, unknown> : {}
+    return String(task.status || payload.status || payload.state || data.status || data.state || data.task_status || output.task_status || '').toLowerCase()
   }
 
-  private videoError(payload: ProviderPayload) {
+  private videoError(payload: ProviderPayload): string {
+    if (payload.task && typeof payload.task === 'object' && !Array.isArray(payload.task)) return this.videoError(payload.task as ProviderPayload)
     const error = payload.error
     if (typeof error === 'string') return error
     if (error && typeof error === 'object' && !Array.isArray(error) && typeof (error as Record<string, unknown>).message === 'string') return String((error as Record<string, unknown>).message)
-    return typeof payload.message === 'string' ? payload.message : ''
+    const output = payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output) ? payload.output as Record<string, unknown> : {}
+    if (typeof payload.message === 'string') return payload.message
+    if (typeof output.message === 'string') return output.message
+    if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) return this.videoError(payload.data as ProviderPayload)
+    return typeof payload.task_status_msg === 'string' ? payload.task_status_msg : ''
   }
 
   private videoResultUrl(payload: ProviderPayload): string | undefined {
@@ -366,9 +397,13 @@ export class VideoGenerationRunner implements GenerationRunner {
       return first ? [first.output_url, first.video_url, first.url].find((value): value is string => typeof value === 'string' && value.length > 0) : undefined
     }
     if (data && typeof data === 'object') return this.videoResultUrl(data as ProviderPayload)
+    if (Array.isArray(payload.videos)) {
+      const first = payload.videos[0] as ProviderPayload | undefined
+      if (first) return this.videoResultUrl(first)
+    }
     const output = payload.output
     if (output && typeof output === 'object' && !Array.isArray(output)) return this.videoResultUrl(output as ProviderPayload)
-    for (const value of [payload.metadata, payload.result, payload.content]) {
+    for (const value of [payload.metadata, payload.result, payload.results, payload.content, payload.task, payload.task_result]) {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         const url = this.videoResultUrl(value as ProviderPayload)
         if (url) return url
@@ -378,7 +413,7 @@ export class VideoGenerationRunner implements GenerationRunner {
   }
 
   private videoLastFrameUrl(payload: ProviderPayload) {
-    for (const value of [payload.metadata, payload.result, payload.content]) {
+    for (const value of [payload.metadata, payload.result, payload.results, payload.content, payload.task, payload.task_result]) {
       if (value && typeof value === 'object' && !Array.isArray(value) && typeof (value as Record<string, unknown>).last_frame_url === 'string') return (value as Record<string, unknown>).last_frame_url as string
     }
     return undefined
@@ -386,7 +421,7 @@ export class VideoGenerationRunner implements GenerationRunner {
 
   private async providerGet(resolved: ResolvedProvider, path: string) {
     let response: Response
-    try { response = await this.providerFetch(resolved, `${resolved.baseUrl}${path}`, { headers: this.providers.buildRequestHeaders(resolved, 'openai', null), signal: AbortSignal.timeout(resolved.timeoutMs) }) }
+    try { response = await this.providerFetch(resolved, videoProviderUrl(resolved.baseUrl, path), { headers: this.providers.buildRequestHeaders(resolved, 'openai', null), signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed') }
     if (!response.ok) throw new ProviderRequestError(`Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`, response.status)
     return response.json() as Promise<ProviderPayload>

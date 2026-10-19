@@ -32,10 +32,10 @@ export type NormalizedVideoOptions = {
  * - DATA_URL_JSON：JSON 的 images/audios 数组，使用 base64 Data URL。
  * - CONTENT_JSON：原生 content 数组，明确指定媒体类型和角色。
  */
-export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
+export type VideoReferenceMode = 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON' | 'WAN_JSON' | 'KLING_JSON'
 
 export function isNativeVideoReferenceMode(mode: VideoReferenceMode) {
-  return mode === 'CONTENT_JSON'
+  return mode === 'CONTENT_JSON' || mode === 'WAN_JSON' || mode === 'KLING_JSON'
 }
 
 export type VideoCapabilityConfig = {
@@ -61,7 +61,7 @@ export type VideoCapabilityConfig = {
   supportsAutoDuration: boolean
   audioRequiresVisualReference: boolean
   supportsVideoEditing: boolean
-  requestFormat: 'seedance' | 'minimax-h3' | null
+  requestFormat: 'seedance' | 'minimax-h3' | 'wan' | 'kling' | null
   referenceMode: VideoReferenceMode
   minDuration: number
   maxDuration: number
@@ -110,11 +110,12 @@ export function seedanceChannelCapabilities(model: string) {
   const version = /seedance[-_ ]?2[-_.]?([05])(?:\D|$)/i.exec(model)?.[1]
   if (!version) return undefined
   const v25 = version === '5'
+  const discounted = /^\[c\]/i.test(model.trim())
   const fixedDuration = /^\[c\]seedance[-_ ]?2[-_.]5$/i.test(model.trim())
   const compact = /(?:fast|mini)/i.test(model)
   return {
     requestFormat: 'seedance' as const,
-    resolutions: v25 ? ['480p', '720p', '1080p'] : compact ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'],
+    resolutions: discounted ? ['720p'] : v25 ? ['480p', '720p', '1080p'] : compact ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'],
     durations: fixedDuration ? [30] : Array.from({ length: (v25 ? 30 : 15) - 4 + 1 }, (_, index) => index + 4),
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
     defaultResolution: '720p', defaultDuration: fixedDuration ? 30 : 5, defaultAspectRatio: '16:9',
@@ -131,6 +132,136 @@ export function seedanceChannelCapabilities(model: string) {
 /** Official Seedance content[] request capabilities for user-managed channels. */
 export function seedanceVideoCapabilities(model: string) {
   return seedanceChannelCapabilities(model)
+}
+
+type WanKind = 'all' | 't2v' | 'media' | 'size' | 'image' | 'frames' | 'speech'
+type WanProfile = { kind: WanKind; resolutions: string[]; defaultResolution: string; durations: number[] }
+// 与 new-api alibaba 插件已声明的 Wan 视频模型保持一致。
+const WAN_PROFILES: Record<string, [WanKind, string[], string, number[]]> = {
+  'wan3.0-video': ['all', ['480p', '720p', '1080p'], '1080p', Array.from({ length: 29 }, (_, i) => i + 2)],
+  'wan3.0-video-prime': ['all', ['480p', '720p', '1080p'], '1080p', Array.from({ length: 29 }, (_, i) => i + 2)],
+  'wan2.7-t2v': ['t2v', ['720p', '1080p'], '1080p', Array.from({ length: 14 }, (_, i) => i + 2)],
+  'wan2.7-i2v': ['media', ['720p', '1080p'], '1080p', Array.from({ length: 14 }, (_, i) => i + 2)],
+  'wan2.6-t2v': ['size', ['720p', '1080p'], '1080p', Array.from({ length: 14 }, (_, i) => i + 2)],
+  'wan2.6-t2v-us': ['size', ['720p', '1080p'], '1080p', [5, 10, 15]],
+  'wan2.6-i2v': ['image', ['720p', '1080p'], '1080p', Array.from({ length: 14 }, (_, i) => i + 2)],
+  'wan2.6-i2v-flash': ['image', ['720p', '1080p'], '1080p', Array.from({ length: 14 }, (_, i) => i + 2)],
+  'wan2.6-i2v-us': ['image', ['720p', '1080p'], '1080p', [5, 10, 15]],
+  'wan2.5-t2v-preview': ['size', ['480p', '720p', '1080p'], '1080p', [5, 10]],
+  'wan2.5-i2v-preview': ['image', ['480p', '720p', '1080p'], '1080p', [5, 10]],
+  'wan2.2-t2v-plus': ['size', ['480p', '1080p'], '1080p', [5]],
+  'wan2.2-i2v-flash': ['image', ['480p', '720p', '1080p'], '720p', [5]],
+  'wan2.2-i2v-plus': ['image', ['480p', '1080p'], '1080p', [5]],
+  'wan2.2-kf2v-flash': ['frames', ['480p', '720p', '1080p'], '720p', [5]],
+  'wan2.2-s2v': ['speech', ['480p', '720p'], '480p', Array.from({ length: 19 }, (_, i) => i + 1)],
+  'wanx2.1-t2v-plus': ['size', ['720p'], '720p', [5]],
+  'wanx2.1-t2v-turbo': ['size', ['480p', '720p'], '720p', [5]],
+  'wanx2.1-i2v-plus': ['image', ['720p'], '720p', [5]],
+  'wanx2.1-i2v-turbo': ['image', ['480p', '720p'], '720p', [3, 4, 5]],
+}
+
+export function wanVideoProfile(model: string): WanProfile | undefined {
+  const row = WAN_PROFILES[model.toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/^wan2\.1-/, 'wanx2.1-')]
+  return row ? { kind: row[0], resolutions: row[1], defaultResolution: row[2], durations: row[3] } : undefined
+}
+
+export function newApiNativeVideoCapabilities(model: string, value?: unknown): VideoCapabilityConfig | undefined {
+  const seedance = /^\[c\]/i.test(model.trim()) ? undefined : seedanceChannelCapabilities(model)
+  const wan = wanVideoProfile(model)
+  const h3 = /^minimax-h3$/i.test(model)
+  const kling = /^kling-(?:v1|v1-6|v2-master)$/i.test(model)
+  if (!seedance && !wan && !h3 && !kling) return undefined
+  const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const configured = root.videoCapabilities && typeof root.videoCapabilities === 'object' ? root.videoCapabilities as Record<string, unknown> : root
+  if (seedance) return videoCapabilities({
+    ...seedance, ...configured, requestFormat: 'seedance', referenceMode: 'CONTENT_JSON',
+    createPath: '/doubao/api/v3/contents/generations/tasks', statusPath: '/doubao/api/v3/contents/generations/tasks/{id}',
+  })
+  if (h3) return videoCapabilities({
+    ...configured, requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON',
+    resolutions: ['768p'], durations: Array.from({ length: 15 }, (_, i) => i + 1), defaultResolution: '768p', defaultDuration: 5,
+    minDuration: 1, maxDuration: 15, maxReferences: 9, maxFirstLastFrames: 2, maxVideoReferences: 3, maxAudioReferences: 3,
+    maxTotalReferences: 12, requiresPublicReferenceUrls: true, audioRequiresVisualReference: false,
+    supportsAutoDuration: false, supportsVideoEditing: false,
+    aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'], defaultAspectRatio: '16:9',
+    createPath: '/hailuo/v2/video_generation', statusPath: '/hailuo/v2/query/video_generation/{id}',
+  })
+  if (kling) return videoCapabilities({
+    ...configured, requestFormat: 'kling', referenceMode: 'KLING_JSON',
+    resolutions: ['720p', '1080p'], defaultResolution: '720p', durations: [5, 10], defaultDuration: 5, minDuration: 5, maxDuration: 10,
+    aspectRatios: ['16:9', '9:16', '1:1'], defaultAspectRatio: '16:9',
+    maxReferences: 1, maxFirstLastFrames: 2, maxAudioReferences: 0, maxVideoReferences: 0,
+    requiresPublicReferenceUrls: true, supportsAutoDuration: false, supportsVideoEditing: false,
+    createPath: '/kling/v1/videos/text2video', statusPath: '/kling/v1/videos/text2video/{id}',
+  })
+  const profile = wan!
+  const media = profile.kind === 'all' || profile.kind === 'media'
+  return videoCapabilities({
+    ...configured, requestFormat: 'wan', referenceMode: 'WAN_JSON',
+    resolutions: profile.resolutions, durations: profile.durations, defaultResolution: profile.defaultResolution,
+    defaultDuration: profile.durations.includes(5) ? 5 : profile.durations[0], minDuration: profile.durations[0], maxDuration: profile.durations.at(-1),
+    aspectRatios: ['image', 'frames', 'speech', 'media'].includes(profile.kind) ? ['adaptive'] : ['16:9', '9:16', '1:1', '4:3', '3:4', ...(profile.kind === 'all' ? ['adaptive'] : [])],
+    defaultAspectRatio: ['image', 'frames', 'speech', 'media'].includes(profile.kind) ? 'adaptive' : '16:9',
+    maxReferences: profile.kind === 'all' ? 10 : profile.kind === 'frames' ? 2 : ['image', 'speech', 'media'].includes(profile.kind) ? 1 : 0,
+    maxFirstLastFrames: profile.kind === 'frames' || media ? 2 : 0,
+    maxVideoReferences: profile.kind === 'all' ? 5 : profile.kind === 'media' ? 1 : 0,
+    maxAudioReferences: profile.kind === 'all' ? 5 : ['speech', 'media'].includes(profile.kind) ? 1 : 0,
+    maxTotalReferences: 0, requiresPublicReferenceUrls: true, supportsAutoDuration: profile.kind === 'all',
+    supportsVideoEditing: false, audioRequiresVisualReference: false,
+    createPath: `/ali/api/v1/services/aigc/${['frames', 'speech'].includes(profile.kind) ? 'image2video' : 'video-generation'}/video-synthesis`,
+    statusPath: '/ali/api/v1/tasks/{id}',
+  })
+}
+
+/** NEW_API 凭据通常以 /v1 结尾，原生插件路径位于同一网关根目录。 */
+export function videoProviderUrl(baseUrl: string, path: string) {
+  return /^(?:\/doubao\/|\/ali\/|\/hailuo\/|\/kling\/)/.test(path)
+    ? `${baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')}${path}` : `${baseUrl}${path}`
+}
+
+export function wanVideoRequest(model: string, prompt: string, options: NormalizedVideoOptions, images: string[], videos: string[], audios: string[]) {
+  const profile = wanVideoProfile(model)
+  if (!profile) throw new BadRequestException('未配置该 Wan 模型的原生视频协议')
+  const input: Record<string, unknown> = { prompt }
+  const parameters: Record<string, unknown> = { duration: options.duration }
+  if (options.watermark !== undefined) parameters.watermark = options.watermark
+  if (options.generateAudio !== undefined) parameters.audio = options.generateAudio
+  if (profile.kind === 'size') {
+    const sizes: Record<string, Record<string, string>> = {
+      '480p': { '16:9': '832*480', '9:16': '480*832', '1:1': '624*624' },
+      '720p': { '16:9': '1280*720', '9:16': '720*1280', '1:1': '960*960', '4:3': '1088*832', '3:4': '832*1088' },
+      '1080p': { '16:9': '1920*1080', '9:16': '1080*1920', '1:1': '1440*1440', '4:3': '1632*1248', '3:4': '1248*1632' },
+    }
+    const size = sizes[options.resolution]?.[options.aspectRatio]
+    if (!size) throw new BadRequestException('当前 Wan 分辨率不支持该比例')
+    parameters.size = size
+  } else {
+    parameters.resolution = options.resolution.toUpperCase()
+    if (profile.kind === 'all' || profile.kind === 't2v') parameters.ratio = options.aspectRatio
+  }
+  if (profile.kind === 'all' || profile.kind === 'media') {
+    const frames = options.imageRole !== 'reference_image'
+    input.media = [
+      ...images.map((url, index) => ({ type: frames ? options.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : options.imageRole : profile.kind === 'media' ? 'first_frame' : 'reference_image', url })),
+      ...videos.map((url) => ({ type: profile.kind === 'media' ? 'first_clip' : 'reference_video', url })),
+      ...audios.map((url) => ({ type: profile.kind === 'media' ? 'driving_audio' : 'reference_audio', url })),
+    ]
+    if (profile.kind === 'media' && (!images.length && !videos.length || videos.length && (images.length || audios.length))) throw new BadRequestException('Wan 2.7 图生视频需要首帧或单段参考视频，参考视频不能混用首帧或音频')
+  } else if (profile.kind === 'frames') {
+    if (!images.length) throw new BadRequestException('当前 Wan 首尾帧模型需要首帧图片')
+    if (options.imageRole === 'last_frame') throw new BadRequestException('当前 Wan 首尾帧模型不能只提供尾帧')
+    input.first_frame_url = images[0]
+    if (images[1]) input.last_frame_url = images[1]
+  } else if (profile.kind === 'speech') {
+    if (!images[0] || !audios[0]) throw new BadRequestException('当前 Wan 语音驱动模型需要一张图片和一段音频')
+    input.image_url = images[0]
+    input.audio_url = audios[0]
+    delete parameters.duration
+  } else if (profile.kind === 'image') {
+    if (!images[0]) throw new BadRequestException('当前 Wan 图生视频模型需要一张参考图')
+    input.img_url = images[0]
+  }
+  return { model, input, parameters }
 }
 
 function safePath(value: unknown, fallback: string) {
@@ -184,8 +315,8 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     supportsAutoDuration: raw.supportsAutoDuration === true,
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
-    requestFormat: raw.requestFormat === 'seedance' || raw.requestFormat === 'minimax-h3' ? raw.requestFormat : null,
-    referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'DATA_URL_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
+    requestFormat: raw.requestFormat === 'seedance' || raw.requestFormat === 'minimax-h3' || raw.requestFormat === 'wan' || raw.requestFormat === 'kling' ? raw.requestFormat : null,
+    referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'DATA_URL_JSON' || raw.referenceMode === 'WAN_JSON' || raw.referenceMode === 'KLING_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
     minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
     maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
     resolutionLocked: raw.resolutionLocked === true,
@@ -215,6 +346,8 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     throw new BadRequestException(`video.duration must be between ${capabilities.minDuration} and ${capabilities.maxDuration} seconds`)
   }
   if (!capabilities.aspectRatios.includes(aspectRatio)) throw new BadRequestException('当前视频模型不支持该画面比例')
+  if ((capabilities.requestFormat === 'wan' || capabilities.requestFormat === 'kling') && !capabilities.durations.includes(duration) && !(duration === -1 && capabilities.supportsAutoDuration)) throw new BadRequestException('当前模型不支持该时长')
+  if ((capabilities.requestFormat === 'wan' || capabilities.requestFormat === 'kling') && options.returnLastFrame === true) throw new BadRequestException('当前模型不支持返回尾帧')
   if (capabilities.requestFormat === 'minimax-h3' && options.returnLastFrame === true) {
     throw new BadRequestException('当前 MiniMax H3 请求格式不支持 returnLastFrame')
   }

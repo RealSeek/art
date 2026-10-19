@@ -20,7 +20,7 @@ import {
 import { modelPricingFields, ProviderPricingService } from './provider-pricing.service'
 import { fetchNoRedirect, fetchPublicNoRedirect } from '../common/outbound-http'
 import { imageCapabilities, isGeminiImageModel, isSeedream45ImageModel } from '../generations/image-options'
-import { seedanceChannelCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
+import { newApiNativeVideoCapabilities, seedanceChannelCapabilities, seedanceVideoCapabilities } from '../generations/video-options'
 import { AssetsService } from '../assets/assets.service'
 
 type ProviderInput = {
@@ -515,6 +515,7 @@ export class ProvidersService implements OnModuleInit {
     value: Prisma.JsonValue | null,
     routes: VideoCapabilityRoute[],
     fallbackProvider?: { type: ProviderType; enabled: boolean; encryptedApiKey: string } | null,
+    model = '',
   ) {
     const options = value && typeof value === 'object' && !Array.isArray(value)
       ? structuredClone(value) as Record<string, unknown>
@@ -566,6 +567,11 @@ export class ProvidersService implements OnModuleInit {
       maxAudioReferences: available.maxAudioReferences,
       faceSupported: available.faceSupported,
       pricing,
+    }
+    const providerTypes = activeRoutes.length ? activeRoutes.map((route) => route.provider.type) : fallbackProvider ? [fallbackProvider.type] : []
+    if (providerTypes.length && providerTypes.every((type) => type === ProviderType.NEW_API)) {
+      const native = newApiNativeVideoCapabilities(model, options)
+      if (native) options.videoCapabilities = native
     }
     return options
   }
@@ -906,7 +912,7 @@ export class ProvidersService implements OnModuleInit {
     return modelId.toLowerCase().replace(/^models\//, '').replace(/[^a-z0-9._:-]+/g, '-').replace(/^-|-$/g, '').slice(0, 96) || `model-${Date.now().toString(36)}`
   }
 
-  private discoveredModelOptions(candidate: DiscoveredModel, apiProtocol = 'openai') {
+  private discoveredModelOptions(candidate: DiscoveredModel, apiProtocol = 'openai', providerType?: ProviderType) {
     const discovery = { source: candidate.pricingSource, confidence: candidate.confidence, contextWindow: candidate.contextWindow, maxOutputTokens: candidate.maxOutputTokens, features: candidate.features, importedAt: new Date().toISOString() }
     if (candidate.capability === ModelCapability.IMAGE) {
       const creditCost = Math.max(1, candidate.flatCreditCost || 1)
@@ -933,6 +939,11 @@ export class ProvidersService implements OnModuleInit {
       }
     }
     if (candidate.capability === ModelCapability.VIDEO) {
+      const native = providerType === ProviderType.NEW_API ? newApiNativeVideoCapabilities(candidate.id, candidate.raw.videoCapabilities) : undefined
+      if (native) {
+        const perSecond = Math.max(1, candidate.flatCreditCost || 1)
+        return { apiProtocol, discovery, videoCapabilities: { ...native, ...(native.requestFormat === 'seedance' ? {} : { pricing: Object.fromEntries(native.resolutions.flatMap((tier) => native.durations.map((seconds) => [`${tier}:${seconds}`, perSecond * seconds]))) }) } }
+      }
       const discoveredCapabilities = candidate.raw && candidate.raw.videoCapabilities && typeof candidate.raw.videoCapabilities === 'object' && !Array.isArray(candidate.raw.videoCapabilities)
         ? candidate.raw.videoCapabilities as Record<string, unknown>
         : {}
@@ -1062,7 +1073,7 @@ export class ProvidersService implements OnModuleInit {
     })
   }
 
-  private async applyProviderImport(provider: { id: string; metadata: Prisma.JsonValue | null; template: { apiProtocol: string } | null }, candidates: DiscoveredModel[], options: { overwritePricing?: boolean }) {
+  private async applyProviderImport(provider: { id: string; type: ProviderType; metadata: Prisma.JsonValue | null; template: { apiProtocol: string } | null }, candidates: DiscoveredModel[], options: { overwritePricing?: boolean }) {
     const defaultCapabilities = new Set((await this.prisma.modelPreset.findMany({ where: { isDefault: true }, select: { capability: true } })).map((item) => item.capability))
     const result: Array<{ id: string; key: string; modelId: string; action: 'created' | 'routed' | 'updated' }> = []
     for (const candidate of candidates) {
@@ -1098,7 +1109,7 @@ export class ProvidersService implements OnModuleInit {
           imageCostMicros: candidate.imageCostMicros,
           videoCostMicros: candidate.videoCostMicros,
           badge: candidate.pricingSource === 'none' ? '待定价' : '自动定价',
-          options: this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai')),
+          options: this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai'), provider.type),
         })
         defaultCapabilities.add(capability)
         action = 'created'
@@ -1113,7 +1124,7 @@ export class ProvidersService implements OnModuleInit {
       }
       if (capability === ModelCapability.VIDEO) {
         const current = this.videoRouteCapabilities(model.options)
-        const discovered = (this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai')) as Record<string, unknown>).videoCapabilities as Record<string, unknown>
+        const discovered = (this.discoveredModelOptions(candidate, String(provider.template?.apiProtocol || this.jsonObject(provider.metadata).apiProtocol || 'openai'), provider.type) as Record<string, unknown>).videoCapabilities as Record<string, unknown>
         const videoCapabilities = { ...current, ...discovered, ...(current?.pricing ? { pricing: current.pricing } : {}) }
         model = await this.prisma.modelPreset.update({
           where: { id: model.id },
@@ -1214,7 +1225,7 @@ export class ProvidersService implements OnModuleInit {
         availability: healthyRouteCount ? 'AVAILABLE' : 'DEGRADED',
         healthyRouteCount,
         routeCount,
-        options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider)
+        options: model.capability === ModelCapability.VIDEO ? this.effectiveVideoOptions(model.options, providerRoutes, provider, model.upstreamModel)
           : model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(model.upstreamModel)
             ? { ...this.jsonObject(model.options), imageCapabilities: imageCapabilities(model.options, model.upstreamModel) } : model.options,
         provider: provider ? this.publicProvider(provider) : null,
@@ -1246,7 +1257,7 @@ export class ProvidersService implements OnModuleInit {
     const policy = await this.userPolicy(userId)
     const [models, privateModels] = await Promise.all([
       this.prisma.modelPreset.findMany({ where: { enabled: true, ...(capability ? { capability } : {}), ...(policy.restrictModels ? { id: { in: policy.allowedModelIds } } : {}) }, orderBy: [{ capability: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }], include: { vendor: true, provider: { select: { id: true, name: true, type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } }, providerRoutes: { where: { enabled: true }, select: { id: true, providerId: true, options: true, provider: { select: { type: true, enabled: true, encryptedApiKey: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
-      this.prisma.userModel.findMany({ where: { userId, enabled: true, ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }], include: { vendor: true, routes: { where: { enabled: true }, include: { credential: { select: { enabled: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
+      this.prisma.userModel.findMany({ where: { userId, enabled: true, ...(capability ? { capability } : {}) }, orderBy: [{ capability: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }], include: { vendor: true, routes: { where: { enabled: true }, include: { credential: { select: { providerType: true, enabled: true, lastHealthStatus: true, cooldownUntil: true } } } } } }),
     ])
     const platformModels = models.filter((model) => this.providerPublished(model.provider) || model.providerRoutes.some((route) => this.providerPublished(route.provider))).map((model) => {
       const override = policy.costOverrides.get(model.id)
@@ -1254,7 +1265,7 @@ export class ProvidersService implements OnModuleInit {
       const routeCount = Number(this.providerPublished(model.provider)) + model.providerRoutes.filter((route) => this.providerPublished(route.provider)).length
       const healthyRouteCount = Number(this.providerHealthy(model.provider)) + model.providerRoutes.filter((route) => this.providerHealthy(route.provider)).length
       const options = model.options && typeof model.options === 'object' && !Array.isArray(model.options) ? structuredClone(model.options) as Record<string, unknown> : {}
-      if (model.capability === ModelCapability.VIDEO) Object.assign(options, this.effectiveVideoOptions(model.options, model.providerRoutes, model.provider))
+      if (model.capability === ModelCapability.VIDEO) Object.assign(options, this.effectiveVideoOptions(model.options, model.providerRoutes, model.provider, model.upstreamModel))
       if (model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(model.upstreamModel)) options.imageCapabilities = imageCapabilities(options, model.upstreamModel)
       const image = options.imageCapabilities && typeof options.imageCapabilities === 'object' && !Array.isArray(options.imageCapabilities) ? options.imageCapabilities as Record<string, unknown> : undefined
       if (image) {
@@ -1288,7 +1299,9 @@ export class ProvidersService implements OnModuleInit {
         ...model,
         source: 'USER',
         upstreamModel: routes[0]?.upstreamModel || '',
-        options: model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(routes[0]?.upstreamModel || '')
+        options: model.capability === ModelCapability.VIDEO && routes.length && routes.every((route) => route.credential.providerType === ProviderType.NEW_API)
+          ? { ...this.jsonObject(model.options), videoCapabilities: newApiNativeVideoCapabilities(routes[0].upstreamModel, model.options) || this.videoRouteCapabilities(model.options) }
+          : model.capability === ModelCapability.IMAGE && isSeedream45ImageModel(routes[0]?.upstreamModel || '')
           ? { ...this.jsonObject(model.options), imageCapabilities: imageCapabilities(model.options, routes[0].upstreamModel) } : model.options,
         flatCreditCost: 0,
         effectiveCreditCost: 0,
@@ -1897,7 +1910,7 @@ export class ProvidersService implements OnModuleInit {
         await this.upgradeUserModelImageCapabilities(existing, candidate, apiProtocol)
         if (capability === ModelCapability.VIDEO) {
           const current = this.videoRouteCapabilities(existing.options)
-          const discovered = this.discoveredModelOptions(candidate, apiProtocol).videoCapabilities as Record<string, unknown>
+          const discovered = this.discoveredModelOptions(candidate, apiProtocol, credential.providerType).videoCapabilities as Record<string, unknown>
           await this.prisma.userModel.update({ where: { id: existing.id }, data: { options: { ...this.jsonObject(existing.options), videoCapabilities: { ...current, ...discovered, ...(current?.pricing ? { pricing: current.pricing } : {}) } } as Prisma.InputJsonValue } })
         }
       }
@@ -1912,7 +1925,7 @@ export class ProvidersService implements OnModuleInit {
         routingStrategy: 'PRIORITY',
         enabled: true,
         isDefault: !defaultCapabilities.has(capability),
-        options: { ...this.discoveredModelOptions(candidate, apiProtocol), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
+        options: { ...this.discoveredModelOptions(candidate, apiProtocol, credential.providerType), discovery: { ...(this.discoveredModelOptions(candidate).discovery as Record<string, unknown>), referenceCost: { inputCostMicrosPerMillion: candidate.inputCostMicrosPerMillion, outputCostMicrosPerMillion: candidate.outputCostMicrosPerMillion, imageCostMicros: candidate.imageCostMicros, videoCostMicros: candidate.videoCostMicros } } },
       } })
       if (!existing) defaultCapabilities.add(capability)
       // 手动导入会重新启用路由；自动同步只补缺失路由，不覆盖用户已停用的路由。
@@ -2127,7 +2140,7 @@ export class ProvidersService implements OnModuleInit {
       source: 'user', credentialId: route.credentialId, routeId: route.id, label: `${model.displayName} · ${route.credential.name}`, type: route.credential.providerType, baseUrl: route.credential.baseUrl, apiKey: this.crypto.decrypt(route.credential.encryptedApiKey), authType: route.credential.authType, headers: this.headers(route.credential.customHeaders), timeoutMs: 120_000, model: route.upstreamModel, presetKey: model.key, creditCost: 0, settlementCurrency: settings?.currency ?? 'CNY', creditValueMicros: settings?.creditValueMicros ?? 10_000, pricingUsdExchangeRateMicros: settings?.pricingUsdExchangeRateMicros ?? 1_000_000, inputCostMicrosPerMillion: 0, outputCostMicrosPerMillion: 0, imageCostMicros: 0, videoCostMicros: 0, inputCreditsPerMillion: 0, outputCreditsPerMillion: 0, baseInputCreditsPerMillion: pricePreset?.inputCreditsPerMillion ?? 0, baseOutputCreditsPerMillion: pricePreset?.outputCreditsPerMillion ?? 0, creditRatePercent: policy.creditRatePercent, apiProtocol, nativeSearchProvider: this.nativeSearchProvider(route.credential.baseUrl, apiProtocol, model.options),
       options: modelOptions,
       imageCapabilities: modelOptions.imageCapabilities && typeof modelOptions.imageCapabilities === 'object' ? modelOptions.imageCapabilities as Record<string, unknown> : undefined,
-      videoCapabilities: modelOptions.videoCapabilities && typeof modelOptions.videoCapabilities === 'object' ? modelOptions.videoCapabilities as Record<string, unknown> : undefined,
+      videoCapabilities: route.credential.providerType === ProviderType.NEW_API ? { ...this.videoRouteCapabilities(model.options), ...newApiNativeVideoCapabilities(route.upstreamModel, modelOptions) } : this.videoRouteCapabilities(model.options),
     }))
   }
 
@@ -2202,6 +2215,11 @@ export class ProvidersService implements OnModuleInit {
     if (!candidates.length && requiredSource === 'user') throw new ServiceUnavailableException('图片反推当前由用户 BYOK 承担费用，请先在设置中添加可用的个人 API 密钥和聊天模型')
     if (!candidates.length && requiredSource === 'platform') throw new ServiceUnavailableException('图片反推尚未绑定可用的平台视觉模型渠道')
     if (!candidates.length) throw new ServiceUnavailableException('模型未绑定可用渠道，请在管理端配置并通过渠道检测，或在设置中添加可用的个人 API 密钥')
+    if (capability === ModelCapability.VIDEO) for (const candidate of candidates) {
+      if (candidate.type !== ProviderType.NEW_API) continue
+      const native = newApiNativeVideoCapabilities(candidate.model, candidate.videoCapabilities)
+      if (native) candidate.videoCapabilities = { ...native }
+    }
     return candidates
   }
 

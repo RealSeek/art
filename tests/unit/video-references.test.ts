@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeVideoOptions, videoCapabilities } from '../../server/src/generations/video-options'
+import { newApiNativeVideoCapabilities, normalizeVideoOptions, videoCapabilities, wanVideoRequest } from '../../server/src/generations/video-options'
 import { ProvidersService } from '../../server/src/providers/providers.service'
 
 const h3Capabilities = {
@@ -106,4 +106,21 @@ test('非 H3 视频模型保持旧的单张参考图行为', () => {
   const result = (ProvidersService.prototype as never as { discoveredModelOptions: (candidate: unknown, apiProtocol?: string) => { videoCapabilities: Record<string, unknown> } }).discoveredModelOptions({ id: 'sora-2', capability: 'VIDEO', flatCreditCost: 3 }, 'openai')
   assert.equal(result.videoCapabilities.maxReferences, undefined)
   assert.equal(result.videoCapabilities.maxAudioReferences, undefined)
+})
+
+
+test('Wan 原生参数按版本传 size、resolution 和 media，拒绝不支持的时长与素材', () => {
+  assert.equal(newApiNativeVideoCapabilities('[c]seedance-2.5'), undefined)
+  const legacy = newApiNativeVideoCapabilities('wan2.5-t2v-preview')!
+  assert.throws(() => normalizeVideoOptions({ duration: 7 }, legacy), /不支持该时长/)
+  const options = normalizeVideoOptions({ duration: 5, resolution: '480p', aspectRatio: '1:1', watermark: false }, legacy)
+  assert.deepEqual(wanVideoRequest('wan2.5-t2v-preview', 'p', options, [], [], []), { model: 'wan2.5-t2v-preview', input: { prompt: 'p' }, parameters: { duration: 5, size: '624*624', watermark: false } })
+  const all = newApiNativeVideoCapabilities('wan3.0-video')!
+  const references = normalizeVideoOptions({ duration: -1, referenceImageUrls: ['https://cdn.example/image.png'], referenceVideoUrls: ['https://cdn.example/video.mp4'], referenceAudioUrls: ['https://cdn.example/audio.mp3'] }, all)
+  assert.deepEqual(wanVideoRequest('wan3.0-video', 'p', references, references.referenceImageUrls, references.referenceVideoUrls, references.referenceAudioUrls), {
+    model: 'wan3.0-video', input: { prompt: 'p', media: [{ type: 'reference_image', url: 'https://cdn.example/image.png' }, { type: 'reference_video', url: 'https://cdn.example/video.mp4' }, { type: 'reference_audio', url: 'https://cdn.example/audio.mp3' }] }, parameters: { duration: -1, resolution: '1080P', ratio: '16:9' },
+  })
+  const frames = normalizeVideoOptions({ referenceImageUrls: ['https://cdn.example/start.png', 'https://cdn.example/end.png'] }, newApiNativeVideoCapabilities('wan2.2-kf2v-flash'))
+  assert.deepEqual(wanVideoRequest('wan2.2-kf2v-flash', 'p', frames, frames.referenceImageUrls, [], []).input, { prompt: 'p', first_frame_url: 'https://cdn.example/start.png', last_frame_url: 'https://cdn.example/end.png' })
+  assert.throws(() => wanVideoRequest('wan2.6-i2v', 'p', normalizeVideoOptions({}, newApiNativeVideoCapabilities('wan2.6-i2v')), [], [], []), /需要一张参考图/)
 })

@@ -75,3 +75,8 @@ test('模型售价会按 USD 汇率换算为结算币种额度', async () => {
     globalThis.fetch = originalFetch
   }
 })
+
+test('Wan 原生视频模型与同名图片模型按能力区分', () => {
+  for (const id of ['wan2.6-t2v', 'wan2.7-i2v', 'wan2.2-kf2v-flash', 'wan2.2-s2v', 'wanx2.1-t2v-plus', 'wan3.0-video-prime']) assert.equal(inferModelCapability(id), 'VIDEO', id)
+  for (const id of ['wan2.7-image', 'wan2.6-t2i', 'qwen-image']) assert.equal(inferModelCapability(id), 'IMAGE', id)
+})

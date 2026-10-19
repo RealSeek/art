@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { VideoGenerationRunner } from '../../server/src/generations/runners/video-generation.runner'
-import { normalizeVideoOptions, seedanceVideoCapabilities, videoCapabilities } from '../../server/src/generations/video-options'
+import { newApiNativeVideoCapabilities, normalizeVideoOptions, seedanceVideoCapabilities, videoCapabilities, videoProviderUrl } from '../../server/src/generations/video-options'
 import { ProvidersService, type ResolvedProvider } from '../../server/src/providers/providers.service'
 import { ReconciliationRequiredError, TerminalProviderJobError } from '../../server/src/generations/generation-provider-errors'
 
@@ -56,6 +56,20 @@ test('Seedance 2.0 / 2.5 自动导入官方请求格式和版本能力上限', (
   assert.throws(() => normalizeVideoOptions({ resolution: '4k' }, seedanceVideoCapabilities('seedance-2.5')), /不支持该分辨率/)
   assert.throws(() => normalizeVideoOptions({ duration: 3 }, seedanceVideoCapabilities('seedance-2.0')), /between 4 and 15/)
   assert.throws(() => normalizeVideoOptions({ duration: 31 }, seedanceVideoCapabilities('seedance-2.5')), /between 4 and 30/)
+})
+
+test('特惠 Seedance 2.0 / 2.5 只接受 720p，默认参数同样使用 720p', () => {
+  const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
+  for (const id of ['[c]seedance-2.0', '[C]Seedance 2.5', '[c]Seedance-2.5']) {
+    const caps = videoCapabilities(discover.discoveredModelOptions({ id, capability: 'VIDEO' }).videoCapabilities)
+    assert.deepEqual(caps.resolutions, ['720p'])
+    assert.equal(caps.defaultResolution, '720p')
+    assert.equal(normalizeVideoOptions({}, caps).resolution, '720p')
+    assert.equal(normalizeVideoOptions({ resolution: '720p' }, caps).resolution, '720p')
+    for (const resolution of ['480p', '1080p', '4k']) {
+      assert.throws(() => normalizeVideoOptions({ resolution }, caps), /不支持该分辨率/)
+    }
+  }
 })
 
 test('[C]Seedance 2.5 渠道别名只接受固定 30 秒，不支持自动时长', () => {
@@ -284,4 +298,93 @@ test('失败任务或无法确定的创建结果不会转到其他渠道重建�
   internals.assertNotCancelled = async () => undefined
   internals.pollDelay = () => 1
   await assert.rejects(runner.run({ prompt: '生成视频', options: {} } as never), error => error instanceof TerminalProviderJobError && error.message === 'original failure')
+})
+
+
+test('NewAPI 原生入口按火山、Wan、MiniMax、可灵分别创建、查询和保存结果', async () => {
+  const cases = [
+    { model: 'seedance-2.0', path: '/doubao/api/v3/contents/generations/tasks', query: '/doubao/api/v3/contents/generations/tasks/public-task', options: { duration: 6 },
+      body: { model: 'seedance-2.0', content: [{ type: 'text', text: 'test video' }], duration: 6, resolution: '720p', ratio: '16:9' },
+      created: { id: 'public-task' }, completed: { status: 'succeeded', content: { video_url: '/result.mp4' } } },
+    { model: 'wan2.6-t2v', path: '/ali/api/v1/services/aigc/video-generation/video-synthesis', query: '/ali/api/v1/tasks/public-task', options: { duration: 6, resolution: '720p' },
+      body: { model: 'wan2.6-t2v', input: { prompt: 'test video' }, parameters: { duration: 6, size: '1280*720' } },
+      created: { request_id: 'request-is-not-a-task', output: { task_id: 'public-task', task_status: 'PENDING' } },
+      completed: { output: { task_id: 'public-task', task_status: 'SUCCEEDED', video_url: '/result.mp4' } } },
+    { model: 'wan2.7-i2v', path: '/ali/api/v1/services/aigc/video-generation/video-synthesis', query: '/ali/api/v1/tasks/public-task', options: { duration: 6, imageRole: 'first_frame', referenceImageUrls: ['https://cdn.example/start.png'] },
+      body: { model: 'wan2.7-i2v', input: { prompt: 'test video', media: [{ type: 'first_frame', url: 'https://cdn.example/start.png' }] }, parameters: { duration: 6, resolution: '1080P' } },
+      created: { output: { task_id: 'public-task', task_status: 'PENDING' } }, completed: { output: { task_status: 'SUCCEEDED', video_url: '/result.mp4' } } },
+    { model: 'MiniMax-H3', path: '/hailuo/v2/video_generation', query: '/hailuo/v2/query/video_generation/public-task', options: { duration: 7 },
+      body: { model: 'MiniMax-H3', content: [{ type: 'text', text: 'test video' }], duration: 7, resolution: '768P', ratio: '16:9' },
+      created: { task_id: 'public-task' }, completed: { task: { id: 'public-task', status: 'succeeded', content: { url: '/result.mp4' } } } },
+    { model: 'kling-v1-6', path: '/kling/v1/videos/image2video', query: '/kling/v1/videos/image2video/public-task', options: { duration: 5, referenceImageUrls: ['https://cdn.example/start.png'] },
+      body: { model_name: 'kling-v1-6', prompt: 'test video', duration: '5', aspect_ratio: '16:9', mode: 'std', image: 'https://cdn.example/start.png' },
+      created: { code: 0, data: { task_id: 'public-task', task_status: 'submitted' } }, completed: { data: { task_status: 'succeed', task_result: { videos: [{ url: '/result.mp4' }] } } } },
+  ]
+  for (const row of cases) {
+    let posts = 0
+    let polls = 0
+    let stored = false
+    const updates: Array<Record<string, unknown>> = []
+    const server = createServer(async (request, response) => {
+      assert.equal(request.headers.authorization, request.url === '/result.mp4' ? undefined : 'Bearer test-key')
+      if (request.method === 'POST') {
+        posts += 1
+        assert.equal(request.url, row.path)
+        assert.equal(request.headers['idempotency-key'], 'art-video-native-job')
+        if (row.model.startsWith('wan')) assert.equal(request.headers['x-dashscope-async'], 'enable')
+        let raw = ''
+        for await (const chunk of request) raw += chunk
+        assert.deepEqual(JSON.parse(raw), row.body)
+        response.setHeader('Content-Type', 'application/json')
+        response.end(JSON.stringify(row.created))
+      } else if (request.url === '/result.mp4') response.writeHead(200, { 'Content-Type': 'video/mp4' }).end('video-bytes')
+      else {
+        assert.equal(request.url, row.query)
+        polls += 1
+        if (polls === 1) { response.writeHead(503).end('temporary query failure'); return }
+        response.setHeader('Content-Type', 'application/json')
+        response.end(JSON.stringify(row.completed))
+      }
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    try {
+      const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`
+      const resolved = { source: 'user', credentialId: 'credential', routeId: 'route', type: 'LOCAL_WORKER', baseUrl, apiKey: 'test-key', model: row.model, timeoutMs: 1000, videoCostMicros: 0, pricingUsdExchangeRateMicros: 1_000_000, videoCapabilities: newApiNativeVideoCapabilities(row.model) } as unknown as ResolvedProvider
+      const runner = new VideoGenerationRunner(
+        { generationJob: { findUnique: async () => ({ status: 'RUNNING' }), updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 } } } } as never,
+        {} as never,
+        { resolveCandidates: async () => [resolved], buildRequestHeaders: () => ({ Authorization: 'Bearer test-key', 'Content-Type': 'application/json' }), recordCandidateResult: async () => {} } as never,
+        { cleanup: async () => {}, storeAndLink: async (_task: unknown, output: { data: Uint8Array }) => { assert.equal(Buffer.from(output.data).toString(), 'video-bytes'); stored = true; return { id: 'asset' } } } as never,
+        {} as never, { start: async () => ({ id: 'attempt' }), succeed: async () => {} } as never, { settleNonChat: async () => {} } as never,
+      )
+      ;(runner as unknown as { pollDelay: () => number }).pollDelay = () => 1
+      await runner.run({ id: 'native-job', userId: 'user', prompt: 'test video', options: row.options } as never)
+      assert.equal(posts, 1, row.model)
+      assert.equal(polls, 2, row.model)
+      assert.ok(updates.some((update) => update.providerJobId === 'public-task'), row.model)
+      assert.ok(stored, row.model)
+      const persisted = updates.find((update) => update.providerJobId === 'public-task')?.options as { videoPaths: { statusPath: string } }
+      assert.ok(persisted.videoPaths.statusPath.includes('{id}'))
+      await runner.run({ id: 'native-job', userId: 'user', prompt: 'test video', options: { ...row.options, ...persisted }, providerJobId: 'public-task', userCredentialId: 'credential' } as never)
+      assert.equal(posts, 1, '恢复已有任务不得重新创建')
+    } finally { server.close(); await once(server, 'close') }
+  }
+  assert.equal(videoProviderUrl('https://example.test/proxy/v1', '/ali/api/v1/tasks/task'), 'https://example.test/proxy/ali/api/v1/tasks/task')
+})
+
+
+test('协议切换后的已有 NewAPI 付费任务继续查询旧任务入口', async () => {
+  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => {} } as never, {} as never, {} as never, {} as never)
+  const internal = runner as any
+  const resolved = { type: 'NEW_API', credentialId: 'credential', model: 'seedance-2.0', timeoutMs: 1000, videoCapabilities: newApiNativeVideoCapabilities('seedance-2.0') }
+  internal.withProviderFailover = async (_task: unknown, _kind: unknown, execute: (provider: unknown) => Promise<unknown>) => execute(resolved)
+  internal.provider = async () => { throw new Error('不得重新创建旧任务') }
+  internal.assertNotCancelled = async () => {}
+  internal.pollDelay = () => 1
+  internal.providerGet = async (_provider: unknown, path: string) => {
+    assert.equal(path, '/videos/old-public-task')
+    throw new ReconciliationRequiredError('旧任务已核对')
+  }
+  await assert.rejects(runner.run({ id: 'old-job', userCredentialId: 'credential', providerJobId: 'old-public-task', prompt: 'p', options: {} } as never), /旧任务已核对/)
 })

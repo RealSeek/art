@@ -401,7 +401,8 @@ watch(videoModel, () => {
   const caps = activeVideoCapabilities.value
   if (!caps.maxVideoReferences) videoSettings.value.referenceVideoUrls = []
   if (!caps.maxAudioReferences) videoSettings.value.referenceAudioUrls = []
-  if (caps.native === 'minimax-h3') {
+  if (caps.native === 'wan' || caps.native === 'kling') delete videoSettings.value.returnLastFrame
+  if (caps.native === 'minimax-h3' || caps.native === 'kling') {
     delete videoSettings.value.generateAudio
     delete videoSettings.value.watermark
     delete videoSettings.value.videoTaskType

@@ -52,7 +52,7 @@ export type CatalogModel = {
       resolutionPricing?: Record<string, number>
     }
     videoCapabilities?: {
-      requestFormat?: 'seedance' | 'minimax-h3' | null
+      requestFormat?: 'seedance' | 'minimax-h3' | 'wan' | 'kling' | null
       resolutions?: string[]
       durations?: number[]
       aspectRatios?: string[]
@@ -66,7 +66,7 @@ export type CatalogModel = {
       maxTotalReferences?: number
       faceSupported?: boolean | null
       requiresPublicReferenceUrls?: boolean
-      referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON'
+      referenceMode?: 'INPUT_REFERENCE' | 'DATA_URL_JSON' | 'CONTENT_JSON' | 'WAN_JSON' | 'KLING_JSON'
       maxVideoReferences?: number
       supportsAutoDuration?: boolean
       audioRequiresVisualReference?: boolean

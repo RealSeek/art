@@ -34,7 +34,7 @@ function service(prisma: Record<string, unknown>) {
   return new ProvidersService(prisma as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never)
 }
 
-test('已有 Seedance 模型同步升级原生能力并保留售价和原路由', async () => {
+test('已有 Seedance 模型同步升级火山原生路径并保留售价和原路由', async () => {
   const credential = { id: 'credential-1', userId: 'user-1', name: 'OnlyCode', priority: 0, weight: 100, providerType: 'NEW_API', template: null, suppressedModels: [] }
   const existing = { id: 'model-1', key: 'private:seedance', capability: 'VIDEO', options: { discovery: { vendorKey: 'doubao' }, videoCapabilities: { resolutions: ['720p'], pricing: { '720p:5': 12 } } } }
   let updated: Record<string, any> | undefined
@@ -49,6 +49,8 @@ test('已有 Seedance 模型同步升级原生能力并保留售价和原路由'
   await providers.syncCredentialModels('user-1', 'credential-1')
   assert.equal(updated?.options.videoCapabilities.referenceMode, 'CONTENT_JSON')
   assert.equal(updated?.options.videoCapabilities.requestFormat, 'seedance')
+  assert.equal(updated?.options.videoCapabilities.createPath, '/doubao/api/v3/contents/generations/tasks')
+  assert.equal(updated?.options.videoCapabilities.statusPath, '/doubao/api/v3/contents/generations/tasks/{id}')
   assert.equal(updated?.options.videoCapabilities.maxDuration, 30)
   assert.deepEqual(updated?.options.videoCapabilities.pricing, { '720p:5': 12 })
   assert.deepEqual(updated?.options.discovery, { vendorKey: 'doubao' })
@@ -308,4 +310,31 @@ test('同步会把已有图片模型升级到新的蒙版与参考图能力', as
   assert.equal(options.imageCapabilities.supportsReference, true)
   assert.deepEqual(options.imageCapabilities.sizes, ['1024x1024'])
   assert.equal(result.removed, 0)
+})
+
+
+test('已有 NewAPI 视频模型目录读取即切换原生路径，并保留售价', async () => {
+  for (const [name, path] of [
+    ['seedance-2.0', '/doubao/api/v3/contents/generations/tasks'],
+    ['wan2.7-i2v', '/ali/api/v1/services/aigc/video-generation/video-synthesis'],
+    ['MiniMax-H3', '/hailuo/v2/video_generation'],
+    ['kling-v1-6', '/kling/v1/videos/text2video'],
+  ]) {
+    const options = { videoCapabilities: { resolutions: ['720p'], durations: [5, 10], aspectRatios: ['16:9'], createPath: '/videos', statusPath: '/videos/{id}', pricing: { '720p:5': 12 } } }
+    const provider = { type: 'NEW_API', enabled: true, encryptedApiKey: 'configured', lastHealthStatus: 'healthy', cooldownUntil: null }
+    const prisma = {
+      modelPreset: { findMany: async () => [{ id: 'platform', upstreamModel: name, capability: 'VIDEO', flatCreditCost: 0, options, provider, providerRoutes: [] }] },
+      userModel: { findMany: async () => [{ id: 'private', capability: 'VIDEO', options, routes: [{ upstreamModel: name, credential: { providerType: 'NEW_API', enabled: true } }] }] },
+    }
+    const providers = service(prisma)
+    providers.syncStaleUserModels = async () => {}
+    providers.userPolicy = async () => ({ restrictModels: false, allowedModelIds: [], costOverrides: new Map(), creditRatePercent: 100 }) as never
+    const models = await providers.listModelsForUser('user', 'VIDEO')
+    assert.equal(models.length, 2)
+    for (const model of models) {
+      const caps = (model.options as { videoCapabilities: { createPath: string; pricing: Record<string, number> } }).videoCapabilities
+      assert.equal(caps.createPath, path, name)
+      assert.deepEqual(caps.pricing, { '720p:5': 12 }, name)
+    }
+  }
 })

@@ -227,7 +227,7 @@ const props = defineProps<{
   videoDuration: number
   videoDurationLimit: number
   videoDurationMin: number
-  nativeVideo: boolean | 'seedance' | 'minimax-h3'
+  nativeVideo: boolean | 'seedance' | 'minimax-h3' | 'wan' | 'kling'
   videoEditing: boolean
   videoReferenceLimit: number
   videoFrameLimit: number
