@@ -5,6 +5,7 @@ import { ProvidersService } from '../../server/src/providers/providers.service'
 
 const h3Capabilities = {
   videoCapabilities: {
+    requestFormat: 'minimax-h3',
     resolutions: ['768p'],
     durations: [1, 5, 10, 15],
     aspectRatios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
@@ -47,6 +48,8 @@ test('H3 公开 HTTPS 参考素材按模型上限校验，音频可单独使用'
   assert.throws(() => normalizeVideoOptions({ duration: 10, referenceImageUrls: [...images, 'https://cdn.example/image-9.jpg'] }, h3Capabilities), /最多支持 9 张参考图/)
   assert.throws(() => normalizeVideoOptions({ duration: 10, referenceImageUrls: images, referenceAudioUrls: [...audios, 'https://cdn.example/audio-3.mp3'] }, h3Capabilities), /最多支持 3 段参考音频/)
   assert.equal(normalizeVideoOptions({ duration: 1, referenceAudioUrls: audios }, h3Capabilities).duration, 1)
+  assert.throws(() => normalizeVideoOptions({ aspectRatio: 'adaptive' }, h3Capabilities), /仅在提供参考图或参考视频时支持 adaptive/)
+  assert.throws(() => normalizeVideoOptions({ aspectRatio: 'adaptive', referenceAudioUrls: audios }, h3Capabilities), /仅在提供参考图或参考视频时支持 adaptive/)
   assert.throws(() => normalizeVideoOptions({ duration: 16 }, h3Capabilities), /1 and 15/)
   assert.deepEqual(normalizeVideoOptions({ duration: 5, referenceAssetIds: ['asset'] }, h3Capabilities).referenceAssetIds, ['asset'])
   assert.equal(normalizeVideoOptions({ duration: 5, imageRole: 'last_frame', referenceImageUrls: ['https://cdn.example/last.jpg'], aspectRatio: 'adaptive' }, h3Capabilities).imageRole, 'last_frame')
@@ -54,7 +57,7 @@ test('H3 公开 HTTPS 参考素材按模型上限校验，音频可单独使用'
 
 test('H3 内联参考视频计入视频上限和总素材上限', () => {
   const video = { name: 'reference.mp4', mimeType: 'video/mp4', dataUrl: 'data:video/mp4;base64,YQ==' }
-  const accepted = normalizeVideoOptions({ duration: 5, referenceVideos: [video] }, h3Capabilities)
+  const accepted = normalizeVideoOptions({ duration: 5, referenceVideos: [video], aspectRatio: 'adaptive' }, h3Capabilities)
   assert.equal(accepted.referenceVideos.length, 1)
   assert.throws(() => normalizeVideoOptions({ duration: 5, referenceVideoUrls: ['https://cdn.example/a.mp4', 'https://cdn.example/b.mp4', 'https://cdn.example/c.mp4'], referenceVideos: [video] }, h3Capabilities), /最多支持 3 段参考视频/)
 })

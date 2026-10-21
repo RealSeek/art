@@ -38,6 +38,10 @@ export function isNativeVideoReferenceMode(mode: VideoReferenceMode) {
   return mode === 'CONTENT_JSON' || mode === 'WAN_JSON' || mode === 'KLING_JSON'
 }
 
+export function usesManagedVideoTasks(capabilities: VideoCapabilityConfig) {
+  return capabilities.requestProtocol === 'openai_video' || isNativeVideoReferenceMode(capabilities.referenceMode)
+}
+
 export type VideoCapabilityConfig = {
   resolutions: string[]
   durations: number[]
@@ -62,6 +66,7 @@ export type VideoCapabilityConfig = {
   audioRequiresVisualReference: boolean
   supportsVideoEditing: boolean
   requestFormat: 'seedance' | 'minimax-h3' | 'wan' | 'kling' | null
+  requestProtocol: 'openai_video' | null
   referenceMode: VideoReferenceMode
   minDuration: number
   maxDuration: number
@@ -99,6 +104,7 @@ const DEFAULTS: VideoCapabilityConfig = {
   audioRequiresVisualReference: true,
   supportsVideoEditing: false,
   requestFormat: null,
+  requestProtocol: null,
   referenceMode: 'INPUT_REFERENCE',
   minDuration: MIN_VIDEO_DURATION_SECONDS,
   maxDuration: MAX_VIDEO_DURATION_SECONDS,
@@ -178,6 +184,7 @@ export function newApiNativeVideoCapabilities(model: string, value?: unknown): V
     createPath: '/doubao/api/v3/contents/generations/tasks', statusPath: '/doubao/api/v3/contents/generations/tasks/{id}',
   })
   if (h3) return videoCapabilities({
+    // DMC's H3 service exposes 768P / 1–15 seconds, separately from MiniMax's hosted API.
     ...configured, requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON',
     resolutions: ['768p'], durations: Array.from({ length: 15 }, (_, i) => i + 1), defaultResolution: '768p', defaultDuration: 5,
     minDuration: 1, maxDuration: 15, maxReferences: 9, maxFirstLastFrames: 2, maxVideoReferences: 3, maxAudioReferences: 3,
@@ -292,6 +299,7 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
   const requestedDuration = Number(raw.defaultDuration)
   const defaultDuration = safeDurations.includes(requestedDuration) ? requestedDuration : safeDurations[0]
   const defaultAspectRatio = safeRatios.includes(String(raw.defaultAspectRatio)) ? String(raw.defaultAspectRatio) : safeRatios[0]
+  const gateway = raw.requestProtocol === 'openai_video'
   return {
     resolutions: safeResolutions,
     durations: safeDurations,
@@ -300,9 +308,9 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     defaultDuration,
     defaultAspectRatio,
     pricing: pricingMap(raw.pricing),
-    createPath: safePath(raw.createPath, DEFAULTS.createPath),
-    statusPath: safePath(raw.statusPath, DEFAULTS.statusPath),
-    contentPath: safePath(raw.contentPath, DEFAULTS.contentPath),
+    createPath: gateway ? DEFAULTS.createPath : safePath(raw.createPath, DEFAULTS.createPath),
+    statusPath: gateway ? DEFAULTS.statusPath : safePath(raw.statusPath, DEFAULTS.statusPath),
+    contentPath: gateway ? DEFAULTS.contentPath : safePath(raw.contentPath, DEFAULTS.contentPath),
     pollIntervalMs: Math.max(500, Math.min(30000, Number(raw.pollIntervalMs) || DEFAULTS.pollIntervalMs)),
     maxPollSeconds: Math.max(0, Math.min(7200, Number.isFinite(Number(raw.maxPollSeconds)) ? Number(raw.maxPollSeconds) : DEFAULTS.maxPollSeconds)),
     maxReferences: Math.max(0, Math.min(30, Number.isInteger(Number(raw.maxReferences)) ? Number(raw.maxReferences) : DEFAULTS.maxReferences)),
@@ -316,6 +324,7 @@ export function videoCapabilities(value: unknown): VideoCapabilityConfig {
     audioRequiresVisualReference: raw.audioRequiresVisualReference !== false,
     supportsVideoEditing: raw.supportsVideoEditing === true,
     requestFormat: raw.requestFormat === 'seedance' || raw.requestFormat === 'minimax-h3' || raw.requestFormat === 'wan' || raw.requestFormat === 'kling' ? raw.requestFormat : null,
+    requestProtocol: gateway ? 'openai_video' : null,
     referenceMode: raw.referenceMode === 'CONTENT_JSON' || raw.referenceMode === 'DATA_URL_JSON' || raw.referenceMode === 'WAN_JSON' || raw.referenceMode === 'KLING_JSON' ? raw.referenceMode : DEFAULTS.referenceMode,
     minDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.minDuration)) ? Number(raw.minDuration) : DEFAULTS.minDuration)),
     maxDuration: Math.max(MIN_VIDEO_DURATION_SECONDS, Math.min(300, Number.isInteger(Number(raw.maxDuration)) ? Number(raw.maxDuration) : DEFAULTS.maxDuration)),
@@ -352,8 +361,9 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
     throw new BadRequestException('当前 MiniMax H3 请求格式不支持 returnLastFrame')
   }
   if (capabilities.requestFormat === 'minimax-h3' && (options.generateAudio !== undefined || options.watermark !== undefined || options.videoFormat !== undefined || options.videoTaskType !== undefined)) {
-    throw new BadRequestException('MiniMax H3 官方视频请求不接受 generateAudio、watermark 或 videoFormat 参数')
+    throw new BadRequestException('当前 MiniMax H3 渠道不接受 generateAudio、watermark、videoFormat 或 videoTaskType 参数')
   }
+  if (capabilities.requestFormat === 'minimax-h3' && aspectRatio === 'adaptive' && !referenceCount && !videoReferenceCount) throw new BadRequestException('MiniMax H3 仅在提供参考图或参考视频时支持 adaptive 比例')
   const priority = options.priority === undefined ? undefined : Number(options.priority)
   const executionExpiresAfter = options.executionExpiresAfter === undefined ? undefined : Number(options.executionExpiresAfter)
   const safetyIdentifier = options.safetyIdentifier === undefined ? undefined : String(options.safetyIdentifier)
@@ -383,7 +393,7 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   if (videoTaskType !== undefined && !['auto', 'reference', 'edit', 'extend'].includes(videoTaskType)) throw new BadRequestException('视频生成模式无效')
   if (videoTaskType && !capabilities.supportsVideoEditing) throw new BadRequestException('当前模型不支持视频编辑模式')
   if ((videoTaskType === 'edit' || videoTaskType === 'extend') && (!videoReferenceCount || aspectRatio !== 'adaptive' || (videoTaskType === 'edit' && duration !== -1))) throw new BadRequestException('编辑和延长需要参考视频及 adaptive 比例；编辑需要自动时长')
-  if (capabilities.supportsVideoEditing && imageRole !== 'reference_image' && aspectRatio !== 'adaptive') throw new BadRequestException('当前模型的首帧和首尾帧需要 adaptive 比例')
+  if (capabilities.requestFormat === 'seedance' && capabilities.supportsVideoEditing && imageRole !== 'reference_image' && aspectRatio !== 'adaptive') throw new BadRequestException('Seedance 2.5 的首帧和首尾帧需要 adaptive 比例')
   const videoFormat = options.videoFormat as NormalizedVideoOptions['videoFormat']
   if (videoFormat !== undefined && (!capabilities.supportsVideoEditing || !['mp4', 'mov'].includes(videoFormat))) throw new BadRequestException('当前模型不支持该视频格式')
   return { resolution, duration, aspectRatio, referenceAssetIds, audioAssetIds, referenceImages, referenceAudios, referenceVideos, referenceImageUrls, referenceAudioUrls, referenceVideoUrls, imageRole,

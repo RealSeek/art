@@ -5,6 +5,7 @@ export const supportedLocales = ['zh-CN', 'zh-TW', 'en', 'ja', 'ko'] as const
 export type AppLocale = typeof supportedLocales[number]
 
 const zhCN = {
+  videoSettings: { title: '视频生成设置', trigger: '设置', imageRole: '图片用途', referenceImages: '普通参考', firstFrame: '首帧', lastFrame: '尾帧', firstLastFrame: '首尾帧（按图片顺序）', taskType: '视频模式', autoTask: '自动判断', generate: '参考生成', edit: '编辑视频', extend: '延长视频', adaptiveHint: '此模式自动跟随素材比例。', editHint: '编辑需添加参考视频，时长和比例自动跟随原视频。', generateAudio: '生成音频', watermark: '视频水印', returnLastFrame: '返回尾帧图片', outputFormat: '视频格式', remoteReferences: '通过链接添加素材', urlHint: '每行一个可公开下载的 HTTPS 文件直链。', imageUrls: '图片链接', videoUrls: '视频链接', audioUrls: '音频链接' },
   workspace: { newChat: '新对话', creation: 'AI 创作', images: '图片', videos: '视频', commerce: '电商中心', office: '办公中心', prompts: '提示词库', plugins: '能力中心', projects: '项目', assets: '文件库', api: 'API', recent: '最近', noChats: '暂无对话', settings: '设置', signIn: '登录', personalization: '个性化', account: '个人资料', logout: '退出登录' },
   settings: { general: '常规', personalization: '个性化', notifications: '通知', data: '数据控制', api: 'API 与模型', account: '账户', appearance: '外观', language: '语言', dark: '深色', light: '浅色', system: '跟随系统' },
   studio: { thought: '你今天在想些什么？', thinking: '正在思考', messagePlaceholder: '想聊什么都可以', model: '模型', images: '图片', videos: '视频', commerce: '商品图', inspiration: '灵感', myImages: '我的图片', myVideos: '我的视频', myCommerce: '我的商品图', projects: '项目', library: '资料库', create: '新建', search: '搜索' },
@@ -12,6 +13,7 @@ const zhCN = {
 }
 
 const en = {
+  videoSettings: { title: 'Video generation settings', trigger: 'Settings', imageRole: 'Image use', referenceImages: 'Reference images', firstFrame: 'First frame', lastFrame: 'Last frame', firstLastFrame: 'First and last frames (in order)', taskType: 'Video mode', autoTask: 'Automatic', generate: 'Reference generation', edit: 'Edit video', extend: 'Extend video', adaptiveHint: 'This mode follows the reference aspect ratio.', editHint: 'Add a reference video. Duration and aspect ratio follow the source.', generateAudio: 'Generate audio', watermark: 'Video watermark', returnLastFrame: 'Return last frame', outputFormat: 'Video format', remoteReferences: 'Add references by URL', urlHint: 'One publicly downloadable HTTPS file URL per line.', imageUrls: 'Image URLs', videoUrls: 'Video URLs', audioUrls: 'Audio URLs' },
   workspace: { newChat: 'New chat', creation: 'AI creation', images: 'Images', videos: 'Videos', commerce: 'Commerce studio', office: 'Office center', prompts: 'Prompt library', plugins: 'Capabilities', projects: 'Projects', assets: 'Library', api: 'API', recent: 'Recent', noChats: 'No conversations', settings: 'Settings', signIn: 'Sign in', personalization: 'Personalization', account: 'Profile', logout: 'Sign out' },
   settings: { general: 'General', personalization: 'Personalization', notifications: 'Notifications', data: 'Data controls', api: 'API & models', account: 'Account', appearance: 'Appearance', language: 'Language', dark: 'Dark', light: 'Light', system: 'System' },
   studio: { thought: 'What are you thinking about today?', thinking: 'Thinking', messagePlaceholder: 'Ask anything', model: 'Model', images: 'Image generation', videos: 'Video generation', commerce: 'Commerce studio', inspiration: 'Inspiration', myImages: 'My images', myVideos: 'My videos', myCommerce: 'My commerce assets', projects: 'Projects', library: 'Library', create: 'New', search: 'Search' },
@@ -19,6 +21,7 @@ const en = {
 }
 
 const zhTW = {
+  videoSettings: { ...zhCN.videoSettings, title: '影片生成設定', trigger: '設定', imageRole: '圖片用途', referenceImages: '一般參考', firstFrame: '首幀', lastFrame: '尾幀', firstLastFrame: '首尾幀（依圖片順序）', taskType: '影片模式', autoTask: '自動判斷', generate: '參考生成', edit: '編輯影片', extend: '延長影片', adaptiveHint: '此模式自動依照素材比例。', editHint: '編輯需加入參考影片，時長與比例自動依照原影片。', generateAudio: '生成音訊', watermark: '影片浮水印', returnLastFrame: '傳回尾幀圖片', outputFormat: '影片格式', remoteReferences: '透過連結加入素材', urlHint: '每行一個可公開下載的 HTTPS 檔案直連。', imageUrls: '圖片連結', videoUrls: '影片連結', audioUrls: '音訊連結' },
   workspace: { ...zhCN.workspace, newChat: '新對話', creation: 'AI 創作', images: '圖片生成', videos: '影片生成', commerce: '電商中心', office: '辦公中心', prompts: '提示詞庫', plugins: '能力中心', projects: '專案', assets: '檔案庫', recent: '最近', noChats: '暫無對話', settings: '設定', signIn: '登入', personalization: '個人化', account: '個人資料', logout: '登出' },
   settings: { ...zhCN.settings, general: '一般', personalization: '個人化', notifications: '通知', data: '資料控制', api: 'API 與模型', account: '帳戶', appearance: '外觀', language: '語言', dark: '深色', light: '淺色', system: '跟隨系統' },
   studio: { ...zhCN.studio, thought: '你今天在想些什麼？', thinking: '正在思考', messagePlaceholder: '想聊什麼都可以', images: '圖片生成', videos: '影片生成', commerce: '商品圖', inspiration: '靈感', myImages: '我的圖片', myVideos: '我的影片', myCommerce: '我的商品圖', projects: '專案', library: '資料庫', create: '新增', search: '搜尋' },
@@ -26,6 +29,7 @@ const zhTW = {
 }
 
 const ja = {
+  videoSettings: { title: '動画生成設定', trigger: '設定', imageRole: '画像の用途', referenceImages: '参考画像', firstFrame: '開始フレーム', lastFrame: '終了フレーム', firstLastFrame: '開始・終了フレーム（画像順）', taskType: '動画モード', autoTask: '自動判定', generate: '参考素材から生成', edit: '動画を編集', extend: '動画を延長', adaptiveHint: 'このモードは参考素材の縦横比に従います。', editHint: '参考動画を追加してください。長さと縦横比は元の動画に従います。', generateAudio: '音声を生成', watermark: '動画の透かし', returnLastFrame: '最終フレームを返す', outputFormat: '動画形式', remoteReferences: 'URL から素材を追加', urlHint: '公開ダウンロード可能な HTTPS ファイル URL を 1 行に 1 つ入力。', imageUrls: '画像 URL', videoUrls: '動画 URL', audioUrls: '音声 URL' },
   workspace: { newChat: '新しいチャット', creation: 'AI 作成', images: '画像生成', videos: '動画生成', commerce: 'コマース', office: 'オフィス', prompts: 'プロンプト', plugins: '機能センター', projects: 'プロジェクト', assets: 'ライブラリ', api: 'API', recent: '最近', noChats: '会話はありません', settings: '設定', signIn: 'ログイン', personalization: 'パーソナライズ', account: 'プロフィール', logout: 'ログアウト' },
   settings: { general: '一般', personalization: 'パーソナライズ', notifications: '通知', data: 'データ管理', api: 'API とモデル', account: 'アカウント', appearance: '外観', language: '言語', dark: 'ダーク', light: 'ライト', system: 'システム' },
   studio: { thought: '今日は何を考えていますか？', thinking: '考えています', messagePlaceholder: '何でも聞いてください', model: 'モデル', images: '画像生成', videos: '動画生成', commerce: '商品画像', inspiration: 'インスピレーション', myImages: 'マイ画像', myVideos: 'マイ動画', myCommerce: '商品素材', projects: 'プロジェクト', library: 'ライブラリ', create: '新規', search: '検索' },
@@ -33,6 +37,7 @@ const ja = {
 }
 
 const ko = {
+  videoSettings: { title: '동영상 생성 설정', trigger: '설정', imageRole: '이미지 용도', referenceImages: '참고 이미지', firstFrame: '첫 프레임', lastFrame: '마지막 프레임', firstLastFrame: '첫 프레임 및 마지막 프레임 (이미지 순서)', taskType: '동영상 모드', autoTask: '자동 판단', generate: '참고 자료로 생성', edit: '동영상 편집', extend: '동영상 연장', adaptiveHint: '이 모드는 참고 자료의 화면 비율을 따릅니다.', editHint: '참고 동영상을 추가하세요. 길이와 비율은 원본을 따릅니다.', generateAudio: '오디오 생성', watermark: '동영상 워터마크', returnLastFrame: '마지막 프레임 반환', outputFormat: '동영상 형식', remoteReferences: 'URL로 참고 자료 추가', urlHint: '공개 다운로드 가능한 HTTPS 파일 URL을 한 줄에 하나씩 입력하세요.', imageUrls: '이미지 URL', videoUrls: '동영상 URL', audioUrls: '오디오 URL' },
   workspace: { newChat: '새 대화', creation: 'AI 만들기', images: '이미지 생성', videos: '동영상 생성', commerce: '커머스', office: '오피스 센터', prompts: '프롬프트', plugins: '기능 센터', projects: '프로젝트', assets: '라이브러리', api: 'API', recent: '최근', noChats: '대화 없음', settings: '설정', signIn: '로그인', personalization: '개인화', account: '프로필', logout: '로그아웃' },
   settings: { general: '일반', personalization: '개인화', notifications: '알림', data: '데이터 관리', api: 'API 및 모델', account: '계정', appearance: '화면 모드', language: '언어', dark: '다크', light: '라이트', system: '시스템' },
   studio: { thought: '오늘은 무슨 생각을 하고 있나요?', thinking: '생각 중', messagePlaceholder: '무엇이든 물어보세요', model: '모델', images: '이미지 생성', videos: '동영상 생성', commerce: '상품 이미지', inspiration: '영감', myImages: '내 이미지', myVideos: '내 동영상', myCommerce: '상품 자료', projects: '프로젝트', library: '라이브러리', create: '새로 만들기', search: '검색' },

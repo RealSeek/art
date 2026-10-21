@@ -71,7 +71,7 @@
     </section>
 
     <Teleport v-if="generationConversationMode || ['images', 'videos', 'commerce'].includes(activeMode)" :disabled="!generationConversationMode" :to="generationConversationMode ? '#generation-conversation-composer' : 'body'">
-    <CreationPanel :key="creationMode" :composer-only="Boolean(generationConversationMode)" ref="creationPanel" v-model:generation-prompt="generationPrompt" :mask-attachment="composerMask" :audio-attachments="composerAudios" :video-attachments="composerVideos" :remove-reference="removeComposerReference" :remove-audio="removeComposerAudio" :remove-video="removeComposerVideo" :remove-mask="removeComposerMask" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="creationMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :video-duration-min="activeVideoCapabilities.minDuration" :sdgo-video="activeVideoCapabilities.sdgo" :native-video="activeVideoCapabilities.native" :video-editing="activeVideoCapabilities.supportsVideoEditing" :video-reference-limit="activeVideoCapabilities.maxVideoReferences" :video-frame-limit="activeVideoCapabilities.maxFirstLastFrames" :video-face-supported="activeVideoCapabilities.faceSupported" :public-reference-urls="activeVideoCapabilities.requiresPublicReferenceUrls" v-model:video-settings="videoSettings" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="composerReferences" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
+    <CreationPanel :key="creationMode" :composer-only="Boolean(generationConversationMode)" ref="creationPanel" v-model:generation-prompt="generationPrompt" :mask-attachment="composerMask" :audio-attachments="composerAudios" :video-attachments="composerVideos" :remove-reference="removeComposerReference" :remove-audio="removeComposerAudio" :remove-video="removeComposerVideo" :remove-mask="removeComposerMask" v-model:creation-plugin-id="creationPluginId" v-model:creation-plugin-open="creationPluginOpen" v-model:mode-asset-limit="modeAssetLimit" v-model:selected-commerce-run="selectedCommerceRun" :active-mode="creationMode" :model-catalog-error="modelCatalogError" :active-creation-models="activeCreationModels" :active-creation-model="activeCreationModel" :active-creation-model-label="activeCreationModelLabel" :active-creation-model-available="activeCreationModelAvailable" :active-image-capabilities="activeImageCapabilities" :region-edit-available="regionEditAvailable" :creation-plugin-capability="creationPluginCapability" :can-submit-creation="canSubmitCreation" :has-creation-input="hasCreationInput" :creation-prompt-placeholder="creationPromptPlaceholder" :uploading="uploading || pasting" :voice-listening="voiceListening" :voice-target="voiceTarget" :creation-menu="creationMenu" :creation-menu-style="creationMenuStyle" :creation-menu-title="creationMenuTitle" :creation-menu-options="creationMenuOptions" :creation-options-open="creationOptionsOpen" :creation-more-panel-style="creationMorePanelStyle" :creation-type="creationType" :video-aspect-ratio="videoAspectRatio" :commerce-platform="commercePlatform" :auto-mode="autoMode" :image-style="imageStyle" :video-resolution="videoQuality" :video-duration="videoDuration" :video-duration-limit="videoDurationLimit" :video-duration-min="activeVideoCapabilities.minDuration" :sdgo-video="activeVideoCapabilities.sdgo" :native-video="activeVideoCapabilities.native" :video-editing="activeVideoCapabilities.supportsVideoEditing" :video-auto-duration="activeVideoCapabilities.supportsAutoDuration" :video-reference-limit="videoReferenceLimit" :video-frame-limit="activeVideoCapabilities.maxFirstLastFrames" :video-face-supported="activeVideoCapabilities.faceSupported" :public-reference-urls="activeVideoCapabilities.requiresPublicReferenceUrls" v-model:video-settings="videoSettings" @reference-urls-change="setRemoteReferenceUrls" :set-custom-video-duration="setCustomVideoDuration" :commerce-modules="commerceModules" :image-resolution="imageResolution" :image-count="imageCount" :output-format="outputFormat" :image-background="imageBackground" :creation-attachments="composerReferences" :reference-mentions="referenceMentions" :audio-reference-limit="audioReferenceLimit" :image-reference-limit="imageReferenceLimit" :open-creation-attachment-picker="openCreationAttachmentPicker" :local-saved-ids="localSavedIds" :save-asset-locally="saveAssetLocally" :remove-local-copy="removeLocalCopy" :image-tools="imageTools" :selected-image-tool-id="selectedImageToolId" :active-inspirations="activeInspirations" :inspiration-loading="activeInspirationLoading" :inspiration-error="activeInspirationError" :selected-inspiration-id="selectedInspirationId" :pending-video-runs="pendingVideoRuns" :mode-assets="modeAssets" :visible-mode-assets="visibleModeAssets" :commerce-runs="commerceRuns" :submit-generation="submitGeneration" :resize-generation-input="resizeGenerationInput" :collapse-workspace-popovers="collapseWorkspacePopovers" :open-file-picker="openFilePicker" :switch-creation-mode="switchCreationMode" :toggle-creation-menu="toggleCreationMenu" :toggle-more-options="toggleMoreOptions" :toggle-voice="toggleVoice" :select-image-tool="selectImageTool" :open-prompt-library="openPromptLibrary" :open-inspiration="openInspiration" :play-inspiration-video="playInspirationVideo" :pause-inspiration-video="pauseInspirationVideo" :retry-inspirations="retryActiveInspirations" :stop-generation="stopGeneration" :delete-asset="deleteAsset" :use-asset-prompt="useAssetPrompt" :retry-asset-generation="retryAssetGeneration" :use-generated-asset-as-reference="useGeneratedAssetAsReference" :select-creation-option="selectCreationOption" :is-creation-option-active="isCreationOptionActive" :ratio-shape-class="ratioShapeClass" :style-thumbnail="styleThumbnail" :creation-option-label="creationOptionLabel" :image-tool-icon="imageToolIcon" :refresh-model-catalog="refreshModelCatalog" :open-region-editor="openRegionEditor" :open-region-editor-for-asset="openRegionEditorForAsset" />
     </Teleport>
 
     <RegionEditorDialog v-if="regionEditor" :src="regionEditor.src" :mask-format="regionEditor.format" :busy="maskUploading" @close="regionEditor = null" @apply="applyRegionMask" />
@@ -309,7 +309,7 @@ async function handleLocalMaskFiles(event: Event) {
 
 /** 本机参考图：不经过服务器，直接存在浏览器里。 */
 async function addLocalReferences(files: File[]) {
-  const remaining = Math.max(0, imageReferenceLimit.value - composerReferences.value.length)
+  const remaining = Math.max(0, imageReferenceLimit.value - composerReferences.value.length - (creationMode.value === 'videos' ? videoSettings.value.referenceImageUrls?.length || 0 : 0))
   if (!remaining) { store.lastError = imageReferenceLimit.value ? `当前模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前模型不支持参考图'; return }
   store.clearError()
   pasting.value = true
@@ -321,12 +321,12 @@ async function addLocalReferences(files: File[]) {
   } finally { pasting.value = false }
 }
 
-/** 本机参考音频（视频创作，需搭配至少一张参考图）。 */
+/** 本机参考音频按模型要求搭配参考图或参考视频。 */
 async function addLocalAudios(files: File[]) {
-  const remaining = Math.max(0, audioReferenceLimit.value - localInputs.audios.length)
+  const remaining = Math.max(0, audioReferenceLimit.value - localInputs.audios.length - (videoSettings.value.referenceAudioUrls?.length || 0))
   if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
   if (!remaining) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
-  if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !videoSettings.value.referenceImageUrls?.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
+  if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !localInputs.videos.length && !videoSettings.value.referenceImageUrls?.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
   store.clearError()
   pasting.value = true
   try { await localInputs.addFiles(files.slice(0, remaining), 'audio') }
@@ -335,7 +335,7 @@ async function addLocalAudios(files: File[]) {
 }
 
 async function addLocalVideos(files: File[]) {
-  const remaining = Math.max(0, activeVideoCapabilities.value.maxVideoReferences - localInputs.videos.length)
+  const remaining = Math.max(0, videoReferenceLimit.value - localInputs.videos.length - (videoSettings.value.referenceVideoUrls?.length || 0))
   if (!activeVideoCapabilities.value.maxVideoReferences) { store.lastError = '当前视频模型不支持参考视频'; return }
   if (!remaining) { store.lastError = `当前视频模型最多支持 ${activeVideoCapabilities.value.maxVideoReferences} 段参考视频`; return }
   store.clearError()
@@ -393,7 +393,7 @@ function syncResolutionFromSize(size: unknown) {
   const tier = imageResolutionTier(size)
   if (availableResolutionTiers.value.includes(tier)) imageResolution.value = tier
 }
-function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!(videoDuration.value === -1 && caps.supportsAutoDuration) && (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio; if (!caps.maxFirstLastFrames && videoSettings.value.imageRole !== 'reference_image') videoSettings.value.imageRole = 'reference_image'; if (!caps.maxAudioReferences) videoSettings.value.referenceAudioUrls = []; if (!caps.faceSupported) delete videoSettings.value.faceRequired }
+function syncVideoSelection() { const caps = activeVideoCapabilities.value; if (!caps.resolutions.includes(videoResolution.value)) videoResolution.value = caps.defaultResolution; if (!(videoDuration.value === -1 && caps.supportsAutoDuration) && (!Number.isInteger(videoDuration.value) || videoDuration.value < caps.minDuration || videoDuration.value > caps.maxDuration)) videoDuration.value = caps.defaultDuration; if (!caps.aspectRatios.includes(videoAspectRatio.value)) videoAspectRatio.value = caps.defaultAspectRatio; if ((!caps.maxFirstLastFrames || ((caps.native === 'seedance' || caps.native === true) && videoSettings.value.imageRole === 'last_frame')) && videoSettings.value.imageRole !== 'reference_image') videoSettings.value.imageRole = 'reference_image'; if (!caps.supportsAutoDuration && videoSettings.value.videoTaskType === 'edit') videoSettings.value.videoTaskType = 'auto'; if (!caps.maxAudioReferences) videoSettings.value.referenceAudioUrls = []; if (!caps.faceSupported) delete videoSettings.value.faceRequired }
 /** 视频时长档位：模型声明时长 ∪ 5/10/15，限制在该模型允许的区间内。 */
 const videoDurationPresets = computed(() => videoDurationOptions(activeVideoCapabilities.value.durations, activeVideoCapabilities.value.minDuration, activeVideoCapabilities.value.maxDuration))
 const videoDurationLimit = computed(() => activeVideoCapabilities.value.maxDuration)
@@ -413,6 +413,15 @@ watch(videoModel, () => {
     delete videoSettings.value.videoTaskType
     delete videoSettings.value.videoFormat
   }
+  if (caps.native === 'seedance' || caps.native === true) {
+    videoSettings.value.generateAudio ??= true
+    videoSettings.value.watermark ??= false
+    videoSettings.value.returnLastFrame ??= false
+    if (caps.supportsVideoEditing) {
+      videoSettings.value.videoTaskType ??= 'auto'
+      videoSettings.value.videoFormat ??= 'mp4'
+    }
+  }
 })
 function setCustomVideoDuration(value: string) {
   const caps = activeVideoCapabilities.value
@@ -425,13 +434,40 @@ const imageReferenceLimit = computed(() => creationMode.value === 'videos'
     : videoSettings.value.imageRole === 'first_frame' || videoSettings.value.imageRole === 'last_frame' ? Math.min(1, activeVideoCapabilities.value.maxFirstLastFrames)
       : activeVideoCapabilities.value.maxReferences
   : 4)
-const audioReferenceLimit = computed(() => creationMode.value === 'videos' ? activeVideoCapabilities.value.maxAudioReferences : 0)
-const referenceMentions = computed(() => [
-  ...localInputs.images.map((record, index) => ({ token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const, thumbnail: localInputs.previewUrl(record), title: record.name })),
-  ...creationAttachments.value.map((asset, index) => ({ token: `@参考图${localInputs.images.length + index}`, label: `参考图${localInputs.images.length + index}`, kind: 'image' as const, thumbnail: asset.contentUrl || '', title: asset.title })),
-  ...localInputs.videos.map((record, index) => ({ token: `@参考视频${index}`, label: `参考视频${index}`, kind: 'video' as const, thumbnail: localInputs.previewUrl(record), title: record.name })),
-  ...localInputs.audios.map((record, index) => ({ token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const, thumbnail: localInputs.previewUrl(record), title: record.name })),
-])
+const audioReferenceLimit = computed(() => creationMode.value === 'videos' && videoSettings.value.imageRole === 'reference_image' ? activeVideoCapabilities.value.maxAudioReferences : 0)
+const videoReferenceLimit = computed(() => videoSettings.value.imageRole === 'reference_image' ? activeVideoCapabilities.value.maxVideoReferences : 0)
+const referenceMentions = computed(() => {
+  // 图片、音频链接在本机素材之前；视频链接在本机素材之后，与提交给上游的顺序一致。
+  const images = [
+    ...(videoSettings.value.referenceImageUrls || []).map((url) => ({ thumbnail: url, title: url })),
+    ...localInputs.images.map((record) => ({ thumbnail: localInputs.previewUrl(record), title: record.name })),
+    ...creationAttachments.value.map((asset) => ({ thumbnail: asset.contentUrl || '', title: asset.title })),
+  ]
+  const videos = [
+    ...localInputs.videos.map((record) => ({ thumbnail: localInputs.previewUrl(record), title: record.name })),
+    ...(videoSettings.value.referenceVideoUrls || []).map((url) => ({ thumbnail: url, title: url })),
+  ]
+  const audios = [
+    ...(videoSettings.value.referenceAudioUrls || []).map((url) => ({ thumbnail: url, title: url })),
+    ...localInputs.audios.map((record) => ({ thumbnail: localInputs.previewUrl(record), title: record.name })),
+  ]
+  return [
+    ...images.map((item, index) => ({ ...item, token: `@参考图${index}`, label: `参考图${index}`, kind: 'image' as const })),
+    ...videos.map((item, index) => ({ ...item, token: `@参考视频${index}`, label: `参考视频${index}`, kind: 'video' as const })),
+    ...audios.map((item, index) => ({ ...item, token: `@参考音频${index}`, label: `参考音频${index}`, kind: 'audio' as const })),
+  ]
+})
+function setRemoteReferenceUrls(field: 'referenceImageUrls' | 'referenceVideoUrls' | 'referenceAudioUrls', urls: string[]) {
+  const kind = field === 'referenceImageUrls' ? 'image' : field === 'referenceVideoUrls' ? 'video' : 'audio'
+  const previous = referenceMentions.value.filter((item) => item.kind === kind)
+  videoSettings.value[field] = urls
+  const current = referenceMentions.value.filter((item) => item.kind === kind)
+  const label = kind === 'image' ? '图' : kind === 'video' ? '视频' : '音频'
+  generationPrompt.value = generationPrompt.value.replace(new RegExp(`@参考${label}(\\d+)`, 'g'), (token, digits: string) => {
+    const item = previous[Number(digits)]
+    return item ? current.find((candidate) => candidate.thumbnail === item.thumbnail)?.token || '' : token
+  })
+}
 function openCreationAttachmentPicker(kind: 'image' | 'video' | 'audio' | 'mask') {
   if (!requireAuth(creationMode.value === 'videos' ? '/video' : creationMode.value === 'commerce' ? '/commerce' : '/image')) return
   if (kind === 'mask') {
@@ -441,18 +477,18 @@ function openCreationAttachmentPicker(kind: 'image' | 'video' | 'audio' | 'mask'
   }
   if (kind === 'audio') {
     if (!audioReferenceLimit.value) { store.lastError = '当前视频模型不支持参考音频'; return }
-    if (localInputs.audios.length >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
-    if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !videoSettings.value.referenceImageUrls?.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
+    if (localInputs.audios.length + (videoSettings.value.referenceAudioUrls?.length || 0) >= audioReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${audioReferenceLimit.value} 段参考音频`; return }
+    if (activeVideoCapabilities.value.audioRequiresVisualReference && !composerReferences.value.length && !localInputs.videos.length && !videoSettings.value.referenceImageUrls?.length && !videoSettings.value.referenceVideoUrls?.length) { store.lastError = '参考音频必须搭配参考图或参考视频'; return }
     localAudioInput.value?.click()
     return
   }
   if (kind === 'video') {
     if (!activeVideoCapabilities.value.maxVideoReferences) { store.lastError = '当前视频模型不支持参考视频'; return }
-    if (localInputs.videos.length >= activeVideoCapabilities.value.maxVideoReferences) { store.lastError = `当前视频模型最多支持 ${activeVideoCapabilities.value.maxVideoReferences} 段参考视频`; return }
+    if (localInputs.videos.length + (videoSettings.value.referenceVideoUrls?.length || 0) >= videoReferenceLimit.value) { store.lastError = `当前视频模型最多支持 ${videoReferenceLimit.value} 段参考视频`; return }
     localVideoInput.value?.click()
     return
   }
-  if (composerReferences.value.length >= imageReferenceLimit.value) {
+  if (composerReferences.value.length + (creationMode.value === 'videos' ? videoSettings.value.referenceImageUrls?.length || 0 : 0) >= imageReferenceLimit.value) {
     store.lastError = imageReferenceLimit.value ? `当前模型最多支持 ${imageReferenceLimit.value} 张参考图` : '当前模型不支持参考图'
     return
   }
@@ -461,13 +497,17 @@ function openCreationAttachmentPicker(kind: 'image' | 'video' | 'audio' | 'mask'
 
 /** 移除参考素材：本机素材与库内素材分开处理。 */
 async function removeComposerAudio(index: number) {
-  const record = localInputs.audios[index]
+  const remoteCount = videoSettings.value.referenceAudioUrls?.length || 0
+  if (index < remoteCount) { videoSettings.value.referenceAudioUrls!.splice(index, 1); renumberReferenceMentions(index, '音频'); return }
+  const record = localInputs.audios[index - remoteCount]
   if (record) { await localInputs.remove(record.id); renumberReferenceMentions(index, '音频') }
 }
 
 async function removeComposerVideo(index: number) {
   const record = localInputs.videos[index]
-  if (record) { await localInputs.remove(record.id); renumberReferenceMentions(index, '视频') }
+  if (record) await localInputs.remove(record.id)
+  else videoSettings.value.referenceVideoUrls?.splice(index - localInputs.videos.length, 1)
+  renumberReferenceMentions(index, '视频')
 }
 
 async function removeComposerMask() {
@@ -476,9 +516,12 @@ async function removeComposerMask() {
 }
 
 async function removeComposerReference(index: number) {
+  const remoteCount = creationMode.value === 'videos' ? videoSettings.value.referenceImageUrls?.length || 0 : 0
+  if (index < remoteCount) { videoSettings.value.referenceImageUrls!.splice(index, 1); renumberReferenceMentions(index); return }
+  const localIndex = index - remoteCount
   const localCount = localInputs.images.length
-  if (index < localCount) { await localInputs.remove(localInputs.images[index].id); renumberReferenceMentions(index); return }
-  creationAttachments.value.splice(index - localCount, 1)
+  if (localIndex < localCount) { await localInputs.remove(localInputs.images[localIndex].id); renumberReferenceMentions(index); return }
+  creationAttachments.value.splice(localIndex - localCount, 1)
   renumberReferenceMentions(index)
 }
 
@@ -743,6 +786,24 @@ const composerReferences = computed(() => [...localInputs.images.map(localInputA
 const composerVideos = computed(() => localInputs.videos.map(localInputAsset))
 const composerAudios = computed(() => localInputs.audios.map(localInputAsset))
 const composerMask = computed(() => (localInputs.mask ? localInputAsset(localInputs.mask) : null))
+const availableVideoAspectRatios = computed(() => {
+  const caps = activeVideoCapabilities.value
+  const settings = videoSettings.value
+  if ((caps.native === 'seedance' || caps.native === true) && caps.supportsVideoEditing
+    && (settings.imageRole !== 'reference_image' || settings.videoTaskType === 'edit' || settings.videoTaskType === 'extend')) return ['adaptive']
+  if (caps.native === 'minimax-h3' && !composerReferences.value.length && !localInputs.videos.length && !settings.referenceImageUrls?.length && !settings.referenceVideoUrls?.length) return caps.aspectRatios.filter((ratio) => ratio !== 'adaptive')
+  return caps.aspectRatios
+})
+watch([availableVideoAspectRatios, videoAspectRatio], ([ratios, ratio]) => {
+  if (!ratios.includes(ratio)) videoAspectRatio.value = ratios.includes(activeVideoCapabilities.value.defaultAspectRatio) ? activeVideoCapabilities.value.defaultAspectRatio : ratios[0]
+}, { immediate: true })
+watch(() => videoSettings.value.imageRole, (role) => {
+  if (role !== 'reference_image' && (videoSettings.value.videoTaskType === 'edit' || videoSettings.value.videoTaskType === 'extend')) videoSettings.value.videoTaskType = 'auto'
+})
+watch(() => videoSettings.value.videoTaskType, (type) => {
+  if (type === 'edit' || type === 'extend') videoSettings.value.imageRole = 'reference_image'
+  if (type === 'edit') videoDuration.value = -1
+})
 /** 本机副本：服务器副本已被清理的素材仍能在这里浏览与下载。 */
 const localOnlyAssets = computed(() => {
   const serverIds = new Set(store.recentAssets.map((asset) => asset.id))
@@ -769,7 +830,7 @@ const creationMenuOptions = computed(() => {
   if (creationMenu.value === 'style') return imageStyles
   if (creationMenu.value === 'resolution') return activeVideoVariants.value.length ? [...new Set(activeVideoVariants.value.map(item => videoModelVariant(item)!.quality))] : activeVideoCapabilities.value.resolutions
   if (creationMenu.value === 'duration') return [...(activeVideoCapabilities.value.supportsAutoDuration ? ['自动'] : []), ...videoDurationPresets.value.map((item) => `${item} 秒`)]
-  if (creationMenu.value === 'aspect') return activeVideoCapabilities.value.aspectRatios
+  if (creationMenu.value === 'aspect') return availableVideoAspectRatios.value
   if (creationMenu.value === 'platform') return ['自动', '淘宝/天猫', '京东', '拼多多', '抖音电商', '小红书', 'Amazon', 'TikTok Shop', 'Shopee']
   if (creationMenu.value === 'imageResolution') return availableResolutionTiers.value
   if (creationMenu.value === 'modules') return ['6 个模块', '8 个模块', '10 个模块', '12 个模块']

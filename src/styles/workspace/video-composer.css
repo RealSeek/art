@@ -73,6 +73,22 @@ html[data-studio-theme="light"] .video-reference-menu > .video-reference-menu__u
 html[data-studio-theme="light"] .video-reference-preview { background: #fff; border-color: #dce0e3; box-shadow: 0 8px 28px #1820251f; }
 html[data-studio-theme="light"] .video-reference-preview > span { color: #30373c; }
 
+.creation-more-panel--video { display: grid; gap: 12px; max-height: calc(100dvh - 24px); max-width: calc(100vw - 24px); overflow-x: hidden; overflow-y: auto; padding: 14px; width: 320px; }
+.video-setting-field { align-items: center; color: var(--studio-text); display: grid; font-size: 12px; gap: 8px; grid-template-columns: auto minmax(0, 1fr); }
+.video-setting-field > select, .video-setting-field > textarea { background: var(--studio-control); border: 1px solid var(--studio-border); border-radius: 6px; color: var(--studio-text); font: inherit; min-width: 0; padding: 7px 8px; width: 100%; }
+.video-setting-field > select { justify-self: end; }
+.video-setting-field > textarea { overflow-wrap: anywhere; resize: vertical; }
+.video-setting-field--urls { align-items: start; grid-template-columns: minmax(0, 1fr); }
+.video-setting-hint { color: var(--studio-muted); font-size: 11px; line-height: 1.6; margin: 0; }
+.video-setting-toggle { align-items: center; color: var(--studio-text); display: flex; font-size: 12px; gap: 12px; justify-content: space-between; }
+.video-setting-toggle > input { appearance: none; background: var(--studio-control); border: 1px solid var(--studio-border); border-radius: 999px; cursor: pointer; flex: 0 0 32px; height: 18px; margin: 0; position: relative; width: 32px; }
+.video-setting-toggle > input::after { background: var(--studio-muted); border-radius: 50%; content: ''; height: 12px; left: 2px; position: absolute; top: 2px; width: 12px; }
+.video-setting-toggle > input:checked { background: var(--studio-brand); border-color: var(--studio-brand); }
+.video-setting-toggle > input:checked::after { background: var(--studio-inverse-bg); left: 16px; }
+.video-setting-toggle > input:focus-visible, .video-setting-field > select:focus-visible, .video-setting-field > textarea:focus-visible { outline: 2px solid var(--studio-focus); outline-offset: 2px; }
+.video-reference-urls { border: 0; border-top: 1px solid var(--studio-border); display: grid; gap: 10px; margin: 0; min-width: 0; padding: 10px 0 0; }
+.video-reference-urls > legend { color: var(--studio-muted); font-size: 12px; padding: 0 6px 0 0; }
+
 @media (max-width: 640px) {
   .video-reference-stack, .video-reference-empty { height: 74px; width: 54px; }
   .video-reference-deck { width: 54px; }

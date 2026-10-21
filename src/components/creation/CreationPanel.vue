@@ -9,9 +9,9 @@
         <div v-if="modelCatalogError && !activeCreationModels.length" class="studio-feedback studio-feedback--inline" role="alert"><span>{{ modelCatalogError }}</span><button type="button" aria-label="重新加载模型目录" title="重新加载模型目录" @click="refreshModelCatalog"><RefreshCw :size="15" /></button></div>
         <form ref="creationComposer" class="creation-composer" :class="{ 'is-commerce': activeMode === 'commerce', 'is-video': activeMode === 'videos' }" @submit.prevent="submitGeneration">
           <div class="creation-content">
-            <VideoReferenceStack v-if="activeMode === 'videos'" :references="referenceMentions" :can-add-images="creationAttachments.length < imageReferenceLimit" :uploading="uploading" @add="openCreationAttachmentPicker" @quote="videoPrompt?.insertReference($event)" @remove="removeVideoReference" />
+            <VideoReferenceStack v-if="activeMode === 'videos'" :references="referenceMentions" :can-add-images="videoImageCount < imageReferenceLimit" :uploading="uploading" @add="openCreationAttachmentPicker" @quote="videoPrompt?.insertReference($event)" @remove="removeVideoReference" />
             <div class="creation-prompt-row">
-              <VideoPromptInput v-if="activeMode === 'videos'" ref="videoPrompt" v-model="generationPrompt" :references="referenceMentions" :can-add-images="creationAttachments.length < imageReferenceLimit" @focus="collapseWorkspacePopovers" @upload="openCreationAttachmentPicker('image')" />
+              <VideoPromptInput v-if="activeMode === 'videos'" ref="videoPrompt" v-model="generationPrompt" :references="referenceMentions" :can-add-images="videoImageCount < imageReferenceLimit" @focus="collapseWorkspacePopovers" @upload="openCreationAttachmentPicker('image')" />
               <textarea v-else ref="generationInput" v-model="generationPrompt" rows="2" aria-label="创作描述" :placeholder="creationPromptPlaceholder" @focus="collapseWorkspacePopovers" @input="handlePromptInput" @keydown="handlePromptKeydown" @blur="closeMentionMenu" />
             </div>
             <div v-if="activeMode !== 'videos' && (creationAttachments.length || videoAttachments.length || audioAttachments.length || maskAttachment)" class="creation-attachments" aria-label="参考素材">
@@ -70,14 +70,49 @@
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="选择要编辑的区域" @click.stop="openRegionEditor()"><Brush :size="16" />区域编辑</button>
                 <button v-if="activeMode === 'images' && regionEditAvailable" type="button" title="上传已有蒙版图片" @click.stop="openCreationAttachmentPicker('mask')"><Blend :size="16" />上传蒙版</button>
                 <button v-if="activeMode === 'images'" type="button" :class="{ 'is-open': creationMenu === 'imageResolution' }" :aria-label="`图片分辨率，当前为 ${imageResolution}`" :title="`图片分辨率：${imageResolution}`" @click.stop="toggleCreationMenu('imageResolution', $event)"><BadgeCheck :size="16" />{{ imageResolution }}<ChevronDown class="creation-control-chevron" :size="14" /></button>
-                <button v-if="activeMode === 'videos'" type="button" :disabled="videoDurationMin === videoDurationLimit" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration === -1 ? '自动' : `${videoDuration} 秒`}`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration === -1 ? '自动' : `${videoDuration} 秒` }}<ChevronDown v-if="videoDurationMin !== videoDurationLimit" class="creation-control-chevron" :size="14" /></button>
+                <button v-if="activeMode === 'videos'" type="button" :disabled="videoDurationMin === videoDurationLimit || videoSettings.videoTaskType === 'edit'" :class="{ 'is-open': creationMenu === 'duration' }" :aria-label="`视频时长，当前为 ${videoDuration === -1 ? '自动' : `${videoDuration} 秒`}`" @click.stop="toggleCreationMenu('duration', $event)"><Clock3 :size="16" />{{ videoDuration === -1 ? '自动' : `${videoDuration} 秒` }}<ChevronDown v-if="videoDurationMin !== videoDurationLimit && videoSettings.videoTaskType !== 'edit'" class="creation-control-chevron" :size="14" /></button>
               </div>
               <button v-if="activeMode === 'videos'" type="button" class="creation-reference-mention" aria-label="引用参考内容" title="引用参考内容" @mousedown.prevent @click="videoPrompt?.openMentions($event.currentTarget as HTMLElement)"><AtSign :size="16" /></button>
               <PluginSelector v-model="creationPluginId" v-model:open="creationPluginOpen" :capability="creationPluginCapability" compact />
-              <div v-if="activeMode !== 'videos'" class="creation-more-wrap">
-                <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" aria-label="更多生成设置" title="更多设置" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>更多</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
+              <div v-if="activeMode !== 'videos' || nativeVideo" class="creation-more-wrap">
+                <button ref="creationMoreTrigger" class="creation-more-button" :class="{ 'is-active': creationOptionsOpen }" type="button" :aria-label="activeMode === 'videos' ? t('videoSettings.title') : '更多生成设置'" :title="activeMode === 'videos' ? t('videoSettings.title') : '更多设置'" :aria-expanded="creationOptionsOpen" @click.stop="toggleMoreOptions"><Settings2 :size="17" /><span>{{ activeMode === 'videos' ? t('videoSettings.trigger') : '更多' }}</span><ChevronDown class="creation-control-chevron" :size="13" /></button>
                 <Teleport to="body">
-                <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :style="creationMorePanelStyle" aria-label="更多生成设置">
+                <div v-if="creationOptionsOpen" ref="creationMorePanel" class="creation-more-panel creation-more-panel--floating" :class="{ 'creation-more-panel--video': activeMode === 'videos' }" :style="creationMorePanelStyle" :aria-label="activeMode === 'videos' ? t('videoSettings.title') : '更多生成设置'" @keydown.esc.stop="toggleMoreOptions">
+                  <template v-if="activeMode === 'videos'">
+                    <label v-if="videoFrameLimit" class="video-setting-field">
+                      <span>{{ t('videoSettings.imageRole') }}</span>
+                      <select v-model="videoSettings.imageRole">
+                        <option v-if="nativeVideo !== 'kling'" value="reference_image">{{ t('videoSettings.referenceImages') }}</option>
+                        <option value="first_frame">{{ t('videoSettings.firstFrame') }}</option>
+                        <option v-if="nativeVideo === 'minimax-h3'" value="last_frame">{{ t('videoSettings.lastFrame') }}</option>
+                        <option v-if="videoFrameLimit >= 2" value="first_last_frame">{{ t('videoSettings.firstLastFrame') }}</option>
+                      </select>
+                    </label>
+                    <label v-if="seedanceVideo && videoEditing" class="video-setting-field">
+                      <span>{{ t('videoSettings.taskType') }}</span>
+                      <select v-model="videoSettings.videoTaskType">
+                        <option value="auto">{{ t('videoSettings.autoTask') }}</option>
+                        <option value="reference">{{ t('videoSettings.generate') }}</option>
+                        <option v-if="videoAutoDuration" value="edit">{{ t('videoSettings.edit') }}</option>
+                        <option value="extend">{{ t('videoSettings.extend') }}</option>
+                      </select>
+                    </label>
+                    <p v-if="seedanceVideo && videoEditing && (videoSettings.imageRole !== 'reference_image' || videoSettings.videoTaskType === 'edit' || videoSettings.videoTaskType === 'extend')" class="video-setting-hint">{{ t(videoSettings.videoTaskType === 'edit' ? 'videoSettings.editHint' : 'videoSettings.adaptiveHint') }}</p>
+                    <label v-if="seedanceVideo" class="video-setting-toggle"><span>{{ t('videoSettings.generateAudio') }}</span><input v-model="videoSettings.generateAudio" type="checkbox" role="switch" /></label>
+                    <label v-if="seedanceVideo" class="video-setting-toggle"><span>{{ t('videoSettings.watermark') }}</span><input v-model="videoSettings.watermark" type="checkbox" role="switch" /></label>
+                    <label v-if="seedanceVideo" class="video-setting-toggle"><span>{{ t('videoSettings.returnLastFrame') }}</span><input v-model="videoSettings.returnLastFrame" type="checkbox" role="switch" /></label>
+                    <label v-if="seedanceVideo && videoEditing" class="video-setting-field">
+                      <span>{{ t('videoSettings.outputFormat') }}</span>
+                      <select v-model="videoSettings.videoFormat"><option value="mp4">MP4</option><option value="mov">MOV</option></select>
+                    </label>
+                    <fieldset v-if="imageReferenceLimit || videoReferenceLimit || audioReferenceLimit" class="video-reference-urls">
+                      <legend>{{ t('videoSettings.remoteReferences') }}</legend>
+                      <p class="video-setting-hint">{{ t('videoSettings.urlHint') }}</p>
+                      <label v-if="imageReferenceLimit" class="video-setting-field video-setting-field--urls"><span>{{ t('videoSettings.imageUrls') }}</span><textarea :value="videoSettings.referenceImageUrls?.join('\n')" rows="2" placeholder="https://…" @change="setReferenceUrls('referenceImageUrls', $event)" /></label>
+                      <label v-if="videoReferenceLimit && videoSettings.imageRole === 'reference_image'" class="video-setting-field video-setting-field--urls"><span>{{ t('videoSettings.videoUrls') }}</span><textarea :value="videoSettings.referenceVideoUrls?.join('\n')" rows="2" placeholder="https://…" @change="setReferenceUrls('referenceVideoUrls', $event)" /></label>
+                      <label v-if="audioReferenceLimit && videoSettings.imageRole === 'reference_image'" class="video-setting-field video-setting-field--urls"><span>{{ t('videoSettings.audioUrls') }}</span><textarea :value="videoSettings.referenceAudioUrls?.join('\n')" rows="2" placeholder="https://…" @change="setReferenceUrls('referenceAudioUrls', $event)" /></label>
+                    </fieldset>
+                  </template>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('count', $event)"><Layers3 :size="16" />{{ imageCount }} 张<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('format', $event)"><FileType2 :size="16" />{{ outputFormat }}<ChevronDown :size="13" /></button>
                   <button v-if="activeMode === 'images'" type="button" @click.stop="toggleCreationMenu('background', $event)"><ImageIcon :size="16" />{{ imageBackground }}<ChevronDown :size="13" /></button>
@@ -229,6 +264,7 @@ const props = defineProps<{
   videoDurationMin: number
   nativeVideo: boolean | 'seedance' | 'minimax-h3' | 'wan' | 'kling'
   videoEditing: boolean
+  videoAutoDuration: boolean
   videoReferenceLimit: number
   videoFrameLimit: number
   videoFaceSupported: boolean
@@ -294,8 +330,13 @@ const props = defineProps<{
   refreshModelCatalog: () => void
 }>()
 const generationPrompt = defineModel<string>('generationPrompt', { required: true })
+const emit = defineEmits<{ referenceUrlsChange: [field: 'referenceImageUrls' | 'referenceVideoUrls' | 'referenceAudioUrls', urls: string[]] }>()
 const videoSettings = defineModel<Pick<GenerationOptions, 'imageRole' | 'generateAudio' | 'watermark' | 'returnLastFrame' | 'videoTaskType' | 'videoFormat' | 'referenceImageUrls' | 'referenceAudioUrls' | 'referenceVideoUrls' | 'faceRequired'>>('videoSettings', { required: true })
-void videoSettings
+const seedanceVideo = computed(() => props.nativeVideo === 'seedance' || props.nativeVideo === true)
+const videoImageCount = computed(() => props.referenceMentions.filter((item) => item.kind === 'image').length)
+function setReferenceUrls(field: 'referenceImageUrls' | 'referenceVideoUrls' | 'referenceAudioUrls', event: Event) {
+  emit('referenceUrlsChange', field, (event.target as HTMLTextAreaElement).value.split('\n').map((url) => url.trim()).filter(Boolean))
+}
 const audioAttachments = computed(() => props.audioAttachments)
 const videoAttachments = computed(() => props.videoAttachments)
 const maskAttachment = computed(() => props.maskAttachment)

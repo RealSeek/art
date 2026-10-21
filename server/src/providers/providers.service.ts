@@ -642,12 +642,15 @@ export class ProvidersService implements OnModuleInit {
       const channels = Array.isArray(item.channel_video_capabilities) ? item.channel_video_capabilities : []
       if (!modelName || !channels.length) continue
       let faceSupported: boolean | null = null
+      let declaredCapabilities = false
       const aggregate = { maxReferences: 0, maxFirstLastFrames: 0, maxVideoReferences: 0, maxAudioReferences: 0 }
+      const gatewayOnly = channels.every((entry) => entry && typeof entry === 'object' && !Array.isArray(entry) && (entry as Record<string, unknown>).request_protocol === 'openai_video')
       for (const entry of channels) {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
         const capabilities = (entry as Record<string, unknown>).capabilities
         if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) continue
         const row = capabilities as Record<string, unknown>
+        declaredCapabilities = true
         aggregate.maxReferences = Math.max(aggregate.maxReferences, Math.max(0, Number(row.reference_images) || 0))
         aggregate.maxFirstLastFrames = Math.max(aggregate.maxFirstLastFrames, Math.max(0, Number(row.first_last_frames) || 0))
         aggregate.maxVideoReferences = Math.max(aggregate.maxVideoReferences, Math.max(0, Number(row.reference_videos) || 0))
@@ -655,7 +658,7 @@ export class ProvidersService implements OnModuleInit {
         if (row.face_supported === true) faceSupported = true
         else if (row.face_supported === false && faceSupported === null) faceSupported = false
       }
-      configured.set(modelName.toLowerCase(), { ...aggregate, faceSupported })
+      configured.set(modelName.toLowerCase(), { ...(declaredCapabilities ? { ...aggregate, faceSupported } : {}), ...(gatewayOnly ? { requestProtocol: 'openai_video' } : {}) })
     }
     for (const candidate of candidates) {
       const capabilities = configured.get(candidate.id.toLowerCase())
@@ -953,6 +956,7 @@ export class ProvidersService implements OnModuleInit {
       const seedance = seedanceChannelCapabilities(candidate.id) || seedanceVideoCapabilities(candidate.id)
       if (seedance) return { apiProtocol, discovery, videoCapabilities: {
         ...seedance,
+        ...(discoveredCapabilities.requestProtocol === 'openai_video' ? { requestProtocol: 'openai_video' } : {}),
         maxReferences: channelLimit('maxReferences', seedance.maxReferences),
         maxFirstLastFrames: channelLimit('maxFirstLastFrames', seedance.maxFirstLastFrames),
         maxVideoReferences: channelLimit('maxVideoReferences', seedance.maxVideoReferences),
@@ -971,6 +975,7 @@ export class ProvidersService implements OnModuleInit {
         apiProtocol,
         discovery,
         videoCapabilities: {
+          ...(discoveredCapabilities.requestProtocol === 'openai_video' ? { requestProtocol: 'openai_video' } : {}),
           resolutions,
           durations,
           aspectRatios: h3 ? ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'] : ['16:9', '9:16', '1:1'],

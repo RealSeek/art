@@ -52,6 +52,7 @@ export type CatalogModel = {
       resolutionPricing?: Record<string, number>
     }
     videoCapabilities?: {
+      requestProtocol?: 'openai_video' | null
       requestFormat?: 'seedance' | 'minimax-h3' | 'wan' | 'kling' | null
       resolutions?: string[]
       durations?: number[]

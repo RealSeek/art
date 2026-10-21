@@ -89,7 +89,7 @@ test('[C]Seedance 2.5 渠道别名只接受固定 30 秒，不支持自动时长
   }
 })
 
-test('MiniMax H3 使用官方请求格式并接受待临时托管的本地媒体', () => {
+test('DMC MiniMax H3 使用 768P 请求格式并接受待临时托管的本地媒体', () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (model: unknown) => { videoCapabilities: Record<string, unknown> } }
   const caps = videoCapabilities(discover.discoveredModelOptions({ id: 'MiniMax-H3', capability: 'VIDEO' }).videoCapabilities)
   assert.equal(caps.requestFormat, 'minimax-h3')
@@ -112,13 +112,13 @@ test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   }
   internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'doubao-seedance-2-5-260628', timeoutMs: 1000, videoCapabilities: seedanceVideoCapabilities('doubao-seedance-2-5-260628') })
   internals.provider = async (_provider, _path, body, _timeout, key) => { sent.push({ body, key }); return { status: 'failed', error: { message: 'test stopped after submission' } } }
-  const task = { id: 'seedance-job', prompt: '生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false, returnLastFrame: true } }
+  const task = { id: 'seedance-job', prompt: '根据 @参考图0 生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false, returnLastFrame: true } }
   for (let i = 0; i < 2; i++) await assert.rejects(runner.run(task as never), /test stopped after submission/)
   assert.equal(sent[0].key, 'art-video-seedance-job')
   assert.deepEqual(sent[0], sent[1])
   assert.equal(sent[0].body.duration, 5)
   assert.deepEqual(sent[0].body.content, [
-    { type: 'text', text: '生成视频' },
+    { type: 'text', text: '根据 @参考图0 生成视频' },
     { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' }, role: 'reference_image' },
   ])
   assert.equal(sent[0].body.ratio, '16:9')
@@ -128,7 +128,7 @@ test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   assert.equal(sent[0].body.references, undefined)
 })
 
-test('MiniMax H3 使用官方 768P content[] body，不携带 Seedance 参数', async () => {
+test('DMC MiniMax H3 使用 768P content[] body，不携带 Seedance 参数', async () => {
   let sent: Record<string, unknown> | undefined
   const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
   const internals = runner as unknown as {
@@ -167,7 +167,8 @@ test('MiniMax H3 将本地图片和音频临时托管，保留公开 URL 和首�
   const reference = { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }
   const audio = { name: 'a.mp3', mimeType: 'audio/mpeg', dataUrl: 'data:audio/mpeg;base64,Yg==' }
   const video = { name: 'a.mp4', mimeType: 'video/mp4', dataUrl: 'data:video/mp4;base64,Yw==' }
-  await assert.rejects(runner.run({ id: 'temporary-job', prompt: 'move', options: { referenceImages: [reference], referenceAudios: [audio], referenceVideos: [video], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
+  await assert.rejects(runner.run({ id: 'temporary-job', prompt: '@参考图1 模仿 @参考视频0，音色来自 @参考音频0，背景使用 @参考图0；保留不存在的 @参考图2 与 @参考音频1', options: { referenceImages: [reference], referenceAudios: [audio], referenceVideos: [video], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
+  assert.equal(sent!.content[0].text, '<Picture 2> 模仿 <Video 1>，音色来自 <Audio 1>，背景使用 <Picture 1>；保留不存在的 @参考图2 与 @参考音频1')
   assert.deepEqual(hosted, [{ slot: 'image-1', source: reference.dataUrl }, { slot: 'audio-0', source: audio.dataUrl }, { slot: 'video-0', source: video.dataUrl }])
   assert.deepEqual(sent!.content.map((item: Record<string, any>) => item.image_url?.url || item.video_url?.url || item.audio_url?.url).filter(Boolean), [
     'https://cdn.example/a.png', 'https://art.example/v1/assets/video-references/image-1', 'https://art.example/v1/assets/video-references/video-0', 'https://art.example/v1/assets/video-references/audio-0',
@@ -268,9 +269,18 @@ test('Seedance 2.5 首尾帧和视频编辑的生产参数', () => {
   const image = { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }
   const frames = normalizeVideoOptions({ imageRole: 'first_last_frame', referenceImages: [image, image], aspectRatio: 'adaptive' }, caps)
   assert.equal(frames.imageRole, 'first_last_frame')
+  for (const imageRole of ['first_frame', 'first_last_frame'] as const) {
+    const referenceImages = imageRole === 'first_frame' ? [image] : [image, image]
+    assert.throws(() => normalizeVideoOptions({ imageRole, referenceImages, aspectRatio: '16:9' }, caps), /需要 adaptive 比例/)
+  }
   const edit = normalizeVideoOptions({ videoTaskType: 'edit', referenceVideoUrls: ['https://cdn.example/source.mp4'], duration: -1, aspectRatio: 'adaptive', videoFormat: 'mov' }, caps)
   assert.equal(edit.videoFormat, 'mov')
   assert.throws(() => normalizeVideoOptions({ videoTaskType: 'edit', duration: 6 }, caps), /编辑和延长需要/)
+  for (const videoTaskType of ['edit', 'extend'] as const) {
+    const options = { videoTaskType, referenceVideoUrls: ['https://cdn.example/source.mp4'], duration: videoTaskType === 'edit' ? -1 : 6 }
+    assert.throws(() => normalizeVideoOptions({ ...options, aspectRatio: '16:9' }, caps), /编辑和延长需要/)
+    assert.equal(normalizeVideoOptions({ ...options, aspectRatio: 'adaptive' }, caps).videoTaskType, videoTaskType)
+  }
 })
 
 test('失败任务或无法确定的创建结果不会转到其他渠道重建任务', async () => {

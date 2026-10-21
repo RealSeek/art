@@ -11,7 +11,7 @@ import { fetchNoRedirect, fetchPublicNoRedirect, fetchPublicManualRedirect } fro
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
-import { isNativeVideoReferenceMode, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities, videoProviderUrl, wanVideoRequest } from '../video-options'
+import { usesManagedVideoTasks, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities, videoProviderUrl, wanVideoRequest } from '../video-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 
@@ -43,10 +43,10 @@ export class VideoGenerationRunner implements GenerationRunner {
     try {
       response = await this.providerFetch(resolved, videoProviderUrl(resolved.baseUrl, path), { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved), ...(videoCapabilities(resolved.videoCapabilities).requestFormat === 'wan' ? { 'X-DashScope-Async': 'enable' } : {}), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
     } catch (error) {
-      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
+      if (usesManagedVideoTasks(videoCapabilities(resolved.videoCapabilities))) throw new ReconciliationRequiredError(`视频任务创建结果不明，请核对原请求，禁止自动重发：${error instanceof Error ? error.message : String(error)}`)
       throw new ProviderRequestError(error instanceof Error ? error.message : 'Provider network request failed')
     }
-    if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode) && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`原生视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
+    if (usesManagedVideoTasks(videoCapabilities(resolved.videoCapabilities)) && (response.status >= 500 || response.status === 408)) throw new ReconciliationRequiredError(`视频任务创建结果不明，HTTP ${response.status}：${(await response.text()).slice(0, 500)}`)
     if (!response.ok) {
       const message = `Provider returned ${response.status}: ${(await response.text()).slice(0, 500)}`
       if ([400, 422].includes(response.status)) throw new TerminalProviderJobError(message, response.status)
@@ -54,7 +54,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     }
     try { return await response.json() as ProviderPayload }
     catch (error) {
-      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`原生视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
+      if (usesManagedVideoTasks(videoCapabilities(resolved.videoCapabilities))) throw new ReconciliationRequiredError(`视频任务创建响应无法解析，请核对原请求：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -90,7 +90,7 @@ export class VideoGenerationRunner implements GenerationRunner {
       firstLastFrames: imageRole === 'first_last_frame' ? 2 : imageRole === 'first_frame' || imageRole === 'last_frame' ? 1 : 0,
     }
     const candidates = await this.providers.resolveCandidates(task.userId, String(options.requestedModel || task.model), capability, requirements)
-    const nativeTask = task.providerJobId && candidates.some(candidate => isNativeVideoReferenceMode(videoCapabilities(candidate.videoCapabilities).referenceMode))
+    const nativeTask = task.providerJobId && candidates.some(candidate => usesManagedVideoTasks(videoCapabilities(candidate.videoCapabilities)))
     const runnable = nativeTask ? candidates.filter(candidate => (task.providerChannelId || undefined) === candidate.providerId && (task.userCredentialId || undefined) === candidate.credentialId) : candidates
     if (nativeTask && !runnable.length) throw new ReconciliationRequiredError(`视频任务 ${task.providerJobId} 的原渠道不可用，请核对原任务`)
     const attempts: Array<Record<string, unknown>> = Array.isArray(options.providerAttempts) ? [...options.providerAttempts] : []
@@ -157,7 +157,7 @@ export class VideoGenerationRunner implements GenerationRunner {
             seconds: String(normalized.duration),
           }),
         }
-        if (capabilities.referenceMode === 'CONTENT_JSON' || capabilities.referenceMode === 'WAN_JSON' || capabilities.referenceMode === 'KLING_JSON') {
+        if (capabilities.requestProtocol === 'openai_video' || capabilities.referenceMode === 'CONTENT_JSON' || capabilities.referenceMode === 'WAN_JSON' || capabilities.referenceMode === 'KLING_JSON') {
           let images = [
             ...normalized.referenceImageUrls,
             ...normalized.referenceImages.map((item) => item.dataUrl),
@@ -180,13 +180,40 @@ export class VideoGenerationRunner implements GenerationRunner {
             videos = await Promise.all(videos.map((source, index) => source.startsWith('data:')
               ? this.assets.publishVideoReference(task, `video-${index}`, source) : source))
           }
+          // DMC H3 numbers each media type from 1; the composer uses 0-based mentions.
+          const contentPrompt = capabilities.requestProtocol !== 'openai_video' && capabilities.requestFormat === 'minimax-h3'
+            ? prompt.replace(/@参考(图|视频|音频)(\d+)/g, (token, kind: string, rawIndex: string) => {
+              const index = Number(rawIndex)
+              const count = kind === '图' ? images.length : kind === '视频' ? videos.length + normalized.referenceVideoUrls.length : audios.length
+              const label = kind === '图' ? 'Picture' : kind === '视频' ? 'Video' : 'Audio'
+              return index < count ? `<${label} ${index + 1}>` : token
+            }) : prompt
           const content = [
-            { type: 'text', text: prompt },
+            { type: 'text', text: contentPrompt },
             ...images.map((url, index) => ({ type: 'image_url', image_url: { url }, role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole })),
             ...[...videos, ...normalized.referenceVideoUrls].map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })),
             ...audios.map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })),
           ]
-          payload = await this.provider(resolved, capabilities.createPath, capabilities.referenceMode === 'WAN_JSON'
+          payload = await this.provider(resolved, capabilities.createPath, capabilities.requestProtocol === 'openai_video' ? {
+            model: resolved.model,
+            prompt,
+            seconds: String(normalized.duration),
+            resolution: normalized.resolution,
+            aspect_ratio: normalized.aspectRatio,
+            ...(images.length ? { images: images.map((url, index) => ({ url, role: normalized.imageRole === 'first_last_frame' ? index === 0 ? 'first_frame' : 'last_frame' : normalized.imageRole })) } : {}),
+            ...(videos.length || normalized.referenceVideoUrls.length ? { videos: [...videos, ...normalized.referenceVideoUrls] } : {}),
+            ...(audios.length ? { audios } : {}),
+            ...(normalized.generateAudio !== undefined ? { generate_audio: normalized.generateAudio } : {}),
+            ...(normalized.watermark !== undefined ? { watermark: normalized.watermark } : {}),
+            ...(normalized.returnLastFrame !== undefined ? { return_last_frame: normalized.returnLastFrame } : {}),
+            ...(normalized.priority !== undefined ? { priority: normalized.priority } : {}),
+            ...(normalized.executionExpiresAfter !== undefined ? { execution_expires_after: normalized.executionExpiresAfter } : {}),
+            ...(normalized.safetyIdentifier !== undefined ? { safety_identifier: normalized.safetyIdentifier } : {}),
+            ...(normalized.tools !== undefined ? { tools: normalized.tools } : {}),
+            ...(normalized.videoFormat ? { output_format: normalized.videoFormat } : {}),
+            ...(normalized.videoTaskType ? { omni_reference_task_type: normalized.videoTaskType } : {}),
+            ...(normalized.faceRequired ? { face_required: true } : {}),
+          } : capabilities.referenceMode === 'WAN_JSON'
             ? wanVideoRequest(resolved.model, prompt, normalized, images, [...videos, ...normalized.referenceVideoUrls], audios)
             : capabilities.referenceMode === 'KLING_JSON' ? {
               model_name: resolved.model, prompt, duration: String(normalized.duration), aspect_ratio: normalized.aspectRatio,
@@ -243,7 +270,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (immediateUrl) return { resolved, payload, url: immediateUrl }
         providerJobId = this.videoJobId(payload)
         if (!providerJobId) {
-          if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError('原生视频接口未返回任务 ID，请核对原请求，禁止自动重发')
+          if (usesManagedVideoTasks(capabilities)) throw new ReconciliationRequiredError('视频接口未返回任务 ID，请核对原请求，禁止自动重发')
           throw new ProviderRequestError('视频上游未返回任务 ID 或结果地址', 502)
         }
         options.videoPaths = storedOptions.videoPaths = { statusPath: capabilities.statusPath, contentPath: capabilities.contentPath }
@@ -261,7 +288,7 @@ export class VideoGenerationRunner implements GenerationRunner {
         await this.assertNotCancelled(task.id)
         try { payload = await this.providerGet(resolved, this.videoPath(capabilities.statusPath, providerJobId)) }
         catch (error) {
-          if (!isNativeVideoReferenceMode(capabilities.referenceMode)) throw error
+          if (!usesManagedVideoTasks(capabilities)) throw error
           if (error instanceof ProviderRequestError && (error.status === undefined || [408, 429, 502, 503, 504].includes(error.status))) continue
           throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 查询失败：${error instanceof Error ? error.message : String(error)}`)
         }
@@ -282,7 +309,7 @@ export class VideoGenerationRunner implements GenerationRunner {
           return { resolved, payload, url: `${resolved.baseUrl}${this.videoPath(capabilities.contentPath, providerJobId)}` }
         }
       }
-      if (isNativeVideoReferenceMode(capabilities.referenceMode)) throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
+      if (usesManagedVideoTasks(capabilities)) throw new ReconciliationRequiredError(`视频任务 ${providerJobId} 等待超时，请继续查询原任务`)
       throw new ProviderRequestError('视频生成等待超时', 504)
     })
 
@@ -291,7 +318,7 @@ export class VideoGenerationRunner implements GenerationRunner {
     let result: { bytes: Uint8Array; mimeType: string }
     try { result = await this.videoBytes(url, resolved) }
     catch (error) {
-      if (isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)) throw new ReconciliationRequiredError(`视频任务已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
+      if (usesManagedVideoTasks(videoCapabilities(resolved.videoCapabilities))) throw new ReconciliationRequiredError(`视频任务已完成，结果下载失败，请使用原任务核对：${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
     await this.assertNotCancelled(task.id)
@@ -435,10 +462,12 @@ export class VideoGenerationRunner implements GenerationRunner {
     // Only explicitly allowlisted local workers may bypass the public DNS
     // dispatcher. Admin-managed public Providers must use the dispatcher even
     // for same-origin result URLs so DNS rebinding cannot reach a private IP.
-    const native = isNativeVideoReferenceMode(videoCapabilities(resolved.videoCapabilities).referenceMode)
+    const capabilities = videoCapabilities(resolved.videoCapabilities)
+    const native = usesManagedVideoTasks(capabilities)
+    const gatewayContent = capabilities.requestProtocol === 'openai_video' && /^\/v1\/media\/tasks\/[A-Za-z0-9_-]+\/content\/\d+$/.test(url.pathname)
     const standardRequest = url.origin === providerOrigin && resolved.type === ProviderType.LOCAL_WORKER ? fetchNoRedirect : fetchPublicNoRedirect
     const request = native && resolved.type !== ProviderType.LOCAL_WORKER ? fetchPublicManualRedirect : standardRequest
-    let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content')) ? this.providers.buildRequestHeaders(resolved, 'openai', null) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
+    let response = await request(url, { headers: url.origin === providerOrigin && (!native || url.pathname.endsWith('/content') || gatewayContent) ? this.providers.buildRequestHeaders(resolved, 'openai', null) : undefined, signal: AbortSignal.timeout(Math.max(resolved.timeoutMs, 300_000)) })
     for (let hop = 0; native && [301, 302, 303, 307, 308].includes(response.status) && hop < 3; hop += 1) {
       const location = response.headers.get('location')
       await response.body?.cancel()
