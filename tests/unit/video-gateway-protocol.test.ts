@@ -62,6 +62,51 @@ test('网关视频提交 prompt 与有序扩展素材，保留提示词并使用
   }
 })
 
+const seedanceScenes: Array<{
+  name: string
+  options: Record<string, unknown>
+  expectedTaskType?: 'auto' | 'reference' | 'edit' | 'extend'
+  invalidReference?: boolean
+}> = [
+  { name: '纯文本 auto', options: { videoTaskType: 'auto' } },
+  { name: '首帧 auto', options: { videoTaskType: 'auto', imageRole: 'first_frame', aspectRatio: 'adaptive', referenceImageUrls: ['https://cdn.example/first.png'] } },
+  { name: '首尾帧 auto', options: { videoTaskType: 'auto', imageRole: 'first_last_frame', aspectRatio: 'adaptive', referenceImageUrls: ['https://cdn.example/first.png', 'https://cdn.example/last.png'] } },
+  { name: '普通参考 auto', options: { videoTaskType: 'auto', referenceImageUrls: ['https://cdn.example/reference.png'] }, expectedTaskType: 'auto' },
+  { name: '普通参考 reference', options: { videoTaskType: 'reference', referenceImageUrls: ['https://cdn.example/reference.png'] }, expectedTaskType: 'reference' },
+  { name: '编辑视频', options: { videoTaskType: 'edit', duration: -1, aspectRatio: 'adaptive', referenceVideoUrls: ['https://cdn.example/source.mp4'] }, expectedTaskType: 'edit' },
+  { name: '延长视频', options: { videoTaskType: 'extend', duration: 6, aspectRatio: 'adaptive', referenceVideoUrls: ['https://cdn.example/source.mp4'] }, expectedTaskType: 'extend' },
+  { name: '纯文本 reference', options: { videoTaskType: 'reference' }, invalidReference: true },
+  { name: '首帧 reference', options: { videoTaskType: 'reference', imageRole: 'first_frame', aspectRatio: 'adaptive', referenceImageUrls: ['https://cdn.example/first.png'] }, invalidReference: true },
+  { name: '首尾帧 reference', options: { videoTaskType: 'reference', imageRole: 'first_last_frame', aspectRatio: 'adaptive', referenceImageUrls: ['https://cdn.example/first.png', 'https://cdn.example/last.png'] }, invalidReference: true },
+]
+
+for (const gateway of [true, false]) for (const scene of seedanceScenes) {
+  test(`Seedance 2.5 ${gateway ? '统一' : '原生'}请求按场景处理 ${scene.name}`, async () => {
+    const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => {} } as never, {} as never, {} as never, {} as never)
+    const internals = runner as unknown as {
+      withProviderFailover(task: unknown, kind: string, execute: (resolved: unknown) => Promise<unknown>): Promise<unknown>
+      provider(resolved: unknown, path: string, body: Record<string, unknown>): Promise<unknown>
+    }
+    internals.withProviderFailover = async (_task, _kind, execute) => execute({
+      type: 'NEW_API', model: 'seedance-2.5',
+      videoCapabilities: newApiNativeVideoCapabilities('seedance-2.5', gateway ? { requestProtocol: 'openai_video' } : {}),
+    })
+    let providerCalls = 0
+    internals.provider = async (_resolved, path, body) => {
+      providerCalls += 1
+      assert.equal(path, gateway ? '/videos' : '/doubao/api/v3/contents/generations/tasks')
+      assert.equal(body.model, 'seedance-2.5')
+      assert.equal(Object.hasOwn(body, 'content'), !gateway)
+      assert.equal(Object.hasOwn(body, 'omni_reference_task_type'), scene.expectedTaskType !== undefined)
+      assert.equal(body.omni_reference_task_type, scene.expectedTaskType)
+      return { status: 'failed', error: { message: 'captured scene request' } }
+    }
+    await assert.rejects(runner.run({ id: 'scene-job', prompt: 'a lake', options: scene.options } as never),
+      scene.invalidReference ? /参考生成需要普通参考/ : /captured scene request/)
+    assert.equal(providerCalls, scene.invalidReference ? 0 : 1)
+  })
+}
+
 test('网关创建结果不明时即使使用普通参考模式也禁止换渠道重建', async () => {
   const originalFetch = globalThis.fetch
   const runner = new VideoGenerationRunner({} as never, {} as never, { buildRequestHeaders: () => ({}) } as never, {} as never, {} as never, {} as never, {} as never)

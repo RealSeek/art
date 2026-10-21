@@ -389,9 +389,12 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   if (frameCount > capabilities.maxFirstLastFrames) throw new BadRequestException('当前视频模型不支持所选首尾帧模式')
   if (imageRole !== 'reference_image' && (referenceCount !== frameCount || audioCount || videoReferenceCount)) throw new BadRequestException('首帧或尾帧需要一张图片，首尾帧需要两张图片，且不能混用参考音频或视频')
   if (options.faceRequired === true && capabilities.faceSupported !== true) throw new BadRequestException('当前渠道未声明人脸参考支持')
-  const videoTaskType = options.videoTaskType as NormalizedVideoOptions['videoTaskType']
+  let videoTaskType = options.videoTaskType as NormalizedVideoOptions['videoTaskType']
   if (videoTaskType !== undefined && !['auto', 'reference', 'edit', 'extend'].includes(videoTaskType)) throw new BadRequestException('视频生成模式无效')
   if (videoTaskType && !capabilities.supportsVideoEditing) throw new BadRequestException('当前模型不支持视频编辑模式')
+  const referenceScenario = imageRole === 'reference_image' && referenceCount + videoReferenceCount + audioCount > 0
+  if (videoTaskType === 'reference' && !referenceScenario) throw new BadRequestException('参考生成需要普通参考图、参考视频或参考音频，不能使用首尾帧模式')
+  if (videoTaskType === 'auto' && !referenceScenario) videoTaskType = undefined
   if ((videoTaskType === 'edit' || videoTaskType === 'extend') && (!videoReferenceCount || aspectRatio !== 'adaptive' || (videoTaskType === 'edit' && duration !== -1))) throw new BadRequestException('编辑和延长需要参考视频及 adaptive 比例；编辑需要自动时长')
   if (capabilities.requestFormat === 'seedance' && capabilities.supportsVideoEditing && imageRole !== 'reference_image' && aspectRatio !== 'adaptive') throw new BadRequestException('Seedance 2.5 的首帧和首尾帧需要 adaptive 比例')
   const videoFormat = options.videoFormat as NormalizedVideoOptions['videoFormat']
