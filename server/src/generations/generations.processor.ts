@@ -401,10 +401,22 @@ export class GenerationsProcessor extends WorkerHost implements OnModuleInit, On
    * release the user's holds exactly once.
    */
   private async finalizeRunningReconciliation(task: GenerationJob, lease: GenerationLease, reason: string) {
-    const errorCode = task.kind === 'CHAT' ? 'PROVIDER_STREAM_INCOMPLETE' : 'SETTLEMENT_RECONCILIATION_FAILED'
-    const errorMessage = task.kind === 'CHAT'
+    const attempts = task.kind === 'VIDEO' ? await this.prisma.providerAttempt.findMany({
+      where: { generationId: task.id },
+      orderBy: { startedAt: 'desc' },
+      select: { status: true, errorCode: true, errorMessage: true, metadata: true },
+    }) : []
+    const primaryAttempt = attempts.find((attempt) => {
+      const metadata = attempt.metadata && typeof attempt.metadata === 'object' && !Array.isArray(attempt.metadata)
+        ? attempt.metadata as Record<string, unknown> : {}
+      return metadata.auxiliary !== true
+    })
+    const failedAttempt = primaryAttempt?.status === 'FAILED' && primaryAttempt.errorMessage ? primaryAttempt : undefined
+    const errorCode = failedAttempt ? failedAttempt.errorCode || 'PROVIDER_ERROR'
+      : task.kind === 'CHAT' ? 'PROVIDER_STREAM_INCOMPLETE' : 'SETTLEMENT_RECONCILIATION_FAILED'
+    const errorMessage = failedAttempt?.errorMessage || (task.kind === 'CHAT'
       ? '模型响应中断，任务已安全结束且不会扣费'
-      : '生成结果未能完成结算，任务已安全结束且不会扣费'
+      : '生成结果未能完成结算，任务已安全结束且不会扣费')
     // Fence the running job first. Only the worker that still owns this lease
     // may make it terminal; ProviderAttempt cleanup happens afterwards.
     const failed = await this.lifecycle.fail(task.id, errorCode, errorMessage, { reconciled: true }, lease)

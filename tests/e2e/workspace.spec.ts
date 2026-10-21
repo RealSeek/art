@@ -281,24 +281,34 @@ test('商品图任务留在当前页面并以八张成组图库展示', async ({
 test('生图提交后进入聊天任务流并支持失败重试', async ({ page }) => {
   const now = new Date().toISOString()
   let generationCount = 0
+  const messages: Array<Record<string, unknown>> = []
+  const generationJobs: Array<{ id: string } & Record<string, unknown>> = []
+
+  await page.route('**/v1/conversations/mock-image-conversation', (route) => route.fulfill({ json: { id: 'mock-image-conversation', title: '霓虹城市夜景', model: 'gpt-5.5', temporary: false, createdAt: now, updatedAt: now, messages, generationJobs } }))
 
   await page.route('**/v1/conversations', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     await route.fulfill({ json: { id: 'mock-image-conversation', title: '霓虹城市夜景', model: 'gpt-5.5', temporary: false, createdAt: now, updatedAt: now } })
   })
   await page.route('**/v1/conversations/mock-image-conversation/messages', async (route) => {
-    await route.fulfill({ json: { id: `mock-image-message-${Date.now()}`, role: 'USER', content: '霓虹城市夜景', createdAt: now } })
+    const message = { id: `mock-image-message-${messages.length}`, role: 'USER', content: route.request().postDataJSON().content, createdAt: now }
+    messages.push(message)
+    await route.fulfill({ json: message })
   })
   await page.route('**/v1/generations', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     generationCount += 1
-    await route.fulfill({ json: { id: `mock-image-job-${generationCount}`, conversationId: 'mock-image-conversation', kind: 'IMAGE', status: 'QUEUED', model: 'gpt-image-2', prompt: '霓虹城市夜景', options: { requestedModel: 'GPT Image 2', size: '1024x1024', count: 1 }, outputs: [], createdAt: now } })
+    const generation = { id: `mock-image-job-${generationCount}`, conversationId: 'mock-image-conversation', kind: 'IMAGE', status: 'QUEUED', model: 'gpt-image-2', prompt: '霓虹城市夜景', options: { requestedModel: 'GPT Image 2', size: '1024x1024', count: 1 }, outputs: [], createdAt: now }
+    generationJobs.push(generation)
+    await route.fulfill({ json: generation })
   })
   await page.route('**/v1/generations/mock-image-job-*', async (route) => {
+    if (new URL(route.request().url()).pathname.endsWith('/events')) return route.fulfill({ status: 404, json: {} })
     const id = route.request().url().split('/').pop() || 'mock-image-job-1'
     await new Promise((resolve) => setTimeout(resolve, 1200))
     const succeeded = id.endsWith('-2')
-    await route.fulfill({ json: { id, conversationId: 'mock-image-conversation', kind: 'IMAGE', status: succeeded ? 'SUCCEEDED' : 'FAILED', model: 'gpt-image-2', prompt: '霓虹城市夜景', options: { requestedModel: 'GPT Image 2', size: '1024x1024', count: 1 }, errorMessage: succeeded ? null : '上游渠道暂时不可用', outputs: succeeded ? [{ asset: { id: 'mock-generated-image', kind: 'IMAGE', name: '生成图片 1.jpg', mimeType: 'image/jpeg', size: 73229, objectKey: 'users/mock/generated/image.jpg', contentUrl: '/assets/inspiration-1.jpg', createdAt: now, metadata: { prompt: '霓虹城市夜景' } } }] : [], createdAt: now } })
+    const generation = Object.assign(generationJobs.find((job) => job.id === id)!, { status: succeeded ? 'SUCCEEDED' : 'FAILED', errorMessage: succeeded ? null : '上游渠道暂时不可用', outputs: succeeded ? [{ asset: { id: 'mock-generated-image', kind: 'IMAGE', name: '生成图片 1.jpg', mimeType: 'image/jpeg', size: 73229, objectKey: 'users/mock/generated/image.jpg', contentUrl: '/assets/inspiration-1.jpg', createdAt: now, metadata: { prompt: '霓虹城市夜景' } } }] : [] })
+    await route.fulfill({ json: generation })
   })
 
   await page.goto('/image')
@@ -311,7 +321,7 @@ test('生图提交后进入聊天任务流并支持失败重试', async ({ page 
   await page.waitForTimeout(350)
   await page.screenshot({ path: 'test-results/image-generation-chat-running.png', fullPage: true })
 
-  await expect(page.getByText('生成失败，请调整内容后重试')).toBeVisible()
+  await expect(page.getByText('生成失败', { exact: true })).toBeVisible()
   await expect(page.getByText('上游渠道暂时不可用')).toBeVisible()
   await page.getByRole('button', { name: '重新生成', exact: true }).click()
   await expect(page).toHaveURL(/\/chat\?generation=mock-image-job-2/)

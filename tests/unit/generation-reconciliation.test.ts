@@ -3,6 +3,7 @@ import test from 'node:test'
 import { ReconciliationRequiredError } from '../../server/src/generations/generation-provider-errors'
 import { GenerationReconciliationService } from '../../server/src/generations/generation-reconciliation.service'
 import { GenerationsProcessor } from '../../server/src/generations/generations.processor'
+import { publicGenerationError } from '../../server/src/generations/generation-errors'
 
 type SettlementStatus = 'PENDING' | 'RESERVED' | 'SETTLED' | 'RELEASED' | 'REFUNDED' | 'RECONCILING'
 type Reservation = { reservationId: string; quotaId: string; status: 'RESERVED' | 'RELEASED' | 'SETTLED'; reservedUnits: bigint }
@@ -277,17 +278,23 @@ test('an interrupted Chat stream becomes terminal without replaying the Provider
   assert.equal(refunds, 1)
 })
 
-test('a final non-Chat reconciliation failure becomes terminal without replay or duplicate refund', async () => {
+for (const scenario of [
+  { name: 'a final non-Chat reconciliation failure becomes terminal without replay or duplicate refund', kind: 'IMAGE', attemptStatus: 'RUNNING' },
+  { name: 'a video submission failure preserves its primary Provider cause through reconciliation without replay or duplicate refund', kind: 'VIDEO', attemptStatus: 'FAILED' },
+  { name: 'a video settlement failure after a successful primary Provider attempt retains the settlement error', kind: 'VIDEO', attemptStatus: 'SUCCEEDED' },
+] as const) test(scenario.name, async () => {
+  const failedSubmission = scenario.attemptStatus === 'FAILED'
+  const providerCause = '视频任务创建结果不明，HTTP 503：{"code":"fail_to_fetch_task","message":"无可用供给 (No available supply)"}'
   const task = {
     ...processorTask(),
     id: 'job-image-reconcile',
-    kind: 'IMAGE',
-    settlementStatus: 'RECONCILING',
+    kind: scenario.kind,
+    settlementStatus: failedSubmission ? 'RESERVED' : 'RECONCILING',
     providerChannelId: 'provider-1',
   }
-  const attempt = { id: 'attempt-image', status: 'RUNNING', errorCode: null as string | null }
+  const attempt = { id: 'attempt-image', status: scenario.attemptStatus as string, errorCode: failedSubmission ? 'PROVIDER_ERROR' : null, errorMessage: failedSubmission ? providerCause : null, metadata: {} }
   const reservation = { reservationId: 'reservation-image', quotaId: 'quota-image', status: 'RESERVED' as const, reservedUnits: 100n }
-  const calls = { runner: 0, settlement: 0, refunds: 0, billingWrites: 0, releases: 0, cleanup: 0 }
+  const calls = { runner: 0, settlement: 0, refunds: 0, billingWrites: 0, releases: 0, cleanup: 0, requeues: 0 }
   let refundCreated = false
   const matches = (where: Record<string, any>) => {
     if (where.id !== undefined && where.id !== task.id) return false
@@ -308,7 +315,7 @@ test('a final non-Chat reconciliation failure becomes terminal without replay or
       },
     },
     providerAttempt: {
-      findMany: async () => [],
+      findMany: async () => scenario.kind === 'VIDEO' ? [{ status: 'FAILED', errorCode: 'AUXILIARY_ERROR', errorMessage: 'auxiliary failure', metadata: { auxiliary: true } }, attempt, { status: 'FAILED', errorCode: 'OLD_ERROR', errorMessage: 'older provider failure', metadata: {} }] : [],
       updateMany: async ({ where, data }: { where: Record<string, any>; data: Record<string, unknown> }) => {
         if (attempt.status !== where.status) return { count: 0 }
         Object.assign(attempt, data)
@@ -329,9 +336,15 @@ test('a final non-Chat reconciliation failure becomes terminal without replay or
       return true
     },
     heartbeat: async () => ({ count: 1 }),
-    fail: async (_id: string, _code: string, _message: string, _payload: unknown, lease: { workerId: string; leaseVersion: number }) => {
+    releaseForRetry: async () => {
+      calls.requeues += 1
+      task.status = 'QUEUED'; task.lockedBy = null; task.leaseExpiresAt = null
+      return true
+    },
+    fail: async (_id: string, code: string, message: string, _payload: unknown, lease: { workerId: string; leaseVersion: number }) => {
       if (task.status !== 'RUNNING' || task.lockedBy !== lease.workerId || task.leaseVersion !== lease.leaseVersion) return false
       task.status = 'FAILED'
+      Object.assign(task, { errorCode: code, errorMessage: message })
       task.lockedBy = null
       task.leaseExpiresAt = null
       return true
@@ -365,7 +378,7 @@ test('a final non-Chat reconciliation failure becomes terminal without replay or
     lifecycle as never,
     { kind: 'CHAT', run: async () => undefined } as never,
     { kind: 'IMAGE', run: async () => { calls.runner += 1 } } as never,
-    { kind: 'VIDEO', run: async () => undefined } as never,
+    { kind: 'VIDEO', run: async () => { calls.runner += 1; throw new ReconciliationRequiredError(providerCause) } } as never,
     { cleanup: async () => { calls.cleanup += 1 } } as never,
     { record: async () => undefined } as never,
     tokenQuota as never,
@@ -373,15 +386,23 @@ test('a final non-Chat reconciliation failure becomes terminal without replay or
     reconciliation,
     {} as never,
   )
-  const queueJob = { data: { jobId: task.id }, attemptsMade: 2, opts: { attempts: 3 } } as never
+  const queueJob = (attemptsMade = 2) => ({ data: { jobId: task.id }, attemptsMade, opts: { attempts: 3 } }) as never
 
-  const result = await processor.process(queueJob)
+  if (failedSubmission) {
+    await assert.rejects(processor.process(queueJob(0)), /无可用供给/)
+    await assert.rejects(processor.process(queueJob(1)), /ledger unavailable/)
+  }
+  const result = await processor.process(queueJob())
   assert.equal(result.status, 'FAILED')
   assert.equal(result.settlementStatus, 'REFUNDED')
-  assert.equal(attempt.status, 'FAILED')
+  assert.equal(attempt.status, scenario.attemptStatus === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED')
   assert.equal(reservation.status, 'RELEASED')
-  assert.deepEqual(calls, { runner: 0, settlement: 1, refunds: 1, billingWrites: 1, releases: 1, cleanup: 1 })
+  const expectedCalls = { runner: failedSubmission ? 1 : 0, settlement: failedSubmission ? 2 : 1, refunds: 1, billingWrites: 1, releases: 1, cleanup: 1, requeues: failedSubmission ? 2 : 0 }
+  assert.deepEqual(calls, expectedCalls)
+  assert.equal(result.errorCode, failedSubmission ? 'PROVIDER_ERROR' : 'SETTLEMENT_RECONCILIATION_FAILED')
+  assert.equal(result.errorMessage, failedSubmission ? providerCause : '生成结果未能完成结算，任务已安全结束且不会扣费')
+  if (failedSubmission) assert.equal(publicGenerationError('VIDEO', 'FAILED', result.errorMessage), '视频生成服务暂时繁忙，请稍后重试或切换模型。')
 
-  await processor.process(queueJob)
-  assert.deepEqual(calls, { runner: 0, settlement: 1, refunds: 1, billingWrites: 1, releases: 1, cleanup: 1 })
+  await processor.process(queueJob())
+  assert.deepEqual(calls, expectedCalls)
 })
