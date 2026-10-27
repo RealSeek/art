@@ -1,5 +1,5 @@
 <template>
-  <div class="landing-page" :data-mode="activeMode + 1">
+  <div class="landing-page">
     <a class="landing-skip" href="#main-content">跳到主要内容</a>
 
     <header class="landing-header" :class="{ 'is-scrolled': headerScrolled }">
@@ -9,7 +9,7 @@
       </RouterLink>
 
       <nav class="landing-nav" aria-label="主要导航">
-        <a href="#intro">简介</a>
+        <a href="#features">能力</a>
         <div v-for="group in navGroups" :key="group.key" class="landing-nav-menu">
           <button type="button" :aria-expanded="openNavMenu === group.key" @click.stop="toggleNavMenu(group.key)">
             {{ group.label }} <ChevronDown :size="14" />
@@ -36,7 +36,7 @@
     </header>
 
     <div v-if="mobileMenuOpen" class="landing-mobile-menu">
-      <a href="#intro" @click="mobileMenuOpen = false">简介</a>
+      <a href="#features" @click="mobileMenuOpen = false">能力</a>
       <details v-for="group in navGroups" :key="group.key">
         <summary>{{ group.label }} <ChevronDown :size="17" /></summary>
         <div>
@@ -50,122 +50,130 @@
     </div>
 
     <main id="main-content" tabindex="-1">
-      <section id="intro" class="landing-overview">
-        <div class="landing-overview__copy">
-          <h1>
-            <span class="landing-title-lead">{{ landing.heroLead }}</span>
-            <span class="landing-title-modes">
-              <button type="button" class="mode-chat" :class="{ 'is-active': activeMode === 0 }" :aria-pressed="activeMode === 0" @pointerenter="previewMode(0)" @focus="previewMode(0)" @click="selectMode(0)"><span>{{ modes[0]?.title }}</span><i></i></button><b>、</b>
-              <button type="button" class="mode-image" :class="{ 'is-active': activeMode === 1 }" :aria-pressed="activeMode === 1" @pointerenter="previewMode(1)" @focus="previewMode(1)" @click="selectMode(1)"><span>{{ modes[1]?.title }}</span><i></i></button><span class="landing-title-tail"><b>和</b><button type="button" class="mode-product" :class="{ 'is-active': activeMode === 2 }" :aria-pressed="activeMode === 2" @pointerenter="previewMode(2)" @focus="previewMode(2)" @click="selectMode(2)"><span>{{ modes[2]?.title }}</span><i></i></button><b>。</b></span>
-            </span>
-          </h1>
-
-          <div class="landing-hero-actions">
-            <RouterLink class="landing-button landing-button--primary" to="/chat">开始使用 <ArrowRight :size="17" /></RouterLink>
-            <a class="landing-button landing-button--text" href="#capabilities">查看平台能力 <ArrowRight :size="17" /></a>
+      <section id="intro" class="landing-hero">
+        <div class="landing-hero__copy">
+          <p class="landing-eyebrow"><Sparkles :size="14" /> 与 OnlyCode 共用账号与密钥</p>
+          <h1>灵感不再断层，<span>从对话推演到整套创作交付</span></h1>
+          <p class="landing-hero__lead">一个工作台串起 AI 对话、图片、视频、画布与电商成套视觉。需求、参考和成品都留在同一个项目里，随时接着往下做。</p>
+          <div class="landing-hero__actions">
+            <RouterLink class="landing-cta landing-cta--primary" to="/login?redirect=/chat">使用 OnlyCode 登录 <ArrowRight :size="16" /></RouterLink>
+            <a class="landing-cta landing-cta--ghost" href="#features">查看平台能力</a>
           </div>
+          <ul class="landing-hero__meta">
+            <li>多模型统一调度</li>
+            <li>作品自动归档</li>
+            <li>按量使用自己的密钥</li>
+          </ul>
         </div>
 
-        <div ref="story" class="landing-journey" :class="{ 'is-expanded': journeyExpanded }" :style="journeyStyle">
-          <span id="capabilities" class="landing-journey__anchor" aria-hidden="true"></span>
-          <div class="landing-journey__sticky">
-            <div class="landing-art" aria-hidden="true">
-              <div class="landing-art-scene art-chat">
-                <div class="art-fruit"><i></i></div>
-                <Asterisk class="art-star art-star--left" :size="78" :stroke-width="2.5" />
-                <span class="art-cloud"></span>
-                <Asterisk class="art-star art-star--right" :size="82" :stroke-width="2.5" />
-                <div class="art-flower"><i v-for="n in 5" :key="n"></i><b></b></div>
-                <span class="art-wave"></span>
+        <div class="landing-stage" aria-hidden="true">
+          <div class="landing-stage__window">
+            <div class="landing-stage__bar"><i></i><i></i><i></i><span>OnlyArt · 春季新品项目</span></div>
+            <div class="landing-stage__body">
+              <div class="landing-stage__side">
+                <span class="landing-stage__logo"><b>O</b>OnlyArt</span>
+                <span v-for="(item, index) in previewNav" :key="item" class="landing-stage__pill" :class="{ 'is-active': index === 1 }"><i></i>{{ item }}</span>
               </div>
-              <div class="landing-art-scene art-image">
-                <span class="art-orb"></span><Asterisk class="art-star art-star--left" :size="78" />
-                <span class="art-leaves"></span><span class="art-spark"></span><span class="art-fold"></span><span class="art-wave art-wave--color"></span>
+              <div class="landing-stage__canvas">
+                <img class="landing-stage__image" src="/assets/image-studio-white.jpg" alt="" />
+                <div class="landing-stage__prompt"><Sparkles :size="14" /><span>为新品耳机生成一套暖色调上新主图</span><b>生成</b></div>
               </div>
-              <div class="landing-art-scene art-product">
-                <span class="art-bottle"></span><Asterisk class="art-star art-star--left" :size="78" />
-                <span class="art-dot"></span><span class="art-spark"></span><span class="art-box"></span><span class="art-growth"></span>
-              </div>
-            </div>
-
-            <div class="landing-preview">
-              <figure v-for="(mode, index) in modes" :key="mode.key" :class="{ 'is-active': activeMode === index }">
-                <img :src="mode.image" :alt="mode.imageAlt" />
-                <div class="preview-browser-mask">
-                  <span class="preview-dots"><i></i><i></i><i></i></span>
-                  <span>OnlyArt</span>
-                  <small>onlyart.ai/{{ mode.path }}</small>
-                </div>
-                <div class="preview-sidebar-mask">
-                  <strong><span>O</span> OnlyArt</strong>
-                  <i v-for="item in previewNav" :key="item">{{ item }}</i>
-                </div>
-              </figure>
-            </div>
-
-            <div class="landing-workflow-tabs">
-              <article v-for="(mode, index) in modes" :key="mode.key" :class="{ 'is-active': activeMode === index }">
-                <button type="button" :aria-pressed="activeMode === index" @click="activateWorkflow(index)">
-                  <span>{{ mode.title }}</span><i><ArrowDown v-if="activeMode === index" :size="17" /><ArrowRight v-else :size="17" /></i>
-                </button>
-                <div class="landing-workflow-body">
-                  <strong>{{ mode.lead }}</strong>
-                  <p>{{ mode.description }}</p>
-                  <div>
-                    <RouterLink v-for="action in mode.actions" :key="action.label" :to="action.to">{{ action.label }} <ArrowRight :size="15" /></RouterLink>
-                  </div>
-                  <figure class="landing-workflow-mobile-visual">
-                    <img :src="mode.image" :alt="mode.imageAlt" />
-                  </figure>
-                </div>
-              </article>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="landing-section landing-fit landing-reveal">
-        <div class="landing-section-heading">
-          <h2>{{ landing.trustTitle }}</h2>
+      <section id="features" class="landing-section" aria-labelledby="landing-features-title">
+        <div class="landing-section-head">
+          <p class="landing-eyebrow">平台能力</p>
+          <h2 id="landing-features-title">一个入口，覆盖从想法到交付的每一步</h2>
+        </div>
+        <div class="landing-features">
+          <RouterLink v-for="feature in features" :key="feature.title" class="landing-feature" :to="feature.to">
+            <span class="landing-feature__icon"><component :is="feature.icon" :size="20" /></span>
+            <strong>{{ feature.title }}</strong>
+            <span>{{ feature.description }}</span>
+          </RouterLink>
+        </div>
+      </section>
+
+      <section id="capabilities" class="landing-section" aria-labelledby="landing-showcase-title">
+        <div class="landing-section-head">
+          <p class="landing-eyebrow">工作流</p>
+          <h2 id="landing-showcase-title">{{ showcaseTitle }}</h2>
+        </div>
+        <div class="landing-showcase">
+          <div class="landing-showcase__modes">
+            <button v-for="(mode, index) in showcaseModes" :key="mode.key" type="button" :class="{ 'is-active': activeMode === index }" :aria-pressed="activeMode === index" @click="activeMode = index">
+              <strong>{{ mode.title }}</strong>
+              <span>{{ mode.lead }}</span>
+            </button>
+          </div>
+          <div class="landing-showcase__panel">
+            <div class="landing-showcase__copy">
+              <h3>{{ currentMode.lead }}</h3>
+              <p>{{ currentMode.description }}</p>
+              <div class="landing-showcase__actions">
+                <RouterLink v-for="action in currentMode.actions" :key="action.label" :to="action.to">{{ action.label }} <ArrowRight :size="15" /></RouterLink>
+              </div>
+            </div>
+            <figure class="landing-showcase__shot">
+              <img :src="currentMode.image" :alt="currentMode.imageAlt" loading="lazy" decoding="async" />
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-section landing-trust" aria-labelledby="landing-trust-title">
+        <div class="landing-section-head">
+          <p class="landing-eyebrow">可靠交付</p>
+          <h2 id="landing-trust-title">{{ landing.trustTitle }}</h2>
           <p>{{ landing.trustDescription }}</p>
         </div>
-        <div class="landing-fit-grid">
-          <article v-for="item in landing.trustItems" :key="item.title"><h3>{{ item.title }}</h3><p>{{ item.description }}</p></article>
+        <div class="landing-trust__grid">
+          <article v-for="item in landing.trustItems" :key="item.title"><ShieldCheck :size="18" /><h3>{{ item.title }}</h3><p>{{ item.description }}</p></article>
         </div>
       </section>
 
-      <section class="landing-section landing-links landing-reveal">
-        <div class="landing-section-heading">
-          <h2>{{ landing.linksTitle }}</h2>
+      <section class="landing-section" aria-labelledby="landing-links-title">
+        <div class="landing-section-head">
+          <p class="landing-eyebrow">下一步</p>
+          <h2 id="landing-links-title">{{ landing.linksTitle }}</h2>
           <p>{{ landing.linksDescription }}</p>
         </div>
-        <div class="landing-link-list">
+        <div class="landing-links">
           <RouterLink v-for="item in capabilityLinks" :key="item.title" :to="item.to">
             <span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><ArrowUpRight :size="18" />
           </RouterLink>
         </div>
       </section>
 
-      <section class="landing-section landing-faq landing-reveal">
-        <h2>{{ landing.faqTitle }}</h2>
-        <div>
+      <section class="landing-section landing-faq" aria-labelledby="landing-faq-title">
+        <div class="landing-section-head">
+          <p class="landing-eyebrow">常见问题</p>
+          <h2 id="landing-faq-title">{{ landing.faqTitle }}</h2>
+        </div>
+        <div class="landing-faq__list">
           <details v-for="item in faqs" :key="item.question">
-            <summary>{{ item.question }}<span></span></summary>
+            <summary>{{ item.question }}<ChevronDown :size="18" /></summary>
             <p>{{ item.answer }}</p>
           </details>
         </div>
       </section>
 
-      <section id="start" class="landing-final landing-reveal">
+      <section id="start" class="landing-final">
         <h2>{{ landing.finalTitle }}</h2>
         <p>{{ landing.finalDescription }}</p>
-        <RouterLink class="landing-button landing-button--primary" to="/chat">开始使用 <ArrowRight :size="17" /></RouterLink>
+        <div class="landing-hero__actions">
+          <RouterLink class="landing-cta landing-cta--primary" to="/chat">开始使用 <ArrowRight :size="16" /></RouterLink>
+          <RouterLink class="landing-cta landing-cta--ghost" to="/chat?settings=api">配置密钥</RouterLink>
+        </div>
       </section>
     </main>
 
     <footer class="landing-footer">
       <div class="landing-footer__brand">
-        <strong><span>O</span> OnlyArt</strong>
+        <strong><span class="landing-brand__mark">O</span> OnlyArt</strong>
         <p>{{ landing.footerDescription }}</p>
       </div>
       <div class="landing-footer__groups">
@@ -180,20 +188,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowDown, ArrowRight, ArrowUpRight, Asterisk, ChevronDown, Menu, X } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue'
+import { ArrowRight, ArrowUpRight, ChevronDown, Clapperboard, Images, LibraryBig, Menu, MessageSquareText, ShieldCheck, ShoppingBag, Sparkles, Workflow, X } from 'lucide-vue-next'
 import { useCatalogStore, type LandingContent } from '../stores/catalog'
 
 const activeMode = ref(0)
-const selectedMode = ref(0)
 const openNavMenu = ref<string | null>(null)
 const mobileMenuOpen = ref(false)
 const headerScrolled = ref(false)
-const journeyExpanded = ref(false)
-const journeyProgress = ref(0)
-const story = ref<HTMLElement | null>(null)
-let revealObserver: IntersectionObserver | null = null
-let frame = 0
+
+const features: Array<{ title: string; description: string; to: string; icon: Component }> = [
+  { title: 'AI 对话', description: '梳理需求、整理资料、撰写文案，项目上下文持续保留。', to: '/chat', icon: MessageSquareText },
+  { title: '图片创作', description: '文生图、参考图编辑、局部重绘与多张候选并行生成。', to: '/image', icon: Images },
+  { title: '视频创作', description: '从脚本或参考图生成短片，镜头与时长参数集中调整。', to: '/video', icon: Clapperboard },
+  { title: '无限画布', description: '把对话、图片和视频节点连成可复用的创作流程。', to: '/canvases', icon: Workflow },
+  { title: '电商中心', description: '商品素材包与连续详情页，按用途成套规划与交付。', to: '/commerce', icon: ShoppingBag },
+  { title: '提示词库', description: '沉淀好用的提示词与风格，随取随用不必重写。', to: '/prompts', icon: LibraryBig },
+]
 
 const defaultModes = [
   {
@@ -231,6 +242,7 @@ const defaultNavGroups = [
 ]
 
 const defaultPreviewNav = ['新对话', '图片生成', '电商中心', '项目', '文件库', 'API']
+
 const defaultCapabilityLinks = [
   { title: '图片生成', description: '了解普通图片生成、参考图编辑与多张候选。', to: '/image' },
   { title: '商品素材包', description: '围绕同一商品生成一组各有用途的商品图片。', to: '/commerce' },
@@ -257,72 +269,21 @@ const fallbackLanding: LandingContent = {
   finalTitle: '从今天要完成的事开始。', finalDescription: '提出一个问题、生成素材或发起办公任务，选择当前任务就可以开始。', footerDescription: '在同一个平台完成 AI 对话、视觉创作、办公任务和团队协作。', copyright: '© 2026 OnlyArt. 保留所有权利。',
 }
 const landing = computed<LandingContent>(() => ({ ...fallbackLanding, ...(catalog.settings.siteContent.landing || {}) }))
-const modes = computed(() => landing.value.modes.length >= 3 ? landing.value.modes : defaultModes)
+const showcaseModes = computed(() => landing.value.modes.length >= 3 ? landing.value.modes : defaultModes)
 const navGroups = computed(() => landing.value.navGroups.length ? landing.value.navGroups : defaultNavGroups)
 const previewNav = computed(() => landing.value.previewNav.length ? landing.value.previewNav : defaultPreviewNav)
 const capabilityLinks = computed(() => landing.value.capabilityLinks.length ? landing.value.capabilityLinks : defaultCapabilityLinks)
 const faqs = computed(() => landing.value.faqs.length ? landing.value.faqs : defaultFaqs)
-
-const journeyStyle = computed(() => {
-  const eased = Math.min(1, Math.max(0, journeyProgress.value / 0.228))
-  const smooth = eased * eased * (3 - 2 * eased)
-  return {
-    '--journey-effects-opacity': String(1 - smooth),
-    '--journey-effects-y': `${Math.round(-156 * smooth)}px`,
-  }
-})
+// 展示区标题沿用后台可配置的 heroLead，并拼接各模式名称。
+const showcaseTitle = computed(() => `${landing.value.heroLead}${showcaseModes.value.map((mode) => mode.title).join('、')}`)
+const currentMode = computed(() => showcaseModes.value[activeMode.value] ?? showcaseModes.value[0])
 
 function toggleNavMenu(key: string) {
   openNavMenu.value = openNavMenu.value === key ? null : key
 }
 
-function previewMode(index: number) {
-  if (!journeyExpanded.value) activeMode.value = index
-}
-
-function selectMode(index: number) {
-  selectedMode.value = index
-  activeMode.value = index
-  if (window.innerWidth < 1280) activateWorkflow(index)
-}
-
-function activateWorkflow(index: number) {
-  activeMode.value = index
-  selectedMode.value = index
-  const element = story.value
-  const desktop = window.innerWidth >= 1280 && window.innerHeight >= 560
-  if (!element || !desktop) return
-  const top = window.scrollY + element.getBoundingClientRect().top
-  const distance = Math.max(1, element.offsetHeight - window.innerHeight)
-  const progress = 0.25 + ((index + 0.5) / modes.value.length) * 0.75
-  window.scrollTo({ top: top + distance * progress, behavior: 'smooth' })
-}
-
-function updateScroll() {
-  frame = 0
+function updateHeaderScrolled() {
   headerScrolled.value = window.scrollY > 8
-  const element = story.value
-  const desktop = window.innerWidth >= 1280 && window.innerHeight >= 560
-  if (!element || !desktop) {
-    journeyExpanded.value = false
-    journeyProgress.value = 0
-    return
-  }
-  const rect = element.getBoundingClientRect()
-  const distance = Math.max(1, element.offsetHeight - window.innerHeight)
-  const progress = Math.min(1, Math.max(0, (64 - rect.top) / distance))
-  journeyProgress.value = progress
-  journeyExpanded.value = progress >= 0.25
-  if (progress < 0.125) {
-    activeMode.value = selectedMode.value
-  } else if (progress >= 0.25) {
-    const normalized = Math.min(0.999, Math.max(0, (progress - 0.25) / 0.75))
-    activeMode.value = Math.min(modes.value.length - 1, Math.floor(normalized * modes.value.length))
-  }
-}
-
-function scheduleScrollUpdate() {
-  if (!frame) frame = window.requestAnimationFrame(updateScroll)
 }
 
 function closeNavOnOutside(event: PointerEvent) {
@@ -339,29 +300,16 @@ watch(mobileMenuOpen, (open) => {
 
 onMounted(() => {
   void catalog.load()
-  window.addEventListener('scroll', scheduleScrollUpdate, { passive: true })
-  window.addEventListener('resize', scheduleScrollUpdate, { passive: true })
+  window.addEventListener('scroll', updateHeaderScrolled, { passive: true })
   document.addEventListener('pointerdown', closeNavOnOutside)
   document.addEventListener('keydown', closeNavOnEscape)
-  revealObserver = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('is-visible')
-        revealObserver?.unobserve(entry.target)
-      }
-    })
-  }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' })
-  document.querySelectorAll('.landing-reveal').forEach((element) => revealObserver?.observe(element))
-  updateScroll()
+  updateHeaderScrolled()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('scroll', scheduleScrollUpdate)
-  window.removeEventListener('resize', scheduleScrollUpdate)
+  window.removeEventListener('scroll', updateHeaderScrolled)
   document.removeEventListener('pointerdown', closeNavOnOutside)
   document.removeEventListener('keydown', closeNavOnEscape)
-  revealObserver?.disconnect()
   document.documentElement.classList.remove('landing-menu-open')
-  if (frame) window.cancelAnimationFrame(frame)
 })
 </script>

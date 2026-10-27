@@ -78,7 +78,7 @@
 .plugin-dialog fieldset { border: 0; display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; }.plugin-dialog legend { color: var(--studio-muted); font-size: 10px; margin-bottom: 7px; }.plugin-dialog fieldset label { align-items: center; background: var(--studio-control); border-radius: 5px; display: flex; font-size: 10px; gap: 5px; min-height: 31px; padding: 0 9px; }.plugin-dialog fieldset input { accent-color: var(--studio-brand); height: 13px; padding: 0; width: 13px; }
 .plugin-dialog aside { align-items: flex-start; background: rgba(70, 150, 108, .08); border: 1px solid rgba(85, 154, 113, .18); border-radius: 6px; color: #7eae94; display: flex; gap: 9px; padding: 11px; }.plugin-dialog aside p { display: grid; gap: 4px; margin: 0; }.plugin-dialog aside strong { font-size: 11px; }.plugin-dialog aside span { color: var(--studio-muted); font-size: 9px; line-height: 1.6; }
 .plugin-dialog > footer { border-top: 1px solid var(--studio-border); display: flex; gap: 7px; justify-content: flex-end; padding: 10px 14px; }.plugin-dialog > footer button { background: transparent; border: 0; border-radius: 5px; color: var(--studio-muted); font-size: 11px; height: 34px; padding: 0 12px; }.plugin-dialog > footer button.primary { background: var(--studio-inverse-bg); color: var(--studio-inverse-text); }
-html[data-studio-theme="light"] .plugin-card, html[data-studio-theme="light"] .plugin-dialog, html[data-studio-theme="light"] .plugin-selector__popover { border-color: var(--studio-line); } html[data-studio-theme="light"] .plugin-card:hover { border-color: #b9cbe2; } html[data-studio-theme="light"] .plugin-selector > button.is-open { background: var(--studio-control); color: var(--studio-text); } html[data-studio-theme="light"] .plugin-card__icon { background: #f3f7fc; border-color: #dfe8f4; color: #477fca; } html[data-studio-theme="light"] .plugin-capabilities span, html[data-studio-theme="light"] .plugin-dialog input, html[data-studio-theme="light"] .plugin-dialog select, html[data-studio-theme="light"] .plugin-dialog textarea { background: var(--studio-control); }
+html[data-studio-theme="light"] .plugin-card, html[data-studio-theme="light"] .plugin-dialog, html[data-studio-theme="light"] .plugin-selector__popover { border-color: var(--studio-line); } html[data-studio-theme="light"] .plugin-card:hover { border-color: #b9cbe2; } html[data-studio-theme="light"] .plugin-selector > button.is-open { background: var(--studio-control); color: var(--studio-text); } html[data-studio-theme="light"] .plugin-card__icon { background: var(--studio-panel-soft); border-color: #dfe8f4; color: #477fca; } html[data-studio-theme="light"] .plugin-capabilities span, html[data-studio-theme="light"] .plugin-dialog input, html[data-studio-theme="light"] .plugin-dialog select, html[data-studio-theme="light"] .plugin-dialog textarea { background: var(--studio-control); }
 @keyframes plugin-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1400px) { .plugin-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 960px) { .plugin-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -123,7 +123,7 @@ html[data-studio-theme="light"] .capability-card,html[data-studio-theme="light"]
 .capability-card > button.connected { background: transparent; color: var(--studio-muted); }
 html[data-studio-theme="light"] .tool-sections button.active { background: var(--studio-control); border-color: var(--studio-line); }
 html[data-studio-theme="light"] .tool-sections em { background: var(--studio-panel); }
-html[data-studio-theme="light"] .capability-card:hover { border-color: #c6c7ca; }
+html[data-studio-theme="light"] .capability-card:hover { border-color: var(--studio-border); }
 html[data-studio-theme="light"] .capability-card > button { background: var(--studio-control); border-color: var(--studio-line); color: var(--studio-text); }
 html[data-studio-theme="light"] .capability-card > button:hover { background: var(--studio-control-hover); }
 
@@ -154,7 +154,7 @@ html[data-studio-theme="light"] .capability-card > button:hover { background: va
 html[data-studio-theme="light"] .capability-categories button { border-color: var(--studio-border); color: var(--studio-muted); }
 html[data-studio-theme="light"] .capability-categories button:hover,html[data-studio-theme="light"] .capability-categories button.active { background: var(--studio-control); border-color: #b9c4d1; color: var(--studio-text); }
 html[data-studio-theme="light"] .capability-page .capability-card { border-color: var(--studio-line); }
-html[data-studio-theme="light"] .capability-page .capability-card:hover { background: #fbfcfe; border-color: #b8c7d9; box-shadow: 0 6px 18px rgba(31,45,61,.06); }
+html[data-studio-theme="light"] .capability-page .capability-card:hover { background: var(--studio-bg); border-color: #b8c7d9; box-shadow: 0 6px 18px rgba(31,45,61,.06); }
 
 /* Every capability type uses the same directory rhythm inside Capability Center. */
 .capability-page .capability-toolbar { margin-bottom: 16px; }
@@ -205,7 +205,7 @@ html[data-studio-theme="light"] .capability-page .plugin-tabs button.active { ba
 html[data-studio-theme="light"] .capability-page .plugin-filter-bar > div button { color: var(--studio-muted); }
 html[data-studio-theme="light"] .capability-page .plugin-filter-bar > div button:hover,html[data-studio-theme="light"] .capability-page .plugin-filter-bar > div button.active { background: var(--studio-control); border-color: var(--studio-border); color: var(--studio-text); }
 html[data-studio-theme="light"] .capability-page .plugin-card { border-color: var(--studio-line); }
-html[data-studio-theme="light"] .capability-page .plugin-card:hover { background: #fbfcfe; border-color: #b8c7d9; box-shadow: 0 6px 18px rgba(31,45,61,.06); }
+html[data-studio-theme="light"] .capability-page .plugin-card:hover { background: var(--studio-bg); border-color: #b8c7d9; box-shadow: 0 6px 18px rgba(31,45,61,.06); }
 html[data-studio-theme="light"] .assistant-detail > span { background: var(--studio-control); }
 html[data-studio-theme="light"] .assistant-detail strong { color: var(--studio-text); }
 @media (max-width: 1180px) { .capability-page .capability-grid,.capability-page .plugin-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
@@ -376,7 +376,7 @@ html[data-studio-theme="light"] .assistant-detail strong { color: var(--studio-t
   font-weight: 600;
   transition: background-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
-.capability-page .plugin-card > footer button.primary:hover { background: var(--studio-brand-hover); box-shadow: 0 4px 12px rgba(77, 107, 254, .3); transform: translateY(-1px); }
+.capability-page .plugin-card > footer button.primary:hover { background: var(--studio-brand-hover); box-shadow: 0 4px 12px color-mix(in oklab, var(--studio-brand) 30%, transparent); transform: translateY(-1px); }
 .capability-page .plugin-card > footer button.primary:active { transform: scale(.96); }
 html[data-studio-theme="light"] .capability-page .plugin-card > footer button.primary { background: var(--studio-brand); color: #fff; }
 html[data-studio-theme="light"] .capability-page .plugin-card > footer button.primary:hover { background: var(--studio-brand-hover); }

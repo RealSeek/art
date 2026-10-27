@@ -178,10 +178,10 @@
 .settings-tool-list .status-approved { color: #16a34a; }
 .settings-tool-list .status-rejected { color: var(--studio-danger); }
 
-html[data-studio-theme="light"] .workspace-chat-more-menu { background: #fff; border-color: #dedede; color: #181818; }
-html[data-studio-theme="light"] .workspace-chat-more-menu button { color: #181818; }
-html[data-studio-theme="light"] .workspace-chat-more-menu button:hover { background: #f1f1f1; }
-html[data-studio-theme="light"] .settings-team-builder > header { background: #f7f7f7; }
+html[data-studio-theme="light"] .workspace-chat-more-menu { background: var(--studio-panel); border-color: var(--studio-border); color: var(--studio-text); }
+html[data-studio-theme="light"] .workspace-chat-more-menu button { color: var(--studio-text); }
+html[data-studio-theme="light"] .workspace-chat-more-menu button:hover { background: var(--studio-control); }
+html[data-studio-theme="light"] .settings-team-builder > header { background: var(--studio-panel-soft); }
 
 @media (max-width: 900px) {
   .settings-team-create { grid-template-columns: 1fr; }
@@ -317,7 +317,7 @@ html[data-studio-theme="light"] .support-status.waiting_user { background: #fff4
   .chat-message-navigator { display: none; }
   .studio-modal-backdrop { padding: 8px; }
   .studio-settings-dialog { border: 1px solid var(--studio-border); border-radius: 10px; grid-template-columns: 1fr; grid-template-rows: 60px minmax(0, 1fr); height: calc(100dvh - 16px); width: calc(100vw - 16px); }
-  .settings-sidebar { align-items: center; border-bottom: 1px solid #303030; border-right: 0; display: flex; height: 60px; min-width: 0; padding: 10px 8px; }
+  .settings-sidebar { align-items: center; border-bottom: 1px solid var(--studio-border); border-right: 0; display: flex; height: 60px; min-width: 0; padding: 10px 8px; }
   .settings-close { flex: 0 0 36px; margin: 0 6px 0 0; }
   .settings-sidebar nav { flex: 1; flex-direction: row; gap: 5px; min-width: 0; overflow-x: auto; padding-bottom: 0; scrollbar-width: none; }
   .settings-sidebar nav::after { content: ""; flex: 0 0 120px; }
@@ -407,7 +407,7 @@ html[data-studio-theme="light"] .support-status.waiting_user { background: #fff4
 .settings-model-tags small { color: var(--studio-muted); font-size: 8px; }
 .settings-model-tags > em { color: var(--studio-muted); font-size: 10px; font-style: normal; padding: 6px 2px; }
 
-html[data-studio-theme="light"] .settings-routing-overview > header { background: #f7f7f7; }
+html[data-studio-theme="light"] .settings-routing-overview > header { background: var(--studio-panel-soft); }
 
 @media (max-width: 700px) {
   .workspace-chat-actions { right: 52px; }
@@ -644,13 +644,21 @@ html[data-studio-theme="light"] .chat-composer:focus-within {
 
 /* ===== 侧栏导航质感：激活态品牌指示条与顺滑过渡 ===== */
 .workspace-menu__item {
+  color: var(--studio-muted);
   position: relative;
   transition: background-color .15s ease, color .15s ease;
 }
 
-.workspace-menu__item.is-active {
-  background: var(--studio-brand-soft);
+.workspace-menu__item:hover {
+  background: var(--studio-control-hover);
   color: var(--studio-text);
+}
+
+.workspace-menu__item.is-active,
+.workspace-menu__item.is-active:hover {
+  background: var(--studio-brand-soft);
+  color: var(--studio-brand-text);
+  font-weight: 600;
 }
 
 .workspace-menu__item.is-active::before {

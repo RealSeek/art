@@ -74,7 +74,7 @@
 .prompt-library-modal > header button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: var(--studio-muted); display: flex; height: 32px; justify-content: center; padding: 0; width: 32px; }
 .prompt-library-modal__content { min-height: 0; overflow-y: auto; }
 .prompt-library-modal__image { background: var(--studio-control); display: block; max-height: min(430px, 48dvh); object-fit: contain; width: 100%; }
-.prompt-library-modal video.prompt-library-modal__image { aspect-ratio: 16 / 9; background: #080808; }
+.prompt-library-modal video.prompt-library-modal__image { aspect-ratio: 16 / 9; background: var(--studio-panel); }
 .prompt-library-modal__content > section { padding: 22px; }
 .prompt-library-modal__tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .prompt-library-modal__content p { color: var(--studio-text); font-size: 13px; line-height: 1.75; margin: 18px 0 0; white-space: pre-wrap; word-break: break-word; }

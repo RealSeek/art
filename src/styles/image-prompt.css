@@ -44,7 +44,7 @@
 .image-prompt-input-panel > header button:hover, .image-prompt-result-panel > header button:hover { background: var(--studio-control); color: var(--studio-text); }
 .image-prompt-dropzone { align-items: center; background: color-mix(in srgb, var(--studio-control) 62%, var(--studio-panel)); border: 1px dashed color-mix(in srgb, var(--studio-muted) 40%, var(--studio-border)); border-radius: var(--studio-radius-sm); color: var(--studio-muted); display: flex; flex-direction: column; height: 276px; justify-content: center; margin-top: var(--studio-space-3); overflow: hidden; padding: var(--studio-space-5); position: relative; transition: background-color var(--studio-duration-base) ease, border-color var(--studio-duration-base) ease; width: 100%; }
 .image-prompt-dropzone:hover, .image-prompt-dropzone.is-dragging { background: color-mix(in srgb, var(--studio-brand-soft) 44%, var(--studio-panel)); border-color: var(--studio-brand); color: var(--studio-text); }
-.image-prompt-dropzone.has-image { background: #111; border-style: solid; padding: 0; }
+.image-prompt-dropzone.has-image { background: var(--studio-panel-soft); border-style: solid; padding: 0; }
 .image-prompt-dropzone img { height: 100%; object-fit: contain; width: 100%; }
 .image-prompt-upload-icon { align-items: center; background: var(--studio-panel); border: 1px solid color-mix(in srgb, var(--studio-brand) 24%, var(--studio-border)); border-radius: var(--studio-radius-sm); box-shadow: var(--studio-shadow-sm); color: var(--studio-brand); display: flex; height: 56px; justify-content: center; margin-bottom: var(--studio-space-4); width: 56px; }
 .image-prompt-dropzone > strong { color: var(--studio-text); font-size: 14px; }

@@ -456,7 +456,7 @@ html[data-studio-theme="light"] {
 .canvas-mask-toolbar output { min-width: 38px; }
 .canvas-mask-toolbar > button:nth-last-child(2) { margin-left: auto; }
 .canvas-mask-modes { display: flex; gap: 6px; }
-.canvas-image-editor-stage { align-items: center; background: #16191f; border: 1px solid color-mix(in srgb, var(--canvas-border) 70%, #000); border-radius: 7px; display: flex; justify-content: center; min-height: 0; overflow: hidden; padding: 18px; }
+.canvas-image-editor-stage { align-items: center; background: var(--studio-elevated); border: 1px solid color-mix(in srgb, var(--canvas-border) 70%, #000); border-radius: 7px; display: flex; justify-content: center; min-height: 0; overflow: hidden; padding: 18px; }
 .canvas-image-editor-media { max-height: 100%; max-width: 100%; position: relative; user-select: none; }
 .canvas-image-editor-media > img { display: block; height: 100%; max-height: calc(100dvh - 260px); max-width: 100%; object-fit: contain; width: 100%; }
 .canvas-crop-shade { background: rgba(0, 0, 0, .58); pointer-events: none; position: absolute; z-index: 1; }

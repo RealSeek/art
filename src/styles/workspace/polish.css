@@ -28,7 +28,7 @@
 .switch-control.is-on { background: var(--studio-brand); }
 .switch-control.is-on i { background: #fff; }
 html[data-studio-theme="light"] .switch-control.is-on { background: var(--studio-brand); }
-html[data-studio-theme="light"] .switch-control.is-on i { background: #fff; }
+html[data-studio-theme="light"] .switch-control.is-on i { background: var(--studio-panel); }
 
 /* 设置区输入控件：聚焦光晕 */
 .settings-content select,
@@ -40,52 +40,6 @@ html[data-studio-theme="light"] .switch-control.is-on i { background: #fff; }
 
 @media (prefers-reduced-motion: reduce) {
   .studio-settings-dialog { animation: none; }
-}
-
-
-/* ============ 登录/注册页质感精修 ============ */
-
-/* 表单入场 */
-.login-form { animation: login-rise .4s cubic-bezier(.2, .9, .3, 1) both; }
-.login-brand { transition: opacity .15s ease; }
-.login-brand:hover { opacity: .75; }
-
-@keyframes login-rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: none; }
-}
-
-/* 输入框聚焦：品牌光晕 */
-.login-form .field input { transition: border-color .15s ease, box-shadow .15s ease; }
-.login-form .field input:focus { border-color: var(--studio-brand); box-shadow: 0 0 0 3px var(--studio-brand-soft); }
-.login-form .auth-code-input input:focus { border-color: var(--studio-brand); box-shadow: 0 0 0 3px var(--studio-brand-soft); }
-
-/* 主按钮：悬浮上浮 + 按压回弹 */
-.login-submit { transition: opacity .15s ease, transform .15s ease, box-shadow .15s ease; }
-.login-submit:not(:disabled):hover { box-shadow: 0 6px 16px rgba(0, 0, 0, .18); transform: translateY(-1px); }
-.login-submit:not(:disabled):active { transform: scale(.985); }
-
-/* 第三方登录与切换链接 */
-.auth-oauth-button { transition: border-color .15s ease, background-color .15s ease, transform .15s ease; }
-.auth-oauth-button:hover { border-color: var(--studio-brand); transform: translateY(-1px); }
-.auth-switch { transition: color .15s ease; }
-.auth-switch:hover { color: var(--studio-brand); }
-
-/* 方式页签：过渡平滑 */
-.auth-method-tabs button { transition: background-color .16s ease, color .16s ease, box-shadow .16s ease; }
-
-/* 错误提示：抖动强调 */
-.login-error { animation: login-error-shake .3s ease; }
-
-@keyframes login-error-shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .login-form,
-  .login-error { animation: none; }
 }
 
 
@@ -105,7 +59,7 @@ html[data-studio-theme="light"] .switch-control.is-on i { background: #fff; }
   font-weight: 600;
 }
 html[data-studio-theme="dark"] .index-tabs button.is-active,
-html:not([data-studio-theme="light"]) .index-tabs button.is-active { background: #3a3a3a; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+html:not([data-studio-theme="light"]) .index-tabs button.is-active { background: var(--studio-control-hover); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
 
 
 /* ============ 修复：页签激活态加粗导致按钮位移 ============ */
@@ -363,105 +317,6 @@ html[data-studio-theme="light"] .image-generation-response.is-running .image-gen
 .chat-page:not(.has-messages) .composer-attachment-panel.is-library-panel {
   max-width: min(520px, calc(100vw - 24px));
   width: min(520px, calc(100vw - 24px));
-}
-
-/* ============ 登录页暗色主题（浅色保持不变） ============ */
-html[data-studio-theme="dark"] .login-page {
-  background: #0c0d10;
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .login-brand__mark {
-  background: #ececf1;
-  color: #0c0d10;
-}
-
-html[data-studio-theme="dark"] .login-brand i { background: #3a3d44; }
-html[data-studio-theme="dark"] .login-brand > span:last-child { color: #8a8f98; }
-
-html[data-studio-theme="dark"] .login-account-pill {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #b6bac2;
-}
-
-html[data-studio-theme="dark"] .login-locale-select {
-  background: #14151a;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #b6bac2;
-}
-
-html[data-studio-theme="dark"] .login-locale-select option { background: #14151a; color: #ececf1; }
-html[data-studio-theme="dark"] .login-form > p,
-html[data-studio-theme="dark"] .login-heading p { color: #9b9ba4; }
-html[data-studio-theme="dark"] .login-heading h1,
-html[data-studio-theme="dark"] .login-form h1 { color: #ececf1; }
-html[data-studio-theme="dark"] .login-heading p strong { color: #c9ccd3; }
-html[data-studio-theme="dark"] .login-form .field span { color: #c9ccd3; }
-
-html[data-studio-theme="dark"] .login-form .field input {
-  background: #14151a;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .login-form .field input:focus { border-color: #6b7280; }
-
-html[data-studio-theme="dark"] .login-community {
-  background: #14151a;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .login-legal { color: #8a8f98; }
-html[data-studio-theme="dark"] .login-legal a { color: #c9ccd3; }
-html[data-studio-theme="dark"] .login-error { color: #f0736f; }
-html[data-studio-theme="dark"] .auth-back { color: #ececf1; }
-html[data-studio-theme="dark"] .auth-back:hover { background: rgba(255, 255, 255, 0.08); }
-
-html[data-studio-theme="dark"] .auth-code-input > span {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .auth-code-input > span.is-filled { border-color: #6b7280; }
-html[data-studio-theme="dark"] .auth-code-input > span.is-current { border-color: #ececf1; box-shadow: 0 0 0 1px #ececf1; }
-html[data-studio-theme="dark"] .auth-resend { color: #b6bac2; }
-html[data-studio-theme="dark"] .auth-resend:disabled { color: #5c616b; }
-html[data-studio-theme="dark"] .auth-step--availability > svg { color: #8a8f98; }
-html[data-studio-theme="dark"] .auth-method-tabs { background: #14151a; }
-html[data-studio-theme="dark"] .auth-method-tabs button { color: #9b9ba4; }
-
-html[data-studio-theme="dark"] .auth-method-tabs button.active {
-  background: #26272e;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .auth-method-form .field span small { color: #8a8f98; }
-html[data-studio-theme="dark"] .auth-switch { color: #9b9ba4; }
-html[data-studio-theme="dark"] .auth-provider-note { color: #8a8f98; }
-html[data-studio-theme="dark"] .auth-provider-divider { color: #71717a; }
-html[data-studio-theme="dark"] .auth-provider-divider::before,
-html[data-studio-theme="dark"] .auth-provider-divider::after { background: rgba(255, 255, 255, 0.12); }
-
-html[data-studio-theme="dark"] .auth-oauth-button {
-  background: #14151a;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #ececf1;
-}
-
-html[data-studio-theme="dark"] .auth-oauth-button:hover {
-  background: #1b1c22;
-  border-color: rgba(255, 255, 255, 0.24);
-  box-shadow: none;
-}
-
-html[data-studio-theme="dark"] .auth-oauth-button svg { color: #9b9ba4; }
-html[data-studio-theme="dark"] .auth-oauth-button--sub svg:first-child { color: #ececf1; }
-
-html[data-studio-theme="dark"] .auth-success-icon {
-  background: #ececf1;
-  color: #0c0d10;
 }
 
 /* Empty streaming messages are represented by the lightweight thinking row. */

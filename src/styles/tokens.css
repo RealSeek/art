@@ -2,6 +2,7 @@
  * OnlyArt 设计令牌（design tokens）——用户端唯一权威来源。
  * 暗色为默认（:root），浅色通过 html[data-studio-theme="light"] 覆盖。
  * 历史 --studio-* 变量名保持不变，全部在此统一定义。
+ * 配色对齐 OnlyCode（new-api）：暗色炭灰中性面 + 天蓝品牌色，浅色近白中性面（oklch）。
  */
 
 :root {
@@ -10,52 +11,61 @@
   accent-color: var(--studio-brand);
 
   /* 品牌色（全站唯一强调蓝） */
-  --studio-brand: #4d6bfe;
-  --studio-brand-hover: #3d5bee;
-  --studio-brand-pressed: #2f4bdb;
-  --studio-brand-soft: rgba(77, 107, 254, .16);
-  --studio-brand-soft-strong: rgba(77, 107, 254, .28);
+  --studio-brand: oklch(0.62 0.15 250);
+  --studio-brand-hover: oklch(0.66 0.16 250);
+  --studio-brand-pressed: oklch(0.56 0.17 250);
+  --studio-brand-soft: oklch(0.62 0.15 250 / .14);
+  --studio-brand-soft-strong: oklch(0.62 0.15 250 / .24);
+
+  /* 实心品牌（主按钮底色，白字对比 ≥ 4.5:1）与品牌文字色（小字号强调） */
+  --studio-brand-solid: oklch(0.55 0.15 250);
+  --studio-brand-solid-hover: oklch(0.51 0.15 250);
+  --studio-on-brand: #fff;
+  --studio-brand-text: oklch(0.74 0.12 250);
 
   /* 表面层级 */
-  --studio-bg: #000;
-  --studio-panel: #090909;
-  --studio-panel-soft: #111;
-  --studio-elevated: #202020;
-  --studio-input: #151515;
-  --studio-control: #2b2b2b;
-  --studio-control-hover: #363636;
-  --studio-overlay: rgba(0, 0, 0, .64);
+  --studio-bg: oklch(0.235 0 0);
+  --studio-panel: oklch(0.26 0 0);
+  --studio-panel-soft: oklch(0.285 0 0);
+  --studio-elevated: oklch(0.315 0 0);
+  --studio-input: oklch(0.215 0 0);
+  --studio-control: oklch(0.29 0 0);
+  --studio-control-hover: oklch(0.33 0 0);
+  --studio-overlay: oklch(0.16 0 0 / .65);
 
   /* 线条 */
-  --studio-line: #262626;
-  --studio-border: #292929;
+  --studio-line: oklch(0.3 0 0);
+  --studio-border: oklch(0.34 0 0);
 
   /* 文本 */
-  --studio-text: #f7f7f7;
-  --studio-muted: #a7a7a7;
+  --studio-text: oklch(0.96 0 0);
+  --studio-muted: oklch(0.68 0 0);
 
   /* 反馈色 */
-  --studio-danger: #ff9c9c;
-  --studio-success: #84d4a1;
+  --studio-danger: oklch(0.66 0.18 25);
+  --studio-success: oklch(0.72 0.14 150);
+  --studio-warning: oklch(0.8 0.14 80);
 
   /* 反色（主按钮等） */
-  --studio-inverse-bg: #f4f4f4;
-  --studio-inverse-text: #171717;
+  --studio-inverse-bg: oklch(0.96 0 0);
+  --studio-inverse-text: oklch(0.21 0 0);
 
   /* 焦点/强调别名 */
   --studio-focus: var(--studio-brand);
+  --studio-ring: 0 0 0 3px var(--studio-brand-soft);
 
   /* 圆角阶梯：控件 / 卡片 / 气泡 / 胶囊 */
   --studio-radius-xs: 6px;
   --studio-radius-sm: 8px;
-  --studio-radius-md: 10px;
+  --studio-radius-md: 12px;
   --studio-radius-lg: 18px;
   --studio-radius-pill: 999px;
 
   /* 阴影阶梯 */
-  --studio-shadow-sm: 0 4px 16px rgba(0, 0, 0, .28);
-  --studio-shadow: 0 24px 80px rgba(0, 0, 0, .5);
-  --studio-shadow-lg: 0 32px 96px rgba(0, 0, 0, .56);
+  --studio-shadow-sm: 0 1px 2px oklch(0 0 0 / .3), 0 4px 12px oklch(0 0 0 / .2);
+  --studio-shadow-md: 0 12px 32px oklch(0 0 0 / .36);
+  --studio-shadow: var(--studio-shadow-md);
+  --studio-shadow-lg: 0 24px 64px oklch(0 0 0 / .48);
 
   /* 字号阶梯 */
   --studio-text-xs: 12px;
@@ -95,10 +105,13 @@
   --studio-chat-width-wide: 880px;
 
   /* 品牌光晕（首页问候、强调背景） */
-  --studio-brand-glow: radial-gradient(closest-side, rgba(77, 107, 254, .24), transparent);
+  --studio-brand-glow: radial-gradient(closest-side, oklch(0.62 0.15 250 / .26), transparent);
+
+  /* 背景网格线（落地页 / 登录页氛围底纹） */
+  --studio-grid-line: oklch(1 0 0 / .045);
 
   /* 用户消息气泡 */
-  --studio-bubble-user: #2b2b2b;
+  --studio-bubble-user: var(--studio-control);
   --studio-bubble-user-text: var(--studio-text);
 
   /* 厂商标识色（模型徽标） */
@@ -115,40 +128,46 @@
 html[data-studio-theme="light"] {
   color-scheme: light;
 
-  --studio-brand: #4d6bfe;
-  --studio-brand-hover: #3d5bee;
-  --studio-brand-pressed: #2f4bdb;
-  --studio-brand-soft: rgba(77, 107, 254, .12);
-  --studio-brand-soft-strong: rgba(77, 107, 254, .2);
+  --studio-brand: oklch(0.58 0.16 250);
+  --studio-brand-hover: oklch(0.53 0.17 250);
+  --studio-brand-pressed: oklch(0.48 0.17 250);
+  --studio-brand-soft: oklch(0.58 0.16 250 / .1);
+  --studio-brand-soft-strong: oklch(0.58 0.16 250 / .18);
+  --studio-brand-solid: oklch(0.55 0.16 250);
+  --studio-brand-solid-hover: oklch(0.5 0.16 250);
+  --studio-brand-text: oklch(0.5 0.15 250);
 
-  --studio-bg: #fff;
-  --studio-panel: #fff;
-  --studio-panel-soft: #f7f7f8;
+  --studio-bg: oklch(0.985 0 0);
+  --studio-panel: oklch(1 0 0);
+  --studio-panel-soft: oklch(0.965 0 0);
   --studio-elevated: #fff;
-  --studio-input: #fff;
-  --studio-control: #f1f1f2;
-  --studio-control-hover: #e9e9eb;
+  --studio-input: oklch(0.99 0 0);
+  --studio-control: oklch(0.94 0 0);
+  --studio-control-hover: oklch(0.9 0 0);
   --studio-overlay: rgba(24, 24, 27, .36);
 
-  --studio-line: #e5e5e5;
-  --studio-border: #dedede;
+  --studio-line: oklch(0.91 0 0);
+  --studio-border: oklch(0.86 0 0);
 
-  --studio-text: #171717;
-  --studio-muted: #646464;
+  --studio-text: oklch(0.2 0 0);
+  --studio-muted: oklch(0.5 0 0);
 
   --studio-danger: #b42318;
   --studio-success: #247a52;
+  --studio-warning: oklch(0.55 0.13 65);
 
-  --studio-inverse-bg: #18181b;
+  --studio-inverse-bg: oklch(0.21 0 0);
   --studio-inverse-text: #fff;
 
-  --studio-shadow-sm: 0 2px 10px rgba(24, 24, 27, .08);
-  --studio-shadow: 0 18px 48px rgba(24, 24, 27, .16);
-  --studio-shadow-lg: 0 28px 64px rgba(24, 24, 27, .2);
+  --studio-shadow-sm: 0 1px 2px oklch(0.2 0 0 / .06), 0 2px 8px oklch(0.2 0 0 / .05);
+  --studio-shadow-md: 0 10px 30px oklch(0.2 0 0 / .1);
+  --studio-shadow: var(--studio-shadow-md);
+  --studio-shadow-lg: 0 22px 56px oklch(0.2 0 0 / .14);
 
-  --studio-brand-glow: radial-gradient(closest-side, rgba(77, 107, 254, .14), transparent);
+  --studio-brand-glow: radial-gradient(closest-side, oklch(0.58 0.16 250 / .16), transparent);
+  --studio-grid-line: oklch(0.2 0 0 / .06);
 
-  --studio-bubble-user: #f1f1f2;
+  --studio-bubble-user: var(--studio-control);
   --studio-bubble-user-text: var(--studio-text);
 
   --studio-vendor-kimi: #171717;
