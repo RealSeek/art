@@ -12,6 +12,7 @@ import { normalizeVideoOptions, videoCapabilities, videoCreditCost } from './vid
 import { PluginsService } from '../plugins/plugins.service'
 import { ResourceAccessService } from '../common/resource-access.service'
 import { GenerationEventsService } from './generation-events.service'
+import { AssetsService } from '../assets/assets.service'
 import { GenerationLifecycleService } from './generation-lifecycle.service'
 import { BillingTransactionsService } from '../credits/billing-transactions.service'
 import { FeatureFlagsService } from '../features/feature-flags.service'
@@ -30,62 +31,104 @@ const MAX_INLINE_AUDIO_DATA_URL = 20_000_000
 const MAX_INLINE_VIDEO_DATA_URL = 70_000_000
 
 const MAX_INLINE_REFERENCES = 30
+/** 单次请求的内联素材总量（解码后）：超过就要求用户压缩，不让大包进存储与队列。 */
+const MAX_INLINE_TOTAL_BYTES = 45 * 1024 * 1024
+/** 浏览器本地持有的参考素材：解码后立即落盘，队列与任务记录只传 assetId。 */
+export type InlineMedia = { id?: string; name: string; mimeType: string; bytes: Buffer }
 export type InlineGenerationInputs = {
-  referenceImages?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
-  referenceAudios?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
-  referenceVideos?: Array<{ id?: string; name?: string; mimeType?: string; dataUrl?: string }>
-  maskImage?: { name?: string; mimeType?: string; dataUrl?: string }
+  referenceImages?: InlineMedia[]
+  referenceAudios?: InlineMedia[]
+  referenceVideos?: InlineMedia[]
+  maskImage?: InlineMedia
 }
 
 function inlineItems(value: unknown, limit: number, maxLength: number, label: string, kind: 'image' | 'audio' | 'video' = 'image') {
   if (!Array.isArray(value) || !value.length) return []
   if (value.length > limit) throw new BadRequestException(`${label}最多 ${limit} 个`)
-  return value.map((item) => {
+  return value.flatMap((item) => {
     const row = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
     const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
+    // 重试/恢复会把已落盘的临时资产带回 options，它们没有 dataUrl，不需要重新解码。
+    if (!dataUrl) return []
     const pattern = kind === 'image' ? /^data:image\/(png|jpe?g|webp|avif);base64,/i : kind === 'audio' ? /^data:audio\/[a-z0-9.+-]+;base64,/i : /^data:video\/(mp4|webm|quicktime);base64,/i
     if (!pattern.test(dataUrl) || dataUrl.length > maxLength) throw new BadRequestException(`${label}格式不支持或文件过大`)
-    return { id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : label, mimeType: typeof row.mimeType === 'string' ? row.mimeType : dataUrl.slice(5, dataUrl.indexOf(';')), dataUrl }
+    const separator = dataUrl.indexOf(',')
+    return [{
+      id: typeof row.id === 'string' ? row.id : undefined,
+      name: typeof row.name === 'string' ? row.name : label,
+      mimeType: typeof row.mimeType === 'string' ? row.mimeType : dataUrl.slice(5, dataUrl.indexOf(';')),
+      bytes: Buffer.from(dataUrl.slice(separator + 1), 'base64'),
+    }]
+  })
+}
+
+/** 已经是临时资产的参考素材（重试路径）：原样交回任务选项。 */
+function persistedItems(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is Record<string, unknown> => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+    const row = item as Record<string, unknown>
+    return typeof row.assetId === 'string' && typeof row.mimeType === 'string'
   })
 }
 
 /**
- * 抽出并清空任务选项里的内联素材（浏览器本地持有）：它们随 BullMQ 任务传递，
- * 任务记录只保留计数标记，运维视图不会出现 base64。
+ * 抽出并清空任务选项里的内联素材：它们只在本请求内存中存在，
+ * 入队前由 persistInlineReferences 写成临时资产。
  */
-function extractInlineInputs(options: Record<string, unknown>): InlineGenerationInputs | null {
-  const rawImages = options.referenceImages
-  const rawAudios = options.referenceAudios
-  const rawVideos = options.referenceVideos
+function extractInlineInputs(options: Record<string, unknown>) {
   const rawMask = options.maskImage
+  const raw = {
+    referenceImages: options.referenceImages,
+    referenceAudios: options.referenceAudios,
+    referenceVideos: options.referenceVideos,
+    maskImage: rawMask,
+  }
   delete options.referenceImages
   delete options.referenceAudios
   delete options.referenceVideos
   delete options.maskImage
-  if (rawImages === undefined && rawAudios === undefined && rawVideos === undefined && rawMask === undefined) return null
-  const referenceImages = inlineItems(rawImages, MAX_INLINE_REFERENCES, MAX_INLINE_IMAGE_DATA_URL, '参考图')
-  const referenceAudios = inlineItems(rawAudios, 10, MAX_INLINE_AUDIO_DATA_URL, '参考音频', 'audio')
-  const referenceVideos = inlineItems(rawVideos, 10, MAX_INLINE_VIDEO_DATA_URL, '参考视频', 'video')
-  let maskImage: InlineGenerationInputs['maskImage']
+  const anyRaw = Object.values(raw).some((value) => value !== undefined)
+  if (!anyRaw) return null
+  const referenceImages = inlineItems(raw.referenceImages, MAX_INLINE_REFERENCES, MAX_INLINE_IMAGE_DATA_URL, '参考图')
+  const referenceAudios = inlineItems(raw.referenceAudios, 10, MAX_INLINE_AUDIO_DATA_URL, '参考音频', 'audio')
+  const referenceVideos = inlineItems(raw.referenceVideos, 10, MAX_INLINE_VIDEO_DATA_URL, '参考视频', 'video')
+  let maskImage: InlineMedia | undefined
   if (rawMask && typeof rawMask === 'object' && !Array.isArray(rawMask)) {
     const row = rawMask as Record<string, unknown>
     const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-    if (!/^data:image\/png;base64,/i.test(dataUrl) || dataUrl.length > MAX_INLINE_IMAGE_DATA_URL) throw new BadRequestException('蒙版格式不支持或文件过大')
-    maskImage = { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: 'image/png', dataUrl }
+    if (dataUrl) {
+      if (!/^data:image\/png;base64,/i.test(dataUrl) || dataUrl.length > MAX_INLINE_IMAGE_DATA_URL) throw new BadRequestException('蒙版格式不支持或文件过大')
+      maskImage = { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: 'image/png', bytes: Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64') }
+    }
+  }
+  const totalBytes = [...referenceImages, ...referenceAudios, ...referenceVideos, maskImage].reduce((sum, item) => sum + (item?.bytes.length || 0), 0)
+  if (totalBytes > MAX_INLINE_TOTAL_BYTES) throw new BadRequestException(`参考素材合计超过 ${Math.round(MAX_INLINE_TOTAL_BYTES / 1024 / 1024)} MB，请压缩或减少参考素材`)
+  const persisted = {
+    referenceImages: persistedItems(raw.referenceImages),
+    referenceAudios: persistedItems(raw.referenceAudios),
+    referenceVideos: persistedItems(raw.referenceVideos),
+    maskImage: persistedItems(rawMask).at(0),
   }
   // 任务记录只留计数标记，供运维与重试路径判断素材是否缺失。
-  options.inlineInputs = { references: referenceImages.length, audios: referenceAudios.length, videos: referenceVideos.length, mask: Boolean(maskImage) }
+  options.inlineInputs = {
+    references: referenceImages.length + persisted.referenceImages.length,
+    audios: referenceAudios.length + persisted.referenceAudios.length,
+    videos: referenceVideos.length + persisted.referenceVideos.length,
+    mask: Boolean(maskImage || persisted.maskImage),
+  }
   return {
-    ...(referenceImages.length ? { referenceImages } : {}),
-    ...(referenceAudios.length ? { referenceAudios } : {}),
-    ...(referenceVideos.length ? { referenceVideos } : {}),
+    referenceImages,
+    referenceAudios,
+    referenceVideos,
     ...(maskImage ? { maskImage } : {}),
+    persisted,
   }
 }
 
 @Injectable()
 export class GenerationsService {
-  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, private readonly chatContext: ChatContextService, private readonly reconciliation: GenerationReconciliationService, @InjectQueue('generation') private readonly queue: Queue) {}
+  constructor(private readonly prisma: PrismaService, private readonly credits: CreditsService, private readonly billingTransactions: BillingTransactionsService, private readonly featureFlags: FeatureFlagsService, private readonly providers: ProvidersService, private readonly moderation: ModerationService, private readonly plugins: PluginsService, private readonly access: ResourceAccessService, private readonly eventsService: GenerationEventsService, private readonly lifecycle: GenerationLifecycleService, private readonly pricing: PricingResolverService, private readonly tokenizer: TokenizerService, private readonly tokenQuota: TokenQuotaService, private readonly chatContext: ChatContextService, private readonly reconciliation: GenerationReconciliationService, private readonly assets: AssetsService, @InjectQueue('generation') private readonly queue: Queue) {}
   async create(userId: string, input: CreateJobInput, trace: RequestTrace = {}): Promise<PublicGenerationDto> {
     const idempotencyKey = input.idempotencyKey ? `${userId}:${input.idempotencyKey}` : undefined
     if (input.idempotencyKey) {
@@ -315,8 +358,10 @@ export class GenerationsService {
         await this.billingTransactions.safely(this.billingTransactions.recordPreAuth({ userId, generationId: job.id, amount: creditCost, provider: job.provider, idempotencyKey: `job:${job.id}:pre-auth`, metadata: { billingTeamId, pricingSnapshot: job.pricingSnapshot } as Prisma.InputJsonValue }), `${job.id}:pre-auth`)
       }
       await this.prisma.generationJob.update({ where: { id: job.id }, data: { settlementStatus: 'RESERVED' } })
+      await this.persistInlineReferences(job, inlineInputs)
       await this.eventsService.append(job.id, 'queued', { requestId: trace.requestId, traceId: trace.traceId, kind: job.kind, model: job.model })
-      await this.queue.add(input.kind.toLowerCase(), { jobId: job.id, ...(inlineInputs ? { inputs: inlineInputs } : {}) }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 })
+      // 队列只带任务 id：参考素材已经落盘，大 payload 不进 Redis。
+      await this.queue.add(input.kind.toLowerCase(), { jobId: job.id }, { jobId: job.id, attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: { count: 200, age: 86_400 }, removeOnFail: { count: 500, age: 604_800 } })
       const created = await this.prisma.generationJob.findUniqueOrThrow({ where: { id: job.id }, select: publicGenerationListSelect })
       return toPublicGeneration(created)
     } catch (error) {
@@ -330,6 +375,34 @@ export class GenerationsService {
       await this.prisma.generationJob.updateMany({ where: { id: job.id }, data: { settlementStatus: reservationsReleased ? (spent ? 'REFUNDED' : 'RELEASED') : 'RECONCILING' } }).catch(() => undefined)
       throw error
     }
+  }
+
+  /**
+   * 内联参考素材写入存储后，任务选项只保留 assetId。
+   * 队列不再携带 base64，重试与断点恢复也能重新取到同一批文件。
+   */
+  private async persistInlineReferences(job: GenerationJob, inputs: ReturnType<typeof extractInlineInputs>) {
+    if (!inputs) return
+    const store = (items: InlineMedia[], slot: string) => Promise.all(items.map(async (item, index) => ({
+      ...(item.id ? { id: item.id } : {}),
+      name: item.name,
+      mimeType: item.mimeType,
+      assetId: await this.assets.storeInlineReference(job, `${slot}-${index}`, item),
+    })))
+    const [referenceImages, referenceAudios, referenceVideos, maskImage] = await Promise.all([
+      store(inputs.referenceImages, 'referenceImages'),
+      store(inputs.referenceAudios, 'referenceAudios'),
+      store(inputs.referenceVideos, 'referenceVideos'),
+      inputs.maskImage ? store([inputs.maskImage], 'maskImage') : Promise.resolve([]),
+    ])
+    const options = job.options && typeof job.options === 'object' && !Array.isArray(job.options) ? job.options as Record<string, unknown> : {}
+    await this.prisma.generationJob.update({ where: { id: job.id }, data: { options: {
+      ...options,
+      ...(referenceImages.length + inputs.persisted.referenceImages.length ? { referenceImages: [...inputs.persisted.referenceImages, ...referenceImages] } : {}),
+      ...(referenceAudios.length + inputs.persisted.referenceAudios.length ? { referenceAudios: [...inputs.persisted.referenceAudios, ...referenceAudios] } : {}),
+      ...(referenceVideos.length + inputs.persisted.referenceVideos.length ? { referenceVideos: [...inputs.persisted.referenceVideos, ...referenceVideos] } : {}),
+      ...(maskImage.length ? { maskImage: maskImage[0] } : inputs.persisted.maskImage ? { maskImage: inputs.persisted.maskImage } : {}),
+    } as Prisma.InputJsonValue } })
   }
 
   private async assertImageAssets(userId: string, options: Record<string, unknown>) {

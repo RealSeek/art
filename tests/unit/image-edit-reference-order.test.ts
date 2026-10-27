@@ -5,6 +5,8 @@ import { ProvidersService, type ResolvedProvider } from '../../server/src/provid
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 const dataUrl = `data:image/png;base64,${png.toString('base64')}`
+/** 本机参考图在队列里只带 assetId，runner 回存储取字节。 */
+const localAsset = (id: string, name: string, mimeType = 'image/png') => ({ id, name, mimeType, assetId: id })
 
 const imageCapabilities = {
   sizes: ['1024x1024'],
@@ -43,7 +45,7 @@ function harness(model = 'gpt-image-2') {
 
 test('参考图默认按本机在前、库内在后发送', async () => {
   const h = harness()
-  await h.run({ size: '1024x1024', referenceImages: [{ id: 'local:1', name: '本机参考.png', mimeType: 'image/png', dataUrl }], referenceAssetIds: ['asset-1'] })
+  await h.run({ size: '1024x1024', referenceImages: [localAsset('local-1', '本机参考.png')], referenceAssetIds: ['asset-1'] })
 
   assert.equal(h.requests[0].url, 'https://ai.example/proxy/v1/images/edits')
   const form = h.requests[0].body as FormData
@@ -55,9 +57,9 @@ test('带蒙版时蒙版底图排到第一位，蒙版只能落在底图上', as
   const h = harness()
   await h.run({
     size: '1024x1024',
-    referenceImages: [{ id: 'local:1', name: '本机参考.png', mimeType: 'image/png', dataUrl }],
+    referenceImages: [localAsset('local-1', '本机参考.png')],
     referenceAssetIds: ['asset-1'],
-    maskImage: { name: 'mask.png', mimeType: 'image/png', dataUrl },
+    maskImage: localAsset('mask-1', 'mask.png'),
     maskReferenceId: 'asset-1',
   })
 
@@ -71,10 +73,10 @@ test('蒙版底图是本机素材时保持本机在前', async () => {
   const h = harness()
   await h.run({
     size: '1024x1024',
-    referenceImages: [{ id: 'local:1', name: '本机参考.png', mimeType: 'image/png', dataUrl }],
+    referenceImages: [localAsset('local-1', '本机参考.png')],
     referenceAssetIds: ['asset-1'],
-    maskImage: { name: 'mask.png', mimeType: 'image/png', dataUrl },
-    maskReferenceId: 'local:1',
+    maskImage: localAsset('mask-1', 'mask.png'),
+    maskReferenceId: 'local-1',
   })
 
   const form = h.requests[0].body as FormData
@@ -102,24 +104,25 @@ test('Seedream 4.5 队列任务尺寸不足时不向上游发请求', async () =
 
 test('Seedream 单张参考图通过 generations 的 image 字段发送', async () => {
   const h = harness('seedream-4.5')
-  await h.run({ referenceImages: [{ name: 'reference.png', mimeType: 'image/png', dataUrl }] })
+  await h.run({ referenceImages: [localAsset('local-1', 'reference.png')] })
   assert.equal(h.requests[0].url, 'https://ai.example/proxy/v1/images/generations')
   assert.equal((h.requests[0].body as Record<string, unknown>).image, dataUrl)
 })
 
 test('Seedream 四张参考图通过 JSON image 数组发送，本机在前、库内在后', async () => {
   const h = harness('seedream-4.5')
-  const localImages = ['first', 'second', 'third'].map((value) => ({ name: `${value}.webp`, mimeType: 'image/webp', dataUrl: `data:image/webp;base64,${Buffer.from(value).toString('base64')}` }))
+  const localImages = ['first', 'second', 'third'].map((value) => localAsset(value, `${value}.webp`, 'image/webp'))
   await h.run({ referenceImages: localImages, referenceAssetIds: ['asset-1'] })
   assert.equal(h.requests.length, 1)
   assert.equal(h.requests[0].url, 'https://ai.example/proxy/v1/images/generations')
-  assert.deepEqual((h.requests[0].body as Record<string, unknown>).image, [...localImages.map((image) => image.dataUrl), dataUrl])
+  const expectedWebp = `data:image/webp;base64,${png.toString('base64')}`
+  assert.deepEqual((h.requests[0].body as Record<string, unknown>).image, [...localImages.map(() => expectedWebp), dataUrl])
 })
 
 test('Seedream 蒙版请求明确失败，不会静默忽略蒙版', async () => {
   const h = harness('seedream-4.5')
-  for (const mask of [{ maskImage: { name: 'mask.png', mimeType: 'image/png', dataUrl } }, { maskAssetId: 'mask-1' }]) {
-    await assert.rejects(() => h.run({ referenceImages: [{ name: 'reference.png', mimeType: 'image/png', dataUrl }], ...mask }), /Seedream 不支持蒙版编辑/)
+  for (const mask of [{ maskImage: localAsset('mask-1', 'mask.png') }, { maskAssetId: 'mask-1' }]) {
+    await assert.rejects(() => h.run({ referenceImages: [localAsset('local-1', 'reference.png')], ...mask }), /Seedream 不支持蒙版编辑/)
   }
   assert.equal(h.requests.length, 0)
 })

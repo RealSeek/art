@@ -61,23 +61,22 @@ test('Gemini 无图片和不支持的选项不会被当作成功', async () => {
 
 test('Gemini 带上浏览器本机参考图，不会退化成纯文生图', async () => {
   const h = harness()
-  await h.run({ size: '1536x1024', referenceImages: [{ name: '本机参考.webp', mimeType: 'image/webp', dataUrl: `data:image/webp;base64,${png.toString('base64')}` }] })
+  await h.run({ size: '1536x1024', referenceImages: [{ name: '本机参考.webp', mimeType: 'image/webp', assetId: 'local-1' }] })
   const parts = h.requests[0].body.contents[0].parts
   assert.equal(parts.length, 2)
   assert.deepEqual(parts[1], { inlineData: { mimeType: 'image/webp', data: png.toString('base64') } })
-  assert.deepEqual(h.assetReads, [])
+  assert.deepEqual(h.assetReads, ['local-1'])
 })
 
 test('Gemini 模型带本机蒙版时明确报错，不会静默改成无蒙版编辑', async () => {
   const h = harness()
-  const dataUrl = `data:image/png;base64,${png.toString('base64')}`
-  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl }], maskImage: { name: 'm.png', mimeType: 'image/png', dataUrl } }), /不支持蒙版编辑/)
+  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', assetId: 'local-1' }], maskImage: { name: 'm.png', mimeType: 'image/png', assetId: 'local-mask' } }), /不支持蒙版编辑/)
   assert.equal(h.requests.length, 0)
 })
 
 test('Pollinations 渠道遇到本机参考图直接报错', async () => {
   const h = harness('flux', 'https://pollinations.ai', 'openai', 'POLLINATIONS')
-  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: `data:image/png;base64,${png.toString('base64')}` }] }), /不支持参考图或蒙版编辑/)
+  await assert.rejects(() => h.run({ referenceImages: [{ name: 'a.png', mimeType: 'image/png', assetId: 'local-1' }] }), /不支持参考图或蒙版编辑/)
   assert.equal(h.requests.length, 0)
 })
 

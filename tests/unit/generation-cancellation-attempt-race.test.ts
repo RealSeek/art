@@ -144,6 +144,7 @@ test('ProviderAttempt winning the lock makes cancellation reconcile without refu
     } as never,
     {} as never,
     { finalizeTerminal: async () => job } as never,
+    { storeInlineReference: async () => 'jref_test' } as never,
     { getJob: async () => ({ isActive: async () => false, remove: async () => { calls.queueRemovals += 1 } }) } as never,
   )
 

@@ -51,7 +51,7 @@ test('MiniMax H3 导入配置固定使用 768P', () => {
 test('特价 MiniMax 别名提交选择的画质档位，不改写为满血版 768P', async () => {
   const discover = ProvidersService.prototype as unknown as { discoveredModelOptions: (candidate: unknown) => { videoCapabilities: Record<string, unknown> } }
   const capabilities = discover.discoveredModelOptions({ id: '[c]MiniMaxH3', capability: 'VIDEO' }).videoCapabilities
-  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const runner = new VideoGenerationRunner({} as never, { readForUser: async () => ({ file: Buffer.from('a'), mimeType: 'image/png', name: 'a.png' }) } as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
   const internals = runner as unknown as {
     withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
     provider: (provider: unknown, path: string, body: Record<string, unknown>, timeout: number, key: string) => Promise<unknown>
@@ -70,7 +70,7 @@ test('特价 MiniMax 别名提交选择的画质档位，不改写为满血版 7
       throw new Error('已捕获请求')
     }
     await assert.rejects(runner.run({ id: 'discount-job', prompt: '测试画质选择', options: {
-      duration: 5, resolution, referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }],
+      duration: 5, resolution, referenceImages: [{ name: 'a.png', mimeType: 'image/png', assetId: 'local-image' }],
     } } as never), /已捕获请求/)
   }
 })

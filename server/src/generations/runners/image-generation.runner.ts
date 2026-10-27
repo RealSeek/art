@@ -13,11 +13,6 @@ import type sharpFactory from 'sharp'
 
 const sharp = require('sharp') as typeof sharpFactory
 
-/** Data URL → Blob（本机参考素材直接以字节转发给上游）。 */
-function dataUrlBlob(dataUrl: string, mimeType: string) {
-  const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
-  return new Blob([new Uint8Array(bytes)], { type: mimeType || 'image/png' })
-}
 import { GenerationSettlementService } from '../generation-settlement.service'
 import { ProviderAttemptAuditService } from '../provider-attempt-audit.service'
 import { ReconciliationRequiredError, TerminalSettlementError } from '../generation-provider-errors'
@@ -114,8 +109,10 @@ export class ImageGenerationRunner implements GenerationRunner {
         for (const [index, reference] of (await this.referenceParts(task, imageOptions)).entries()) {
           form.append(index === 0 ? 'image' : 'image[]', new Blob([new Uint8Array(reference.bytes)], { type: reference.mimeType }), reference.name)
         }
-        if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
-        else if (imageOptions.maskAssetId) {
+        if (imageOptions.maskImage) {
+          const mask = await this.inlineAsset(task, imageOptions.maskImage)
+          form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name)
+        } else if (imageOptions.maskAssetId) {
           const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId)
           form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name)
         }
@@ -218,7 +215,10 @@ export class ImageGenerationRunner implements GenerationRunner {
     const references = await this.referenceParts(task, imageOptions)
     for (const reference of references) form.append('input', new Blob([new Uint8Array(reference.bytes)], { type: reference.mimeType }), reference.name)
     if (imageOptions.maskAssetId) { const mask = await this.assets.readForUser(task.userId, imageOptions.maskAssetId); form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name) }
-    else if (imageOptions.maskImage) form.append('mask', dataUrlBlob(imageOptions.maskImage.dataUrl, imageOptions.maskImage.mimeType), imageOptions.maskImage.name)
+    else if (imageOptions.maskImage) {
+      const mask = await this.inlineAsset(task, imageOptions.maskImage)
+      form.append('mask', new Blob([new Uint8Array(mask.file)], { type: mask.mimeType }), mask.name)
+    }
     let response: Response
     try { response = await this.providerFetch(resolved, `${resolved.baseUrl}/process`, { method: 'POST', headers: { ...this.providers.buildRequestHeaders(resolved, 'openai', null), 'X-Xinyue-Task-Id': task.id }, body: form, signal: AbortSignal.timeout(resolved.timeoutMs) }) }
     catch (error) { throw new ImageProviderError(`本地 Worker 连接失败：${error instanceof Error ? error.message : '网络错误'}`, 503) }
@@ -243,11 +243,10 @@ export class ImageGenerationRunner implements GenerationRunner {
     const aspectRatio = ratios.find((ratio) => { const [w, h] = ratio.split(':').map(Number); return width * h === height * w })
     if (!aspectRatio) throw new ImageProviderError('Gemini 生图不支持该宽高比', 400)
     const parts: Array<Record<string, unknown>> = [{ text: prompt }]
-    // 本机参考图只存在浏览器里，随请求以 Data URL 携带：漏掉就会退化成纯文生图。
+    // 本机参考图已落盘为临时资产：漏掉就会退化成纯文生图。
     for (const reference of options.referenceImages) {
-      const inline = /^data:(image\/[\w.+-]+);base64,(.+)$/is.exec(reference.dataUrl)
-      if (!inline) throw new ImageProviderError('本机参考图数据无效，请重新添加参考图后再试', 400)
-      parts.push({ inlineData: { mimeType: inline[1].toLowerCase(), data: inline[2] } })
+      const inline = await this.inlineAsset(task, reference)
+      parts.push({ inlineData: { mimeType: inline.mimeType, data: Buffer.from(inline.file).toString('base64') } })
     }
     for (const id of options.referenceAssetIds) {
       const reference = await this.assets.readForUser(task.userId, id)
@@ -303,9 +302,19 @@ export class ImageGenerationRunner implements GenerationRunner {
    * 参考图按「本机在前、库内在后」排序（与界面 @参考图 编号一致）；
    * 带蒙版时把蒙版底图排到第一位，因为上游与本地 Worker 都只把蒙版应用到第一张图。
    */
+  /** 读取内联参考素材的落盘内容：缺 assetId 说明素材已失效，需要用户重新添加。 */
+  private async inlineAsset(task: GenerationJob, item: { name: string; mimeType: string; assetId?: string }) {
+    if (!item.assetId) throw new ImageProviderError('参考素材已失效，请重新添加后再试', 400)
+    const asset = await this.assets.readForUser(task.userId, item.assetId)
+    return { file: asset.file, name: item.name || asset.name, mimeType: item.mimeType || asset.mimeType }
+  }
+
   private async referenceParts(task: GenerationJob, options: ReturnType<typeof normalizeImageOptions>) {
     const references = [
-      ...options.referenceImages.map((item) => ({ id: item.id || '', name: item.name, mimeType: item.mimeType, bytes: Buffer.from(item.dataUrl.slice(item.dataUrl.indexOf(',') + 1), 'base64') })),
+      ...await Promise.all(options.referenceImages.map(async (item) => {
+        const asset = await this.inlineAsset(task, item)
+        return { id: item.id || '', name: item.name || asset.name, mimeType: item.mimeType || asset.mimeType, bytes: asset.file }
+      })),
       ...await Promise.all(options.referenceAssetIds.map(async (id) => {
         const asset = await this.assets.readForUser(task.userId, id)
         return { id, name: asset.name, mimeType: asset.mimeType, bytes: asset.file }

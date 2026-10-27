@@ -10,6 +10,8 @@ import { readResponseBytes } from '../../common/response-bytes'
 import { fetchNoRedirect, fetchPublicNoRedirect, fetchPublicManualRedirect } from '../../common/outbound-http'
 
 const MAX_GENERATED_VIDEO_BYTES = 500 * 1024 * 1024
+/** 参考视频单文件上限：与内联素材落盘时的视频上限一致。 */
+const MAX_VIDEO_VIDEO_REFERENCE_BYTES = 50 * 1024 * 1024
 import { ProviderRequestError, ReconciliationRequiredError, TerminalProviderJobError, TerminalSettlementError } from '../generation-provider-errors'
 import { usesManagedVideoTasks, MAX_VIDEO_AUDIO_BYTES, MAX_VIDEO_REFERENCE_BYTES, normalizeVideoOptions, videoCapabilities, videoProviderUrl, wanVideoRequest } from '../video-options'
 import { GenerationSettlementService } from '../generation-settlement.service'
@@ -160,16 +162,16 @@ export class VideoGenerationRunner implements GenerationRunner {
         if (capabilities.requestProtocol === 'openai_video' || capabilities.referenceMode === 'CONTENT_JSON' || capabilities.referenceMode === 'WAN_JSON' || capabilities.referenceMode === 'KLING_JSON') {
           let images = [
             ...normalized.referenceImageUrls,
-            ...normalized.referenceImages.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceImages, '参考图'), 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
             ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
           let audios = [
             ...normalized.referenceAudioUrls,
-            ...normalized.referenceAudios.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceAudios, '参考音频'), 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
           let videos = [
-            ...normalized.referenceVideos.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceVideos, '参考视频'), 'video', MAX_VIDEO_VIDEO_REFERENCE_BYTES, '参考视频'),
           ]
           // 上游原生 content[] 接口不接受视频 Data URL；视频文件始终在任务期间临时托管。
           if (capabilities.requiresPublicReferenceUrls || videos.some((source) => source.startsWith('data:'))) {
@@ -241,22 +243,23 @@ export class VideoGenerationRunner implements GenerationRunner {
           // 本机参考素材（浏览器直发）排在前，与界面 @参考图 / @参考音频 编号一致。
           const images = [
             ...normalized.referenceImageUrls,
-            ...normalized.referenceImages.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceImages, '参考图'), 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
             ...await this.referenceDataUrls(task.userId, normalized.referenceAssetIds, 'image', MAX_VIDEO_REFERENCE_BYTES, '参考图'),
           ]
           const audios = [
             ...normalized.referenceAudioUrls,
-            ...normalized.referenceAudios.map((item) => item.dataUrl),
+            ...await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceAudios, '参考音频'), 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
             ...await this.referenceDataUrls(task.userId, normalized.audioAssetIds, 'audio', MAX_VIDEO_AUDIO_BYTES, '参考音频'),
           ]
-          const videos = normalized.referenceVideos.map((item) => item.dataUrl)
+          const videos = await this.referenceDataUrls(task.userId, this.inlineAssetIds(normalized.referenceVideos, '参考视频'), 'video', MAX_VIDEO_VIDEO_REFERENCE_BYTES, '参考视频')
           if (images.length) fields.images = images
           if (audios.length) fields.audios = audios
           if (videos.length) fields.videos = videos
           payload = await this.provider(resolved, capabilities.createPath, fields)
         } else if (normalized.referenceAssetIds.length || normalized.referenceImages.length) {
-          const reference = normalized.referenceImages[0]
-            ? { file: Buffer.from(normalized.referenceImages[0].dataUrl.slice(normalized.referenceImages[0].dataUrl.indexOf(',') + 1), 'base64'), name: normalized.referenceImages[0].name, mimeType: normalized.referenceImages[0].mimeType }
+          const inlineIds = this.inlineAssetIds(normalized.referenceImages, '参考图')
+          const reference = inlineIds.length
+            ? await this.assets.readForUser(task.userId, inlineIds[0])
             : await this.assets.readForUser(task.userId, normalized.referenceAssetIds[0])
           const form = new FormData()
           for (const [key, value] of Object.entries(fields)) form.append(key, String(value))
@@ -371,6 +374,14 @@ export class VideoGenerationRunner implements GenerationRunner {
     const raw = payload.progress ?? (payload.data && !Array.isArray(payload.data) ? (payload.data as Record<string, unknown>).progress : undefined)
     const value = Number(raw)
     return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null
+  }
+
+  /** 内联素材已落盘为临时资产，排在本机顺序最前，与界面 @参考图 编号一致。 */
+  private inlineAssetIds(items: Array<{ assetId?: string }>, label: string) {
+    return items.map((item) => {
+      if (!item.assetId) throw new ProviderRequestError(`${label}已失效，请重新添加后再试`, 400)
+      return item.assetId
+    })
   }
 
   /** 将本地参考素材转成上游接受的 base64 Data URL，并在服务端提前拦截超大文件。 */

@@ -47,6 +47,14 @@ const mediaKinds = new Set<AssetKind>([AssetKind.IMAGE, AssetKind.VIDEO, AssetKi
 const RETENTION_DAY_OPTIONS: Array<1 | 7 | 30> = [1, 7, 30]
 const permanentPurposes = new Set(['chat-home-banner', 'tool-icon', 'inspiration-cover', 'inspiration-preview-video', 'inspiration-preview-image'])
 const VIDEO_REFERENCE_PURPOSE = 'temporary-video-reference'
+/**
+ * 生成任务的内联参考素材（浏览器本地持有的 Data URL）。
+ * 入队前落盘成临时资产，队列与任务记录只传 id：base64 不进 Redis，重试与断点恢复也能取到原文件。
+ */
+const INLINE_REFERENCE_PURPOSE = 'temporary-generation-reference'
+/** 临时参考素材的 id 前缀：文件库列表会隐藏它们，不给用户当普通素材展示。 */
+export const TEMPORARY_REFERENCE_ID_PREFIXES = ['vref_', 'jref_'] as const
+const temporaryReferencePurposes = [VIDEO_REFERENCE_PURPOSE, INLINE_REFERENCE_PURPOSE]
 
 function videoReferencesFinished(job: Pick<GenerationJob, 'status' | 'errorCode'>) {
   return job.status === 'SUCCEEDED' || ['FAILED', 'CANCELLED'].includes(job.status)
@@ -161,6 +169,30 @@ export class AssetsService {
     return this.readAsset(asset)
   }
 
+  /** 内联参考素材落盘：图片会按上传规则降采样，避免原始大图长期占用队列与存储。 */
+  async storeInlineReference(job: Pick<GenerationJob, 'id' | 'userId'>, slot: string, input: { name: string; mimeType: string; bytes: Uint8Array }) {
+    const limit = input.mimeType.startsWith('image/') ? 30 * 1024 * 1024 : input.mimeType.startsWith('video/') ? 50 * 1024 * 1024 : 15 * 1024 * 1024
+    if (!input.bytes.length || input.bytes.length > limit) throw new BadRequestException('参考素材内容为空或超过文件上限')
+    const id = `jref_${randomBytes(32).toString('hex')}`
+    const objectKey = `users/${job.userId}/generation-references/${job.id}/${id}`
+    const location = this.storage.activeLocation()
+    try {
+      const bytes = input.mimeType.startsWith('image/') ? await this.prepareUploadImage(input.bytes, input.mimeType) : input.bytes
+      const stored = await this.storage.putBytes(objectKey, bytes, input.mimeType)
+      await this.prisma.asset.create({ data: {
+        id, userId: job.userId, objectKey, storageDriver: location.driver, storageBucket: location.bucket,
+        name: input.name, mimeType: input.mimeType,
+        kind: input.mimeType.startsWith('image/') ? AssetKind.IMAGE : input.mimeType.startsWith('video/') ? AssetKind.VIDEO : AssetKind.AUDIO,
+        size: BigInt(stored.size), checksum: stored.checksum, retentionExempt: true,
+        metadata: { purpose: INLINE_REFERENCE_PURPOSE, jobId: job.id, slot },
+      } })
+    } catch (error) {
+      await this.storage.delete(location, objectKey).catch(() => undefined)
+      throw error
+    }
+    return id
+  }
+
   async publishVideoReference(job: Pick<GenerationJob, 'id' | 'userId'>, slot: string, dataUrl: string) {
     const base = process.env.PUBLIC_BASE_URL?.trim() || process.env.WEB_ORIGIN?.split(',')[0]?.trim() || ''
     const url = publicHttpUrl(base)
@@ -207,13 +239,15 @@ export class AssetsService {
     return this.readAsset(asset)
   }
 
-  async cleanupVideoReferences(limit = 500) {
+  async cleanupTemporaryReferences(limit = 500) {
     // Select by task state, not age: a long-running video must retain its inputs.
+    // 没有任务的记录只能按时间兜底，避免误删正在创建任务的内联素材。
     const rows = await this.prisma.$queryRaw<Asset[]>`
       SELECT a.* FROM "Asset" a LEFT JOIN "GenerationJob" g ON g.id = a.metadata->>'jobId'
-      WHERE a."deletedAt" IS NULL AND a.metadata->>'purpose' = ${VIDEO_REFERENCE_PURPOSE}
-        AND (g.id IS NULL OR g.status = 'SUCCEEDED' OR (g.status IN ('FAILED', 'CANCELLED')
-          AND COALESCE(g."errorCode", '') NOT IN ('SETTLEMENT_RECONCILING', 'SETTLEMENT_RECONCILIATION_FAILED')))
+      WHERE a."deletedAt" IS NULL AND a.metadata->>'purpose' IN (${Prisma.join(temporaryReferencePurposes)})
+        AND (g.status = 'SUCCEEDED' OR (g.status IN ('FAILED', 'CANCELLED')
+          AND COALESCE(g."errorCode", '') NOT IN ('SETTLEMENT_RECONCILING', 'SETTLEMENT_RECONCILIATION_FAILED'))
+          OR (g.id IS NULL AND a."createdAt" < now() - interval '30 minutes'))
       ORDER BY a."createdAt" ASC LIMIT ${limit}
     `
     let removed = 0

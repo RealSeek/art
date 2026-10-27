@@ -6,10 +6,10 @@ export type NormalizedVideoOptions = {
   aspectRatio: string
   referenceAssetIds: string[]
   audioAssetIds: string[]
-  /** 浏览器本地素材；仅要求公网 URL 的模型会在任务期间临时托管。 */
-  referenceImages: Array<{ name: string; mimeType: string; dataUrl: string }>
-  referenceAudios: Array<{ name: string; mimeType: string; dataUrl: string }>
-  referenceVideos: Array<{ name: string; mimeType: string; dataUrl: string }>
+  /** 浏览器本地素材：创建任务时 dataUrl 只用于落盘，落盘后任务记录与队列只保存 assetId。 */
+  referenceImages: Array<{ name: string; mimeType: string; dataUrl?: string; assetId?: string }>
+  referenceAudios: Array<{ name: string; mimeType: string; dataUrl?: string; assetId?: string }>
+  referenceVideos: Array<{ name: string; mimeType: string; dataUrl?: string; assetId?: string }>
   referenceImageUrls: string[]
   referenceAudioUrls: string[]
   referenceVideoUrls: string[]
@@ -410,15 +410,15 @@ export function normalizeVideoOptions(options: Record<string, unknown>, configur
   }
 }
 
-/** 内联参考素材：只接受对应类型的 Data URL。 */
+/** 内联参考素材：只保留展示信息与落盘前后的引用，不接受任意 Data URL 冒充素材。 */
 function inlineMediaList(value: unknown, kind: 'image' | 'audio' | 'video') {
   if (!Array.isArray(value)) return []
   return value.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return []
     const row = item as Record<string, unknown>
-    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-    if (!new RegExp(`^data:${kind}/`, 'i').test(dataUrl)) return []
-    return [{ name: typeof row.name === 'string' ? row.name : `${kind}.bin`, mimeType: typeof row.mimeType === 'string' ? row.mimeType : dataUrl.slice(5, dataUrl.indexOf(';')), dataUrl }]
+    const mimeType = typeof row.mimeType === 'string' ? row.mimeType : ''
+    if (!new RegExp(`^${kind}/`, 'i').test(mimeType)) return []
+    return [{ name: typeof row.name === 'string' ? row.name : `${kind}.bin`, mimeType, dataUrl: typeof row.dataUrl === 'string' ? row.dataUrl : undefined, assetId: typeof row.assetId === 'string' ? row.assetId : undefined }]
   })
 }
 

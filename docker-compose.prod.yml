@@ -60,8 +60,13 @@ services:
       resources:
         limits:
           cpus: "${REDIS_CPU_LIMIT:-1.0}"
-          memory: "${REDIS_MEMORY_LIMIT:-512M}"
-    command: redis-server --appendonly yes
+          memory: "${REDIS_MEMORY_LIMIT:-1G}"
+    # AOF is the durability path; RDB snapshots only add a fork (and COW copy)
+    # that gets OOM-killed once the dataset approaches the container limit,
+    # which then trips stop-writes-on-bgsave-error and freezes every write.
+    # maxmemory is kept below the container limit so Redis rejects oversized
+    # writes with an error instead of being OOM-killed as a whole.
+    command: redis-server --appendonly yes --save "" --maxmemory ${REDIS_MAXMEMORY:-700mb} --maxmemory-policy noeviction
     volumes:
       - xinyue_redis:/data
     healthcheck:

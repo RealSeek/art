@@ -20,8 +20,8 @@ export class AssetsProcessor extends WorkerHost implements OnModuleInit {
 
   async process(job: Job) {
     if (job.name === 'video-reference-cleanup') {
-      const result = await this.assets.cleanupVideoReferences()
-      for (const failure of result.failures) this.logger.error(`Video reference ${failure.id} cleanup failed: ${failure.error}`)
+      const result = await this.assets.cleanupTemporaryReferences()
+      for (const failure of result.failures) this.logger.error(`Temporary reference ${failure.id} cleanup failed: ${failure.error}`)
       return result
     }
     if (job.name !== 'cleanup') return

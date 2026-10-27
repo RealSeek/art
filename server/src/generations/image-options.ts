@@ -26,10 +26,13 @@ export type NormalizedImageOptions = {
   background: ImageBackground
   outputCompression?: number
   referenceAssetIds: string[]
-  /** 浏览器本地持有的参考图（Data URL），不经过服务器存储。 */
-  referenceImages: Array<{ id?: string; name: string; mimeType: string; dataUrl: string }>
+  /**
+   * 浏览器本地持有的参考图。
+   * 创建任务时 dataUrl 只在本请求内存里用于落盘；落盘后任务记录与队列只保存 assetId。
+   */
+  referenceImages: Array<{ id?: string; name: string; mimeType: string; dataUrl?: string; assetId?: string }>
   maskAssetId?: string
-  maskImage?: { name: string; mimeType: string; dataUrl: string }
+  maskImage?: { name: string; mimeType: string; dataUrl?: string; assetId?: string }
   /** 蒙版对应的底图 id（本机素材或库内素材）：蒙版只会应用到第一张参考图，底图必须排第一。 */
   maskReferenceId?: string
 }
@@ -39,18 +42,18 @@ function inlineReferenceList(value: unknown) {
   return value.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return []
     const row = item as Record<string, unknown>
-    const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-    if (!/^data:image\//i.test(dataUrl)) return []
-    return [{ id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : 'reference.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }]
+    const mimeType = typeof row.mimeType === 'string' ? row.mimeType : ''
+    if (!/^image\//i.test(mimeType)) return []
+    return [{ id: typeof row.id === 'string' ? row.id : undefined, name: typeof row.name === 'string' ? row.name : 'reference.png', mimeType, dataUrl: typeof row.dataUrl === 'string' ? row.dataUrl : undefined, assetId: typeof row.assetId === 'string' ? row.assetId : undefined }]
   })
 }
 
 function inlineMaskImage(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const row = value as Record<string, unknown>
-  const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl : ''
-  if (!/^data:image\//i.test(dataUrl)) return undefined
-  return { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType: typeof row.mimeType === 'string' ? row.mimeType : 'image/png', dataUrl }
+  const mimeType = typeof row.mimeType === 'string' ? row.mimeType : ''
+  if (!/^image\//i.test(mimeType)) return undefined
+  return { name: typeof row.name === 'string' ? row.name : 'mask.png', mimeType, dataUrl: typeof row.dataUrl === 'string' ? row.dataUrl : undefined, assetId: typeof row.assetId === 'string' ? row.assetId : undefined }
 }
 
 export type ImageCapabilityConfig = {

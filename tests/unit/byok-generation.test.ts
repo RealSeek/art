@@ -83,6 +83,7 @@ test('用户密钥生成不会扣除个人或团队创作点', async () => {
     {} as never,
     {} as never,
     {} as never,
+    { storeInlineReference: async (_job: unknown, slot: string) => `jref_${slot}` } as never,
     { add: async (_name: string, data: Record<string, any>) => { queuedData = data } } as never,
   )
 
@@ -110,6 +111,10 @@ test('用户密钥生成不会扣除个人或团队创作点', async () => {
   assert.equal(createdData?.creditCost, 0)
   assert.equal(createdData?.options.generateAudio, false)
   assert.equal(createdData?.options.referenceAudios, undefined)
-  assert.equal(queuedData?.inputs.referenceAudios[0].dataUrl, audio.dataUrl)
+  // 参考素材落盘成临时资产：队列只带任务 id，任务选项只带 assetId。
+  assert.deepEqual(queuedData, { jobId: 'job-byok' })
+  assert.equal(job.options.referenceAudios[0].assetId, 'jref_referenceAudios-0')
+  assert.equal(job.options.referenceAudios[0].mimeType, 'audio/wav')
+  assert.ok(!JSON.stringify(job.options).includes('base64,'))
   assert.equal(spendCalls, 0)
 })

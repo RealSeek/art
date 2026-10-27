@@ -47,7 +47,7 @@ function harness() {
     } } as never,
     { inspect: async () => undefined } as never, {} as never, { assetWhere: () => ({ userId: 'user' }) } as never,
     { append: async () => undefined } as never, {} as never, { snapshot: (value: unknown) => value } as never,
-    { estimateMessages: () => 1 } as never, {} as never, { select: () => [] } as never, {} as never, { add: async () => undefined } as never)
+    { estimateMessages: () => 1 } as never, {} as never, { select: () => [] } as never, {} as never, { storeInlineReference: async () => 'jref_test' } as never, { add: async () => undefined } as never)
   return { service, models, job, resolveCalls, messages, conversations, getListQuery: () => listQuery }
 }
 

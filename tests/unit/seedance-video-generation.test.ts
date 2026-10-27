@@ -105,14 +105,14 @@ test('DMC MiniMax H3 使用 768P 请求格式并接受待临时托管的本地�
 
 test('Seedance 发送官方 content[] 请求及稳定幂等键', async () => {
   const sent: Array<{ body: Record<string, unknown>; key?: string }> = []
-  const runner = new VideoGenerationRunner({} as never, {} as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
+  const runner = new VideoGenerationRunner({} as never, { readForUser: async () => ({ file: Buffer.from('a'), mimeType: 'image/png', name: 'a.png' }) } as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
   const internals = runner as unknown as {
     withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
     provider: (provider: unknown, path: string, body: Record<string, unknown>, timeout: number, key: string) => Promise<unknown>
   }
   internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'doubao-seedance-2-5-260628', timeoutMs: 1000, videoCapabilities: seedanceVideoCapabilities('doubao-seedance-2-5-260628') })
   internals.provider = async (_provider, _path, body, _timeout, key) => { sent.push({ body, key }); return { status: 'failed', error: { message: 'test stopped after submission' } } }
-  const task = { id: 'seedance-job', prompt: '根据 @参考图0 生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }], generateAudio: true, watermark: false, returnLastFrame: true } }
+  const task = { id: 'seedance-job', prompt: '根据 @参考图0 生成视频', options: { referenceImages: [{ name: 'a.png', mimeType: 'image/png', assetId: 'local-image' }], generateAudio: true, watermark: false, returnLastFrame: true } }
   for (let i = 0; i < 2; i++) await assert.rejects(runner.run(task as never), /test stopped after submission/)
   assert.equal(sent[0].key, 'art-video-seedance-job')
   assert.deepEqual(sent[0], sent[1])
@@ -156,6 +156,14 @@ test('MiniMax H3 将本地图片和音频临时托管，保留公开 URL 和首�
       hosted.push({ slot, source })
       return `https://art.example/v1/assets/video-references/${slot}`
     },
+    readForUser: async (_userId: string, id: string) => {
+      const media: Record<string, { file: Buffer; mimeType: string; name: string }> = {
+        'local-image': { file: Buffer.from('a'), mimeType: 'image/png', name: 'a.png' },
+        'local-audio': { file: Buffer.from('b'), mimeType: 'audio/mpeg', name: 'a.mp3' },
+        'local-video': { file: Buffer.from('c'), mimeType: 'video/mp4', name: 'a.mp4' },
+      }
+      return media[id]
+    },
   } as never, {} as never, { cleanup: async () => undefined } as never, {} as never, {} as never, {} as never)
   const internals = runner as unknown as {
     withProviderFailover: (task: unknown, capability: string, execute: (provider: unknown) => Promise<unknown>) => Promise<unknown>
@@ -164,12 +172,12 @@ test('MiniMax H3 将本地图片和音频临时托管，保留公开 URL 和首�
   const caps = { requestFormat: 'minimax-h3', referenceMode: 'CONTENT_JSON', resolutions: ['768p'], maxReferences: 9, maxAudioReferences: 3, maxVideoReferences: 3, maxFirstLastFrames: 2, requiresPublicReferenceUrls: true }
   internals.withProviderFailover = async (_task, _capability, execute) => execute({ model: 'MiniMax-H3', timeoutMs: 1000, videoCapabilities: caps })
   internals.provider = async (_provider, _path, body) => { sent = body; return { status: 'failed', error: { message: 'stop after submit' } } }
-  const reference = { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==' }
-  const audio = { name: 'a.mp3', mimeType: 'audio/mpeg', dataUrl: 'data:audio/mpeg;base64,Yg==' }
-  const video = { name: 'a.mp4', mimeType: 'video/mp4', dataUrl: 'data:video/mp4;base64,Yw==' }
+  const reference = { name: 'a.png', mimeType: 'image/png', assetId: 'local-image' }
+  const audio = { name: 'a.mp3', mimeType: 'audio/mpeg', assetId: 'local-audio' }
+  const video = { name: 'a.mp4', mimeType: 'video/mp4', assetId: 'local-video' }
   await assert.rejects(runner.run({ id: 'temporary-job', prompt: '@参考图1 模仿 @参考视频0，音色来自 @参考音频0，背景使用 @参考图0；保留不存在的 @参考图2 与 @参考音频1', options: { referenceImages: [reference], referenceAudios: [audio], referenceVideos: [video], referenceImageUrls: ['https://cdn.example/a.png'] } } as never), /stop after submit/)
   assert.equal(sent!.content[0].text, '<Picture 2> 模仿 <Video 1>，音色来自 <Audio 1>，背景使用 <Picture 1>；保留不存在的 @参考图2 与 @参考音频1')
-  assert.deepEqual(hosted, [{ slot: 'image-1', source: reference.dataUrl }, { slot: 'audio-0', source: audio.dataUrl }, { slot: 'video-0', source: video.dataUrl }])
+  assert.deepEqual(hosted, [{ slot: 'image-1', source: 'data:image/png;base64,YQ==' }, { slot: 'audio-0', source: 'data:audio/mpeg;base64,Yg==' }, { slot: 'video-0', source: 'data:video/mp4;base64,Yw==' }])
   assert.deepEqual(sent!.content.map((item: Record<string, any>) => item.image_url?.url || item.video_url?.url || item.audio_url?.url).filter(Boolean), [
     'https://cdn.example/a.png', 'https://art.example/v1/assets/video-references/image-1', 'https://art.example/v1/assets/video-references/video-0', 'https://art.example/v1/assets/video-references/audio-0',
   ])
@@ -207,7 +215,11 @@ test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', as
     const resolved = { source: 'user', credentialId: 'credential-1', routeId: 'route-1', type: 'LOCAL_WORKER', baseUrl, model: 'Seedance-2.0', apiKey: 'test-key', timeoutMs: 1000, videoCostMicros: 0, pricingUsdExchangeRateMicros: 1_000_000, videoCapabilities: seedanceVideoCapabilities('Seedance-2.0') } as ResolvedProvider
     const runner = new VideoGenerationRunner(
       { generationJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 } }, findUnique: async () => ({ status: 'RUNNING' }) } } as never,
-      { readForUser: async () => ({ file: Buffer.from('saved-image'), mimeType: 'image/png', name: 'saved.png' }) } as never,
+      { readForUser: async (_userId: string, id: string) => ({
+        file: Buffer.from(id === 'local-image' ? 'local' : id === 'local-audio' ? 'a' : 'saved-image'),
+        mimeType: id === 'local-audio' ? 'audio/wav' : 'image/png',
+        name: id === 'local-audio' ? 'sound.wav' : 'saved.png',
+      }) } as never,
       { resolveCandidates: async () => [resolved], buildRequestHeaders: () => ({ Authorization: 'Bearer test-key', 'Content-Type': 'application/json' }), recordCandidateResult: async () => undefined } as never,
       { cleanup: async () => undefined, storeAndLink: async (_task: unknown, output: Record<string, any>) => { stored = output; return { id: 'asset-1' } } } as never,
       {} as never,
@@ -216,8 +228,8 @@ test('Seedance 创建、原任务轮询、结果下载与保存遵守文档', as
     )
     ;(runner as unknown as { pollDelay: () => number }).pollDelay = () => 1
     await runner.run({ id: 'job-1', userId: 'user-1', prompt: '保持主体外观', options: {
-      duration: 6, referenceImages: [{ name: 'local.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,bG9jYWw=' }], referenceAssetIds: ['saved-image'],
-      referenceAudios: [{ name: 'sound.wav', mimeType: 'audio/wav', dataUrl: 'data:audio/wav;base64,YQ==' }],
+      duration: 6, referenceImages: [{ name: 'local.png', mimeType: 'image/png', assetId: 'local-image' }], referenceAssetIds: ['saved-image'],
+      referenceAudios: [{ name: 'sound.wav', mimeType: 'audio/wav', assetId: 'local-audio' }],
       referenceVideoUrls: ['https://cdn.example/input.mp4?signature=input'], generateAudio: false, watermark: false,
     } } as never)
     assert.deepEqual(created, {
